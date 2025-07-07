@@ -82,7 +82,7 @@ A definition of the reference frames can be found [here](https://OpenSourceAWE.g
 
 ## See also
 - [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) for the scientic background of the winches and tethers.
-- More kite models [KiteModels](https://github.com/OpenSourceAWE/KiteModels.jl)
+- More kite models [KiteModels](https://github.com/ufechner7/KiteModels.jl)
 - The meta-package [KiteSimulators](https://github.com/aenarete/KiteSimulators.jl)
 - the package [KiteUtils](https://github.com/OpenSourceAWE/KiteUtils.jl)
 - the packages [WinchModels](https://github.com/aenarete/WinchModels.jl) and [KitePodModels](https://github.com/aenarete/KitePodModels.jl) and [AtmosphericModels](https://github.com/aenarete/AtmosphericModels.jl)
