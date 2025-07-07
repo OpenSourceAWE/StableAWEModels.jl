@@ -96,6 +96,11 @@ get_ω_b(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].ω_b
     size=(3,)
     eltype=SimFloat
 end
+get_wind_disturb(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].wind_disturb
+@register_array_symbolic get_wind_disturb(sys::SystemStructure, idx::Int16) begin
+    size=(3,)
+    eltype=SimFloat
+end
 get_pulley_len(sys_struct::SystemStructure, idx::Int16) = sys_struct.pulleys[idx].len
 @register_symbolic get_pulley_len(sys::SystemStructure, idx::Int16)
 get_pulley_vel(sys_struct::SystemStructure, idx::Int16) = sys_struct.pulleys[idx].vel
@@ -785,7 +790,7 @@ Generate equations for scalar quantities like elevation, azimuth, heading and co
     - Course angle
     - Angular velocities and accelerations
     """
-function scalar_eqs!(s, eqs, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, twist_angle, twist_ω, ω_b, α_b)
+function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, twist_angle, twist_ω, ω_b, α_b)
     @unpack wings = s.sys_struct
     wind_scale_gnd = get_v_wind(pset)
     @variables begin
@@ -793,6 +798,7 @@ function scalar_eqs!(s, eqs, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, win
         e_y(t)[eachindex(wings), 1:3]
         e_z(t)[eachindex(wings), 1:3]
         wind_vel_wing(t)[eachindex(wings), 1:3]
+        wind_disturb(t)[eachindex(wings), 1:3]
         va_wing(t)[eachindex(wings), 1:3]
         upwind_dir(t)
     end
@@ -808,7 +814,8 @@ function scalar_eqs!(s, eqs, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, win
             e_y[wing.idx, :]     ~ R_b_w[wing.idx, :,2]
             e_z[wing.idx, :]     ~ R_b_w[wing.idx, :,3]
             wind_vel_wing[wing.idx, :] ~ AtmosphericModels.calc_wind_factor(s.am, wing_pos[wing.idx, 3], s.set.profile_law) * wind_vec_gnd
-            va_wing[wing.idx, :] ~ wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :]
+            wind_disturb[wing.idx, :] ~ get_wind_disturb(psys, wing.idx)
+            va_wing[wing.idx, :] ~ wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :] + wind_disturb[wing.idx, :]
             va_wing_b[wing.idx, :] ~ R_b_w[wing.idx, :, :]' * va_wing[wing.idx, :]
         ]
     end
@@ -847,7 +854,7 @@ function scalar_eqs!(s, eqs, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, win
             eqs
             vec(R_v_w[wing.idx, :, :])     .~ vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
             vec(R_t_w[wing.idx, :, :])     .~ vec(calc_R_t_w(elevation[wing.idx], azimuth[wing.idx]))
-            heading[wing.idx]         ~ calc_heading(R_t_w, R_v_w)
+            heading[wing.idx]         ~ calc_heading(R_t_w[wing.idx, :, :], R_v_w[wing.idx, :, :])
             turn_rate[wing.idx, :]       ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * ω_b[wing.idx, :]) # Project angular velocity onto view frame
             turn_acc[wing.idx, :]        ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * α_b[wing.idx, :])
             distance[wing.idx]        ~ norm(wing_pos[wing.idx, :])
@@ -987,7 +994,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b)
     eqs, guesses = linear_vsm_eqs!(s, eqs, guesses; aero_force_b, aero_moment_b, group_aero_moment, init_va_b, twist_angle, va_wing_b, ω_b)
     eqs, defaults = wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_moment, aero_force_b, aero_moment_b, 
         ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, stabilize, fix_nonstiff)
-    eqs = scalar_eqs!(s, eqs, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, twist_angle, twist_ω, ω_b, α_b)
+    eqs = scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, twist_angle, twist_ω, ω_b, α_b)
     
     # te_I = (1/3 * (get_set_mass(pset)/8) * te_len^2)
     # # -damping / I * ω = α_damping

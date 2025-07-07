@@ -74,7 +74,7 @@ try
         
         # Calculate steering inputs based on cosine wave
         set_values[:,i] = -sam.set.drum_radius .* sam.integrator[sys.winch_force]
-        set_values[:,i] .+= [-10.0, steering_magnitude, -steering_magnitude]  # Opposite steering for left/right
+        set_values[:,i] .+= [1.0, steering_magnitude, -steering_magnitude]  # Opposite steering for left/right
         _vsm_interval = vsm_interval
         # Step simulation
         steptime = @elapsed next_step!(sam; set_values=set_values[:,i], 
@@ -112,31 +112,33 @@ lg =load_log("tmp")
 sl = lg.syslog
 
 # Linear simulation
-lin_res, _ = lsim(lin_sam, set_values .- u0, sl.time)
+lin_res = lsim(lin_sam, set_values .- u0, sl.time)
 
 # --- Updated Plotting ---
 # Extract necessary data using meaningful names
 force_nonlin = [sl.force[i][1] for i in eachindex(sl.force)]
-len_nonlin = [sl.l_tether[i][1] for i in eachindex(sl.l_tether)]
+len_nonlin = [[sl.l_tether[i][j] for i in eachindex(sl.l_tether)] for j in 1:3]
 aoa_nonlin = rad2deg.(sl.AoA)
 heading_nonlin = rad2deg.(sl.heading)
-force_lin = lin_res[4,:] .+ force_nonlin[1]
-len_lin = lin_res[2,:] .+ len_nonlin[1]
-aoa_lin = rad2deg.(lin_res[3,:]) .+ aoa_nonlin[1]
-heading_lin = rad2deg.(lin_res[1,:]) .+ heading_nonlin[1]
+force_lin = lin_res.y[4,:] .+ force_nonlin[1]
+len_lin = [lin_res.x[2+i,:] .+ len_nonlin[i][1] for i in 1:3]
+aoa_lin = rad2deg.(lin_res.y[3,:]) .+ aoa_nonlin[1]
+heading_lin = rad2deg.(lin_res.y[1,:]) .+ heading_nonlin[1]
 
 p = plotx(sl.time,
     [heading_lin, heading_nonlin],
-    [len_lin, len_nonlin],
+    [len_lin..., len_nonlin...],
     [aoa_lin, aoa_nonlin],
-    [force_lin, force_nonlin];
-    ylabels=["Heading [°]", "Length [m]", "AoA [°]", "Force [N]"],
+    [force_lin, force_nonlin],
+    [[sl.v_app[i] - sl.v_app[1] for i in eachindex(sl.v_app)], set_values[1,:] .- set_values[1,1]];
+    ylabels=["Heading [°]", "Length [m]", "AoA [°]", "Force [N]", "Params"],
     ysize=10,
     labels=[
         ["Lin", "Nonlin"],
+        ["Lin1", "Lin2", "Lin3", "Nonlin1", "Nonlin2", "Nonlin3"],
         ["Lin", "Nonlin"],
         ["Lin", "Nonlin"],
-        ["Lin", "Nonlin"]
+        ["V_app", "Input"],
     ],
     fig="Oscillating Steering Input Response")
 display(p)

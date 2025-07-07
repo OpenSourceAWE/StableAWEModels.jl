@@ -44,7 +44,9 @@ function set_measured!(s::SymbolicAWEModel,
     # get wing_pos, rotate it by elevation and azimuth around the x and z axis
     wing.pos_w .= R_t_w * [0, 0, distance + tether_len[1] - winches[1].tether_len]
     # wing_vel from elevation_vel and azimuth_vel
-    wing.vel_w .= R_t_w * [-wing.elevation_vel, wing.azimuth_vel, tether_vel[1]]
+    # TODO: now I uderstand, vel should not be stabilized, only pos things
+    wing.vel_w .= R_t_w * [-wing.elevation_vel, wing.azimuth_vel, 0.0]
+    wing.wind_disturb .= R_t_w * [0.0, 0.0, -tether_vel[1]]
     # find quaternion orientation from heading, R_b_w and R_t_w
     R_b_w = zeros(3,3)
     cur_heading = calc_heading(R_t_w, R_v_w)
@@ -82,6 +84,7 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     s.set_stabilize(integ, true)
     find_steady_state!(s, integ)
     lin_x0 = s.get_lin_x(integ)
+    @show norm(integ.u)
     u0 = [winch.set_value for winch in s.sys_struct.winches]
     s.A .= 0.0
     s.B .= 0.0
@@ -103,28 +106,37 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     end
 
     # yes it looks weird to step in an output function, but this is a steady state finder rather than output
-    function h(x)
+    function h(x, u)
         heading = x[1]
         turn_rate = x[2]
         tether_len = x[3:5]
         tether_vel = x[6:8]
         set_measured!(s, heading, turn_rate,
                       tether_len, tether_vel)
+        s.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
+        println("Tether vel[1] ", tether_vel[1],
+            " Force ", s.get_lin_y(integ)[4],
+            " Va ", norm(integ[s.sys.va_wing_b[1,:]]), 
+            " aero force ", integ[s.sys.aero_force_b[1,3]],
+            ) 
         return s.get_lin_y(integ)
     end
 
     f_x(x) = f(x, u0)
     f_u(u) = f(lin_x0, u)
+    h_x(x) = h(x, u0)
+    h_u(u) = h(lin_x0, u)
 
     # calculate jacobian
-    ϵ_x = fill(0.01, length(lin_x0))
+    ϵ_x = [0.01, 0.1, 0.01, 0.01, 0.01, 0.1, 0.1, 0.1]
     ϵ_u = [1.0, 0.1, 0.1]
     s.A .= jacobian(f_x, lin_x0, ϵ_x)
     s.B .= jacobian(f_u, u0, ϵ_u)
-    s.C .= jacobian(h,   lin_x0, ϵ_x)
-    s.A[:,1] .= 0.0 # Aero moment due to change in heading cannot be found in steady state
+    s.C .= jacobian(h_x, lin_x0, ϵ_x)
+    s.D .= jacobian(h_u, u0, ϵ_u)
+    s.A[2,1] = 0.0 # Aero moment due to change in heading cannot be found in steady state
     s.set_set_values(integ, u0)
     s.set_stabilize(integ, old_stab)
     nothing

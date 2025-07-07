@@ -472,6 +472,7 @@ mutable struct Wing
     const acc_w::KVec3
 
     # Derived variables and parameters, updated during simulation
+    const wind_disturb::KVec3
     const va_b::KVec3 # apparent wind in body frame
     const v_wind::KVec3 # wind velocity in world frame at the wing
     const aero_force_b::KVec3 # aerodynamic force in body frame
@@ -570,7 +571,7 @@ Create a wing with identity orientation and two attached groups:
 """
 function Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1)
     return Wing(idx, group_idxs, transform_idx, R_b_c, pos_cad, zeros(4), zeros(KVec3),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
         zeros(KVec3), zeros(KVec3), 0.0, 0.0)
