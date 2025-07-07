@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Bart van de Lint
+# SPDX-License-Identifier: MPL-2.0
 
 function linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
     @unpack wings, y, x, jac = s.sys_struct
