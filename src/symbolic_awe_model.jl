@@ -935,10 +935,10 @@ function initial_orient(s::SymbolicAWEModel)
 end
 
 """Returns the unstretched tether length of the symbolic AWE model."""
-unstretched_len(s::SymbolicAWEModel) = [winch.tether_len for winch in s.sys_struct.winches]
+unstretched_length(s::SymbolicAWEModel) = [winch.tether_len for winch in s.sys_struct.winches]
 
 """Returns the current tether length of the symbolic AWE model."""
-tether_len(s::SymbolicAWEModel) = [winch.tether_len for winch in s.sys_struct.winches]
+tether_length(s::SymbolicAWEModel) = [winch.tether_len for winch in s.sys_struct.winches]
 
 """Returns the height (z-position) of the wing in the symbolic AWE model."""
 calc_height(s::SymbolicAWEModel) = [wing.pos_w[3] for wing in s.sys_struct.wings]

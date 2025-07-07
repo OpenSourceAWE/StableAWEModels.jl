@@ -36,13 +36,13 @@ export SymbolicAWEModel                                 # constants and types
 export copy_examples, copy_bin, update_sys_state!       # helper functions
 export find_steady_state!                               # low level workers
 export init_sim!, init!, reinit!, next_step!            # high level workers
-export winch_force, unstretched_length, tether_length # getters
+export winch_force # getters
 export create_ram_sys_struct, create_simple_ram_sys_struct
 import LinearAlgebra: norm
 export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
-export linearize, simple_linearize, simple_linearize!
+export linearize, simple_linearize!
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
