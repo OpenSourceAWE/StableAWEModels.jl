@@ -29,11 +29,36 @@ function linearize(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator
     return solve(s.lin_prob)
 end
 
-function set_measured!(s::SymbolicAWEModel, 
+function getstate(sys_struct::SystemStructure)
+    @unpack wings, winches = sys_struct
+    c = copy
+    wing = wings[1]
+    tether_len = [winch.tether_len for winch in winches]
+    tether_vel = [winch.tether_vel for winch in winches]
+    return (c(wing.pos_w), c(wing.vel_w), c(wing.wind_disturb), c(wing.R_b_w), c(wing.ω_b),
+                tether_len, tether_vel)
+end
+
+function setstate!(sys_struct::SystemStructure, state)
+    @unpack wings, winches = sys_struct
+    wing = wings[1]
+    pos_w, vel_w, wind_disturb, R_b_w, ω_b, tether_len, tether_vel = state
+    wing.pos_w .= pos_w
+    wing.vel_w .= vel_w
+    wing.wind_disturb .= wind_disturb
+    wing.R_b_w .= R_b_w
+    wing.ω_b .= ω_b
+    for winch in winches
+        winch.tether_len = tether_len[winch.idx]
+        winch.tether_vel = tether_vel[winch.idx]
+    end
+end
+
+function set_measured!(sys_struct::SystemStructure, 
     heading, turn_rate,
     tether_len, tether_vel
 )
-    @unpack wings, winches = s.sys_struct
+    @unpack wings, winches = sys_struct
     wing = wings[1]
 
     # get variables from integrator
@@ -80,11 +105,11 @@ end
 
 function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     integ = s.integrator
+    update_sys_struct!(s, s.sys_struct)
+    state0 = getstate(s.sys_struct)
     old_stab = s.get_stabilize(integ)
     s.set_stabilize(integ, true)
-    find_steady_state!(s, integ)
     lin_x0 = s.get_lin_x(integ)
-    @show norm(integ.u)
     u0 = [winch.set_value for winch in s.sys_struct.winches]
     s.A .= 0.0
     s.B .= 0.0
@@ -97,7 +122,7 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
         turn_rate = x[2]
         tether_len = x[3:5]
         tether_vel = x[6:8]
-        set_measured!(s, heading, turn_rate,
+        set_measured!(s.sys_struct, heading, turn_rate,
                       tether_len, tether_vel)
         s.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
@@ -111,16 +136,16 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
         turn_rate = x[2]
         tether_len = x[3:5]
         tether_vel = x[6:8]
-        set_measured!(s, heading, turn_rate,
+        set_measured!(s.sys_struct, heading, turn_rate,
                       tether_len, tether_vel)
         s.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
-        println("Tether vel[1] ", tether_vel[1],
-            " Force ", s.get_lin_y(integ)[4],
-            " Va ", norm(integ[s.sys.va_wing_b[1,:]]), 
-            " aero force ", integ[s.sys.aero_force_b[1,3]],
-            ) 
+        #=println("Tether vel[1] ", tether_vel[1],=#
+        #=    " Force ", s.get_lin_y(integ)[4],=#
+        #=    " Va ", norm(integ[s.sys.va_wing_b[1,:]]), =#
+        #=    " aero force ", integ[s.sys.aero_force_b[1,3]],=#
+        #=    ) =#
         return s.get_lin_y(integ)
     end
 
@@ -135,9 +160,12 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     s.A .= jacobian(f_x, lin_x0, ϵ_x)
     s.B .= jacobian(f_u, u0, ϵ_u)
     s.C .= jacobian(h_x, lin_x0, ϵ_x)
-    s.D .= jacobian(h_u, u0, ϵ_u)
+    s.D .= 0.0
+    s.D[4,1] = -s.set.mass * s.B[6,1]
     s.A[2,1] = 0.0 # Aero moment due to change in heading cannot be found in steady state
     s.set_set_values(integ, u0)
     s.set_stabilize(integ, old_stab)
+    setstate!(s.sys_struct, state0)
+    OrdinaryDiffEqCore.reinit!(integ)
     nothing
 end
