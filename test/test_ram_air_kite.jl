@@ -114,7 +114,7 @@ const BUILD_SYS = true
         @test norm1 != norm(s.integrator.u)
         
         u1 = copy(s.integrator.u)
-        s.set_psys(integ, s.sys_struct)
+        s.set_psys(s.integrator, s.sys_struct)
         OrdinaryDiffEqCore.reinit!(integ)
         u2 = s.integrator.u
         for (v1, v2, n) in zip(u1, u2, unknowns(s.sys))
@@ -144,7 +144,7 @@ const BUILD_SYS = true
         @test isapprox(sys_state_after.elevation, deg2rad(85.0), atol=1e-2)
 
         @testset "set_depower_steering!" begin
-            initial_tether_lengths = tether_length(s)
+            initial_tether_lengths = KiteModels.tether_length(s)
             depower = 0.1
             steering = 0.05
             SymbolicAWEModels.set_depower_steering!(s, depower, steering)
