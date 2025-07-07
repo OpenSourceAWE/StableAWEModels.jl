@@ -1,6 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2025 Uwe Fechner
-
+SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MIT
 -->
 
@@ -10,7 +9,6 @@ SPDX-License-Identifier: MIT
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev)
 [![CI](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/actions/workflows/CI.yml)
 [![Coverage](https://codecov.io/gh/OpenSourceAWE/SymbolicAWEModels.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/OpenSourceAWE/SymbolicAWEModels.jl)
-[![DOI](https://zenodo.org/badge/443855286.svg)](https://zenodo.org/doi/10.5281/zenodo.13310253)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
 ## Airborne Wind Energy (AWE) system models
