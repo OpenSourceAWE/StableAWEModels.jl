@@ -906,8 +906,12 @@ end
 
 function find_steady_state!(s::SymbolicAWEModel, integ=s.integrator; t=1.0, dt=1/s.set.sample_freq)
     old_state = s.get_stabilize(integ)
+    old_e_tether = s.set.e_tether
     s.set_stabilize(integ, true)
-    for _ in 1:Int(round(t÷dt))
+    steps = Int(round(t÷dt))
+    for i in 1:steps
+        s.set.e_tether = i/steps * old_e_tether
+        s.set_set(s.integrator, s.set)
         next_step!(s; dt, vsm_interval=1)
     end
     s.set_stabilize(integ, old_state)
