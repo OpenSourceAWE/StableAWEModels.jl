@@ -1,7 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-# ==================== mtk model functions ================================================
 # Implementation of the ram air wing model using ModelingToolkit.jl
 
 function calc_speed_acc(winch::AsyncMachine, tether_vel, norm_, set_speed)
