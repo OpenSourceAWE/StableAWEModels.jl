@@ -109,24 +109,6 @@ const BUILD_SYS = true
         end
     end
 
-    @testset "Reset using psys" begin
-        init_sim!(s; prn=true, reload=false)
-        norm1 = s.integrator.u
-        next_step!(s)
-        @test norm1 != norm(s.integrator.u)
-        
-        u1 = copy(s.integrator.u)
-        s.set_psys(s.integrator, s.sys_struct)
-        OrdinaryDiffEqCore.reinit!(s.integrator)
-        u2 = s.integrator.u
-        for (v1, v2, n) in zip(u1, u2, unknowns(s.sys))
-            @test v1 == v2
-            if v1 != v2
-                println(n, " ", v1, " ", v2)
-            end
-        end
-    end
-
     @testset "State Consistency" begin
         SymbolicAWEModels.init_sim!(s, prn=true, reload=false)
         sys_state_before = SymbolicAWEModels.SysState(s)
@@ -180,6 +162,24 @@ const BUILD_SYS = true
             SymbolicAWEModels.set_v_wind_ground!(s, initial_wind_speed, initial_upwind_dir)
             @test s.integrator[s.sys.wind_vec_gnd[1]] ≈ initial_wind_speed
             @test norm(s.integrator[s.sys.wind_vec_gnd]) ≈ initial_wind_speed
+        end
+    end
+
+    @testset "Reset using psys" begin
+        init_sim!(s; prn=true, reload=false)
+        norm1 = s.integrator.u
+        next_step!(s)
+        @test norm1 != norm(s.integrator.u)
+        
+        u1 = copy(s.integrator.u)
+        s.set_psys(s.integrator, s.sys_struct)
+        OrdinaryDiffEqCore.reinit!(s.integrator)
+        u2 = s.integrator.u
+        for (v1, v2, n) in zip(u1, u2, unknowns(s.sys))
+            @test v1 == v2
+            if v1 != v2
+                println(n, " ", v1, " ", v2)
+            end
         end
     end
 
