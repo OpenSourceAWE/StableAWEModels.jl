@@ -13,10 +13,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Install matplotlib
+        run: sudo apt-get install -y python3-matplotlib
+        shell: bash
+
       - name: Checkout main branch
         uses: actions/checkout@v4
         with:
           ref: main
+
+      - name: Use default manifest
+        run: |
+          if [ -f Manifest.toml.default ]; then cp Manifest.toml.default Manifest.toml; fi
+        shell: bash
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+          arch: x64
+
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+
+      - name: Build PyCall
+        run: julia --project -e 'ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
+        shell: bash
 
       - name: Set up Git user
         run: |
@@ -35,8 +57,12 @@ jobs:
       - name: Commit changes
         run: |
           git add .
-          git commit -m "Update default manifest"
-          git push origin $BRANCH
+          if ! git diff --cached --quiet; then
+            git commit -m "Update default manifest"
+            git push origin $BRANCH
+          else
+            echo "No changes to commit."
+          fi
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
