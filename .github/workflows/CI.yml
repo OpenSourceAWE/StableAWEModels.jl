@@ -91,10 +91,10 @@ jobs:
           if [ -f Manifest.toml.default ]; then cp Manifest.toml.default Manifest.toml; fi
         shell: bash
 
-      - uses: julia-actions/setup-julia@v2
+      - name: Install Juliaup (Julia version manager)
+        uses: julia-actions/install-juliaup@v2
         with:
-          version: ${{ matrix.version }}
-          arch: ${{ matrix.arch }}
+          channel: 'release'
 
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
