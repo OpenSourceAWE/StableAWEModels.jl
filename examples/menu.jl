@@ -6,6 +6,7 @@ options = [
         "ram_air_kite = SIMPLE=false; include(\"ram_air_kite.jl\")",
         "simple_ram_air_kite = SIMPLE=true; include(\"ram_air_kite.jl\")",
         "lin_ram_model = include(\"lin_ram_model.jl\")",
+        "simple_lin_model = include(\"simple_lin_model.jl\")",
         "quit"
 ]
 

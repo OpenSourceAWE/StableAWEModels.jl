@@ -606,6 +606,8 @@ function generate_getters!(s, sym_vec)
              sys.winch_force,     # Force at winch connection point per winch
         ]))
         s.get_winch_state = (integ) -> get_winch_state(integ)
+        get_set_values = getp(sys, sys.set_values)
+        s.get_set_values = (integ) -> get_set_values(integ)
 
         set_set_values = setp(sys, sys.set_values)
         s.set_set_values = (integ, val) -> set_set_values(integ, val)
@@ -972,7 +974,7 @@ steering controls left/right differential. Values are scaled by minimum chord le
 """
 function set_depower_steering!(s::SymbolicAWEModel, depower, steering)
     len = s.set_tether_len
-    len .= tether_len(s)
+    len .= tether_length(s)
     depower *= min_chord_len(s)
     steering *= min_chord_len(s)
     len[2] = 0.5 * (2*depower + 2*len[1] + steering)

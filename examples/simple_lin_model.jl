@@ -73,8 +73,9 @@ try
         PLOT && plot(sam, t; zoom=false, front=false)
         
         # Calculate steering inputs based on cosine wave
+        sign = t > 0.5 ? -1 : 1
         set_values[:,i] = -sam.set.drum_radius .* sam.integrator[sys.winch_force]
-        set_values[:,i] .+= [1.0, steering_magnitude, -steering_magnitude]  # Opposite steering for left/right
+        set_values[:,i] .+= sign .* [10.0, steering_magnitude, -steering_magnitude]  # Opposite steering for left/right
         _vsm_interval = vsm_interval
         # Step simulation
         steptime = @elapsed next_step!(sam; set_values=set_values[:,i], 

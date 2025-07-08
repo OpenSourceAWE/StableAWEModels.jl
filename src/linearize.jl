@@ -156,15 +156,21 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     h_x(x) = h(x, u0)
     h_u(u) = h(lin_x0, u)
 
+    @unpack segments, winches, tethers = s.sys_struct
+    segment = segments[tethers[1].segment_idxs[1]]
+    mass_per_meter = s.set.rho_tether * π * (segment.diameter/2)^2
+    mass = winches[1].tether_len * mass_per_meter + s.set.mass
+
     # calculate jacobian
-    ϵ_x = [0.01, 0.1, 0.01, 0.01, 0.01, 0.1, 0.1, 0.1]
+    ϵ_x = [0.001, 0.1, 0.001, 0.001, 0.001, 0.1, 0.1, 0.1]
     ϵ_u = [1.0, 0.1, 0.1]
     s.A .= jacobian(f_x, lin_x0, ϵ_x)
     s.B .= jacobian(f_u, u0, ϵ_u)
     s.C .= jacobian(h_x, lin_x0, ϵ_x)
     s.D .= 0.0
-    s.D[4,1] = -s.set.mass * s.B[6,1]
-    s.A[2,1] = 0.0 # Aero moment due to change in heading cannot be found in steady state
+    s.D[4,1] = -mass * s.B[6,1]
+    s.A[:,1] .= 0.0 # Aero moment due to change in heading cannot be found in steady state
+    s.C[4,1] = 0.0
     s.set_set_values(integ, u0)
     s.set_stabilize(integ, old_stab)
     setstate!(s.sys_struct, state0)

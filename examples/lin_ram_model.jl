@@ -59,8 +59,8 @@ toc()
 lin_outputs = @variables heading(t_nounits)[1]
 
 # Initialize at elevation with linearization outputs
-s.sys_struct.winches[2].tether_length += 0.2
-s.sys_struct.winches[3].tether_length += 0.2
+s.sys_struct.winches[2].tether_len += 0.2
+s.sys_struct.winches[3].tether_len += 0.2
 SymbolicAWEModels.init_sim!(s; 
     remake=false,
     reload=true,

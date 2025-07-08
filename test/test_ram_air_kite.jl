@@ -3,6 +3,7 @@
 
 using Test, LinearAlgebra, KiteUtils, VortexStepMethod
 using ControlPlots
+using OrdinaryDiffEqCore
 using SymbolicAWEModels
 using Statistics
 
@@ -144,7 +145,7 @@ const BUILD_SYS = true
         @test isapprox(sys_state_after.elevation, deg2rad(85.0), atol=1e-2)
 
         @testset "set_depower_steering!" begin
-            initial_tether_lengths = KiteModels.tether_length(s)
+            initial_tether_lengths = SymbolicAWEModels.tether_length(s)
             depower = 0.1
             steering = 0.05
             SymbolicAWEModels.set_depower_steering!(s, depower, steering)
