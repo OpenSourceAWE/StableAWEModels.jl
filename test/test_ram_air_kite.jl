@@ -166,11 +166,7 @@ const BUILD_SYS = true
     end
 
     function test_step(s, d_set_values=zeros(3); dt=0.05, steps=5)
-        s.integrator.ps[s.sys.stabilize] = true
-        for i in 1:1÷dt
-            next_step!(s; dt, vsm_interval=1)
-        end
-        s.integrator.ps[s.sys.stabilize] = false
+        find_steady_state!(s)
         @info "Stepping"
         for _ in 1:steps
             set_values = -s.set.drum_radius * s.integrator[s.sys.winch_force] + d_set_values
