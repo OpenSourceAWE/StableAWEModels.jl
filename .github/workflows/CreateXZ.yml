@@ -1,6 +1,7 @@
 name: Update Default Manifest, Create xz files and PR
 
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - main
