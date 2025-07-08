@@ -953,7 +953,7 @@ function linear_vsm_eqs!(s, eqs, guesses; aero_force_b, aero_moment_b, group_aer
     return eqs, guesses
 end
 
-function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b)
+function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b, prn=true)
     eqs = []
     defaults = Pair{Num, Any}[]
     guesses = Pair{Num, Any}[]
@@ -1017,7 +1017,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b)
     #         ]
     #     ]
 
-    @info "Creating System"
+    prn && @info "Creating System"
     # @named sys = System(eqs, t; discrete_events)
     @time @named sys = System(eqs, t)
 

@@ -330,7 +330,7 @@ function init_sim!(s::SymbolicAWEModel;
         init_Q_b_w, R_b_w, init_va_b = initial_orient(s)
         init!(s.sys_struct, s.set)
         
-        inputs = create_sys!(s, s.sys_struct; init_va_b)
+        inputs = create_sys!(s, s.sys_struct; init_va_b, prn)
         prn && @info "Simplifying the system"
         prn ? (@time sys = mtkcompile(s.full_sys; inputs)) :
             (sys = mtkcompile(s.full_sys; inputs))
