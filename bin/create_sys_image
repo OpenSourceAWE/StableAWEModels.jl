@@ -184,7 +184,7 @@ else
     rm LocalPreferences.toml
 fi
 echo "Precompiling package SymbolicAWEModels..."
-$JULIA_CMD --startup-file=no --project -J $SOFILE -e "using SymbolicAWEModels, KitePodModels, KiteUtils"
+$JULIA_CMD --startup-file=no --project -J $SOFILE -e "using SymbolicAWEModels, KiteUtils"
 echo "Precompiling package ControlPlots and SymbolicAWEModelsControlPlotsExt ..."
 if [[ $branch != "" ]]; then
     $JULIA_CMD --startup-file=no --project -J $SOFILE -e "using TestEnv; TestEnv.activate(); using ControlPlots, VortexStepMethod, SymbolicAWEModels"

@@ -1,0 +1,46 @@
+name: Update Default Manifest, Create xz files and PR
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [closed]
+
+jobs:
+  update-and-pr:
+    if: ${{ github.event.pull_request.merged == true }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Git user
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and switch to new branch
+        run: |
+          BRANCH="update-manifest-$(date +%Y%m%d%H%M%S)"
+          git checkout -b $BRANCH
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+
+      - name: Run update script
+        run: bin/update_default_manifest
+
+      - name: Commit changes
+        run: |
+          git add .
+          git commit -m "Update default manifest"
+          git push origin $BRANCH
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: ${{ env.BRANCH }}
+          base: main
+          title: "Update default manifest"
+          body: "Automated update of default manifest."
