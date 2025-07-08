@@ -66,7 +66,7 @@ const BUILD_SYS = true
 
         # 2. First init_sim! - should load from serialized file
         @info "Testing first init_sim! (should load serialized file)..."
-        @time init_sim!(s)
+        @time SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
         next_step!(s)
 
         # Check that it's a new integrator
@@ -77,7 +77,7 @@ const BUILD_SYS = true
 
         # 3. Second init_sim! - should reuse existing integrator
         @info "Testing second init_sim! (should reuse integrator)..."
-        @time init_sim!(s)
+        @time SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
 
         # This should create a new point system but reuse the existing integrator
         third_integrator_ptr = objectid(s.integrator)
@@ -203,7 +203,7 @@ const BUILD_SYS = true
 
     @testset "Simulation Step with SysState" begin
         # Basic step and time advancement test
-        init_sim!(s)
+        SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
         sys_state_before = SymbolicAWEModels.SysState(s)
 
         # Run a simulation step with zero set values
@@ -258,17 +258,17 @@ const BUILD_SYS = true
         @testset "Steering Response Using SysState" begin
             # Initialize model at moderate elevation
             set.elevation = 70.0
-            init_sim!(s)
+            SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
             test_step(s)
             sys_state_initial = SymbolicAWEModels.SysState(s)
 
             # steering right
-            init_sim!(s)
+            SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
             test_step(s, [0, 10, -10]; steps=20)
             sys_state_right = SymbolicAWEModels.SysState(s)
 
             # steering left
-            init_sim!(s)
+            SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
             test_step(s, [0, -10, 10]; steps=20)
             sys_state_left = SymbolicAWEModels.SysState(s)
 
