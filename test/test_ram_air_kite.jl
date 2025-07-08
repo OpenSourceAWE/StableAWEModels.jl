@@ -165,24 +165,6 @@ const BUILD_SYS = true
         end
     end
 
-    @testset "Reset using psys" begin
-        init_sim!(s; prn=true, reload=false)
-        norm1 = s.integrator.u
-        next_step!(s)
-        @test norm1 != norm(s.integrator.u)
-        
-        u1 = copy(s.integrator.u)
-        s.set_psys(s.integrator, s.sys_struct)
-        OrdinaryDiffEqCore.reinit!(s.integrator)
-        u2 = s.integrator.u
-        for (v1, v2, n) in zip(u1, u2, unknowns(s.sys))
-            @test v1 == v2
-            if v1 != v2
-                println(n, " ", v1, " ", v2)
-            end
-        end
-    end
-
     function test_step(s, d_set_values=zeros(3); dt=0.05, steps=5)
         s.integrator.ps[s.sys.stabilize] = true
         for i in 1:1÷dt
@@ -302,6 +284,24 @@ const BUILD_SYS = true
             @test left_heading_diff ≈ -0.9 atol=0.2
         end
         test_plot(s)
+    end
+
+    @testset "Reset using psys" begin
+        init_sim!(s; prn=true, reload=false)
+        norm1 = s.integrator.u
+        next_step!(s)
+        @test norm1 != norm(s.integrator.u)
+        
+        u1 = copy(s.integrator.u)
+        s.set_psys(s.integrator, s.sys_struct)
+        OrdinaryDiffEqCore.reinit!(s.integrator)
+        u2 = s.integrator.u
+        for (v1, v2, n) in zip(u1, u2, unknowns(s.sys))
+            @test v1 == v2
+            if v1 != v2
+                println(n, " ", v1, " ", v2)
+            end
+        end
     end
 
     @testset "Just a tether, without winch or kite" begin
