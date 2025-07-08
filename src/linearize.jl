@@ -28,7 +28,7 @@ function linearize(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator
     s.set_lin_vsm(s.lin_prob, s.get_vsm(s.integrator))
     s.set_lin_set_values(s.lin_prob, set_values)
     s.set_lin_unknowns(s.lin_prob, s.get_unknowns(s.integrator))
-    return solve(s.lin_prob)
+    return solve(s.lin_prob)[1]
 end
 
 function getstate(sys_struct::SystemStructure)

@@ -87,7 +87,6 @@ s.integrator.ps[sys.stabilize] = false
 @info "Linearizing system at operating point..."
 @time (; A, B, C, D) = SymbolicAWEModels.linearize(s)
 @time (; A, B, C, D) = SymbolicAWEModels.linearize(s)
-norm(A)
 @info "System linearized with matrix dimensions:" A=size(A) B=size(B) C=size(C) D=size(D)
 
 sys = ss(A,B,C,D)

@@ -3,6 +3,7 @@
 
 using Test, LinearAlgebra, KiteUtils, VortexStepMethod
 using ControlPlots
+using ModelingToolkit
 using OrdinaryDiffEqCore
 using SymbolicAWEModels
 using Statistics
@@ -116,7 +117,7 @@ const BUILD_SYS = true
         
         u1 = copy(s.integrator.u)
         s.set_psys(s.integrator, s.sys_struct)
-        OrdinaryDiffEqCore.reinit!(integ)
+        OrdinaryDiffEqCore.reinit!(s.integrator)
         u2 = s.integrator.u
         for (v1, v2, n) in zip(u1, u2, unknowns(s.sys))
             @test v1 == v2
@@ -149,16 +150,16 @@ const BUILD_SYS = true
             depower = 0.1
             steering = 0.05
             SymbolicAWEModels.set_depower_steering!(s, depower, steering)
-            new_tether_lengths = s.set_tether_length
+            new_tether_lengths = s.set_tether_len
             @test !isapprox(new_tether_lengths, initial_tether_lengths)
             # Verify the changes based on the equations
-            len = s.set_tether_length
+            len = s.set_tether_len
             len1 = initial_tether_lengths[1]
-            len2 = 0.5 * (2*depower*SymbolicAWEModels.min_chord_length(s) + 2*len1 + steering*SymbolicAWEModels.min_chord_length(s))
-            len3 = 0.5 * (2*depower*SymbolicAWEModels.min_chord_length(s) + 2*len1 - steering*SymbolicAWEModels.min_chord_length(s))
+            len2 = 0.5 * (2*depower*SymbolicAWEModels.min_chord_len(s) + 2*len1 + steering*SymbolicAWEModels.min_chord_len(s))
+            len3 = 0.5 * (2*depower*SymbolicAWEModels.min_chord_len(s) + 2*len1 - steering*SymbolicAWEModels.min_chord_len(s))
             @test isapprox(len[2], len2)
             @test isapprox(len[3], len3)
-            @test isapprox(SymbolicAWEModels.min_chord_length(s), 0.434108)
+            @test isapprox(SymbolicAWEModels.min_chord_len(s), 0.434108)
         end
 
         @testset "set_v_wind_ground!" begin
@@ -324,7 +325,7 @@ const BUILD_SYS = true
 
         transforms = [Transform(1, deg2rad(-80), 0.0, 0.0; 
             base_pos=[0.0, 0.0, 50.0], base_point_idx=points[1].idx, rot_point_idx=points[end].idx)]
-        sys_struct = SystemStructure("tether", set; points, segments, transforms)
+        sys_struct = SymbolicAWEModels.SystemStructure("tether", set; points, segments, transforms)
 
         sam = SymbolicAWEModel(set, sys_struct)
         sys = sam.sys
