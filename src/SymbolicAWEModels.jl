@@ -33,7 +33,7 @@ import LinearAlgebra: norm
 export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
-export linearize, simple_linearize!
+export linearize!, simple_linearize!
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 

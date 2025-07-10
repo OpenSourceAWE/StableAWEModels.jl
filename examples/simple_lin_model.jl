@@ -55,7 +55,10 @@ find_steady_state!(sam; t=10.0, dt=1.0)
 u0 = -sam.set.drum_radius .* sam.integrator[sys.winch_force]
 sam.set_set_values(sam.integrator, u0)
 simple_linearize!(sam; tstab=10.0)
-lin_sam = ss(sam.A, sam.B, sam.C, sam.D)
+lin_sam = ss(sam.simple_lin_model.A, 
+             sam.simple_lin_model.B, 
+             sam.simple_lin_model.C, 
+             sam.simple_lin_model.D)
 
 logger = Logger(length(sam.sys_struct.points), steps)
 sys_state = SysState(sam)

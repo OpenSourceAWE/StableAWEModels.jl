@@ -1,9 +1,11 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MIT
 
+ENV["MPLBACKEND"] = "Agg"
 using Test, LinearAlgebra, KiteUtils, VortexStepMethod
 using ControlPlots
 using ModelingToolkit
+using ModelingToolkit: t_nounits
 using OrdinaryDiffEqCore
 using SymbolicAWEModels
 using Statistics
@@ -11,6 +13,7 @@ using Statistics
 old_path = get_data_path()
 package_data_path = joinpath(dirname(dirname(pathof(SymbolicAWEModels))), "data")
 temp_data_path = joinpath(tempdir(), "data")
+@show package_data_path temp_data_path
 Base.Filesystem.cptree(package_data_path, temp_data_path; force=true)
 set_data_path(temp_data_path)
 
@@ -20,11 +23,8 @@ const BUILD_SYS = true
 
 @testset verbose = true "SymbolicAWEModel MTK Model Tests" begin
     # Initialize model
-    set = se("system_ram.yaml")
-    set.segments = 3
+    set = Settings("system_ram.yaml")
     set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
-    set.quasi_static = false
-    set.physical_model = "ram"
 
     @info "Creating s:"
     @time s = SymbolicAWEModel(set)
@@ -36,7 +36,6 @@ const BUILD_SYS = true
     set.elevation = 80.0
 
     @testset "Model Initialization Chain" begin
-        # if BUILD_SYS
         # Delete existing problem file to force init!
         @info "Data path: $(get_data_path())"
         model_path = joinpath(get_data_path(), SymbolicAWEModels.get_model_name(s.set))
@@ -56,7 +55,6 @@ const BUILD_SYS = true
         @test !isnothing(s.integrator)
         @test !isnothing(s.sys)
         @test !isnothing(s.sys_struct)
-        # end
         s.integrator = nothing
         s.sys = nothing
 
@@ -298,6 +296,23 @@ const BUILD_SYS = true
                 println(n, " ", v1, " ", v2)
             end
         end
+    end
+
+    @testset "Linearize" begin
+        init_sim!(s; prn=true, reload=false)
+        find_steady_state!(s; dt=0.1, t=10.0)
+
+        (; A, B, C, D) = SymbolicAWEModels.linearize!(s)
+        @test isapprox(norm(A), 3.658990241821427e6, atol=1e3)
+        @test isapprox(norm(B), 7.938566201357354, atol=0.01)
+        @test isapprox(norm(C), 3.1419150546120713, atol=0.01)
+        @test norm(D) ≈ 0.0
+
+        (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(s)
+        @test isapprox(norm(A), 300.2281490701867, atol=0.01)
+        @test isapprox(norm(B), 7.938566201357363, atol=0.01)
+        @test isapprox(norm(C), 175.24656913482198, atol=0.01)
+        @test isapprox(norm(D), 4.646242581108072, atol=0.01)
     end
 
     @testset "Just a tether, without winch or kite" begin

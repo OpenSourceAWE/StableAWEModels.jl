@@ -1,6 +1,8 @@
 # Copyright (c) 2024, 2025 Bart van de Lint and Uwe Fechner
 # SPDX-License-Identifier: MIT
 
+const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{SimFloat}, D::Matrix{SimFloat}}
+
 @with_kw mutable struct SerializedModel
     set_hash::Vector{UInt8}
     "Reference to the geometric wing model"
@@ -18,6 +20,7 @@
     full_sys::Union{ModelingToolkit.System, Nothing} = nothing
     "Linearization function of the mtk model"
     lin_prob::Union{ModelingToolkit.LinearizationProblem, Nothing} = nothing
+    lin_outputs::Union{Vector{Union{Symbolics.Arr, Symbolics.Num}}, Nothing} = nothing
     "ODE function of the mtk model"
     prob::Union{OrdinaryDiffEqCore.ODEProblem, Nothing} = nothing
 
@@ -36,7 +39,6 @@
     set_lin_set_values::Union{Function, Nothing}= nothing
     set_lin_unknowns::Union{Function, Nothing}  = nothing
     set_stabilize::Union{Function, Nothing}     = nothing
-    set_x̂::Union{Function, Nothing}             = nothing
     
     get_vsm::Union{Function, Nothing}           = nothing
     get_set_values::Union{Function, Nothing}    = nothing
@@ -51,17 +53,12 @@
     get_vsm_y::Union{Function, Nothing}         = nothing
     get_spring_force::Union{Function, Nothing}  = nothing
     get_stabilize::Union{Function, Nothing}     = nothing
-    get_sphere::Union{Function, Nothing}        = nothing
-    get_x̂::Union{Function, Nothing}             = nothing
     get_lin_x::Union{Function, Nothing}         = nothing
     get_lin_dx::Union{Function, Nothing}        = nothing
     get_lin_y::Union{Function, Nothing}         = nothing
-    get_distance::Union{Function, Nothing}      = nothing
 
-    A::Union{Matrix{SimFloat}, Nothing} = nothing
-    B::Union{Matrix{SimFloat}, Nothing} = nothing
-    C::Union{Matrix{SimFloat}, Nothing} = nothing
-    D::Union{Matrix{SimFloat}, Nothing} = nothing
+    lin_model::Union{LinType, Nothing} = nothing
+    simple_lin_model::Union{LinType, Nothing} = nothing
 end
 
 """
@@ -310,7 +307,7 @@ and only update the state variables. Otherwise, it will create a new model from 
 function init_sim!(s::SymbolicAWEModel; 
     solver=nothing, adaptive=true, prn=true, 
     precompile=false, remake=false, reload=false, 
-    lin_outputs=Num[]
+    lin_outputs=nothing
 )
     if isnothing(solver)
         solver = if s.set.solver == "FBDF"
@@ -342,13 +339,25 @@ function init_sim!(s::SymbolicAWEModel;
         else
             s.prob = ODEProblem(s.sys, s.defaults, (0.0, dt); s.guesses)
         end
-        if length(lin_outputs) > 0
-            lin_fun, _ = linearization_function(s.full_sys, [inputs...], lin_outputs; op=s.defaults, guesses=s.guesses)
-            s.lin_prob = LinearizationProblem(lin_fun, 0.0)
+
+        if isnothing(lin_outputs)
+            lin_outputs = Num[]
+            if length(s.sys_struct.wings) > 0
+                push!(lin_outputs, sys.heading[1])
+                push!(lin_outputs, sys.angle_of_attack[1])
+            end
+            if length(s.sys_struct.winches) > 0
+                push!(lin_outputs, sys.tether_len[1])
+                push!(lin_outputs, sys.winch_force[1])
+            end
         end
+        lin_fun, _ = linearization_function(s.full_sys, [inputs...], lin_outputs; op=s.defaults, guesses=s.guesses)
+        s.lin_prob = LinearizationProblem(lin_fun, 0.0)
+        s.lin_outputs = lin_outputs
+
         sym_vec = get_unknowns(s.sys_struct, s.sys)
         s.unknowns_vec = zeros(SimFloat, length(sym_vec))
-        generate_getters!(s, sym_vec)
+        generate_getters!(s, sym_vec, lin_outputs)
         s.set_hash = get_set_hash(s.set)
         s.sys_struct_hash = get_sys_struct_hash(s.sys_struct)
         serialize(model_path, s.serialized_model)
@@ -417,15 +426,33 @@ function reinit!(
     
     if isnothing(s.prob) || reload
         model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set; precompile))
-        !ispath(model_path) && error("$model_path not found. Run init_sim!(s::SymbolicAWEModel) first.")
+        if !ispath(model_path)
+            error("$model_path not found. Run init_sim!(s::SymbolicAWEModel) first.")
+        end
+        if prn
+            @info "Loading model from $model_path"
+        end # model_1.11_ram_dynamic_3_seg.bin
         try
             s.serialized_model = deserialize(model_path)
         catch e
             @warn "Failure to deserialize $model_path !"
             return s.integrator, false
         end
-        if length(lin_outputs) > 0 && isnothing(s.lin_prob) 
-            @warn "lin_prob is nothing."
+        if isnothing(lin_outputs)
+            sys = s.sys
+            lin_outputs = Num[]
+            if length(s.sys_struct.wings) > 0
+                push!(lin_outputs, sys.heading[1])
+                push!(lin_outputs, sys.angle_of_attack[1])
+            end
+            if length(s.sys_struct.winches) > 0
+                push!(lin_outputs, sys.tether_len[1])
+                push!(lin_outputs, sys.winch_force[1])
+            end
+        end
+        if length(lin_outputs) != length(s.serialized_model.lin_outputs) ||
+                !all(string.(lin_outputs) .== string.(s.serialized_model.lin_outputs)) 
+            @warn "The linear model outputs have changed."
             return s.integrator, false
         elseif (get_set_hash(s.set) != s.serialized_model.set_hash)
             @warn "The Settings have changed."
@@ -433,6 +460,7 @@ function reinit!(
         elseif (get_sys_struct_hash(s.sys_struct) != s.serialized_model.sys_struct_hash)
             @warn "The SystemStructure has changed."
             return s.integrator, false
+        s.get_distance = (integ) -> get_distance(integ)
         end
     end
     if isnothing(s.integrator) || !successful_retcode(s.integrator.sol) || reload
@@ -462,18 +490,12 @@ function reinit!(
     return s.integrator, true
 end
 
-function generate_getters!(s, sym_vec)
+function generate_getters!(s, sym_vec, lin_y_vec)
     sys = s.sys
     c = collect
     @unpack wings, groups, pulleys, winches, tethers, segments = s.sys_struct
 
     if length(wings) == 1
-        sphere_vec = [
-            sys.elevation[1]
-            sys.elevation_vel[1]
-            sys.azimuth[1]
-            sys.azimuth_vel[1]
-        ]
         lin_x_vec = [
             sys.heading[1]
             sys.turn_rate[1,3]
@@ -494,42 +516,21 @@ function generate_getters!(s, sym_vec)
             sys.tether_acc[2]
             sys.tether_acc[3]
         ]
-        lin_y_vec = [
-            sys.heading[1]
-            sys.tether_len[1]
-            sys.angle_of_attack[1]
-            sys.winch_force[1]
-        ]
-        x̂_vec = [
-            sys.wing_pos[1,:], 
-            sys.wing_vel[1,:], 
-            sys.Q_b_w[1,:], 
-            sys.ω_b[1,:], 
-            sys.tether_len, 
-            sys.tether_vel
-        ]
         nx = length(lin_x_vec)
         ny = length(lin_y_vec)
         nu = length(winches)
-        s.A = zeros(nx, nx)
-        s.B = zeros(nx, nu)
-        s.C = zeros(ny, nx)
-        s.D = zeros(ny, nu)
-    
-        get_sphere = getu(sys, sphere_vec)
-        s.get_sphere = (integ) -> get_sphere(integ)
-        set_x̂ = setu(sys, x̂_vec)
-        s.set_x̂ = (integ, val) -> set_x̂(integ, val)
-        get_x̂ = getu(sys, x̂_vec)
-        s.get_x̂ = (integ) -> get_x̂(integ)
+        s.simple_lin_model = (
+            A = zeros(nx, nx),
+            B = zeros(nx, nu),
+            C = zeros(ny, nx),
+            D = zeros(ny, nu)
+        ) 
         get_lin_x = getu(sys, lin_x_vec)
         s.get_lin_x = (integ) -> get_lin_x(integ)
         get_lin_dx = getu(sys, lin_dx_vec)
         s.get_lin_dx = (integ) -> get_lin_dx(integ)
         get_lin_y = getu(sys, lin_y_vec)
         s.get_lin_y = (integ) -> get_lin_y(integ)
-        get_distance = getu(sys, sys.distance)
-        s.get_distance = (integ) -> get_distance(integ)
     end
 
     if length(wings) > 0

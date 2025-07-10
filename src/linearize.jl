@@ -23,12 +23,13 @@ function linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
     nothing
 end
 
-function linearize(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator))
+function linearize!(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator))
     isnothing(s.lin_prob) && error("Run init_sim! with remake=true and lin_outputs=...")
     s.set_lin_vsm(s.lin_prob, s.get_vsm(s.integrator))
     s.set_lin_set_values(s.lin_prob, set_values)
     s.set_lin_unknowns(s.lin_prob, s.get_unknowns(s.integrator))
-    return solve(s.lin_prob)[1]
+    s.lin_model = solve(s.lin_prob)[1]
+    return s.lin_model
 end
 
 function getstate(sys_struct::SystemStructure)
@@ -113,10 +114,11 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     s.set_stabilize(integ, true)
     lin_x0 = s.get_lin_x(integ)
     u0 = [winch.set_value for winch in s.sys_struct.winches]
-    s.A .= 0.0
-    s.B .= 0.0
-    s.C .= 0.0
-    s.D .= 0.0
+    @unpack A, B, C, D = s.simple_lin_model
+    A .= 0.0
+    B .= 0.0
+    C .= 0.0
+    D .= 0.0
 
     # TODO: add sparsity pattern for the known zeros
     function f(x, u)
@@ -143,11 +145,6 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
         s.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
-        #=println("Tether vel[1] ", tether_vel[1],=#
-        #=    " Force ", s.get_lin_y(integ)[4],=#
-        #=    " Va ", norm(integ[s.sys.va_wing_b[1,:]]), =#
-        #=    " aero force ", integ[s.sys.aero_force_b[1,3]],=#
-        #=    ) =#
         return s.get_lin_y(integ)
     end
 
@@ -164,16 +161,17 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     # calculate jacobian
     ϵ_x = [0.001, 0.1, 0.001, 0.001, 0.001, 0.1, 0.1, 0.1]
     ϵ_u = [1.0, 0.1, 0.1]
-    s.A .= jacobian(f_x, lin_x0, ϵ_x)
-    s.B .= jacobian(f_u, u0, ϵ_u)
-    s.C .= jacobian(h_x, lin_x0, ϵ_x)
-    s.D .= 0.0
-    s.D[4,1] = -mass * s.B[6,1]
-    s.A[:,1] .= 0.0 # Aero moment due to change in heading cannot be found in steady state
-    s.C[4,1] = 0.0
+    A .= jacobian(f_x, lin_x0, ϵ_x)
+    B .= jacobian(f_u, u0, ϵ_u)
+    C .= jacobian(h_x, lin_x0, ϵ_x)
+    D .= 0.0
+    D[4,1] = -mass * B[6,1]
+    A[:,1] .= 0.0 # Aero moment due to change in heading cannot be found in steady state
+    C[4,1] = 0.0
     s.set_set_values(integ, u0)
     s.set_stabilize(integ, old_stab)
     setstate!(s.sys_struct, state0)
     OrdinaryDiffEqCore.reinit!(integ)
-    nothing
+    return s.simple_lin_model
 end
+
