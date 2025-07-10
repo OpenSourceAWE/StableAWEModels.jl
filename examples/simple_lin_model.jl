@@ -126,7 +126,7 @@ aoa_nonlin = rad2deg.(sl.AoA)
 heading_nonlin = rad2deg.(sl.heading)
 force_lin = lin_res.y[4,:] .+ force_nonlin[1]
 len_lin = [lin_res.x[2+i,:] .+ len_nonlin[i][1] for i in 1:3]
-aoa_lin = rad2deg.(lin_res.y[3,:]) .+ aoa_nonlin[1]
+aoa_lin = rad2deg.(lin_res.y[2,:]) .+ aoa_nonlin[1]
 heading_lin = rad2deg.(lin_res.y[1,:]) .+ heading_nonlin[1]
 
 p = plotx(sl.time,
