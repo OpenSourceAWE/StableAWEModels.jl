@@ -46,7 +46,7 @@ const BUILD_SYS = true
 
         # 1. First time initialization - should create new model
         @info "Testing initial init! (should create new model if it doesn't exist yet)..."
-        @time SymbolicAWEModels.init_sim!(s; prn=true)
+        @time SymbolicAWEModels.init!(s; prn=true)
 
         # Check that serialization worked
         @test isfile(model_path)
@@ -62,9 +62,9 @@ const BUILD_SYS = true
         first_integrator_ptr = objectid(s.integrator)
         first_sys_struct_ptr = objectid(s.sys_struct)
 
-        # 2. First init_sim! - should load from serialized file
-        @info "Testing first init_sim! (should load serialized file)..."
-        @time SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+        # 2. First init! - should load from serialized file
+        @info "Testing first init! (should load serialized file)..."
+        @time SymbolicAWEModels.init!(s; prn=true, reload=false)
         next_step!(s)
 
         # Check that it's a new integrator
@@ -73,9 +73,9 @@ const BUILD_SYS = true
         @test first_integrator_ptr != second_integrator_ptr
         @test first_sys_struct_ptr == second_sys_struct_ptr
 
-        # 3. Second init_sim! - should reuse existing integrator
-        @info "Testing second init_sim! (should reuse integrator)..."
-        @time SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+        # 3. Second init! - should reuse existing integrator
+        @info "Testing second init! (should reuse integrator)..."
+        @time SymbolicAWEModels.init!(s; prn=true, reload=false)
 
         # This should create a new point system but reuse the existing integrator
         third_integrator_ptr = objectid(s.integrator)
@@ -108,7 +108,7 @@ const BUILD_SYS = true
     end
 
     @testset "State Consistency" begin
-        SymbolicAWEModels.init_sim!(s, prn=true, reload=false)
+        SymbolicAWEModels.init!(s, prn=true, reload=false)
         sys_state_before = SymbolicAWEModels.SysState(s)
         @test isapprox(norm(s.integrator[s.sys.Q_b_w]), 1.0, atol=TOL)
         @test isapprox(sys_state_before.elevation, deg2rad(set.elevation), atol=1e-2)
@@ -116,7 +116,7 @@ const BUILD_SYS = true
         # Change measurement and reinitialize
         old_elevation = set.elevation
         set.elevation = 85.0
-        SymbolicAWEModels.init_sim!(s, prn=true, reload=false)
+        SymbolicAWEModels.init!(s, prn=true, reload=false)
 
         # Get new state using SysState
         sys_state_after = SymbolicAWEModels.SysState(s)
@@ -197,7 +197,7 @@ const BUILD_SYS = true
 
     @testset "Simulation Step with SysState" begin
         # Basic step and time advancement test
-        SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+        SymbolicAWEModels.init!(s; prn=true, reload=false)
         sys_state_before = SymbolicAWEModels.SysState(s)
 
         # Run a simulation step with zero set values
@@ -221,7 +221,7 @@ const BUILD_SYS = true
             # Initialize at 60 degrees elevation
             set.elevation = 60.0
 
-            SymbolicAWEModels.init_sim!(s; prn=true)
+            SymbolicAWEModels.init!(s; prn=true)
 
             # Verify initial conditions using SysState
             sys_state_init = SymbolicAWEModels.SysState(s)
@@ -252,17 +252,17 @@ const BUILD_SYS = true
         @testset "Steering Response Using SysState" begin
             # Initialize model at moderate elevation
             set.elevation = 70.0
-            SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+            SymbolicAWEModels.init!(s; prn=true, reload=false)
             test_step(s)
             sys_state_initial = SymbolicAWEModels.SysState(s)
 
             # steering right
-            SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+            SymbolicAWEModels.init!(s; prn=true, reload=false)
             test_step(s, [0, 10, -10]; steps=20)
             sys_state_right = SymbolicAWEModels.SysState(s)
 
             # steering left
-            SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+            SymbolicAWEModels.init!(s; prn=true, reload=false)
             test_step(s, [0, -10, 10]; steps=20)
             sys_state_left = SymbolicAWEModels.SysState(s)
 
@@ -281,7 +281,7 @@ const BUILD_SYS = true
     end
 
     @testset "Reset using psys" begin
-        init_sim!(s; prn=true, reload=false)
+        init!(s; prn=true, reload=false)
         norm1 = s.integrator.u
         next_step!(s)
         @test norm1 != norm(s.integrator.u)
@@ -299,7 +299,7 @@ const BUILD_SYS = true
     end
 
     @testset "Linearize" begin
-        init_sim!(s; prn=true, reload=false)
+        init!(s; prn=true, reload=false)
         find_steady_state!(s; dt=0.1, t=10.0)
 
         (; A, B, C, D) = SymbolicAWEModels.linearize!(s)
@@ -340,7 +340,7 @@ const BUILD_SYS = true
 
         sam = SymbolicAWEModel(set, sys_struct)
         sys = sam.sys
-        init_sim!(sam; remake=false)
+        init!(sam; remake=false)
         @test isapprox(sam.integrator[sam.sys.pos[:, end]], [8.682408883346524, 0.0, 0.7596123493895988], atol=1e-2)
         for i in 1:100
             next_step!(sam)

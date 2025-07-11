@@ -31,7 +31,7 @@ pos
 
 ## Simulation interface
 ```@docs
-init_sim!
+init!
 next_step!
 ```
 

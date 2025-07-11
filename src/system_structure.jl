@@ -807,7 +807,7 @@ function SystemStructure(name, set;
     set.physical_model = name
     sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
         winches, wings, transforms, y, x, jac, zeros(KVec3))
-    init!(sys_struct, set)
+    reinit!(sys_struct, set)
     return sys_struct
 end
 
@@ -828,7 +828,7 @@ function apply_heading(vec, R_t_w, curr_R_t_w, heading)
     return R_t_w * vec_along_z
 end
 
-function init!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
     @unpack points, wings = sys_struct
     for transform in transforms
         # ==================== TRANSLATE ==================== #
@@ -1098,7 +1098,7 @@ function create_simple_ram_sys_struct(set::Settings, wing::RamAirWing)
     return SystemStructure(set.physical_model, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 end
 
-function init!(sys_struct::SystemStructure, set::Settings)
+function reinit!(sys_struct::SystemStructure, set::Settings)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     for segment in segments
@@ -1139,7 +1139,7 @@ function init!(sys_struct::SystemStructure, set::Settings)
         @assert !(pulley.sum_len ≈ 0)
     end
 
-    init!(transforms, sys_struct)
+    reinit!(transforms, sys_struct)
     return nothing
 end
 

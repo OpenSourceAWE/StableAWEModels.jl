@@ -40,7 +40,7 @@ sam = SymbolicAWEModel(set)
 toc()
 
 # Initialize at elevation
-init_sim!(sam; remake=false, reload=false)
+SymbolicAWEModels.init!(sam; remake=false, reload=false)
 sys = sam.sys
 
 @info "System initialized at:"

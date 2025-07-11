@@ -12,8 +12,6 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
     "Reference to the VSM aerodynamics solver"
     vsm_solvers::Vector{VortexStepMethod.Solver}
     sys_struct_hash::Vector{UInt8}
-    "Reference to the atmospheric model as implemented in the package AtmosphericModels"
-    am::AtmosphericModel = AtmosphericModel()
     "Simplified system of the mtk model"
     sys::Union{ModelingToolkit.System, Nothing} = nothing
     "Unsimplified system of the mtk model"
@@ -80,6 +78,8 @@ $(TYPEDFIELDS)
     "Reference to the point mass system with points, segments, pulleys and tethers"
     sys_struct::SystemStructure
     serialized_model::SerializedModel
+    "Reference to the atmospheric model as implemented in the package AtmosphericModels"
+    am::AtmosphericModel = AtmosphericModel(set)
     integrator::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
     lin_integ::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
     "relative start time of the current time interval"
@@ -123,7 +123,7 @@ The aerodynamic models provide forces and moments acting on wing components.
 - `vsm_solvers::Vector{<:VortexStepMethod.Solver}=VortexStepMethod.Solver[]`: VSM solvers for aerodynamic calculations
 
 # Returns
-- `SymbolicAWEModel`: Model ready for symbolic equation generation via [`init_sim!`](@ref)
+- `SymbolicAWEModel`: Model ready for symbolic equation generation via [`init!`](@ref)
 
 # Example
 ```julia
@@ -168,7 +168,7 @@ This convenience constructor creates a complete AWE model using default configur
 - `set::Settings`: Configuration parameters (see [KiteUtils.Settings](https://OpenSourceAWE.github.io/KiteUtils.jl/stable/types/#KiteUtils.Settings))
 
 # Returns
-- `SymbolicAWEModel`: Model ready for symbolic equation generation via [`init_sim!`](@ref)
+- `SymbolicAWEModel`: Model ready for symbolic equation generation via [`init!`](@ref)
 
 # Example
 ```julia
@@ -176,7 +176,7 @@ set = se()  # Load default settings
 model = SymbolicAWEModel(set)
 
 # Initialize and run simulation
-init_sim!(model)
+init!(model)
 for i in 1:1000
     next_step!(model)
 end
@@ -269,7 +269,7 @@ function SysState(s::SymbolicAWEModel, zoom=1.0)
 end
 
 """
-    init_sim!(s::SymbolicAWEModel; solver=nothing, adaptive=true, prn=true, 
+    init!(s::SymbolicAWEModel; solver=nothing, adaptive=true, prn=true, 
               precompile=false, remake=false, reload=false, 
               lin_outputs=Num[]) -> OrdinaryDiffEqCore.ODEIntegrator
 
@@ -304,7 +304,7 @@ and only update the state variables. Otherwise, it will create a new model from 
 # Returns
 - `integrator::OrdinaryDiffEqCore.ODEIntegrator`: The initialized ODE integrator.
 """
-function init_sim!(s::SymbolicAWEModel; 
+function KiteUtils.init!(s::SymbolicAWEModel; 
     solver=nothing, adaptive=true, prn=true, 
     precompile=false, remake=false, reload=false, 
     lin_outputs=nothing
@@ -325,7 +325,7 @@ function init_sim!(s::SymbolicAWEModel;
     end
     function init(s)
         init_Q_b_w, R_b_w, init_va_b = initial_orient(s)
-        init!(s.sys_struct, s.set)
+        reinit!(s.sys_struct, s.set)
         
         inputs = create_sys!(s, s.sys_struct; init_va_b, prn)
         prn && @info "Simplifying the system"
@@ -409,7 +409,7 @@ and only updates the state variables to match the current initial settings.
 - `Nothing`
 
 # Throws
-- `ArgumentError`: If no serialized problem exists (run `init_sim!` first)
+- `ArgumentError`: If no serialized problem exists (run `init!` first)
 """
 function reinit!(
     s::SymbolicAWEModel,
@@ -427,7 +427,7 @@ function reinit!(
     if isnothing(s.prob) || reload
         model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set; precompile))
         if !ispath(model_path)
-            error("$model_path not found. Run init_sim!(s::SymbolicAWEModel) first.")
+            error("$model_path not found. Run init!(s::SymbolicAWEModel) first.")
         end
         if prn
             @info "Loading model from $model_path"
@@ -475,12 +475,12 @@ function reinit!(
                 save_on=false, save_everystep=false)
             !s.set.quasi_static && (length(s.unknowns_vec) != length(s.integrator.u)) &&
                 error("sam.integrator unknowns of length $(length(s.integrator.u)) should equal sam.unknowns_vec of length $(length(s.unknowns_vec)).
-                    Maybe you forgot to run init_sim!(model; remake=true)?")
+                    Maybe you forgot to run init!(model; remake=true)?")
         end
         prn && @info "Initialized integrator in $t seconds"
     end
 
-    init!(s.sys_struct, s.set)
+    reinit!(s.sys_struct, s.set)
     init_unknowns_vec!(s, s.sys_struct, s.unknowns_vec)
     s.set_unknowns(s.integrator, s.unknowns_vec)
     s.set_psys(s.integrator, s.sys_struct)
@@ -681,7 +681,7 @@ This function performs the following steps:
 # Returns
 - `Nothing`
 """
-function next_step!(s::SymbolicAWEModel, integrator::OrdinaryDiffEqCore.ODEIntegrator; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
+function KiteUtils.next_step!(s::SymbolicAWEModel, integrator::OrdinaryDiffEqCore.ODEIntegrator; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
     !(s.integrator === integrator) && error("The ODEIntegrator doesn't belong to the SymbolicAWEModel")
     next_step!(s; set_values, upwind_dir, dt, vsm_interval)
 end

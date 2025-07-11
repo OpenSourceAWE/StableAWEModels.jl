@@ -10,7 +10,7 @@ sam_set.physical_model = "ram"
 s = SymbolicAWEModel(sam_set)
 
 # Initialize at elevation
-SymbolicAWEModels.init_sim!(s; prn=false, precompile=true)
+SymbolicAWEModels.init!(s; prn=false, precompile=true)
 find_steady_state!(s)
 plot(s, 0.0)
 steps = Int(round(10 / 0.05))

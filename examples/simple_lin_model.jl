@@ -44,7 +44,7 @@ toc()
 set.l_tethers[2] += 0.4
 set.l_tethers[3] += 0.4
 set.elevation = 70.0
-init_sim!(sam; remake=false, reload=false)
+init!(sam; remake=false, reload=false)
 sys = sam.sys
 
 @info "System initialized at:"

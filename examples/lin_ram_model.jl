@@ -43,7 +43,7 @@ lin_outputs = [heading[1], angle_of_attack[1], tether_len[1], winch_force[1]]
 @info "Linear outputs: $lin_outputs"
 
 # Initialize at elevation with linearization outputs
-SymbolicAWEModels.init_sim!(s; lin_outputs)
+SymbolicAWEModels.init!(s; lin_outputs)
 sys = s.sys
 
 @info "System initialized at:"

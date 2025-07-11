@@ -74,7 +74,7 @@ If the system looks good, we can easily model it, by first creating a [`Symbolic
 ```julia
 sam = SymbolicAWEModel(set, sys_struct)
 
-init_sim!(sam; remake=false)
+init!(sam; remake=false)
 for i in 1:80
     plot(sam, i/set.sample_freq)
     next_step!(sam)
@@ -104,7 +104,7 @@ The 2d plot of the [`SystemStructure`](@ref) should still look the same, so we d
 sys_struct = SystemStructure("winch", set; points, segments, tethers, winches, transforms)
 @show set.v_wind
 sam = SymbolicAWEModel(set, sys_struct)
-init_sim!(sam; remake=false)
+init!(sam; remake=false)
 ss = SysState(sam)
 
 for i in 1:80
@@ -165,7 +165,7 @@ If the plot of the [`SystemStructure`](@ref) looks good, we can continue by crea
 
 ```julia
 sam = SymbolicAWEModel(set, sys_struct)
-init_sim!(sam; remake=false)
+init!(sam; remake=false)
 for i in 1:100
     plot(sam, i/set.sample_freq; zoom=false)
     next_step!(sam)
