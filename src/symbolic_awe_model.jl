@@ -686,7 +686,7 @@ function KiteUtils.next_step!(s::SymbolicAWEModel, integrator::OrdinaryDiffEqCor
     next_step!(s; set_values, upwind_dir, dt, vsm_interval)
 end
 
-function next_step!(s::SymbolicAWEModel; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
+function KiteUtils.next_step!(s::SymbolicAWEModel; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
     if (!isnothing(set_values)) 
         s.set_set_values(s.integrator, set_values)
     end
