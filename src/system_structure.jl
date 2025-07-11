@@ -331,6 +331,12 @@ function Pulley(idx, segment_idxs, type)
     return Pulley(idx, segment_idxs, type, 0.0, 0.0, 0.0)
 end
 
+mutable struct Tether
+    const idx::Int16
+    const segment_idxs::Vector{Int16}
+    stretched_len::SimFloat
+end
+
 """
     Tether(idx, segment_idxs)
 
@@ -367,9 +373,8 @@ Create a tether from segments 1, 2, and 3:
     tether = Tether(1, [1, 2, 3])
 ```
 """
-struct Tether
-    idx::Int16
-    segment_idxs::Vector{Int16}
+function Tether(idx, segment_idxs)
+    return Tether(idx, segment_idxs, 0.0)
 end
 
 """

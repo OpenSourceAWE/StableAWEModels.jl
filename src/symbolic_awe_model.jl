@@ -44,6 +44,7 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
     get_wing_state::Union{Function, Nothing}    = nothing
     get_segment_state::Union{Function, Nothing} = nothing
     get_winch_state::Union{Function, Nothing}   = nothing
+    get_tether_state::Union{Function, Nothing}  = nothing
     get_struct_state::Union{Function, Nothing}  = nothing
     get_point_state::Union{Function, Nothing}   = nothing
     get_pulley_state::Union{Function, Nothing}  = nothing
@@ -618,6 +619,11 @@ function generate_getters!(s, sym_vec, lin_y_vec)
         end
     end
 
+    if length(tethers) > 0
+        get_tether_state = getu(sys, c(sys.stretched_len))
+        s.get_tether_state = (integ) -> get_tether_state(integ)
+    end
+
     if length(winches) + length(wings) > 0
         set_stabilize = setp(sys, sys.stabilize)
         s.set_stabilize = (integ, val) -> set_stabilize(integ, val)
@@ -706,7 +712,7 @@ function KiteUtils.next_step!(s::SymbolicAWEModel; set_values=nothing, dt=1/s.se
 end
 
 function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, integ=s.integrator)
-    @unpack points, groups, segments, pulleys, winches, wings = sys_struct
+    @unpack points, groups, segments, pulleys, winches, tethers, wings = sys_struct
     pos, vel = s.get_point_state(integ)
     for point in points
         point.pos_w .= pos[:, point.idx]
@@ -740,6 +746,12 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, in
             winch.tether_vel = tether_vel[winch.idx]
             winch.set_value = set_value[winch.idx]
             winch.force .= winch_force[winch.idx]
+        end
+    end
+    if length(tethers) > 0
+        stretched_len = s.get_tether_state(integ)
+        for tether in tethers
+            tether.stretched_len = stretched_len[tether.idx]
         end
     end
     if length(wings) > 0

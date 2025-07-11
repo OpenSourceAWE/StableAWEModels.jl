@@ -167,3 +167,7 @@ function create_simple_ram_sys_struct(set::Settings, wing::RamAirWing)
         points, groups, segments, tethers, winches, wings, transforms)
 end
 
+function update_simple_sam!(ssam::SymbolicAWEModel, sam::SymbolicAWEModel)
+    
+end
+

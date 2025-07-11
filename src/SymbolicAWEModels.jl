@@ -119,8 +119,8 @@ function __init__()
 end
 
 include("system_structure.jl")
-include("predefined_structures.jl")
 include("symbolic_awe_model.jl")
+include("predefined_structures.jl")
 include("linearize.jl")
 include("generate_system.jl")
 include("plot_recipe.jl")
