@@ -1,9 +1,15 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MIT
 
+using Pkg
+if ! ("ControlSystemsBase" ∈ keys(Pkg.project().dependencies))
+    using TestEnv; TestEnv.activate()
+end
+
 ENV["MPLBACKEND"] = "Agg"
 using Test, LinearAlgebra, KiteUtils, VortexStepMethod
 using ControlPlots
+using ControlSystemsBase
 using ModelingToolkit
 using ModelingToolkit: t_nounits
 using OrdinaryDiffEqCore
@@ -281,7 +287,7 @@ const BUILD_SYS = true
     end
 
     @testset "Reset using psys" begin
-        init!(s; prn=true, reload=false)
+        SymbolicAWEModels.init!(s; prn=true, reload=false)
         norm1 = s.integrator.u
         next_step!(s)
         @test norm1 != norm(s.integrator.u)
@@ -299,20 +305,20 @@ const BUILD_SYS = true
     end
 
     @testset "Linearize" begin
-        init!(s; prn=true, reload=false)
+        SymbolicAWEModels.init!(s; prn=true, reload=false)
         find_steady_state!(s; dt=0.1, t=10.0)
 
         (; A, B, C, D) = SymbolicAWEModels.linearize!(s)
-        @test isapprox(norm(A), 3.658990241821427e6, atol=1e3)
-        @test isapprox(norm(B), 7.938566201357354, atol=0.01)
-        @test isapprox(norm(C), 3.1419150546120713, atol=0.01)
-        @test norm(D) ≈ 0.0
+        b11 = bode(ss(A,B,C,D)[1,1])
+        @test isapprox(b11[1][1], 0.1911; atol=1e-3)
+        @test isapprox(b11[1][end], 0.0; atol=1e-3)
+        @test isapprox(b11[2][1], -40.2645; atol=1e-3)
 
         (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(s)
-        @test isapprox(norm(A), 300.2281490701867, atol=0.01)
-        @test isapprox(norm(B), 7.938566201357363, atol=0.01)
-        @test isapprox(norm(C), 175.24656913482198, atol=0.01)
-        @test isapprox(norm(D), 4.646242581108072, atol=0.01)
+        b11 = bode(ss(A,B,C,D)[1,1])
+        @test isapprox(b11[1][1], 62.7431; atol=1e-3)
+        @test isapprox(b11[1][end], 0.0; atol=1e-3)
+        @test isapprox(b11[2][1], -89.1692; atol=1e-3)
     end
 
     @testset "Just a tether, without winch or kite" begin
@@ -340,7 +346,7 @@ const BUILD_SYS = true
 
         sam = SymbolicAWEModel(set, sys_struct)
         sys = sam.sys
-        init!(sam; remake=false)
+        SymbolicAWEModels.init!(sam; remake=false)
         @test isapprox(sam.integrator[sam.sys.pos[:, end]], [8.682408883346524, 0.0, 0.7596123493895988], atol=1e-2)
         for i in 1:100
             next_step!(sam)
