@@ -35,8 +35,8 @@ const BUILD_SYS = true
     @info "Creating s:"
     @time s = SymbolicAWEModel(set)
 
-    s.set.abs_tol = 5e-2
-    s.set.rel_tol = 1e-2
+    s.set.abs_tol = 1e-4
+    s.set.rel_tol = 1e-4
 
     # Initialize at elevation
     set.elevation = 80.0
@@ -274,8 +274,8 @@ const BUILD_SYS = true
 
             # Check steering values
             @info "Steering:" sys_state_right.steering sys_state_left.steering
-            @test sys_state_right.steering > 3.0
-            @test sys_state_left.steering < -3.0
+            @test isapprox(sys_state_right.steering, 13.0; atol=1.0)
+            @test isapprox(sys_state_left.steering, -13.0; atol=1.0)
 
             # Check heading changes
             right_heading_diff = angle_diff(sys_state_right.heading, sys_state_initial.heading)
@@ -309,16 +309,20 @@ const BUILD_SYS = true
         find_steady_state!(s; dt=0.1, t=10.0)
 
         (; A, B, C, D) = SymbolicAWEModels.linearize!(s)
-        b11 = bode(ss(A,B,C,D)[1,1])
-        @test isapprox(b11[1][1], 0.1911; atol=1e-3)
-        @test isapprox(b11[1][end], 0.0; atol=1e-3)
-        @test isapprox(b11[2][1], -40.2645; atol=1e-3)
+        sys = ss(A,B,C,D)
+        res = lsim(sys, repeat([-1.0 0.0 -1.0], 2)', [0.0, 0.5])
+        println(res.y[:,2])
+        @test isapprox(res.y[:,2], 
+            [0.053232947309219916, 0.000866218461016038, -0.02071997514499976, -0.012931076358635033],
+            atol=0.001)
 
         (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(s)
-        b11 = bode(ss(A,B,C,D)[1,1])
-        @test isapprox(b11[1][1], 62.7431; atol=1e-3)
-        @test isapprox(b11[1][end], 0.0; atol=1e-3)
-        @test isapprox(b11[2][1], -89.1692; atol=1e-3)
+        sys = ss(A,B,C,D)
+        res = lsim(sys, repeat([-1.0 0.0 -1.0], 2)', [0.0, 0.5])
+        println(res.y[:,2])
+        @test isapprox(res.y[:,2],
+            [0.006307698485122118, -0.0012058652684103922, -0.01803000920909839, 6.025530206219495],
+            atol=0.001)
     end
 
     @testset "Just a tether, without winch or kite" begin
