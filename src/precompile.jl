@@ -43,7 +43,7 @@ end
     @compile_workload begin
         # all calls in this block will be precompiled, regardless of whether(
         # they belong to your package or not (on Julia 1.8 and higher)
-        sam_set = Settings("system_ram.yaml")
+        sam_set = Settings("system.yaml")
         sam_set.segments = 3
         set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
         sam_set.quasi_static = false

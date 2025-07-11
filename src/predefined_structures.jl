@@ -1,3 +1,16 @@
+
+function SystemStructure(set::Settings, wing::RamAirWing)
+    length(set.bridle_fracs) != 4 && throw(ArgumentError("4 bridle fracs should be provided for all models."))
+
+    if set.physical_model == "ram"
+        return create_ram_sys_struct(set, wing)
+    elseif set.physical_model == "simple_ram"
+        return create_simple_ram_sys_struct(set, wing)
+    else
+        throw(ArgumentError("Undefined physical model"))
+    end
+end
+
 function create_ram_sys_struct(set::Settings, vsm_wing::RamAirWing)
     points = Point[]
     groups = Group[]
@@ -104,5 +117,53 @@ function create_ram_sys_struct(set::Settings, vsm_wing::RamAirWing)
                                     base_pos= zeros(3), base_point_idx=points[end].idx, wing_idx=1)]
     
     return SystemStructure(set.physical_model, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
+end
+
+function create_simple_ram_sys_struct(set::Settings, wing::RamAirWing)
+    gammas = [-1/2, 1/2] * wing.gamma_tip
+    
+    bridle_top_left = [wing.R_cad_body * (set.top_bridle_points[i] + wing.T_cad_body) for i in eachindex(set.top_bridle_points)] # cad to kite frame
+    bridle_top_right = [bridle_top_left[i] .* [1, -1, 1] for i in eachindex(set.top_bridle_points)]
+
+    points = [
+        Point(1, bridle_top_left[2], WING)
+        Point(2, bridle_top_right[2], WING)
+        Point(3, calc_pos(wing, gammas[1], set.bridle_fracs[4]), WING)
+        Point(4, calc_pos(wing, gammas[2], set.bridle_fracs[4]), WING)
+
+        Point(5, [0, 0, -set.l_tether], STATIC)
+        Point(6, [0, 0, -set.l_tether], STATIC)
+        Point(7, [0, 0, -set.l_tether], STATIC)
+        Point(8, [0, 0, -set.l_tether], STATIC)
+    ]
+    groups = [
+        Group(1, [3], wing, gammas[1], DYNAMIC, set.bridle_fracs[2])
+        Group(2, [4], wing, gammas[2], DYNAMIC, set.bridle_fracs[2])
+    ]
+    segments = [
+        Segment(1, (1,5), POWER_LINE)
+        Segment(2, (2,6), POWER_LINE)
+        Segment(3, (3,7), STEERING_LINE)
+        Segment(4, (4,8), STEERING_LINE)
+    ]
+    tethers = [
+        Tether(1, [1])
+        Tether(2, [2])
+        Tether(3, [3])
+        Tether(4, [4])
+    ]
+    winches = [
+        Winch(1, TorqueControlledMachine(set), [1,2])
+        Winch(2, TorqueControlledMachine(set), [3])
+        Winch(3, TorqueControlledMachine(set), [4])
+    ]
+    wings = [Wing(1, [1,2], I(3), zeros(3))]
+    transforms = [
+        Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
+                    base_pos=zeros(3), base_point_idx=5, wing_idx=1)
+    ]
+
+    return SystemStructure(set.physical_model, set; 
+        points, groups, segments, tethers, winches, wings, transforms)
 end
 

@@ -6,7 +6,7 @@ Most of the functions work on a [`SymbolicAWEModel`](@ref) object.
 For this, the variable `s` is used.
 Such a variable can be created with the lines:
 ```julia
-set = Settings("system_ram.yaml")
+set = Settings("system.yaml")
 s = SymbolicAWEModel(set)
 ```
 Functions with an "!" as last character of the function name modify one of more of their

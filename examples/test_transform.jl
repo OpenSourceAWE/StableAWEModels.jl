@@ -10,7 +10,7 @@ using ControlPlots, LaTeXStrings
 using KiteModels, LinearAlgebra, Statistics
 
 # Initialize model
-set = load_settings("system_ram.yaml")
+set = load_settings("system.yaml")
 set.segments = 3
 set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 set.quasi_static = false

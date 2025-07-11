@@ -21,7 +21,7 @@ We start by loading the necessary packages and defining settings and parameters.
 ```julia
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 
-set = Settings("system_ram.yaml")
+set = Settings("system.yaml")
 set.segments = 20
 set.l_tether = 50.0
 dynamics_type = DYNAMIC
@@ -122,7 +122,7 @@ First, we need to update some settings. `l_tether` is specified such that the pl
 ```julia
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 
-set = se("system_ram.yaml")
+set = se("system.yaml")
 set.v_wind = 10.0
 set.l_tether = 5.0
 set.abs_tol = 1e-4

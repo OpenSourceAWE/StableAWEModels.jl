@@ -23,7 +23,7 @@ const BUILD_SYS = true
 
 @testset verbose = true "SymbolicAWEModel MTK Model Tests" begin
     # Initialize model
-    set = Settings("system_ram.yaml")
+    set = Settings("system.yaml")
     set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 
     @info "Creating s:"

@@ -89,7 +89,7 @@ The following code is a minimal example that shows how to create a ram air kite 
 using SymbolicAWEModels
 
 # Initialize model
-set = load_settings("system_ram.yaml")
+set = load_settings("system.yaml")
 
 sam = SymbolicAWEModel(set)
 ```

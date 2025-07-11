@@ -11,6 +11,7 @@ using Statistics
 using Parameters
 using DocStringExtensions
 using SHA
+using RecipesBase
 
 using OrdinaryDiffEqCore
 using OrdinaryDiffEqBDF
@@ -118,9 +119,11 @@ function __init__()
 end
 
 include("system_structure.jl")
+include("predefined_structures.jl")
 include("symbolic_awe_model.jl")
 include("linearize.jl")
-include("mtk_model.jl")
+include("generate_system.jl")
+include("plot_recipe.jl")
 
 function upwind_dir(v_wind_gnd)
     if v_wind_gnd[1] == 0.0 && v_wind_gnd[2] == 0.0
@@ -173,8 +176,8 @@ function copy_examples()
 end
 
 function copy_model_settings()
-    files = ["settings.yaml", "ram_air_kite_body.obj", "ram_air_kite_foil.dat", "system.yaml", "settings_ram.yaml", 
-             "system_ram.yaml", "ram_air_kite_foil_cd_polar.csv", "ram_air_kite_foil_cl_polar.csv", "ram_air_kite_foil_cm_polar.csv"]
+    files = ["settings.yaml", "ram_air_kite_body.obj", "ram_air_kite_foil.dat", "system.yaml", "settings.yaml", 
+             "system.yaml", "ram_air_kite_foil_cd_polar.csv", "ram_air_kite_foil_cl_polar.csv", "ram_air_kite_foil_cm_polar.csv"]
     dst_path = abspath(joinpath(pwd(), "data"))
     copy_files("data", files)
     set_data_path(joinpath(pwd(), "data"))

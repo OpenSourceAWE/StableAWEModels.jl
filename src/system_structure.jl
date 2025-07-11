@@ -5,8 +5,13 @@
 function VortexStepMethod.RamAirWing(set::Settings; prn=true, kwargs...)
     obj_path = joinpath(dirname(get_data_path()), set.model)
     dat_path = joinpath(dirname(get_data_path()), set.foil_file)
+    if set.physical_model == "simple_ram"
+        n_groups=2
+    else
+        n_groups=4
+    end
     return RamAirWing(obj_path, dat_path; 
-        mass=set.mass, crease_frac=set.crease_frac, n_groups=4, 
+        mass=set.mass, crease_frac=set.crease_frac, n_groups, 
         align_to_principal=true, prn, kwargs...
     )
 end
@@ -809,18 +814,6 @@ function SystemStructure(name, set;
         winches, wings, transforms, y, x, jac, zeros(KVec3))
     reinit!(sys_struct, set)
     return sys_struct
-end
-
-function SystemStructure(set::Settings, wing::RamAirWing)
-    length(set.bridle_fracs) != 4 && throw(ArgumentError("4 bridle fracs should be provided for all models."))
-
-    if set.physical_model == "ram"
-        return create_ram_sys_struct(set, wing)
-    elseif set.physical_model == "simple_ram"
-        return create_simple_ram_sys_struct(set, wing)
-    else
-        throw(ArgumentError("Undefined physical model"))
-    end
 end
 
 function apply_heading(vec, R_t_w, curr_R_t_w, heading)
