@@ -281,7 +281,7 @@ const BUILD_SYS = true
     end
 
     @testset "Reset using psys" begin
-        init!(s; prn=true, reload=false)
+        SymbolicAWEModels.init!(s; prn=true, reload=false)
         norm1 = s.integrator.u
         next_step!(s)
         @test norm1 != norm(s.integrator.u)
@@ -299,7 +299,7 @@ const BUILD_SYS = true
     end
 
     @testset "Linearize" begin
-        init!(s; prn=true, reload=false)
+        SymbolicAWEModels.init!(s; prn=true, reload=false)
         find_steady_state!(s; dt=0.1, t=10.0)
 
         (; A, B, C, D) = SymbolicAWEModels.linearize!(s)
@@ -340,7 +340,7 @@ const BUILD_SYS = true
 
         sam = SymbolicAWEModel(set, sys_struct)
         sys = sam.sys
-        init!(sam; remake=false)
+        SymbolicAWEModels.init!(sam; remake=false)
         @test isapprox(sam.integrator[sam.sys.pos[:, end]], [8.682408883346524, 0.0, 0.7596123493895988], atol=1e-2)
         for i in 1:100
             next_step!(sam)
