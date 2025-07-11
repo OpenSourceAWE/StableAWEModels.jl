@@ -175,7 +175,8 @@ Tuple containing:
 - Tether moments on wing
 """
 function force_eqs!(s, system, psys, pset, eqs, defaults, guesses; 
-        R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, twist_angle, twist_ω, stabilize, set_values, fix_nonstiff)
+        R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, 
+        twist_angle, twist_ω, stabilize, set_values, fix_wing)
 
     @parameters acc_multiplier = 1
 
@@ -381,8 +382,8 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         if group.type == DYNAMIC
             eqs = [
                 eqs
-                D(free_twist_angle[group.idx]) ~ ifelse(fix_nonstiff==true, 0, twist_ω[group.idx])
-                D(twist_ω[group.idx]) ~ ifelse(fix_nonstiff==true, 0, twist_α[group.idx] - twist_damp * twist_ω[group.idx])
+                D(free_twist_angle[group.idx]) ~ ifelse(fix_wing==true, 0, twist_ω[group.idx])
+                D(twist_ω[group.idx]) ~ ifelse(fix_wing==true, 0, twist_α[group.idx] - twist_damp * twist_ω[group.idx])
             ]
             defaults = [
                 defaults
@@ -595,8 +596,8 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         end
         eqs = [
             eqs
-            D(tether_len[winch.idx]) ~ ifelse(fix_nonstiff==true, 0, ifelse(stabilize==true, 0, tether_vel[winch.idx]))
-            D(tether_vel[winch.idx]) ~ ifelse(fix_nonstiff==true, 0, ifelse(stabilize==true, 0, tether_acc[winch.idx]))
+            D(tether_len[winch.idx]) ~ ifelse(stabilize==true, 0, tether_vel[winch.idx])
+            D(tether_vel[winch.idx]) ~ ifelse(stabilize==true, 0, tether_acc[winch.idx])
 
             tether_acc[winch.idx] ~ calc_moment_acc( # TODO: moment and speed control
                 winch.model, tether_vel[winch.idx], 
@@ -655,7 +656,7 @@ angular velocities and accelerations, and forces/moments.
 Tuple of updated equations and defaults
 """
 function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_moment, aero_force_b, 
-    aero_moment_b, ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, stabilize, fix_nonstiff
+    aero_moment_b, ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, stabilize, fix_wing
 )
     wings = s.sys_struct.wings
     @variables begin
@@ -688,14 +689,14 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
             eqs
             [D(Q_b_w[wing.idx, i]) ~ Q_vel[wing.idx, i] for i in 1:4]
             [Q_vel[wing.idx, i] ~ 0.5 * sum(Ω(ω_b_stable[wing.idx, :])[i, j] * Q_b_w[wing.idx, j] for j in 1:4) for i in 1:4]
-            ω_b_stable[wing.idx, :] ~ ifelse.(fix_nonstiff==true,
+            ω_b_stable[wing.idx, :] ~ ifelse.(fix_wing==true,
                 zeros(3),
                 ifelse.(stabilize==true,
                     ω_b[wing.idx, :] - ω_b[wing.idx, :] ⋅ axis_b * axis_b,
                     ω_b[wing.idx, :]
                 )
             )
-            D(ω_b[wing.idx, :]) ~ ifelse.(fix_nonstiff==true,
+            D(ω_b[wing.idx, :]) ~ ifelse.(fix_wing==true,
                 zeros(3),
                 ifelse.(stabilize==true,
                     α_b_damped[wing.idx, :] - α_b_damped[wing.idx, :] ⋅ axis_b * axis_b,
@@ -711,14 +712,14 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
             α_b[wing.idx, 3] ~ (moment_b[wing.idx, 3] + (I_b[1] - I_b[2]) * ω_b[wing.idx, 1] * ω_b[wing.idx, 2]) / I_b[3]
             moment_b[wing.idx, :] ~ aero_moment_b[wing.idx, :] + R_b_w[wing.idx, :, :]' * tether_wing_moment[wing.idx, :]
             
-            D(wing_pos[wing.idx, :]) ~ ifelse.(fix_nonstiff==true,
+            D(wing_pos[wing.idx, :]) ~ ifelse.(fix_wing==true,
                 zeros(3),
                 ifelse.(stabilize==true,
                     wing_vel[wing.idx, :] ⋅ axis * axis,
                     wing_vel[wing.idx, :]
                 )
             )
-            D(wing_vel[wing.idx, :]) ~ ifelse.(fix_nonstiff==true,
+            D(wing_vel[wing.idx, :]) ~ ifelse.(fix_wing==true,
                 zeros(3),
                 ifelse.(stabilize==true,
                     wing_acc[wing.idx, :] ⋅ axis * axis,
@@ -963,7 +964,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b, pr
         psys::SystemStructure = system
         pset::Settings = s.set
         stabilize = false
-        fix_nonstiff = false
+        fix_wing = false
     end
     @variables begin
         # potential differential variables
@@ -989,11 +990,16 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b, pr
 
     eqs, defaults, guesses, tether_wing_force, tether_wing_moment = 
         force_eqs!(s, system, psys, pset, eqs, defaults, guesses; 
-            R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, twist_angle, twist_ω, stabilize, set_values, fix_nonstiff)
-    eqs, guesses = linear_vsm_eqs!(s, eqs, guesses; aero_force_b, aero_moment_b, group_aero_moment, init_va_b, twist_angle, va_wing_b, ω_b)
-    eqs, defaults = wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_moment, aero_force_b, aero_moment_b, 
-        ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, stabilize, fix_nonstiff)
-    eqs = scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, twist_angle, twist_ω, ω_b, α_b)
+            R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, 
+            twist_angle, twist_ω, stabilize, set_values, fix_wing)
+    eqs, guesses = linear_vsm_eqs!(s, eqs, guesses; aero_force_b, 
+            aero_moment_b, group_aero_moment, init_va_b, twist_angle, va_wing_b, ω_b)
+    eqs, defaults = wing_eqs!(s, eqs, psys, pset, defaults; 
+            tether_wing_force, tether_wing_moment, aero_force_b, aero_moment_b, 
+            ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, stabilize, fix_wing)
+    eqs = scalar_eqs!(s, eqs, psys, pset; 
+            R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, 
+            twist_angle, twist_ω, ω_b, α_b)
     
     # te_I = (1/3 * (get_set_mass(pset)/8) * te_len^2)
     # # -damping / I * ω = α_damping
