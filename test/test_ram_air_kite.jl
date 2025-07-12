@@ -307,8 +307,8 @@ const BUILD_SYS = true
     @testset "Linearize" begin
         old_abs = set.abs_tol
         old_rel = set.rel_tol
-        set.abs_tol = 1e-8
-        set.rel_tol = 1e-8
+        set.abs_tol = 1e-4
+        set.rel_tol = 1e-4
         SymbolicAWEModels.init!(s; prn=true, reload=false)
         find_steady_state!(s; dt=0.1, t=1.0)
 
@@ -319,7 +319,7 @@ const BUILD_SYS = true
         @test isapprox(res.y[:,2], 
             [0.00380289, -0.00076529, -0.014029, 3.7986], rtol=0.1)
 
-        (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(s)
+        (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(s; tsab=1.0)
         sys = ss(A,B,C,D)
         res = lsim(sys, repeat([-1.0 0.0 -1.0], 2)', [0.0, 0.5])
         println(res.y[:,2])
@@ -334,7 +334,7 @@ const BUILD_SYS = true
         set.segments = 20
         dynamics_type = DYNAMIC
 
-        points = Point[]
+        points = Point[]c
         segments = Segment[]
 
         points = push!(points, Point(1, zeros(3), STATIC; wing_idx=0))
