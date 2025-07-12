@@ -334,7 +334,7 @@ const BUILD_SYS = true
         set.segments = 20
         dynamics_type = DYNAMIC
 
-        points = Point[]c
+        points = Point[]
         segments = Segment[]
 
         points = push!(points, Point(1, zeros(3), STATIC; wing_idx=0))
