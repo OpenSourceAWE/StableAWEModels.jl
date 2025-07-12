@@ -319,7 +319,7 @@ const BUILD_SYS = true
         @test isapprox(res.y[:,2], 
             [0.00380289, -0.00076529, -0.014029, 3.7986], rtol=0.1)
 
-        (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(s; tsab=1.0)
+        (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(s; tstab=1.0)
         sys = ss(A,B,C,D)
         res = lsim(sys, repeat([-1.0 0.0 -1.0], 2)', [0.0, 0.5])
         println(res.y[:,2])
