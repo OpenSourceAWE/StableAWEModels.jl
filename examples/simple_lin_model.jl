@@ -110,7 +110,6 @@ end
 toc()
 
 # Plot results
-c = collect
 save_log(logger, "tmp")
 lg =load_log("tmp")
 sl = lg.syslog
