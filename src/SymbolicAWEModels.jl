@@ -3,36 +3,84 @@
 
 module SymbolicAWEModels
 
-using PrecompileTools: @setup_workload, @compile_workload 
-using Serialization, StaticArrays, LinearAlgebra, Statistics, Parameters,
-      DocStringExtensions, OrdinaryDiffEqCore, OrdinaryDiffEqBDF, OrdinaryDiffEqNonlinearSolve,
-      NonlinearSolve, SHA
-using KiteUtils, WinchModels, AtmosphericModels
-using Pkg
+using PrecompileTools: @setup_workload, @compile_workload
+using Serialization
+using StaticArrays
+using LinearAlgebra
+using Statistics
+using Parameters
+using DocStringExtensions
+using SHA
+
+using OrdinaryDiffEqCore
+using OrdinaryDiffEqBDF
+using OrdinaryDiffEqNonlinearSolve
+using NonlinearSolve
+using SteadyStateDiffEq
+
+using KiteUtils
+import KiteUtils: init!, next_step!, update_sys_state!
+using WinchModels
+using AtmosphericModels
 using VortexStepMethod
-import Base.zero
-import KiteUtils.AbstractKiteModel
-import KiteUtils.calc_elevation
-import KiteUtils.calc_heading
-import KiteUtils.calc_course
-import KiteUtils.SysState
-import OrdinaryDiffEqCore.init
-import OrdinaryDiffEqCore.step!
-using ModelingToolkit, SymbolicIndexingInterface
-using ModelingToolkit: t_nounits as t, D_nounits as D
-using ADTypes: AutoFiniteDiff
+
+using ModelingToolkit
+using SymbolicIndexingInterface
+
+import ModelingToolkit: t_nounits as t, D_nounits as D
 import ModelingToolkit.SciMLBase: successful_retcode
 
-export SymbolicAWEModel                                 # constants and types
-export copy_examples, copy_bin, update_sys_state!       # helper functions
-export find_steady_state!                               # low level workers
-export init_sim!, init!, reinit!, next_step!            # high level workers
-export winch_force, unstretched_length, tether_length # getters
-export create_ram_sys_struct, create_simple_ram_sys_struct
-import LinearAlgebra: norm
-export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
-export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
-export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
+# Constants and Types
+export SymbolicAWEModel
+
+# Helper Functions
+export copy_examples
+export copy_bin
+export update_sys_state!
+
+# Low-Level Workers
+export find_steady_state!
+
+# High-Level Workers
+export init!
+export next_step!
+
+# Getters
+export winch_force
+export unstretched_length
+export tether_length
+
+# System Structure Creators
+export create_ram_sys_struct
+export create_simple_ram_sys_struct
+
+# Types
+export SystemStructure
+export Point
+export Group
+export Segment
+export Pulley
+export Tether
+export Winch
+export Wing
+export Transform
+
+# Dynamics Types
+export DynamicsType
+export DYNAMIC
+export QUASI_STATIC
+export WING
+export STATIC
+
+# Segment Types
+export SegmentType
+export POWER_LINE
+export STEERING_LINE
+export BRIDLE
+
+# Linearization Functions
+export linearize!
+export simple_linearize!
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -70,7 +118,8 @@ function __init__()
 end
 
 include("system_structure.jl")
-include("symbolic_awe_model.jl") # include code, specific for the ram air kite model
+include("symbolic_awe_model.jl")
+include("linearize.jl")
 include("mtk_model.jl")
 
 function upwind_dir(v_wind_gnd)

@@ -78,7 +78,7 @@ end
             s = SymbolicAWEModel(sam_set)
 
             # Initialize at elevation
-            SymbolicAWEModels.init_sim!(s; prn=false, precompile=true)
+            SymbolicAWEModels.init!(s; prn=false, precompile=true)
             @info "Copying $output_file to $model_file !"
             cp(output_file, model_file; force=true)
             find_steady_state!(s)
@@ -89,3 +89,4 @@ end
         nothing
     end
 end   
+  

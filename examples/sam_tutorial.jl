@@ -37,7 +37,7 @@ plot(sys_struct, 0.0)
 
 sam = SymbolicAWEModel(set, sys_struct)
 
-init_sim!(sam; remake=false)
+init!(sam; remake=false)
 for i in 1:80
     plot(sam, i/set.sample_freq)
     next_step!(sam)
@@ -54,7 +54,7 @@ winches = [Winch(1, wm, [1])]
 sys_struct = SystemStructure("winch", set; points, segments, tethers, winches, transforms)
 @show set.v_wind
 sam = SymbolicAWEModel(set, sys_struct)
-init_sim!(sam; remake=false)
+init!(sam; remake=false)
 ss = SysState(sam)
 
 for i in 1:80
@@ -76,7 +76,7 @@ plot(sys_struct, 0.0)
 
 sam = SymbolicAWEModel(set, sys_struct)
 
-init_sim!(sam; remake=false)
+init!(sam; remake=false)
 for i in 1:80
     plot(sam, i/set.sample_freq)
     next_step!(sam; set_values=[-10.0])

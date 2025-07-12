@@ -1,14 +1,25 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MIT
 
+using Pkg
+if ! ("ControlSystemsBase" ∈ keys(Pkg.project().dependencies))
+    using TestEnv; TestEnv.activate()
+end
+
+ENV["MPLBACKEND"] = "Agg"
 using Test, LinearAlgebra, KiteUtils, VortexStepMethod
 using ControlPlots
+using ControlSystemsBase
+using ModelingToolkit
+using ModelingToolkit: t_nounits
+using OrdinaryDiffEqCore
 using SymbolicAWEModels
 using Statistics
 
 old_path = get_data_path()
 package_data_path = joinpath(dirname(dirname(pathof(SymbolicAWEModels))), "data")
 temp_data_path = joinpath(tempdir(), "data")
+@show package_data_path temp_data_path
 Base.Filesystem.cptree(package_data_path, temp_data_path; force=true)
 set_data_path(temp_data_path)
 
@@ -18,23 +29,19 @@ const BUILD_SYS = true
 
 @testset verbose = true "SymbolicAWEModel MTK Model Tests" begin
     # Initialize model
-    set = se("system_ram.yaml")
-    set.segments = 3
+    set = Settings("system_ram.yaml")
     set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
-    set.quasi_static = false
-    set.physical_model = "ram"
 
     @info "Creating s:"
     @time s = SymbolicAWEModel(set)
 
-    s.set.abs_tol = 1e-2
-    s.set.rel_tol = 1e-2
+    s.set.abs_tol = 1e-4
+    s.set.rel_tol = 1e-4
 
     # Initialize at elevation
     set.elevation = 80.0
 
     @testset "Model Initialization Chain" begin
-        # if BUILD_SYS
         # Delete existing problem file to force init!
         @info "Data path: $(get_data_path())"
         model_path = joinpath(get_data_path(), SymbolicAWEModels.get_model_name(s.set))
@@ -45,7 +52,7 @@ const BUILD_SYS = true
 
         # 1. First time initialization - should create new model
         @info "Testing initial init! (should create new model if it doesn't exist yet)..."
-        @time SymbolicAWEModels.init_sim!(s; prn=true)
+        @time SymbolicAWEModels.init!(s; prn=true)
 
         # Check that serialization worked
         @test isfile(model_path)
@@ -54,7 +61,6 @@ const BUILD_SYS = true
         @test !isnothing(s.integrator)
         @test !isnothing(s.sys)
         @test !isnothing(s.sys_struct)
-        # end
         s.integrator = nothing
         s.sys = nothing
 
@@ -62,9 +68,9 @@ const BUILD_SYS = true
         first_integrator_ptr = objectid(s.integrator)
         first_sys_struct_ptr = objectid(s.sys_struct)
 
-        # 2. First init_sim! - should load from serialized file
-        @info "Testing first init_sim! (should load serialized file)..."
-        @time SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+        # 2. First init! - should load from serialized file
+        @info "Testing first init! (should load serialized file)..."
+        @time SymbolicAWEModels.init!(s; prn=true, reload=false)
         next_step!(s)
 
         # Check that it's a new integrator
@@ -73,9 +79,9 @@ const BUILD_SYS = true
         @test first_integrator_ptr != second_integrator_ptr
         @test first_sys_struct_ptr == second_sys_struct_ptr
 
-        # 3. Second init_sim! - should reuse existing integrator
-        @info "Testing second init_sim! (should reuse integrator)..."
-        @time SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+        # 3. Second init! - should reuse existing integrator
+        @info "Testing second init! (should reuse integrator)..."
+        @time SymbolicAWEModels.init!(s; prn=true, reload=false)
 
         # This should create a new point system but reuse the existing integrator
         third_integrator_ptr = objectid(s.integrator)
@@ -108,7 +114,7 @@ const BUILD_SYS = true
     end
 
     @testset "State Consistency" begin
-        SymbolicAWEModels.init_sim!(s, prn=true, reload=false)
+        SymbolicAWEModels.init!(s, prn=true, reload=false)
         sys_state_before = SymbolicAWEModels.SysState(s)
         @test isapprox(norm(s.integrator[s.sys.Q_b_w]), 1.0, atol=TOL)
         @test isapprox(sys_state_before.elevation, deg2rad(set.elevation), atol=1e-2)
@@ -116,7 +122,7 @@ const BUILD_SYS = true
         # Change measurement and reinitialize
         old_elevation = set.elevation
         set.elevation = 85.0
-        SymbolicAWEModels.init_sim!(s, prn=true, reload=false)
+        SymbolicAWEModels.init!(s, prn=true, reload=false)
 
         # Get new state using SysState
         sys_state_after = SymbolicAWEModels.SysState(s)
@@ -126,20 +132,20 @@ const BUILD_SYS = true
         @test isapprox(sys_state_after.elevation, deg2rad(85.0), atol=1e-2)
 
         @testset "set_depower_steering!" begin
-            initial_tether_lengths = s.get_tether_length(s.integrator)
+            initial_tether_lengths = SymbolicAWEModels.tether_length(s)
             depower = 0.1
             steering = 0.05
             SymbolicAWEModels.set_depower_steering!(s, depower, steering)
-            new_tether_lengths = s.set_tether_length
+            new_tether_lengths = s.set_tether_len
             @test !isapprox(new_tether_lengths, initial_tether_lengths)
             # Verify the changes based on the equations
-            len = s.set_tether_length
+            len = s.set_tether_len
             len1 = initial_tether_lengths[1]
-            len2 = 0.5 * (2*depower*SymbolicAWEModels.min_chord_length(s) + 2*len1 + steering*SymbolicAWEModels.min_chord_length(s))
-            len3 = 0.5 * (2*depower*SymbolicAWEModels.min_chord_length(s) + 2*len1 - steering*SymbolicAWEModels.min_chord_length(s))
+            len2 = 0.5 * (2*depower*SymbolicAWEModels.min_chord_len(s) + 2*len1 + steering*SymbolicAWEModels.min_chord_len(s))
+            len3 = 0.5 * (2*depower*SymbolicAWEModels.min_chord_len(s) + 2*len1 - steering*SymbolicAWEModels.min_chord_len(s))
             @test isapprox(len[2], len2)
             @test isapprox(len[3], len3)
-            @test isapprox(SymbolicAWEModels.min_chord_length(s), 0.434108)
+            @test isapprox(SymbolicAWEModels.min_chord_len(s), 0.434108)
         end
 
         @testset "set_v_wind_ground!" begin
@@ -164,11 +170,7 @@ const BUILD_SYS = true
     end
 
     function test_step(s, d_set_values=zeros(3); dt=0.05, steps=5)
-        s.integrator.ps[s.sys.stabilize] = true
-        for i in 1:1÷dt
-            next_step!(s; dt, vsm_interval=1)
-        end
-        s.integrator.ps[s.sys.stabilize] = false
+        find_steady_state!(s; dt=0.1)
         @info "Stepping"
         for _ in 1:steps
             set_values = -s.set.drum_radius * s.integrator[s.sys.winch_force] + d_set_values
@@ -201,7 +203,7 @@ const BUILD_SYS = true
 
     @testset "Simulation Step with SysState" begin
         # Basic step and time advancement test
-        SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+        SymbolicAWEModels.init!(s; prn=true, reload=false)
         sys_state_before = SymbolicAWEModels.SysState(s)
 
         # Run a simulation step with zero set values
@@ -225,7 +227,7 @@ const BUILD_SYS = true
             # Initialize at 60 degrees elevation
             set.elevation = 60.0
 
-            SymbolicAWEModels.init_sim!(s; prn=true)
+            SymbolicAWEModels.init!(s; prn=true)
 
             # Verify initial conditions using SysState
             sys_state_init = SymbolicAWEModels.SysState(s)
@@ -237,7 +239,7 @@ const BUILD_SYS = true
 
             # Check course direction using SysState
             sys_state = SymbolicAWEModels.SysState(s)
-            @info "Course at 60 deg elevation:" sys_state.course
+            @info "Course at 60 deg elevation:" sys_state.course sys_state.elevation
 
             # At 60 degrees elevation, course should be roughly forward
             @show sys_state.course
@@ -256,24 +258,24 @@ const BUILD_SYS = true
         @testset "Steering Response Using SysState" begin
             # Initialize model at moderate elevation
             set.elevation = 70.0
-            SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+            SymbolicAWEModels.init!(s; prn=true, reload=false)
             test_step(s)
             sys_state_initial = SymbolicAWEModels.SysState(s)
 
             # steering right
-            SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+            SymbolicAWEModels.init!(s; prn=true, reload=false)
             test_step(s, [0, 10, -10]; steps=20)
             sys_state_right = SymbolicAWEModels.SysState(s)
 
             # steering left
-            SymbolicAWEModels.init_sim!(s; prn=true, reload=false)
+            SymbolicAWEModels.init!(s; prn=true, reload=false)
             test_step(s, [0, -10, 10]; steps=20)
             sys_state_left = SymbolicAWEModels.SysState(s)
 
             # Check steering values
             @info "Steering:" sys_state_right.steering sys_state_left.steering
-            @test sys_state_right.steering > 3.0
-            @test sys_state_left.steering < -3.0
+            @test isapprox(sys_state_right.steering, 13.0; atol=1.0)
+            @test isapprox(sys_state_left.steering, -13.0; atol=1.0)
 
             # Check heading changes
             right_heading_diff = angle_diff(sys_state_right.heading, sys_state_initial.heading)
@@ -282,6 +284,50 @@ const BUILD_SYS = true
             @test left_heading_diff ≈ -0.9 atol=0.2
         end
         test_plot(s)
+    end
+
+    @testset "Reset using psys" begin
+        SymbolicAWEModels.init!(s; prn=true, reload=false)
+        norm1 = s.integrator.u
+        next_step!(s)
+        @test norm1 != norm(s.integrator.u)
+        
+        u1 = copy(s.integrator.u)
+        s.set_psys(s.integrator, s.sys_struct)
+        OrdinaryDiffEqCore.reinit!(s.integrator)
+        u2 = s.integrator.u
+        for (v1, v2, n) in zip(u1, u2, unknowns(s.sys))
+            @test v1 == v2
+            if v1 != v2
+                println(n, " ", v1, " ", v2)
+            end
+        end
+    end
+
+    @testset "Linearize" begin
+        old_abs = set.abs_tol
+        old_rel = set.rel_tol
+        set.abs_tol = 1e-8
+        set.rel_tol = 1e-8
+        SymbolicAWEModels.init!(s; prn=true, reload=false)
+        find_steady_state!(s; dt=0.1, t=1.0)
+
+        (; A, B, C, D) = SymbolicAWEModels.linearize!(s)
+        sys = ss(A,B,C,D)
+        res = lsim(sys, repeat([-1.0 0.0 -1.0], 2)', [0.0, 0.5])
+        println(res.y[:,2])
+        @test isapprox(res.y[:,2], 
+            [0.00380289, -0.00076529, -0.014029, 3.7986], rtol=0.1)
+
+        (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(s)
+        sys = ss(A,B,C,D)
+        res = lsim(sys, repeat([-1.0 0.0 -1.0], 2)', [0.0, 0.5])
+        println(res.y[:,2])
+        @test isapprox(res.y[:,2],
+            [0.00630498, -0.001199, -0.018026, 6.02450], rtol=0.1)
+
+        set.abs_tol = old_abs
+        set.rel_tol = old_rel
     end
 
     @testset "Just a tether, without winch or kite" begin
@@ -305,11 +351,11 @@ const BUILD_SYS = true
 
         transforms = [Transform(1, deg2rad(-80), 0.0, 0.0; 
             base_pos=[0.0, 0.0, 50.0], base_point_idx=points[1].idx, rot_point_idx=points[end].idx)]
-        sys_struct = SystemStructure("tether", set; points, segments, transforms)
+        sys_struct = SymbolicAWEModels.SystemStructure("tether", set; points, segments, transforms)
 
         sam = SymbolicAWEModel(set, sys_struct)
         sys = sam.sys
-        init_sim!(sam; remake=false)
+        SymbolicAWEModels.init!(sam; remake=false)
         @test isapprox(sam.integrator[sam.sys.pos[:, end]], [8.682408883346524, 0.0, 0.7596123493895988], atol=1e-2)
         for i in 1:100
             next_step!(sam)

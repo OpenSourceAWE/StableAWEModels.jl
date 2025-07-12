@@ -32,7 +32,7 @@ plot(sys_struct, 0.0; zoom=false, l_tether=set.l_tether)
 
 sam = SymbolicAWEModel(set, sys_struct)
 
-init_sim!(sam; remake=false)
+init!(sam; remake=false)
 for i in 1:100
     plot(sam, i/set.sample_freq; zoom=false)
     next_step!(sam)
