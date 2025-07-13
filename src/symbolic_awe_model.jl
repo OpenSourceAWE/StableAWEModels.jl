@@ -917,17 +917,6 @@ function get_nonstiff_unknowns(sys_struct::SystemStructure, sys::System, vec=Num
     return vec
 end
 
-function find_steady_state!(s::SymbolicAWEModel, integ=s.integrator; t=1.0, dt=1/s.set.sample_freq)
-    old_state = s.get_stabilize(integ)
-    s.set_stabilize(integ, true)
-    for _ in 1:Int(round(t÷dt))
-        next_step!(s; dt, vsm_interval=1)
-    end
-    s.set_stabilize(integ, old_state)
-    update_sys_struct!(s, s.sys_struct)
-    return nothing
-end
-
 function initial_orient(s::SymbolicAWEModel)
     set = s.set
     wings = s.sys_struct.wings
