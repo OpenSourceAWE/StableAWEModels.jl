@@ -58,3 +58,8 @@ jobs:
           body: "Automated update of default manifest and xz files."
           commit-message: "Update xz files"
 
+      - name: Trigger CI workflow via repository_dispatch
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: auto-pr-created
