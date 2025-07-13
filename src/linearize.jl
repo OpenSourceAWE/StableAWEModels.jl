@@ -12,19 +12,19 @@ function find_steady_state!(s::SymbolicAWEModel, integ=s.integrator; t=1.0, dt=1
     return nothing
 end
 
-function find_steady_winch_state!(s::SymbolicAWEModel, integ=s.integrator; 
-    t=1.0, dt=1/s.set.sample_freq
-)
-    old_state = s.get_stabilize(integ)
-    s.set_stabilize(integ, (false, true))
-    for _ in 1:Int(round(t÷dt))
-        set_values = # TODO: add tether_force to mtk model 
-        next_step!(s; dt, vsm_interval=0)
-    end
-    s.set_stabilize(integ, old_state)
-    update_sys_struct!(s, s.sys_struct)
-    return nothing
-end
+#=function find_steady_winch_state!(s::SymbolicAWEModel, integ=s.integrator; =#
+#=    t=1.0, dt=1/s.set.sample_freq=#
+#=)=#
+#=    old_state = s.get_stabilize(integ)=#
+#=    s.set_stabilize(integ, (false, true))=#
+#=    for _ in 1:Int(round(t÷dt))=#
+#=        set_values = # TODO: add tether_force to mtk model =#
+#=        next_step!(s; dt, vsm_interval=0)=#
+#=    end=#
+#=    s.set_stabilize(integ, old_state)=#
+#=    update_sys_struct!(s, s.sys_struct)=#
+#=    return nothing=#
+#=end=#
 
 function linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
     @unpack wings, y, x, jac = s.sys_struct

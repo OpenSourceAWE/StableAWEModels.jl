@@ -616,15 +616,20 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
     # ==================== TETHERS ==================== #
     @variables begin
         stretched_len(t)[eachindex(tethers)]
+        tether_spring_force(t)[eachindex(tethers)]
     end
     for tether in tethers
         slen = zero(Num)
+        tforce = zero(Num)
         for segment_idx in tether.segment_idxs
             slen += len[segment_idx]
+            tforce += spring_force[segment_idx]
         end
+        tforce /= length(tether.segment_idxs)
         eqs = [
             eqs
             stretched_len[tether.idx] ~ slen
+            tether_spring_force[tether.idx] ~ tforce
         ]
     end
 
