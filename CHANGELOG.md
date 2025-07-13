@@ -4,9 +4,9 @@ SPDX-License-Identifier: MPL-2.0
 -->
 
 # Unreleased
-**Added**
+## Added
 - Added a simple linearized model
-**Changed**
+## Changed
 - Improved the reinitialization using scalar settings values
 
 # v0.1.0
