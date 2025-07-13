@@ -1,5 +1,7 @@
 name: CI
 on:
+  repository_dispatch:
+    types: [auto-pr-created]
   push:
     branches:
       - main
