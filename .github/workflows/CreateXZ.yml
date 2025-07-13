@@ -2,6 +2,8 @@ name: Update xz files
 
 on:
   workflow_dispatch:
+  repository_dispatch:
+    types: [auto-pr-created]
   pull_request:
     branches:
       - main
