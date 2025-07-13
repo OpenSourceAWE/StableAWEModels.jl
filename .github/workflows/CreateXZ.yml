@@ -36,7 +36,7 @@ jobs:
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Build PyCall
-        run: julia --project=@. -e 'ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
+        run: julia --project -e 'ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
         shell: bash
 
       - name: Run update script
@@ -44,6 +44,10 @@ jobs:
 
       - name: Create xz files
         run: bin/create_xz_file
+
+      - name: Remove PyCall
+        run: julia --project -e 'ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.rm("PyCall")'
+        shell: bash
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
