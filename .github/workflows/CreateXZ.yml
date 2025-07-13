@@ -1,4 +1,4 @@
-name: Update Default Manifest, Create xz files and PR
+name: Update xz files
 
 on:
   workflow_dispatch:
@@ -50,7 +50,7 @@ jobs:
         with:
           branch: update-manifest-${{ github.run_id }}
           base: main
-          title: "Update default manifest"
-          body: "Automated update of default manifest."
-          commit-message: "Update default manifest"
+          title: "Update xz files"
+          body: "Automated update of default manifest and xz files."
+          commit-message: "Update xz files"
 
