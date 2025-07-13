@@ -3,7 +3,7 @@
 
 function find_steady_state!(s::SymbolicAWEModel, integ=s.integrator; t=1.0, dt=1/s.set.sample_freq)
     old_state = s.get_stabilize(integ)
-    s.set_stabilize(integ, (true, false))
+    s.set_stabilize(integ, true)
     for _ in 1:Int(round(t÷dt))
         next_step!(s; dt, vsm_interval=1)
     end
