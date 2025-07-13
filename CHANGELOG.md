@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
-# Unreleased
+# v0.1.1 13-07-2025
 ## Added
 - Added a simple linearized model
 ## Changed
