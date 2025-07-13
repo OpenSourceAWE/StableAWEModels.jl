@@ -305,7 +305,7 @@ and only update the state variables. Otherwise, it will create a new model from 
 # Returns
 - `integrator::OrdinaryDiffEqCore.ODEIntegrator`: The initialized ODE integrator.
 """
-function KiteUtils.init!(s::SymbolicAWEModel; 
+function init!(s::SymbolicAWEModel; 
     solver=nothing, adaptive=true, prn=true, 
     precompile=false, remake=false, reload=false, 
     lin_outputs=nothing
