@@ -22,8 +22,6 @@ tether_lens[:, 1] .= initial_tether_lens # Store the initial lengths
 set_values = -sam.set.drum_radius .* sam.integrator[sys.winch_force] .+ delta_F # Apply delta_F
 @time for i in 1:steps
     next_step!(sam; set_values, vsm_interval=0)
-    @show winches[1].tether_len
-    @show sam.integrator[sys.tether_len[1]]
     [tether_lens[j, i + 1] = winches[j].tether_len for j in 1:3] # Store after step
 end
 
