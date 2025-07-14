@@ -40,10 +40,10 @@ jobs:
         shell: bash
 
       - name: Run update script
-        run: bin/update_default_manifest
+        run: bin/update_manifest +1.10 --default && bin/update_manifest +1.11 --default
 
       - name: Create xz files
-        run: bin/create_xz_file
+        run: bin/create_xz_file +1.10 && bin/create_xz_file +1.11
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
