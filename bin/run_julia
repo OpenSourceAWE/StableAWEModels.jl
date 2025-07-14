@@ -1,5 +1,5 @@
 #!/bin/bash -eu
-# SPDX-FileCopyrightText: 2025 Uwe Fechner
+# SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 # SPDX-License-Identifier: MIT
 
 # Ensure the script runs from the project root
@@ -10,13 +10,10 @@ fi
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
 
 julia_channel=""
-# Check if the first argument looks like a version specifier (e.g., +1.11)
 if [[ "${1-}" == \+* ]]; then
     julia_channel="$1"
-    # Remove the '+' for use in filenames
     julia_major="${1#+}"
 else
-    # Fallback to the default julia version if no argument is given
     julia_major=$(julia --version | cut -d' ' -f3 | cut -d'.' -f1,2)
 fi
 
