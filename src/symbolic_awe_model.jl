@@ -29,7 +29,6 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
     set_psys::Union{Function, Nothing}          = nothing
     set_set_values::Union{Function, Nothing}    = nothing
     set_set::Union{Function, Nothing}           = nothing
-    set_vsm::Union{Function, Nothing}           = nothing
     set_unknowns::Union{Function, Nothing}      = nothing
     set_initial::Union{Function, Nothing}       = nothing
     set_nonstiff::Union{Function, Nothing}      = nothing
@@ -38,7 +37,6 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
     set_lin_unknowns::Union{Function, Nothing}  = nothing
     set_stabilize::Union{Function, Nothing}     = nothing
     
-    get_vsm::Union{Function, Nothing}           = nothing
     get_set_values::Union{Function, Nothing}    = nothing
     get_unknowns::Union{Function, Nothing}      = nothing
     get_wing_state::Union{Function, Nothing}    = nothing
@@ -49,7 +47,6 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
     get_point_state::Union{Function, Nothing}   = nothing
     get_pulley_state::Union{Function, Nothing}  = nothing
     get_group_state::Union{Function, Nothing}   = nothing
-    get_vsm_y::Union{Function, Nothing}         = nothing
     get_spring_force::Union{Function, Nothing}  = nothing
     get_stabilize::Union{Function, Nothing}     = nothing
     get_lin_x::Union{Function, Nothing}         = nothing
@@ -540,10 +537,6 @@ function generate_getters!(s, sym_vec, lin_y_vec)
             sys.last_y,
             sys.vsm_jac,
         ])
-        get_vsm = getp(sys, vsm_sym)
-        s.get_vsm = (integ) -> get_vsm(integ)
-        get_vsm_y = getu(sys, sys.y)
-        s.get_vsm_y = (integ) -> get_vsm_y(integ)
         get_wing_state = getu(sys, c.([
             sys.Q_b_w,           # Orientation quaternion
             sys.ω_b,             # Angular velocity (body frame)
@@ -567,13 +560,6 @@ function generate_getters!(s, sym_vec, lin_y_vec)
             sys.angle_of_attack,
         ]))
         s.get_wing_state = (integ) -> get_wing_state(integ)
-
-        set_vsm = setp(sys, vsm_sym)
-        s.set_vsm = (integ, val) -> set_vsm(integ, val)
-        if !isnothing(s.lin_prob)
-            set_lin_vsm = setp(s.lin_prob, vsm_sym)
-            s.set_lin_vsm = (lin_prob, val) -> set_lin_vsm(lin_prob, val)
-        end
     end
 
     if length(segments) > 0

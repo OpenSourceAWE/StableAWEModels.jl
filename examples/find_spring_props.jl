@@ -2,6 +2,7 @@ using SymbolicAWEModels, VortexStepMethod, KiteUtils, ControlPlots, Statistics
 
 # Assuming 'sam' setup code from your snippet has been run
 set = Settings("system.yaml")
+dt = 1/set.sample_freq
 sam = SymbolicAWEModel(set)
 SymbolicAWEModels.init!(sam)
 sys = sam.sys
@@ -20,9 +21,13 @@ delta_F = 1.0 # Newtons
 tether_lens = zeros(3, steps+1)
 tether_lens[:, 1] .= initial_tether_lens # Store the initial lengths
 set_values = -sam.set.drum_radius .* sam.integrator[sys.winch_force] .+ delta_F # Apply delta_F
+dstep = Int(round(1÷dt))
 @time for i in 1:steps
     next_step!(sam; set_values, vsm_interval=0)
     [tether_lens[j, i + 1] = winches[j].tether_len for j in 1:3] # Store after step
+    if i > dstep
+        @show abs(tether_lens[1, i+1] - tether_lens[1, i-dstep])
+    end
 end
 
 display(plotx(
@@ -31,8 +36,6 @@ display(plotx(
     title="Force step response",
     ylabels=["Power tether [m]", "Left tether [m]", "Right tether [m]"],
 ))
-
-dt = 1/set.sample_freq
 
 println("Analysis of Tether Stiffness and Damping:")
 

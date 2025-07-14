@@ -482,6 +482,9 @@ mutable struct Wing
     const acc_w::KVec3
 
     # Derived variables and parameters, updated during simulation
+    const vsm_y::Vector{SimFloat}
+    const vsm_x::Vector{SimFloat}
+    const vsm_jac::Matrix{SimFloat}
     const wind_disturb::KVec3
     const va_b::KVec3 # apparent wind in body frame
     const v_wind::KVec3 # wind velocity in world frame at the wing
@@ -700,21 +703,23 @@ connected by elastic segments model the kite and tether dynamics.
 
 See the individual component documentation for detailed mathematical models and governing equations.
 """
-struct SystemStructure
-    name::String
-    set::Settings
-    points::Vector{Point}
-    groups::Vector{Group}
-    segments::Vector{Segment}
-    pulleys::Vector{Pulley}
-    tethers::Vector{Tether}
-    winches::Vector{Winch}
-    wings::Vector{Wing}
-    transforms::Vector{Transform}
-    y::Array{Float64, 2}
-    x::Array{Float64, 2}
-    jac::Array{Float64, 3}
-    wind_vec_gnd::KVec3
+mutable struct SystemStructure
+    const name::String
+    const set::Settings
+    const points::Vector{Point}
+    const groups::Vector{Group}
+    const segments::Vector{Segment}
+    const pulleys::Vector{Pulley}
+    const tethers::Vector{Tether}
+    const winches::Vector{Winch}
+    const wings::Vector{Wing}
+    const transforms::Vector{Transform}
+    const y::Array{Float64, 2}
+    const x::Array{Float64, 2}
+    const jac::Array{Float64, 3}
+    const wind_vec_gnd::KVec3
+    stabilize::Bool
+    fix_wing::Bool
 end
 
 """
@@ -816,7 +821,7 @@ function SystemStructure(name, set;
     jac = zeros(length(wings), nx, ny)
     set.physical_model = name
     sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
-        winches, wings, transforms, y, x, jac, zeros(KVec3))
+        winches, wings, transforms, y, x, jac, zeros(KVec3), false, false)
     reinit!(sys_struct, set)
     return sys_struct
 end

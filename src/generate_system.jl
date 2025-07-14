@@ -60,71 +60,86 @@ function rotation_matrix_to_quaternion(R)
     return [w, x, y, z]
 end
 
-get_pos_w(sys_struct::SystemStructure, idx::Int16) = sys_struct.points[idx].pos_w
+get_pos_w(sys::SystemStructure, idx::Int16) = sys.points[idx].pos_w
 @register_array_symbolic get_pos_w(sys::SystemStructure, idx::Int16) begin
     size=(3,)
     eltype=SimFloat
 end
-get_vel_w(sys_struct::SystemStructure, idx::Int16) = sys_struct.points[idx].vel_w
+get_vel_w(sys::SystemStructure, idx::Int16) = sys.points[idx].vel_w
 @register_array_symbolic get_vel_w(sys::SystemStructure, idx::Int16) begin
     size=(3,)
     eltype=SimFloat
 end
-get_pos_b(sys_struct::SystemStructure, idx::Int16) = sys_struct.points[idx].pos_b
+get_pos_b(sys::SystemStructure, idx::Int16) = sys.points[idx].pos_b
 @register_array_symbolic get_pos_b(sys::SystemStructure, idx::Int16) begin
     size=(3,)
     eltype=SimFloat
 end
-get_wing_pos_w(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].pos_w
+get_wing_pos_w(sys::SystemStructure, idx::Int16) = sys.wings[idx].pos_w
 @register_array_symbolic get_wing_pos_w(sys::SystemStructure, idx::Int16) begin
     size=(3,)
     eltype=SimFloat
 end
-get_wing_vel_w(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].vel_w
+get_wing_vel_w(sys::SystemStructure, idx::Int16) = sys.wings[idx].vel_w
 @register_array_symbolic get_wing_vel_w(sys::SystemStructure, idx::Int16) begin
     size=(3,)
     eltype=SimFloat
 end
-get_Q_b_w(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].Q_b_w
+get_Q_b_w(sys::SystemStructure, idx::Int16) = sys.wings[idx].Q_b_w
 @register_array_symbolic get_Q_b_w(sys::SystemStructure, idx::Int16) begin
     size=(4,)
     eltype=SimFloat
 end
-get_ω_b(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].ω_b
+get_ω_b(sys::SystemStructure, idx::Int16) = sys.wings[idx].ω_b
 @register_array_symbolic get_ω_b(sys::SystemStructure, idx::Int16) begin
     size=(3,)
     eltype=SimFloat
 end
-get_wind_disturb(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].wind_disturb
+get_wind_disturb(sys::SystemStructure, idx::Int16) = sys.wings[idx].wind_disturb
 @register_array_symbolic get_wind_disturb(sys::SystemStructure, idx::Int16) begin
     size=(3,)
     eltype=SimFloat
 end
-get_pulley_len(sys_struct::SystemStructure, idx::Int16) = sys_struct.pulleys[idx].len
+get_vsm_y(sys::SystemStructure, idx::Int16) = sys.wings[idx].vsm_y
+@register_array_symbolic get_wind_disturb(sys::SystemStructure, idx::Int16) begin
+    size=size(sys.vsm_y)
+    eltype=SimFloat
+end
+get_vsm_x(sys::SystemStructure, idx::Int16) = sys.wings[idx].vsm_x
+@register_array_symbolic get_wind_disturb(sys::SystemStructure, idx::Int16) begin
+    size=size(sys.wings[idx].vsm_x)
+    eltype=SimFloat
+end
+get_vsm_jac(sys::SystemStructure, idx::Int16) = sys.wings[idx].vsm_jac
+@register_array_symbolic get_wind_disturb(sys::SystemStructure, idx::Int16) begin
+    size=size(sys.wings[idx].vsm_jac)
+    eltype=SimFloat
+end
+get_pulley_len(sys::SystemStructure, idx::Int16) = sys.pulleys[idx].len
 @register_symbolic get_pulley_len(sys::SystemStructure, idx::Int16)
-get_pulley_vel(sys_struct::SystemStructure, idx::Int16) = sys_struct.pulleys[idx].vel
+get_pulley_vel(sys::SystemStructure, idx::Int16) = sys.pulleys[idx].vel
 @register_symbolic get_pulley_vel(sys::SystemStructure, idx::Int16)
-get_set_value(sys_struct::SystemStructure, idx::Int16) = sys_struct.winches[idx].set_value
+get_set_value(sys::SystemStructure, idx::Int16) = sys.winches[idx].set_value
 @register_symbolic get_set_value(sys::SystemStructure, idx::Int16)
-get_twist(sys_struct::SystemStructure, idx::Int16) = sys_struct.groups[idx].twist
+get_twist(sys::SystemStructure, idx::Int16) = sys.groups[idx].twist
 @register_symbolic get_twist(sys::SystemStructure, idx::Int16)
-get_twist_ω(sys_struct::SystemStructure, idx::Int16) = sys_struct.groups[idx].twist_ω
+get_twist_ω(sys::SystemStructure, idx::Int16) = sys.groups[idx].twist_ω
 @register_symbolic get_twist_ω(sys::SystemStructure, idx::Int16)
-get_mass(sys_struct::SystemStructure, idx::Int16) = sys_struct.points[idx].mass
+get_mass(sys::SystemStructure, idx::Int16) = sys.points[idx].mass
 @register_symbolic get_mass(sys::SystemStructure, idx::Int16)
-get_l0(sys_struct::SystemStructure, idx::Int16) = sys_struct.segments[idx].l0
+get_l0(sys::SystemStructure, idx::Int16) = sys.segments[idx].l0
 @register_symbolic get_l0(sys::SystemStructure, idx::Int16)
-get_diameter(sys_struct::SystemStructure, idx::Int16) = sys_struct.segments[idx].diameter
+get_diameter(sys::SystemStructure, idx::Int16) = sys.segments[idx].diameter
 @register_symbolic get_diameter(sys::SystemStructure, idx::Int16)
-get_compression_frac(sys_struct::SystemStructure, idx::Int16) = sys_struct.segments[idx].compression_frac
+get_compression_frac(sys::SystemStructure, idx::Int16) = sys.segments[idx].compression_frac
 @register_symbolic get_compression_frac(sys::SystemStructure, idx::Int16)
-get_moment_frac(sys_struct::SystemStructure, idx::Int16) = sys_struct.groups[idx].moment_frac
+get_moment_frac(sys::SystemStructure, idx::Int16) = sys.groups[idx].moment_frac
 @register_symbolic get_moment_frac(sys::SystemStructure, idx::Int16)
-get_sum_len(sys_struct::SystemStructure, idx::Int16) = sys_struct.pulleys[idx].sum_len
+get_sum_len(sys::SystemStructure, idx::Int16) = sys.pulleys[idx].sum_len
 @register_symbolic get_sum_len(sys::SystemStructure, idx::Int16)
-get_tether_len(sys_struct::SystemStructure, idx::Int16) = sys_struct.winches[idx].tether_len
+get_tether_len(sys::SystemStructure, idx::Int16) = sys.winches[idx].tether_len
 @register_symbolic get_tether_len(sys::SystemStructure, idx::Int16)
-get_tether_vel(sys_struct::SystemStructure, idx::Int16) = sys_struct.winches[idx].tether_vel
+get_tether_vel(sys::SystemStructure, idx::Int16) = sys.winches[idx].tether_vel
 @register_symbolic get_tether_vel(sys::SystemStructure, idx::Int16)
 
 get_set_mass(set::Settings) = set.mass
@@ -924,31 +939,28 @@ function linear_vsm_eqs!(s, eqs, guesses; aero_force_b, aero_moment_b, group_aer
     ny = 3+length(wings[1].group_idxs)+3
     nx = 3+3+length(wings[1].group_idxs)
     y_ = zeros(length(wings), ny)
-    x_ = zeros(length(wings), nx)
-    jac_ = zeros(length(wings), nx, ny)
     for wing in wings
         y_[wing.idx, :] .= [init_va_b[wing.idx, :]; zeros(length(wing.group_idxs)); zeros(3)]
-    end
-    @parameters begin
-        last_y[eachindex(wings), 1:ny] = y_
-        last_x[eachindex(wings), 1:nx] = x_
-        vsm_jac[eachindex(wings), 1:nx, 1:ny] = jac_
     end
 
     @variables begin
         y(t)[eachindex(wings), 1:ny]
         dy(t)[eachindex(wings), 1:ny]
+        last_y(t)[eachindex(wings), 1:ny] 
+        last_x(t)[eachindex(wings), 1:nx]
+        vsm_jac(t)[eachindex(wings), 1:nx, 1:ny]
     end
 
     for wing in wings
-        last_y_ = [last_y[wing.idx, i] for i in 1:ny] # https://github.com/SciML/ModelingToolkit.jl/issues/3730
-        last_x_ = [last_x[wing.idx, i] for i in 1:nx]
-        vsm_jac_ = [vsm_jac[wing.idx, i, j] for i in 1:nx, j in 1:ny]
         eqs = [
             eqs
+            last_y[wing.idx, :] ~ get_vsm_y(psys, wing.idx)
+            last_x[wing.idx, :] ~ get_vsm_x(psys, wing.idx)
+            vsm_jac[wing.idx, :, :] ~ get_vsm_jac(psys, wing.idx)
             y[wing.idx, :] ~ [va_wing_b[wing.idx, :]; ω_b[wing.idx, :]; twist_angle[wing.group_idxs]]
-            dy[wing.idx, :] ~ y[wing.idx, :] - last_y_
-            [aero_force_b[wing.idx, :]; aero_moment_b[wing.idx, :]; group_aero_moment[wing.group_idxs]] ~ last_x_ + vsm_jac_ * dy[wing.idx, :]
+            dy[wing.idx, :] ~ y[wing.idx, :] - last_y[wing.idx, :]
+            [aero_force_b[wing.idx, :]; aero_moment_b[wing.idx, :]; group_aero_moment[wing.group_idxs]] ~ 
+                last_x[wing.idx, :] + vsm_jac[wing.idx, :, :] * dy[wing.idx, :]
         ]
     
         if s.set.quasi_static
