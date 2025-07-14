@@ -85,7 +85,7 @@ mv -f "$MANIFEST_VERSION_FILE" "${MANIFEST_VERSION_FILE}.bak" 2>/dev/null || tru
 
 # --- 4. Update Julia Packages ---
 echo "Adding/updating Julia packages. This may take a while..."
-# shellcheck disable=SC2086
+$JULIA_CMD --startup-file=no -e "using Pkg; Pkg.add(\"TestEnv\")"
 $JULIA_CMD --startup-file=no --project -e '
     using TestEnv
     println("--> Activating environment...");
