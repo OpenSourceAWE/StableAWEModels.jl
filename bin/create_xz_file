@@ -1,47 +1,37 @@
 #!/bin/bash -eu
-# SPDX-FileCopyrightText: 2025 Uwe Fechner
+# SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 # SPDX-License-Identifier: MIT
 
-if [[ $(basename $(pwd)) == "bin" ]]; then
+# This script creates a compressed model file for a specific Julia version.
+#
+# Usage:
+#   ./create_xz.sh          # Uses the default Julia version
+#   ./create_xz.sh +1.12    # Uses Julia v1.12
+
+# Ensure the script runs from the project root
+if [[ $(basename "$(pwd)") == "bin" ]]; then
     cd ..
 fi
 
-julia_version=$(julia --version | awk '{print($3)}')
-julia_major=${julia_version:0:3}
-if [[ $julia_major == "1.1" ]]; then
-    julia_major=${julia_version:0:4} 
-fi
-if [ -d .git ] || git rev-parse --git-dir > /dev/null 2>&1 ; then
-    branch=$(git rev-parse --abbrev-ref HEAD | sed 's/\//-/g')
+# --- 1. Determine Julia Version ---
+julia_channel_arg=""
+if [[ "${1-}" == \+* ]]; then
+    julia_channel_arg="$1"
+    julia_major="${1#+}"
 else
-    branch=""
-fi
-if [[ $branch != "" ]]; then
-    SOFILE="bin/kps-image-${julia_major}-${branch}.so"
-else
-    SOFILE="bin/kps-image-${julia_major}.so"
+    julia_major=$(julia --version | cut -d' ' -f3 | cut -d'.' -f1,2)
 fi
 
-echo "Creating xz file for prob_dynamic_v${julia_major}_3_seg.bin.default.xz ..."
-if [[ $julia_major == "1.10" ]]; then
-    rm -f data/model_1.10_ram_dynamic_3_seg.bin.default
-    rm -f data/model_1.10_ram_dynamic_3_seg.bin.default.xz
-    echo "using SymbolicAWEModels. Please ignore the error message about the missing input file!"
-    printf ' ' >> src/precompile.jl
-    julia --project -J $SOFILE -e 'using SymbolicAWEModels; include("test/create_xz_file.jl")'
-    cp data/model_1.10_ram_dynamic_3_seg.bin data/model_1.10_ram_dynamic_3_seg.bin.default
-    xz data/model_1.10_ram_dynamic_3_seg.bin.default
-else
-    rm -f data/model_1.11_ram_dynamic_3_seg.bin.default
-    rm -f data/model_1.11_ram_dynamic_3_seg.bin.default.xz
-    echo "using SymbolicAWEModels. Please ignore the error message about the missing input file!"
-    printf ' ' >> src/precompile.jl
-    julia --project -J $SOFILE -e 'using SymbolicAWEModels; include("test/create_xz_file.jl")'
-    cp data/model_1.11_ram_dynamic_3_seg.bin data/model_1.11_ram_dynamic_3_seg.bin.default
-    xz data/model_1.11_ram_dynamic_3_seg.bin.default
-fi
+# --- 2. Define Dynamic Filenames ---
+MODEL_FILE_BASE="data/model_${julia_major}_ram_dynamic_3_seg.bin"
+MODEL_DEFAULT_FILE="${MODEL_FILE_BASE}.default"
+XZ_FILE="${MODEL_DEFAULT_FILE}.xz"
 
-echo "using SymbolicAWEModels..."
-truncate -s -1 src/precompile.jl
-julia --project -J $SOFILE -e 'using SymbolicAWEModels'
-echo "Done creating prob_dynamic_v${julia_major}_3_seg.bin.default.xz !"
+# --- 3. Generate and Compress Model File ---
+echo "Creating xz file ${XZ_FILE}..."
+rm -f "$MODEL_DEFAULT_FILE" "$XZ_FILE"
+./bin/run_julia "$@" -e 'using SymbolicAWEModels; include("test/create_xz_file.jl")'
+echo "--> Compressing model file..."
+cp "$MODEL_FILE_BASE" "$MODEL_DEFAULT_FILE"
+xz "$MODEL_DEFAULT_FILE"
+echo "✅ Done creating ${XZ_FILE}!"
