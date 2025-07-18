@@ -1,4 +1,4 @@
-using SymbolicAWEModels, VortexStepMethod, KiteUtils, ControlPlots, Statistics
+using SymbolicAWEModels, VortexStepMethod, KiteUtils, ControlPlots, Statistics, LinearAlgebra
 
 # Assuming 'sam' setup code from your snippet has been run
 set = Settings("system.yaml")
@@ -15,26 +15,26 @@ initial_tether_lens = [winches[j].tether_len for j in 1:3]
 steps = 1000
 winches = sam.sys_struct.winches
 sam.integrator.ps[sys.fix_wing] = true
-next_step!(sam; dt=1e-6, vsm_interval=0)
+#=next_step!(sam; dt=1e-6, vsm_interval=0)=#
 
-delta_F = 1.0 # Newtons
+delta_F = -0.1 # Newtons
 tether_lens = zeros(3, steps+1)
 tether_lens[:, 1] .= initial_tether_lens # Store the initial lengths
 set_values = -sam.set.drum_radius .* sam.integrator[sys.winch_force] .+ delta_F # Apply delta_F
-last_abs = 0.0
-stopped = false
+last_abs = Inf
 rel_error = Inf
 @time for step in 1:steps
-    global last_abs, rel_error, stopped
+    global last_abs, rel_error
     next_step!(sam; set_values, vsm_interval=0)
     [tether_lens[j, step+1] = winches[j].tether_len for j in 1:3] # Store after step
     abs_error = abs(tether_lens[1, step+1] - tether_lens[1, step])
     rel_error = abs(abs_error - last_abs)
     last_abs = abs_error
-    if rel_error < 1e-8 && !stopped
-        println("Relerror: $rel_error")
+    if rel_error < 1e-8
+        println("Relative error: $rel_error \t Absolute error: $abs_error")
         println("Stopped at step $step")
-        stopped = true
+        tether_lens[:, step+2:end] .= tether_lens[:, step+1]
+        break
     end
     step += 1
 end
@@ -63,7 +63,7 @@ for j in 1:3
     println("Final (Steady-State) Tether Length: $(final_len) m")
     println("Steady-State Change in Length (Delta_x_ss): $(delta_x_ss) m")
 
-    if abs(delta_x_ss) < 1e-9 # Avoid division by zero or very small numbers
+    if abs(delta_x_ss) < 1e-6 # Avoid division by zero or very small numbers
         println("Warning: Steady-state change in length is too small for Tether $(j). Cannot reliably calculate k.")
         k_values[j] = NaN
         c_values[j] = NaN
@@ -73,7 +73,7 @@ for j in 1:3
     # Calculate Spring Stiffness (k)
     k = delta_F / delta_x_ss * initial_len
     k_values[j] = k
-    println("Spring stiffness constant (k): $(k) N/m")
+    println("Spring stiffness constant (k): $(k) N")
 
     # Calculate Time Constant (tau)
     # Target value for (1 - 1/ℯ) of the change
@@ -112,12 +112,13 @@ end
 
 println("\nSummary of Results:")
 for j in 1:3
-    println("Tether $(j): k = $(k_values[j]) N/m, c = $(c_values[j]) Ns/m")
+    println("Tether $(j): k = $(k_values[j]) N, c = $(c_values[j]) Ns")
 end
 
-# You can also plot to visually inspect the fits:
-# Using ControlPlots, you could try to overlay theoretical exponential response.
-# For example, for tether 1:
-# t_sim = (0:steps) .* dt_sim
-# theoretical_x = initial_tether_lens[1] .+ delta_x_ss_tether1 .* (1 .- exp.(-t_sim ./ tau_tether1))
-# plotx(t_sim, all_tether_lens[1,:], theoretical_x) # You'd need to replace with actual values
+points = [
+    Point(1, [0, 0, 0], STATIC)
+    Point(2, [0, 0, -1], DYNAMIC)
+]
+segments = [
+    Segment(1, (1,2), BRIDLE)
+]
