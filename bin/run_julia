@@ -1,45 +1,39 @@
 #!/bin/bash -eu
-# SPDX-FileCopyrightText: 2025 Uwe Fechner
+# SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 # SPDX-License-Identifier: MIT
 
-if [[ $(basename $(pwd)) == "bin" ]]; then
+# Ensure the script runs from the project root
+if [[ $(basename "$(pwd)") == "bin" ]]; then
     cd ..
 fi
 
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
 
-julia_version=$(julia --version | awk '{print($3)}')
-julia_major=${julia_version:0:3} 
-if [[ $julia_major == "1.1" ]]; then
-    julia_major=${julia_version:0:4} 
+julia_channel=""
+if [[ "${1-}" == \+* ]]; then
+    julia_channel="$1"
+    julia_major="${1#+}"
+else
+    julia_major=$(julia --version | cut -d' ' -f3 | cut -d'.' -f1,2)
 fi
 
-if [ -d .git ] || git rev-parse --git-dir > /dev/null 2>&1 ; then
+# --- Find system image ---
+branch=""
+if git rev-parse --git-dir > /dev/null 2>&1; then
     branch=$(git rev-parse --abbrev-ref HEAD | sed 's/\//-/g')
-else
-    branch=""
+fi
+# Construct the system image path dynamically
+SOFILE="bin/kps-image-${julia_major}.so"
+if [[ -n "$branch" ]]; then
+    SOFILE="bin/kps-image-${julia_major}-${branch}.so"
 fi
 
-if [[ $HOSTNAME == "ufryzen" || $HOSTNAME == "framework" ]]; then
-    GCT="--gcthreads=8,1"
-    # export NO_MTK=true
-    export USE_V9=true
+# --- Execution logic ---
+# Pass any remaining arguments ("$@") to the julia executable
+if test -f "$SOFILE"; then
+    echo "Found system image: $SOFILE"
+    julia "$@" -J "$SOFILE" --project
 else
-    GCT="--gcthreads=4,1"
-fi
-
-if [[ $branch != "" ]]; then
-    if test -f "bin/kps-image-${julia_major}-${branch}.so"; then
-        echo "Found system image!"
-        julia +${julia_major} -J  bin/kps-image-${julia_major}-${branch}.so -t 1 $GCT --project -i -e 'using SymbolicAWEModels'
-    else
-        julia +${julia_major} $GCT --project  -i # -e 'using SymbolicAWEModels'
-    fi
-else
-    if test -f "bin/kps-image-${julia_major}.so"; then
-        echo "Found system image!"
-        julia +${julia_major} -J  bin/kps-image-${julia_major}.so -t 1 $GCT --project -i -e 'using SymbolicAWEModels'
-    else
-        julia +${julia_major} $GCT --project -i # -e 'using SymbolicAWEModels'
-    fi
+    echo "No system image found, starting default Julia session..."
+    julia "$@" --project
 fi

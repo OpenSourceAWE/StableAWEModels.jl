@@ -3,6 +3,10 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.1.2 13-07-2025
+## Changed
+- Update VortexStepMethod.jl
+
 # v0.1.1 13-07-2025
 ## Added
 - Added a simple linearized model
