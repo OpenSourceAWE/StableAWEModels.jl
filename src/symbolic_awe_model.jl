@@ -307,6 +307,7 @@ and only update the state variables. Otherwise, it will create a new model from 
 function KiteUtils.init!(s::SymbolicAWEModel; 
     solver=nothing, adaptive=true, prn=true, 
     precompile=false, remake=false, reload=false, 
+    delta=nothing, stiffness_factor=nothing,
     lin_outputs=nothing
 )
     if isnothing(solver)
