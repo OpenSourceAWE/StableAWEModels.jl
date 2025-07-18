@@ -9,9 +9,23 @@ on:
 
 jobs:
   update-and-pr:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request && github.event.pull_request.merged == true) }}
+    if: >
+      github.event_name == 'workflow_dispatch'
+      || (
+        github.event_name == 'pull_request'
+        && github.event.pull_request.merged == true
+        && !startsWith(github.head_ref, 'update-manifest-')
+      )
     runs-on: ubuntu-latest
-
+    
+    permissions:
+      contents: write
+      pull-requests: write
+      
+    strategy:
+      matrix:
+        julia-version: ['1.10', '1.11']
+        
     steps:
       - name: Install matplotlib
         run: sudo apt-get install -y python3-matplotlib
@@ -30,8 +44,8 @@ jobs:
       - name: Set up Julia
         uses: julia-actions/install-juliaup@v2
         with:
-          channel: 'release'
-
+          channel: ${{ matrix.julia-version }}
+          
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
 
@@ -40,10 +54,14 @@ jobs:
         shell: bash
 
       - name: Run update script
-        run: bin/update_default_manifest
+        run: bin/update_manifest --default
 
       - name: Create xz files
         run: bin/create_xz_file
+
+      - name: Remove PyCall
+        run: julia --project -e 'ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.rm("PyCall")'
+        shell: bash
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
@@ -54,3 +72,8 @@ jobs:
           body: "Automated update of default manifest and xz files."
           commit-message: "Update xz files"
 
+      - name: Trigger CI workflow via repository_dispatch
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          event-type: auto-pr-created
+          client-payload: '{"ref": "refs/heads/update-manifest-${{ github.run_id }}"}'
