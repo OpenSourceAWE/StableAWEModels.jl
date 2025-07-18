@@ -100,21 +100,12 @@ get_wind_disturb(sys::SystemStructure, idx::Int16) = sys.wings[idx].wind_disturb
     size=(3,)
     eltype=SimFloat
 end
-get_vsm_y(sys::SystemStructure, idx::Int16) = sys.wings[idx].vsm_y
-@register_array_symbolic get_wind_disturb(sys::SystemStructure, idx::Int16) begin
-    size=size(sys.vsm_y)
-    eltype=SimFloat
-end
-get_vsm_x(sys::SystemStructure, idx::Int16) = sys.wings[idx].vsm_x
-@register_array_symbolic get_wind_disturb(sys::SystemStructure, idx::Int16) begin
-    size=size(sys.wings[idx].vsm_x)
-    eltype=SimFloat
-end
-get_vsm_jac(sys::SystemStructure, idx::Int16) = sys.wings[idx].vsm_jac
-@register_array_symbolic get_wind_disturb(sys::SystemStructure, idx::Int16) begin
-    size=size(sys.wings[idx].vsm_jac)
-    eltype=SimFloat
-end
+get_vsm_y(sys::SystemStructure, idx::Int16, iy::Int) = sys.wings[idx].vsm_y[iy]
+@register_symbolic get_vsm_y(sys::SystemStructure, idx::Int16, iy::Int)
+get_vsm_x(sys::SystemStructure, idx::Int16, ix::Int) = sys.wings[idx].vsm_x[ix]
+@register_symbolic get_vsm_x(sys::SystemStructure, idx::Int16, ix::Int)
+get_vsm_jac(sys::SystemStructure, idx::Int16, ix::Int, iy::Int) = sys.wings[idx].vsm_jac[ix,iy]
+@register_symbolic get_vsm_jac(sys::SystemStructure, idx::Int16, ix::Int, iy::Int)
 get_pulley_len(sys::SystemStructure, idx::Int16) = sys.pulleys[idx].len
 @register_symbolic get_pulley_len(sys::SystemStructure, idx::Int16)
 get_pulley_vel(sys::SystemStructure, idx::Int16) = sys.pulleys[idx].vel
@@ -907,7 +898,7 @@ function Base.getindex(x::ModelingToolkit.Symbolics.SymArray, idxs::Vector{Int16
 end
 
 """
-linear_vsm_eqs!(s, eqs; aero_force_b, aero_moment_b, group_aero_moment, init_va_b, twist_angle, va_wing_b, ω_b)
+linear_vsm_eqs!(s, eqs; aero_force_b, aero_moment_b, group_aero_moment, twist_angle, va_wing_b, ω_b)
 
 Generate linearized aerodynamic equations using the Vortex Step Method (VSM).
 Uses linearization around current operating point to approximate aerodynamic forces
@@ -919,7 +910,6 @@ and moments. The Jacobian is computed using the VSM solver.
 - `aero_force_b`: Aerodynamic forces in body frame
 - `aero_moment_b`: Aerodynamic moments in body frame 
 - `group_aero_moment`: Aerodynamic moments per group
-- `init_va_b`: Initial apparent wind velocity
 - `twist_angle`: Twist angles per group
 - `va_wing_b`: Apparent wind velocity in body frame
 - `ω_b`: Angular velocity in body frame
@@ -930,7 +920,7 @@ and moments. The Jacobian is computed using the VSM solver.
 - Group moment distributions
 - Jacobian matrix for state derivatives
 """
-function linear_vsm_eqs!(s, eqs, guesses; aero_force_b, aero_moment_b, group_aero_moment, init_va_b, twist_angle, va_wing_b, ω_b)
+function linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, aero_moment_b, group_aero_moment, twist_angle, va_wing_b, ω_b)
     @unpack groups, wings = s.sys_struct
     if length(wings) == 0
         return eqs, guesses
@@ -938,10 +928,6 @@ function linear_vsm_eqs!(s, eqs, guesses; aero_force_b, aero_moment_b, group_aer
 
     ny = 3+length(wings[1].group_idxs)+3
     nx = 3+3+length(wings[1].group_idxs)
-    y_ = zeros(length(wings), ny)
-    for wing in wings
-        y_[wing.idx, :] .= [init_va_b[wing.idx, :]; zeros(length(wing.group_idxs)); zeros(3)]
-    end
 
     @variables begin
         y(t)[eachindex(wings), 1:ny]
@@ -954,9 +940,9 @@ function linear_vsm_eqs!(s, eqs, guesses; aero_force_b, aero_moment_b, group_aer
     for wing in wings
         eqs = [
             eqs
-            last_y[wing.idx, :] ~ get_vsm_y(psys, wing.idx)
-            last_x[wing.idx, :] ~ get_vsm_x(psys, wing.idx)
-            vsm_jac[wing.idx, :, :] ~ get_vsm_jac(psys, wing.idx)
+            [last_y[wing.idx, iy] ~ get_vsm_y(psys, wing.idx, iy) for iy in 1:ny]
+            [last_x[wing.idx, ix] ~ get_vsm_x(psys, wing.idx, ix) for ix in 1:nx]
+            [vsm_jac[wing.idx, ix, iy] ~ get_vsm_jac(psys, wing.idx, ix, iy) for ix in 1:nx for iy in 1:ny]
             y[wing.idx, :] ~ [va_wing_b[wing.idx, :]; ω_b[wing.idx, :]; twist_angle[wing.group_idxs]]
             dy[wing.idx, :] ~ y[wing.idx, :] - last_y[wing.idx, :]
             [aero_force_b[wing.idx, :]; aero_moment_b[wing.idx, :]; group_aero_moment[wing.group_idxs]] ~ 
@@ -964,13 +950,13 @@ function linear_vsm_eqs!(s, eqs, guesses; aero_force_b, aero_moment_b, group_aer
         ]
     
         if s.set.quasi_static
-            guesses = [guesses; [y[wing.idx, i] => y_[wing.idx, i] for i in 1:ny]]
+            guesses = [guesses; [y[wing.idx, iy] => get_vsm_y(psys, wing.idx, iy) for iy in 1:ny]]
         end
     end
     return eqs, guesses
 end
 
-function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b, prn=true)
+function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
     eqs = []
     defaults = Pair{Num, Any}[]
     guesses = Pair{Num, Any}[]
@@ -1009,8 +995,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b, pr
         force_eqs!(s, system, psys, pset, eqs, defaults, guesses; 
             R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, 
             twist_angle, twist_ω, stabilize, set_values, fix_wing)
-    eqs, guesses = linear_vsm_eqs!(s, eqs, guesses; aero_force_b, 
-            aero_moment_b, group_aero_moment, init_va_b, twist_angle, va_wing_b, ω_b)
+    eqs, guesses = linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, 
+            aero_moment_b, group_aero_moment, twist_angle, va_wing_b, ω_b)
     eqs, defaults = wing_eqs!(s, eqs, psys, pset, defaults; 
             tether_wing_force, tether_wing_moment, aero_force_b, aero_moment_b, 
             ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, stabilize, fix_wing)

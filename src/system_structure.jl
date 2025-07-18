@@ -583,9 +583,17 @@ Create a wing with identity orientation and two attached groups:
 ```
 """
 function Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1)
-    return Wing(idx, group_idxs, transform_idx, R_b_c, pos_cad, zeros(4), zeros(KVec3),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+    ny = length(group_idxs)+3+3
+    nx = length(group_idxs)+3+3
+    return Wing(idx, 
+        # Structural information
+        group_idxs, transform_idx, R_b_c, pos_cad, 
+        # Differential variables in world frame, updated during simulation
+        zeros(4), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        # Derived variables and parameters, updated during simulation
+        zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
         zeros(KVec3), zeros(KVec3), 0.0, 0.0)
 end
@@ -973,6 +981,11 @@ function reinit!(sys_struct::SystemStructure, set::Settings)
     end
 
     reinit!(transforms, sys_struct)
+    for wing in wings
+        wing.vsm_y .= 0.0
+        wing.vsm_y[1:3] .= wing.R_b_w' * [set.v_wind, 0., 0.]
+    end
+
     return nothing
 end
 

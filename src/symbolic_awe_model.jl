@@ -40,6 +40,7 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
     get_set_values::Union{Function, Nothing}    = nothing
     get_unknowns::Union{Function, Nothing}      = nothing
     get_wing_state::Union{Function, Nothing}    = nothing
+    get_vsm_y::Union{Function, Nothing}         = nothing
     get_segment_state::Union{Function, Nothing} = nothing
     get_winch_state::Union{Function, Nothing}   = nothing
     get_tether_state::Union{Function, Nothing}  = nothing
@@ -322,10 +323,9 @@ function init!(s::SymbolicAWEModel;
         end
     end
     function init(s)
-        init_Q_b_w, R_b_w, init_va_b = initial_orient(s)
         reinit!(s.sys_struct, s.set)
         
-        inputs = create_sys!(s, s.sys_struct; init_va_b, prn)
+        inputs = create_sys!(s, s.sys_struct; prn)
         prn && @info "Simplifying the system"
         prn ? (@time sys = mtkcompile(s.full_sys; inputs)) :
             (sys = mtkcompile(s.full_sys; inputs))
@@ -420,8 +420,6 @@ function reinit!(
 )
     isnothing(s.sys_struct) && error("SystemStructure not defined")
 
-    # init_Q_b_w, R_b_w, init_va_b = initial_orient(s)
-    
     if isnothing(s.prob) || reload
         model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set; precompile))
         if !ispath(model_path)
@@ -532,11 +530,6 @@ function generate_getters!(s, sym_vec, lin_y_vec)
     end
 
     if length(wings) > 0
-        vsm_sym = c.([
-            sys.last_x,
-            sys.last_y,
-            sys.vsm_jac,
-        ])
         get_wing_state = getu(sys, c.([
             sys.Q_b_w,           # Orientation quaternion
             sys.ω_b,             # Angular velocity (body frame)
@@ -560,6 +553,8 @@ function generate_getters!(s, sym_vec, lin_y_vec)
             sys.angle_of_attack,
         ]))
         s.get_wing_state = (integ) -> get_wing_state(integ)
+        get_vsm_y = getu(sys, sys.y)
+        s.get_vsm_y = (integ) -> get_vsm_y(integ)
     end
 
     if length(segments) > 0
@@ -901,27 +896,6 @@ function get_nonstiff_unknowns(sys_struct::SystemStructure, sys::System, vec=Num
         [push!(vec, sys.wing_vel[wing.idx, i]) for i in 1:3]
     end
     return vec
-end
-
-function initial_orient(s::SymbolicAWEModel)
-    set = s.set
-    wings = s.sys_struct.wings
-    R_b_w = zeros(length(wings), 3, 3)
-    Q_b_w = zeros(length(wings), 4)
-    init_va_b = zeros(length(wings), 3)
-    for wing in wings
-        R_cad_body = s.vsm_wings[wing.idx].R_cad_body
-        x = [0, 0, -1] # laying flat along x axis
-        z = [1, 0, 0] # laying flat along x axis
-        x = rotate_around_y(x, -deg2rad(set.elevation))
-        z = rotate_around_y(z, -deg2rad(set.elevation))
-        x = rotate_around_z(x, deg2rad(set.azimuth))
-        z = rotate_around_z(z, deg2rad(set.azimuth))
-        R_b_w[wing.idx, :, :] .= R_cad_body' * hcat(x, z × x, z)
-        Q_b_w[wing.idx, :] .= rotation_matrix_to_quaternion(R_b_w[wing.idx, :, :])
-        init_va_b[wing.idx, :] .= R_b_w[wing.idx, :, :]' * [s.set.v_wind, 0., 0.]
-    end
-    return Q_b_w, R_b_w, init_va_b
 end
 
 """Returns the unstretched tether length of the symbolic AWE model."""

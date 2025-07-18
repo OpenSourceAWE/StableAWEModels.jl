@@ -12,38 +12,26 @@ function find_steady_state!(s::SymbolicAWEModel, integ=s.integrator; t=1.0, dt=1
     return nothing
 end
 
-#=function find_steady_winch_state!(s::SymbolicAWEModel, integ=s.integrator; =#
-#=    t=1.0, dt=1/s.set.sample_freq=#
-#=)=#
-#=    old_state = s.get_stabilize(integ)=#
-#=    s.set_fix_wing(integ, (false, true))=#
-#=    for _ in 1:Int(round(t÷dt))=#
-#=        set_values = # TODO: add tether_force to mtk model =#
-#=        next_step!(s; dt, vsm_interval=0)=#
-#=    end=#
-#=    s.set_stabilize(integ, old_state)=#
-#=    update_sys_struct!(s, s.sys_struct)=#
-#=    return nothing=#
-#=end=#
-
 function linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
-    @unpack wings, y, x, jac = s.sys_struct
+    wings = s.sys_struct.wings
     if length(wings) > 0
-        y .= s.get_vsm_y(integ)
+        vsm_y = s.get_vsm_y(integ)
         for wing in wings
+            wing.vsm_y .= vsm_y[wing.idx,:]
+            @show wing.vsm_y
             res = VortexStepMethod.linearize(
                 s.vsm_solvers[wing.idx], 
                 s.vsm_aeros[wing.idx], 
-                y[wing.idx, :];
+                wing.vsm_y;
                 va_idxs=1:3, 
                 omega_idxs=4:6,
                 theta_idxs=7:6+length(s.sys_struct.groups),
                 moment_frac=s.sys_struct.groups[1].moment_frac
             )
-            jac[wing.idx, :, :] .= res[1]
-            x[wing.idx, :] .= res[2]
+            wing.vsm_jac .= res[1]
+            wing.vsm_x .= res[2]
         end
-        s.set_vsm(integ, [x, y, jac])
+        s.set_psys(integ, s.sys_struct)
     end
     nothing
 end
