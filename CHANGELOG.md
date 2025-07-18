@@ -3,6 +3,10 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.1.3 18-07-2025
+## Changed
+- Add interface keyword arguments to `init!`
+
 # v0.1.2 13-07-2025
 ## Changed
 - Update VortexStepMethod.jl
