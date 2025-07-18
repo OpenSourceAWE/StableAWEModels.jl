@@ -12,7 +12,7 @@ winches = sam.sys_struct.winches
 initial_tether_lens = [winches[j].tether_len for j in 1:3]
 @show initial_tether_lens
 
-steps = 100
+steps = 1000
 winches = sam.sys_struct.winches
 sam.integrator.ps[sys.fix_wing] = true
 next_step!(sam; dt=1e-6, vsm_interval=0)
@@ -21,13 +21,22 @@ delta_F = 1.0 # Newtons
 tether_lens = zeros(3, steps+1)
 tether_lens[:, 1] .= initial_tether_lens # Store the initial lengths
 set_values = -sam.set.drum_radius .* sam.integrator[sys.winch_force] .+ delta_F # Apply delta_F
-dstep = Int(round(1÷dt))
-@time for i in 1:steps
+last_abs = 0.0
+stopped = false
+rel_error = Inf
+@time for step in 1:steps
+    global last_abs, rel_error, stopped
     next_step!(sam; set_values, vsm_interval=0)
-    [tether_lens[j, i + 1] = winches[j].tether_len for j in 1:3] # Store after step
-    if i > dstep
-        @show abs(tether_lens[1, i+1] - tether_lens[1, i-dstep])
+    [tether_lens[j, step+1] = winches[j].tether_len for j in 1:3] # Store after step
+    abs_error = abs(tether_lens[1, step+1] - tether_lens[1, step])
+    rel_error = abs(abs_error - last_abs)
+    last_abs = abs_error
+    if rel_error < 1e-8 && !stopped
+        println("Relerror: $rel_error")
+        println("Stopped at step $step")
+        stopped = true
     end
+    step += 1
 end
 
 display(plotx(
