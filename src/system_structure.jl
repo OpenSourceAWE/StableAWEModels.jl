@@ -276,9 +276,9 @@ end
 function Segment(idx, set, point_idxs, type;
     l0=zero(SimFloat), compression_frac=0.1
 )
-    (type === BRIDLE) && (diameter = 0.001* set.bridle_tether_diameter)
-    (type === POWER_LINE) && (diameter = 0.001* set.power_tether_diameter)
-    (type === STEERING_LINE) && (diameter = 0.001* set.steering_tether_diameter)
+    (type == BRIDLE) && (diameter = 0.001* set.bridle_tether_diameter)
+    (type == POWER_LINE) && (diameter = 0.001* set.power_tether_diameter)
+    (type == STEERING_LINE) && (diameter = 0.001* set.steering_tether_diameter)
 
     axial_stiffness = set.e_tether * (diameter/2)^2 * π
     if type == BRIDLE
@@ -497,6 +497,11 @@ quat = wing.Q_b_w  # Returns quaternion representation of R_b_c
 mutable struct Wing
     const idx::Int16
 
+    # VSM aerodynamics
+    vsm_aero::VortexStepMethod.BodyAerodynamics
+    vsm_wing::VortexStepMethod.RamAirWing
+    vsm_solver::VortexStepMethod.Solver
+
     # Structural information
     const group_idxs::Vector{Int16}
     const transform_idx::Int16
@@ -547,8 +552,9 @@ function Base.setproperty!(wing::Wing, sym::Symbol, value)
 end
 
 """
-    Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1, ω_b=zeros(KVec3), 
-         pos_w=zeros(KVec3), vel_w=zeros(KVec3))
+    Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; 
+        transform_idx=1, ω_b=zeros(KVec3), 
+        pos_w=zeros(KVec3), vel_w=zeros(KVec3))
 
 Constructs a Wing object representing a rigid body that serves as a reference frame for attached points and groups.
 
@@ -611,10 +617,13 @@ Create a wing with identity orientation and two attached groups:
   wing = Wing(1, [1, 2], R_b_c, pos_cad)
 ```
 """
-function Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1)
+function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; 
+    transform_idx=1
+)
     ny = length(group_idxs)+3+3
     nx = length(group_idxs)+3+3
     return Wing(idx, 
+        vsm_aero, vsm_wing, vsm_solver,
         # Structural information
         group_idxs, transform_idx, R_b_c, pos_cad, 
         # Differential variables in world frame, updated during simulation

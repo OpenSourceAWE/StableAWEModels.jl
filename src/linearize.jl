@@ -19,8 +19,8 @@ function linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
         for wing in wings
             wing.vsm_y .= vsm_y[wing.idx,:]
             res = VortexStepMethod.linearize(
-                s.vsm_solvers[wing.idx], 
-                s.vsm_aeros[wing.idx], 
+                wing.vsm_solver, 
+                wing.vsm_aero, 
                 wing.vsm_y;
                 va_idxs=1:3, 
                 omega_idxs=4:6,

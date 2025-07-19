@@ -5,12 +5,6 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
 
 @with_kw mutable struct SerializedModel
     set_hash::Vector{UInt8}
-    "Reference to the geometric wing model"
-    vsm_wings::Vector{VortexStepMethod.RamAirWing}
-    "Reference to the aerodynamic wing model"
-    vsm_aeros::Vector{VortexStepMethod.BodyAerodynamics}
-    "Reference to the VSM aerodynamics solver"
-    vsm_solvers::Vector{VortexStepMethod.Solver}
     sys_struct_hash::Vector{UInt8}
     "Simplified system of the mtk model"
     sys::Union{ModelingToolkit.System, Nothing} = nothing
@@ -142,13 +136,10 @@ model = SymbolicAWEModel(set, sys_struct, [aero], [solver])
 function SymbolicAWEModel(
     set::Settings, 
     sys_struct::SystemStructure,
-    vsm_aeros::Vector{<:BodyAerodynamics}=BodyAerodynamics[], 
-    vsm_solvers::Vector{<:VortexStepMethod.Solver}=VortexStepMethod.Solver[]
 )
-    vsm_wings = [aero.wings[1] for aero in vsm_aeros]
     set_hash = get_set_hash(set)
     sys_struct_hash = get_sys_struct_hash(sys_struct)
-    serialized_model = SerializedModel(; set_hash, sys_struct_hash, vsm_wings, vsm_aeros, vsm_solvers)
+    serialized_model = SerializedModel(; set_hash, sys_struct_hash)
     return SymbolicAWEModel(; set, sys_struct, serialized_model)
 end
 
@@ -182,11 +173,8 @@ end
 ```
 """
 function SymbolicAWEModel(set::Settings)
-    wing = RamAirWing(set; prn=false)
-    aero = BodyAerodynamics([wing])
-    vsm_solver = Solver(aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
-    sys_struct = SystemStructure(set, wing)
-    return SymbolicAWEModel(set, sys_struct, [aero], [vsm_solver])
+    sys_struct = SystemStructure(set)
+    return SymbolicAWEModel(set, sys_struct)
 end
 
 function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
@@ -781,7 +769,7 @@ end
 Calculate and return the angle of attack in rad
 """
 function calc_aoa(s::SymbolicAWEModel)
-    alpha_array = s.vsm_solvers[1].sol.alpha_array
+    alpha_array = s.sys_struct.wings[1].vsm_solver.sol.alpha_array
     middle = length(alpha_array) ÷ 2
     if iseven(length(alpha_array))
         return 0.5alpha_array[middle] + 0.5alpha_array[middle+1]
@@ -920,9 +908,10 @@ end
 
 function min_chord_len(s::SymbolicAWEModel)
     min_len = Inf
-    for wing in s.vsm_wings
-        le_pos = [wing.le_interp[i](wing.gamma_tip) for i in 1:3]
-        te_pos = [wing.te_interp[i](wing.gamma_tip) for i in 1:3]
+    for wing in s.sys_struct.wings
+        vsm_wing = wing.vsm_wing
+        le_pos = [vsm_wing.le_interp[i](vsm_wing.gamma_tip) for i in 1:3]
+        te_pos = [vsm_wing.te_interp[i](vsm_wing.gamma_tip) for i in 1:3]
         min_len = min(norm(le_pos - te_pos), min_len)
     end
     return min_len

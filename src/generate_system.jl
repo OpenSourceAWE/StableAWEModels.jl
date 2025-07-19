@@ -683,7 +683,7 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
             ω[3]    ω[2]  -ω[1]   0]
 
     for wing in wings
-        vsm_wing = s.vsm_wings[wing.idx]
+        vsm_wing = wing.vsm_wing
         I_b = [vsm_wing.inertia_tensor[1,1], vsm_wing.inertia_tensor[2,2], vsm_wing.inertia_tensor[3,3]]
         axis = sym_normalize(wing_pos[wing.idx, :])
         axis_b = R_b_w[wing.idx, :, :]' * axis
