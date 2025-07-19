@@ -132,6 +132,12 @@ get_tether_len(sys::SystemStructure, idx::Int16) = sys.winches[idx].tether_len
 @register_symbolic get_tether_len(sys::SystemStructure, idx::Int16)
 get_tether_vel(sys::SystemStructure, idx::Int16) = sys.winches[idx].tether_vel
 @register_symbolic get_tether_vel(sys::SystemStructure, idx::Int16)
+get_axial_stiffness(sys::SystemStructure, idx::Int16) = sys.segments[idx].axial_stiffness
+@register_symbolic get_axial_stiffness(sys::SystemStructure, idx::Int16)
+get_axial_damping(sys::SystemStructure, idx::Int16) = sys.segments[idx].axial_damping
+@register_symbolic get_axial_damping(sys::SystemStructure, idx::Int16)
+get_bridle_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].bridle_damping
+@register_symbolic get_bridle_damping(sys::SystemStructure, idx::Int16)
 
 get_set_mass(set::Settings) = set.mass
 @register_symbolic get_set_mass(set::Settings)
@@ -209,7 +215,6 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
     for point in points
         F::Vector{Num} = zeros(Num, 3)
         mass = get_mass(psys, point.idx)
-        in_bridle = false
         for segment in segments
             if point.idx in segment.point_idxs
                 mass_per_meter = get_rho_tether(pset) * π * (get_diameter(psys, segment.idx)/2)^2
@@ -221,10 +226,6 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 end
                 mass += mass_per_meter * l0[segment.idx] / 2
                 F .+= 0.5drag_force[:, segment.idx]
-
-                if segment.type == BRIDLE
-                    in_bridle = true
-                end
             end
         end
         @assert !iszero(mass)
@@ -294,12 +295,8 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             # n = sym_normalize(wing_pos)
             # n = n * (p ⋅ n)
             # r = (p - n) # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Vector_formulation
-            @parameters bridle_damp = 1.0
-            @parameters measured_ω_z = 0.6
-            if in_bridle && length(wings) > 0
-                bridle_damp_vec = bridle_damp * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
-            else
-                bridle_damp_vec = zeros(Num, 3)
+            if length(wings) > 0
+                bridle_damp_vec = get_bridle_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
             end
             eqs = [
                 eqs
@@ -498,12 +495,6 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             end
         end
 
-        stiffness_m = get_e_tether(pset) * (get_diameter(psys, segment.idx)/2)^2 * pi
-        @parameters stiffness_frac = 0.01
-        (segment.type == BRIDLE) && (stiffness_m = stiffness_frac * stiffness_m)
-
-        damping_m = (get_damping(pset) / get_c_spring(pset)) * stiffness_m
-        
         eqs = [
             eqs
             # spring force equations
@@ -512,10 +503,10 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             unit_vec[:, segment.idx]  ~ segment_vec[:, segment.idx]/len[segment.idx]
             rel_vel[:, segment.idx]      ~ vel[:, p1] - vel[:, p2]
             spring_vel[segment.idx]      ~ rel_vel[:, segment.idx] ⋅ unit_vec[:, segment.idx]
-            damping[segment.idx]         ~ damping_m / len[segment.idx]
+            damping[segment.idx]         ~ get_axial_damping(psys, segment.idx) / len[segment.idx]
             stiffness[segment.idx]       ~ ifelse(len[segment.idx] > l0[segment.idx],
-                                        stiffness_m / len[segment.idx],
-                                        get_compression_frac(psys, segment.idx) * stiffness_m / len[segment.idx])
+                                        get_axial_stiffness(psys, segment.idx) / len[segment.idx],
+                                        get_compression_frac(psys, segment.idx) * get_axial_stiffness(psys, segment.idx) / len[segment.idx])
             spring_force[segment.idx] ~  (stiffness[segment.idx] * (len[segment.idx] - l0[segment.idx]) - 
                             damping[segment.idx] * spring_vel[segment.idx])
             spring_force_vec[:, segment.idx]  ~ spring_force[segment.idx] * unit_vec[:, segment.idx]

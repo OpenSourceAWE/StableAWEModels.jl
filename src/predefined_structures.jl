@@ -52,42 +52,43 @@ function create_ram_sys_struct(set::Settings, vsm_wing::RamAirWing)
         ]
 
         # ==================== CREATE PULLEY BRIDLE SYSTEM ==================== #
+        bridle_damping = 1.0
         points = [
             points
-            Point(7+i_pnt, bridle_top[1], dynamics_type)
+            Point(7+i_pnt, bridle_top[1], dynamics_type; bridle_damping)
             Point(8+i_pnt, bridle_top[2], WING)
-            Point(9+i_pnt, bridle_top[3], dynamics_type)
-            Point(10+i_pnt, bridle_top[4], dynamics_type)
+            Point(9+i_pnt, bridle_top[3], dynamics_type; bridle_damping)
+            Point(10+i_pnt, bridle_top[4], dynamics_type; bridle_damping)
 
-            Point(11+i_pnt, bridle_top[2] - 1z, dynamics_type)
+            Point(11+i_pnt, bridle_top[2] - 1z, dynamics_type; bridle_damping)
 
-            Point(12+i_pnt, bridle_top[1] - 2z, dynamics_type)
-            Point(13+i_pnt, bridle_top[3] - 2z, dynamics_type)
+            Point(12+i_pnt, bridle_top[1] - 2z, dynamics_type; bridle_damping)
+            Point(13+i_pnt, bridle_top[3] - 2z, dynamics_type; bridle_damping)
 
-            Point(14+i_pnt, bridle_top[1] - 4z, dynamics_type)
-            Point(15+i_pnt, bridle_top[3] - 4z, dynamics_type)
+            Point(14+i_pnt, bridle_top[1] - 4z, dynamics_type; bridle_damping)
+            Point(15+i_pnt, bridle_top[3] - 4z, dynamics_type; bridle_damping)
         ]
         segments = [
             segments
-            Segment(1+i_seg, (1+i_pnt, 7+i_pnt), BRIDLE)
-            Segment(2+i_seg, (2+i_pnt, 9+i_pnt), BRIDLE)
-            Segment(3+i_seg, (3+i_pnt, 10+i_pnt), BRIDLE)
+            Segment(1+i_seg, set, (1+i_pnt, 7+i_pnt), BRIDLE)
+            Segment(2+i_seg, set, (2+i_pnt, 9+i_pnt), BRIDLE)
+            Segment(3+i_seg, set, (3+i_pnt, 10+i_pnt), BRIDLE)
 
-            Segment(4+i_seg, (4+i_pnt, 7+i_pnt), BRIDLE)
-            Segment(5+i_seg, (5+i_pnt, 9+i_pnt), BRIDLE)
-            Segment(6+i_seg, (6+i_pnt, 10+i_pnt), BRIDLE)
+            Segment(4+i_seg, set, (4+i_pnt, 7+i_pnt), BRIDLE)
+            Segment(5+i_seg, set, (5+i_pnt, 9+i_pnt), BRIDLE)
+            Segment(6+i_seg, set, (6+i_pnt, 10+i_pnt), BRIDLE)
 
-            Segment(7+i_seg, (7+i_pnt, 12+i_pnt), BRIDLE; l0=2)
-            Segment(8+i_seg, (8+i_pnt, 11+i_pnt), BRIDLE; l0=1)
-            Segment(9+i_seg, (9+i_pnt, 13+i_pnt), BRIDLE; l0=2)
-            Segment(10+i_seg, (10+i_pnt, 15+i_pnt), BRIDLE; l0=4)
+            Segment(7+i_seg, set, (7+i_pnt, 12+i_pnt), BRIDLE; l0=2)
+            Segment(8+i_seg, set, (8+i_pnt, 11+i_pnt), BRIDLE; l0=1)
+            Segment(9+i_seg, set, (9+i_pnt, 13+i_pnt), BRIDLE; l0=2)
+            Segment(10+i_seg, set, (10+i_pnt, 15+i_pnt), BRIDLE; l0=4)
             
-            Segment(11+i_seg, (11+i_pnt, 12+i_pnt), BRIDLE; l0=1)
-            Segment(12+i_seg, (11+i_pnt, 13+i_pnt), BRIDLE; l0=1)
+            Segment(11+i_seg, set, (11+i_pnt, 12+i_pnt), BRIDLE; l0=1)
+            Segment(12+i_seg, set, (11+i_pnt, 13+i_pnt), BRIDLE; l0=1)
             
-            Segment(13+i_seg, (12+i_pnt, 14+i_pnt), BRIDLE; l0=2)
-            Segment(14+i_seg, (13+i_pnt, 14+i_pnt), BRIDLE; l0=2)
-            Segment(15+i_seg, (13+i_pnt, 15+i_pnt), BRIDLE; l0=2)
+            Segment(13+i_seg, set, (12+i_pnt, 14+i_pnt), BRIDLE; l0=2)
+            Segment(14+i_seg, set, (13+i_pnt, 14+i_pnt), BRIDLE; l0=2)
+            Segment(15+i_seg, set, (13+i_pnt, 15+i_pnt), BRIDLE; l0=2)
         ]
         pulleys = [
             pulleys
@@ -141,10 +142,10 @@ function create_simple_ram_sys_struct(set::Settings, wing::RamAirWing)
         Group(2, [4], wing, gammas[2], DYNAMIC, set.bridle_fracs[2])
     ]
     segments = [
-        Segment(1, (1,5), POWER_LINE)
-        Segment(2, (2,6), POWER_LINE)
-        Segment(3, (3,7), STEERING_LINE)
-        Segment(4, (4,8), STEERING_LINE)
+        Segment(1, set, (1,5), POWER_LINE)
+        Segment(2, set, (2,6), POWER_LINE)
+        Segment(3, set, (3,7), STEERING_LINE)
+        Segment(4, set, (4,8), STEERING_LINE)
     ]
     tethers = [
         Tether(1, [1])

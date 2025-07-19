@@ -67,6 +67,7 @@ mutable struct Point
     const vel_w::KVec3 # vel in world frame
     const type::DynamicsType
     mass::SimFloat
+    bridle_damping::SimFloat
 end
 
 """
@@ -106,8 +107,12 @@ To create a Point:
     point = Point(1, [1.0, 2.0, 3.0], DYNAMIC; wing_idx=1)
 ```
 """
-function Point(idx, pos_cad, type; wing_idx=1, vel_w=zeros(KVec3), transform_idx=1, mass=0.0)
-    Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3), vel_w, type, mass)
+function Point(idx, pos_cad, type;
+    wing_idx=1, vel_w=zeros(KVec3), transform_idx=1, 
+    mass=0.0, bridle_damping=0.0
+)
+    Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
+        vel_w, type, mass, bridle_damping)
 end
 
 """
@@ -204,7 +209,8 @@ $(TYPEDFIELDS)
 mutable struct Segment
     const idx::Int16
     const point_idxs::Tuple{Int16, Int16}
-    const type::SegmentType
+    axial_stiffness::SimFloat
+    axial_damping::SimFloat
     l0::SimFloat
     compression_frac::SimFloat
     diameter::SimFloat
@@ -257,12 +263,35 @@ where:
 # Example
 To create a Segment:
 ```julia
-    segment = Segment(1, (1, 2), BRIDLE; l0=10.0)
+    segment = Segment(1, set, (1, 2), BRIDLE; l0=10.0)
 ```
 """
-function Segment(idx, point_idxs, type; l0=zero(SimFloat), compression_frac=0.1)
-    Segment(idx, point_idxs, type, l0, compression_frac, 
-        zero(SimFloat), zero(SimFloat), zero(SimFloat))
+function Segment(idx, point_idxs, axial_stiffness, axial_damping, diameter; 
+    l0=zero(SimFloat), compression_frac=0.1
+)
+    Segment(idx, point_idxs, axial_stiffness, axial_damping, l0, compression_frac, 
+        diameter, zero(SimFloat), zero(SimFloat))
+end
+
+function Segment(idx, set, point_idxs, type;
+    l0=zero(SimFloat), compression_frac=0.1
+)
+    (type === BRIDLE) && (diameter = 0.001* set.bridle_tether_diameter)
+    (type === POWER_LINE) && (diameter = 0.001* set.power_tether_diameter)
+    (type === STEERING_LINE) && (diameter = 0.001* set.steering_tether_diameter)
+
+    axial_stiffness = set.e_tether * (diameter/2)^2 * π
+    if type == BRIDLE
+        stiffness_frac = 0.01
+    else
+        stiffness_frac = 1.0
+    end
+    axial_stiffness = stiffness_frac * axial_stiffness
+
+    axial_damping = (set.damping / set.c_spring) * axial_stiffness
+
+    Segment(idx, point_idxs, axial_stiffness, axial_damping, l0, compression_frac, 
+        diameter, zero(SimFloat), zero(SimFloat))
 end
 
 """
@@ -767,7 +796,7 @@ sys_struct = SystemStructure(set, wing)
 
 # Manual construction
 points = [Point(1, [0,0,0], STATIC), Point(2, [0,0,10], DYNAMIC)]
-segments = [Segment(1, (1,2), BRIDLE)]
+segments = [Segment(1, set, (1,2), BRIDLE)]
 sys_struct = SystemStructure("custom", set; points, segments)
 ```
 """
@@ -907,13 +936,13 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
         segment_idx = length(segments)+1 # last segment idx
         if i == 1
             points = [points; Point(point_idx, pos, dynamics_type)]
-            segments = [segments; Segment(segment_idx, (attach_point.idx, point_idx), type)]
+            segments = [segments; Segment(segment_idx, set, (attach_point.idx, point_idx), type)]
         elseif i == set.segments
             points = [points; Point(point_idx, pos, STATIC)]
-            segments = [segments; Segment(segment_idx, (point_idx-1, point_idx), type)]
+            segments = [segments; Segment(segment_idx, set, (point_idx-1, point_idx), type)]
         else
             points = [points; Point(point_idx, pos, dynamics_type)]
-            segments = [segments; Segment(segment_idx, (point_idx-1, point_idx), type)]
+            segments = [segments; Segment(segment_idx, set, (point_idx-1, point_idx), type)]
         end
         push!(segment_idxs, segment_idx)
     end
@@ -943,9 +972,6 @@ function reinit!(sys_struct::SystemStructure, set::Settings)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     for segment in segments
-        (segment.type === BRIDLE) && (segment.diameter = 0.001set.bridle_tether_diameter)
-        (segment.type === POWER_LINE) && (segment.diameter = 0.001set.power_tether_diameter)
-        (segment.type === STEERING_LINE) && (segment.diameter = 0.001set.steering_tether_diameter)
         @assert (0 < segment.diameter < 1)
     end
 

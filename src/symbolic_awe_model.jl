@@ -975,7 +975,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("point", point.idx, point.wing_idx, Int(point.type)))
     end
     for segment in segments
-        push!(data_parts, ("segment", segment.idx, segment.point_idxs, Int(segment.type)))
+        push!(data_parts, ("segment", segment.idx, segment.point_idxs))
     end
     for group in groups
         push!(data_parts, ("group", group.idx, group.point_idxs, Int(group.type)))
