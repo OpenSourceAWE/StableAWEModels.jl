@@ -8,42 +8,51 @@ sam = SymbolicAWEModel(set)
 SymbolicAWEModels.init!(sam)
 sys = sam.sys
 
-function response(sam, steps)
-    find_steady_state!(sam; t=10.0, dt=3.0)
+function response(sam, steps, τ_step, τ_0;
+                  abs_tol=1e-8,
+                  consecutive_steps_needed=5)
 
     winches = sam.sys_struct.winches
     initial_tether_lens = [winches[j].tether_len for j in 1:3]
     @show initial_tether_lens
 
-    winches = sam.sys_struct.winches
-    sam.integrator.ps[sys.fix_wing] = true
+    if length(sam.sys_struct.wings) > 0
+        sam.integrator.ps[sam.sys.fix_wing] = true
+    end
 
-    delta_F = -1.0 # Newtons
     tether_lens = zeros(3, steps+1)
     tether_lens[:, 1] .= initial_tether_lens # Store the initial lengths
-    set_values = -sam.set.drum_radius .* sam.integrator[sys.winch_force] .+ delta_F # Apply delta_F
-    last_abs = Inf
-    rel_error = Inf
+    set_values = τ_0 .+ τ_step               # Apply τ_step
+    settled_steps = 0
     @time for step in 1:steps
-        global last_abs, rel_error
         next_step!(sam; set_values, vsm_interval=0)
-        [tether_lens[j, step+1] = winches[j].tether_len for j in 1:3] # Store after step
-        abs_error = abs(tether_lens[1, step+1] - tether_lens[1, step])
-        rel_error = abs(abs_error - last_abs)
-        last_abs = abs_error
-        if rel_error < 1e-8
-            println("Relative error: $rel_error \t Absolute error: $abs_error")
-            println("Stopped at step $step")
+        for j in 1:3
+            tether_lens[j, step+1] = winches[j].tether_len
+        end
+
+        # Check absolute delta for all tethers
+        step_deltas = abs.(tether_lens[:, step+1] .- tether_lens[:, step])
+        max_delta = maximum(step_deltas)
+        if max_delta < abs_tol
+            settled_steps += 1
+        else
+            settled_steps = 0
+        end
+        if settled_steps >= consecutive_steps_needed
+            println("Stopped at step $step: all tethers within $abs_tol for $consecutive_steps_needed steps.")
             tether_lens[:, step+2:end] .= tether_lens[:, step+1]
             break
         end
-        step += 1
     end
+
     return tether_lens
 end
 
+find_steady_state!(sam; t=10.0, dt=3.0)
 steps = 1000
-tether_lens = response(sam, steps)
+τ_step = -1.0 # Newtons
+τ_0 = -sam.set.drum_radius .* sam.integrator[sys.winch_force] 
+tether_lens = response(sam, steps, τ_step, τ_0)
 
 display(plotx(
     dt .* collect(1:steps+1), 
@@ -77,8 +86,9 @@ for j in 1:3
     end
 
     # Calculate Spring Stiffness (k)
-    k = delta_F / delta_x_ss * initial_len
-    k_values[j] = k
+    F_step = τ_step / -sam.set.drum_radius
+    k = F_step / delta_x_ss * initial_len
+    k_values[j] = -k
     println("Spring stiffness constant (k): $(k) N")
 
     # Calculate Time Constant (tau)
@@ -121,25 +131,47 @@ for j in 1:3
     println("Tether $(j): k = $(k_values[j]) N, c = $(c_values[j]) Ns")
 end
 
+set = Settings("system.yaml")
+stiffness = k_values ./ set.l_tether
+l0=set.l_tether .+ τ_0./-sam.set.drum_radius ./ stiffness
 points = [
-    Point(1, [0, 0, set.l_tether], STATIC)
-    Point(2, [0, 0, 0], STATIC)
+    Point(1, [0, 0, l0[1]], STATIC)
+    Point(2, [0, 0, l0[2]], STATIC)
+    Point(3, [0, 0, l0[3]], STATIC)
+    Point(4, [0, 0, 0], STATIC)
+    Point(5, [0, 0, 0], STATIC)
+    Point(6, [0, 0, 0], STATIC)
 ]
 segments = [
-    Segment(1, (1,2), k_values[1], c_values[1], 1e-3*set.power_tether_diameter)
+    Segment(1, (1,4), k_values[1], c_values[1], √2 * 1e-3 * set.power_tether_diameter)
+    Segment(2, (2,5), k_values[2], c_values[2], 1e-3 * set.steering_tether_diameter)
+    Segment(3, (3,6), k_values[3], c_values[3], 1e-3 * set.steering_tether_diameter)
 ]
 tethers = [
-    Tether(1, [1])
+    Tether(1, [1], 4)
+    Tether(2, [2], 5)
+    Tether(3, [3], 6)
 ]
 winches = [
-    Winch(1, TorqueControlledMachine(set), [1])
+    Winch(1, TorqueControlledMachine(set), [1]; tether_len=set.l_tether)
+    Winch(2, TorqueControlledMachine(set), [2]; tether_len=set.l_tether)
+    Winch(3, TorqueControlledMachine(set), [3]; tether_len=set.l_tether)
 ]
 transforms = [
-    Transform(1, deg2rad(90), 0.0, 0.0; base_point_idx=1, base_pos=zeros(3), rot_point_idx=2)
+    Transform(1, deg2rad(90), 0.0, 0.0; base_point_idx=4, base_pos=zeros(3), rot_point_idx=1)
 ]
 sys_struct = SystemStructure("one_seg_tether", set;
     points, segments, tethers, winches, transforms)
 ssam = SymbolicAWEModel(set, sys_struct)
 init!(ssam)
+@show ssam.integrator[ssam.sys.winch_force]
 
+steps = 1000
+tether_lens = response(ssam, steps, τ_step, τ_0)
 
+display(plotx(
+    dt .* collect(1:steps+1), 
+    tether_lens[1,:], tether_lens[2,:], tether_lens[3,:];
+    title="Force step response",
+    ylabels=["Power tether [m]", "Left tether [m]", "Right tether [m]"],
+))
