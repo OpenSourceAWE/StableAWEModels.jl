@@ -9,8 +9,8 @@ SymbolicAWEModels.init!(sam)
 sys = sam.sys
 
 function response(sam, steps, τ_step, τ_0;
-                  abs_tol=1e-8,
-                  consecutive_steps_needed=5)
+                  abs_tol=1e-5,
+                  consecutive_steps_needed=20)
 
     winches = sam.sys_struct.winches
     initial_tether_lens = [winches[j].tether_len for j in 1:3]
@@ -86,9 +86,9 @@ for j in 1:3
     end
 
     # Calculate Spring Stiffness (k)
-    F_step = τ_step / -sam.set.drum_radius
+    F_step = τ_step / sam.set.drum_radius
     k = F_step / delta_x_ss * initial_len
-    k_values[j] = -k
+    k_values[j] = k
     println("Spring stiffness constant (k): $(k) N")
 
     # Calculate Time Constant (tau)
@@ -132,8 +132,13 @@ for j in 1:3
 end
 
 set = Settings("system.yaml")
-stiffness = k_values ./ set.l_tether
-l0=set.l_tether .+ τ_0./-sam.set.drum_radius ./ stiffness
+set.v_wind = 0.0
+l0 = set.l_tether
+for i in 1:10
+    global l0
+    stiffness = k_values ./ l0
+    l0 = set.l_tether .+ τ_0./-sam.set.drum_radius ./ stiffness
+end
 points = [
     Point(1, [0, 0, l0[1]], STATIC)
     Point(2, [0, 0, l0[2]], STATIC)
@@ -158,7 +163,7 @@ winches = [
     Winch(3, TorqueControlledMachine(set), [3]; tether_len=set.l_tether)
 ]
 transforms = [
-    Transform(1, deg2rad(90), 0.0, 0.0; base_point_idx=4, base_pos=zeros(3), rot_point_idx=1)
+    Transform(1, deg2rad(set.elevation), 0.0, 0.0; base_point_idx=4, base_pos=zeros(3), rot_point_idx=1)
 ]
 sys_struct = SystemStructure("one_seg_tether", set;
     points, segments, tethers, winches, transforms)
@@ -167,6 +172,7 @@ init!(ssam)
 @show ssam.integrator[ssam.sys.winch_force]
 
 steps = 1000
+#=τ_step = 0.0=#
 tether_lens = response(ssam, steps, τ_step, τ_0)
 
 display(plotx(

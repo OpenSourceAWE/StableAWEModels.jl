@@ -465,10 +465,9 @@ function reinit!(
     end
 
     reinit!(s.sys_struct, s.set)
-    init_unknowns_vec!(s, s.sys_struct, s.unknowns_vec)
-    s.set_unknowns(s.integrator, s.unknowns_vec)
     s.set_psys(s.integrator, s.sys_struct)
-    OrdinaryDiffEqCore.reinit!(s.integrator, s.integrator.u; reinit_dae=true)
+    s.set_set(s.integrator, s.set)
+    OrdinaryDiffEqCore.reinit!(s.integrator; reinit_dae=true)
     linearize_vsm!(s)
     update_sys_struct!(s, s.sys_struct)
     return s.integrator, true
