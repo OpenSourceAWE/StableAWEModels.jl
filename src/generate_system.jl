@@ -577,19 +577,10 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
     for winch in winches
         F = zero(Num)
         for tether_idx in winch.tether_idxs
-            found = 0
-            point_idx = 0
-            for segment_idx in tethers[tether_idx].segment_idxs
-                segment = segments[segment_idx]
-                for point_idx_ in segment.point_idxs
-                    if points[point_idx_].type == STATIC && point_idx != point_idx_
-                        found += 1
-                        point_idx = point_idx_
-                    end
-                end
-            end
-            (found != 1) && error("Tether number $tether_idx has $found static points and should have exactly 1 static point.")
-            F += norm(point_force[:, point_idx])
+            winch_idx = tethers[tether_idx].winch_idx
+            (winch_idx > length(points)) && 
+                error("Point number $winch_idx does not exist.")
+            F += norm(point_force[:, winch_idx])
         end
         eqs = [
             eqs

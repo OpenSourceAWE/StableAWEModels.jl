@@ -363,6 +363,7 @@ end
 mutable struct Tether
     const idx::Int16
     const segment_idxs::Vector{Int16}
+    const winch_idx::Int16
     stretched_len::SimFloat
 end
 
@@ -402,8 +403,8 @@ Create a tether from segments 1, 2, and 3:
     tether = Tether(1, [1, 2, 3])
 ```
 """
-function Tether(idx, segment_idxs)
-    return Tether(idx, segment_idxs, 0.0)
+function Tether(idx, segment_idxs, winch_idx)
+    return Tether(idx, segment_idxs, winch_idx, 0.0)
 end
 
 """
@@ -938,6 +939,7 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
     winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z)
     dir = winch_pos - attach_point.pos_cad
     segment_idxs = Int16[]
+    winch_idx = 0
     for i in 1:set.segments
         frac = i / set.segments
         pos = attach_point.pos_cad + frac * dir
@@ -948,6 +950,7 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
             segments = [segments; Segment(segment_idx, set, (attach_point.idx, point_idx), type)]
         elseif i == set.segments
             points = [points; Point(point_idx, pos, STATIC)]
+            winch_idx = points[end].idx
             segments = [segments; Segment(segment_idx, set, (point_idx-1, point_idx), type)]
         else
             points = [points; Point(point_idx, pos, dynamics_type)]
@@ -955,7 +958,7 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
         end
         push!(segment_idxs, segment_idx)
     end
-    tethers = [tethers; Tether(tether_idx, segment_idxs)]
+    tethers = [tethers; Tether(tether_idx, segment_idxs, winch_idx)]
     return points, segments, tethers, tethers[end].idx
 end
 

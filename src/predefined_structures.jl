@@ -103,14 +103,24 @@ function create_ram_sys_struct(set::Settings)
     create_bridle(bridle_top_left, gammas[[1,2]])
     create_bridle(bridle_top_right, gammas[[3,4]])
 
-    points, segments, tethers, left_power_idx = create_tether(1, set, points, segments, tethers, attach_points[1], POWER_LINE, dynamics_type, z)
-    points, segments, tethers, right_power_idx = create_tether(2, set, points, segments, tethers, attach_points[3], POWER_LINE, dynamics_type, z)
-    points, segments, tethers, left_steering_idx = create_tether(3, set, points, segments, tethers, attach_points[2], STEERING_LINE, dynamics_type, z)
-    points, segments, tethers, right_steering_idx = create_tether(4, set, points, segments, tethers, attach_points[4], STEERING_LINE, dynamics_type, z)
+    points, segments, tethers, left_power_idx =
+        create_tether(1, set, points, segments, tethers, attach_points[1], 
+                      POWER_LINE, dynamics_type, z)
+    points, segments, tethers, right_power_idx =
+        create_tether(2, set, points, segments, tethers, attach_points[3], 
+                      POWER_LINE, dynamics_type, z)
+    points, segments, tethers, left_steering_idx =
+        create_tether(3, set, points, segments, tethers, attach_points[2], 
+                      STEERING_LINE, dynamics_type, z)
+    points, segments, tethers, right_steering_idx =
+        create_tether(4, set, points, segments, tethers, attach_points[4], 
+                      STEERING_LINE, dynamics_type, z)
 
-    winches = [winches; Winch(1, TorqueControlledMachine(set), [left_power_idx, right_power_idx])]
-    winches = [winches; Winch(2, TorqueControlledMachine(set), [left_steering_idx])]
-    winches = [winches; Winch(3, TorqueControlledMachine(set), [right_steering_idx])]
+    winches = [
+        Winch(1, TorqueControlledMachine(set), [left_power_idx, right_power_idx])
+        Winch(2, TorqueControlledMachine(set), [left_steering_idx])
+        Winch(3, TorqueControlledMachine(set), [right_steering_idx])
+    ]
 
     vsm_aero = BodyAerodynamics([vsm_wing])
     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
@@ -150,10 +160,10 @@ function create_simple_ram_sys_struct(set::Settings)
         Segment(4, set, (4,8), STEERING_LINE)
     ]
     tethers = [
-        Tether(1, [1])
-        Tether(2, [2])
-        Tether(3, [3])
-        Tether(4, [4])
+        Tether(1, [1], 5)
+        Tether(2, [2], 6)
+        Tether(3, [3], 7)
+        Tether(4, [4], 8)
     ]
     winches = [
         Winch(1, TorqueControlledMachine(set), [1,2])
