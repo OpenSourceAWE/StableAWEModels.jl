@@ -68,6 +68,7 @@ mutable struct Point
     const type::DynamicsType
     mass::SimFloat
     bridle_damping::SimFloat
+    fix_sphere::Bool
 end
 
 """
@@ -112,7 +113,7 @@ function Point(idx, pos_cad, type;
     mass=0.0, bridle_damping=0.0
 )
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
-        vel_w, type, mass, bridle_damping)
+        vel_w, type, mass, bridle_damping, false)
 end
 
 """
@@ -421,6 +422,7 @@ mutable struct Winch
     tether_len::Union{SimFloat, Nothing}
     tether_vel::SimFloat
     set_value::SimFloat
+    brake::Bool
     const force::KVec3
 end
 
@@ -465,8 +467,8 @@ To create a Winch:
     winch = Winch(1, TorqueControlledMachine(set), [1, 2], 100.0)
 ```
 """
-function Winch(idx, model, tether_idxs; tether_len=0.0, tether_vel=0.0)
-    return Winch(idx, model, tether_idxs, tether_len, tether_vel, 0.0, zeros(KVec3))
+function Winch(idx, model, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
+    return Winch(idx, model, tether_idxs, tether_len, tether_vel, 0.0, brake, zeros(KVec3))
 end
 
 """
@@ -536,6 +538,7 @@ mutable struct Wing
     const turn_acc::KVec3
     course::SimFloat
     aoa::SimFloat
+    fix_sphere::Bool
 end
 function Base.getproperty(wing::Wing, sym::Symbol)
     if sym == :R_b_w
@@ -634,7 +637,7 @@ function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad;
         zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny),
         zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
-        zeros(KVec3), zeros(KVec3), 0.0, 0.0)
+        zeros(KVec3), zeros(KVec3), 0.0, 0.0, false)
 end
 
 """

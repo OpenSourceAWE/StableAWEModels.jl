@@ -131,6 +131,56 @@ function create_ram_sys_struct(set::Settings)
     return SystemStructure(set.physical_model, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 end
 
+function create_tether_sys_struct(set::Settings)
+    points = Point[]
+    segments = Segment[]
+    tethers = Tether[]
+    
+    points = [
+        Point(1, zeros(3), STATIC)
+        Point(2, zeros(3), STATIC)
+        Point(3, zeros(3), STATIC)
+        Point(4, zeros(3), STATIC)
+    ]
+    
+    points, segments, tethers, left_power_idx =
+        create_tether(1, set, points, segments, tethers, points[1], 
+                      POWER_LINE, DYNAMIC)
+    points, segments, tethers, right_power_idx =
+        create_tether(2, set, points, segments, tethers, points[2], 
+                      POWER_LINE, DYNAMIC)
+    points, segments, tethers, left_steering_idx =
+        create_tether(3, set, points, segments, tethers, points[3], 
+                      STEERING_LINE, DYNAMIC)
+    points, segments, tethers, right_steering_idx =
+        create_tether(4, set, points, segments, tethers, points[4], 
+                      STEERING_LINE, DYNAMIC)
+    
+    winches = [
+        Winch(1, TorqueControlledMachine(set), [left_power_idx, right_power_idx]; brake=true)
+        Winch(2, TorqueControlledMachine(set), [left_steering_idx]; brake=true)
+        Winch(3, TorqueControlledMachine(set), [right_steering_idx]; brake=true)
+    ]
+    
+    transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
+                            base_pos=zeros(3), base_point_idx=points[end].idx, wing_idx=1)]
+
+    return SystemStructure("tether", set; points, segments, tethers, winches, transforms)
+end
+
+# Copies the state from the ram sam to the tether sam
+function update_tether_sys!(tsys::SystemStructure, sys::SystemStructure)
+    n_points = length(tsys.points)
+    for (tpoint, point) in zip(tsys.points, sys.points[end+1-n_points:end])
+        tpoint.pos_w .= point.pos_w
+        tpoint.vel_w .= point.vel_w
+    end
+    for (twinch, winch) in zip(tsys.winches, sys.winches)
+        twinch.tether_len = winch.tether_len
+        twinch.tether_vel = winch.tether_vel
+    end
+end
+
 function create_simple_ram_sys_struct(set::Settings)
     vsm_wing = RamAirWing(set)
     gammas = [-1/2, 1/2] * wing.gamma_tip

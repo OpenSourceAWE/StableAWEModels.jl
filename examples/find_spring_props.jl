@@ -132,7 +132,6 @@ for j in 1:3
 end
 
 set = Settings("system.yaml")
-set.v_wind = 0.0
 l0 = set.l_tether
 for i in 1:10
     global l0

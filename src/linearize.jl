@@ -2,12 +2,16 @@
 # SPDX-License-Identifier: MPL-2.0
 
 function find_steady_state!(s::SymbolicAWEModel, integ=s.integrator; t=1.0, dt=1/s.set.sample_freq)
+    winches = s.sys_struct.winches
     old_state = s.get_stabilize(integ)
+    old_brakes = [winch.brake for winch in winches]
+    [winch.brake=true for winch in winches]
     s.set_stabilize(integ, true)
     for _ in 1:Int(round(t÷dt))
         next_step!(s; dt, vsm_interval=1)
     end
     s.set_stabilize(integ, old_state)
+    [winch.brake=old_brakes[winch.idx] for winch in winches]
     update_sys_struct!(s, s.sys_struct)
     return nothing
 end

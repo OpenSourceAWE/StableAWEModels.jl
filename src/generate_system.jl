@@ -138,6 +138,12 @@ get_axial_damping(sys::SystemStructure, idx::Int16) = sys.segments[idx].axial_da
 @register_symbolic get_axial_damping(sys::SystemStructure, idx::Int16)
 get_bridle_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].bridle_damping
 @register_symbolic get_bridle_damping(sys::SystemStructure, idx::Int16)
+get_brake(sys::SystemStructure, idx::Int16) = sys.winches[idx].brake
+@register_symbolic get_brake(sys::SystemStructure, idx::Int16)
+get_fix_point_sphere(sys::SystemStructure, idx::Int16) = sys.points[idx].fix_sphere
+@register_symbolic get_fix_point_sphere(sys::SystemStructure, idx::Int16)
+get_fix_wing_sphere(sys::SystemStructure, idx::Int16) = sys.wings[idx].fix_sphere
+@register_symbolic get_fix_wing_sphere(sys::SystemStructure, idx::Int16)
 
 get_set_mass(set::Settings) = set.mass
 @register_symbolic get_set_mass(set::Settings)
@@ -176,7 +182,6 @@ pulley dynamics and winch forces.
 - `wind_vec_gnd`: Ground wind vector
 - `group_aero_moment`: Aerodynamic moments per group
 - `twist_angle`: Twist angles per group
-- `stabilize`: Whether in stabilize mode
 
 # Returns
 Tuple containing:
@@ -188,9 +193,7 @@ Tuple containing:
 """
 function force_eqs!(s, system, psys, pset, eqs, defaults, guesses; 
         R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, 
-        twist_angle, twist_ω, stabilize, set_values, fix_wing)
-
-    @parameters acc_multiplier = 1
+        twist_angle, twist_ω, set_values, fix_wing)
 
     @unpack points, groups, segments, pulleys, tethers, winches, wings = system
     
@@ -298,11 +301,18 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             if length(wings) > 0
                 bridle_damp_vec = get_bridle_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
             end
+            axis = sym_normalize(pos[:, point.idx])
             eqs = [
                 eqs
-                D(pos[:, point.idx]) ~ vel[:, point.idx]
-                D(vel[:, point.idx]) ~ acc_multiplier * acc[:, point.idx] - bridle_damp_vec
-                acc[:, point.idx]    ~ point_force[:, point.idx] / mass + [0, 0, -get_g_earth(pset)]
+                D(pos[:, point.idx]) ~  ifelse.(get_fix_point_sphere(psys, point.idx)==true,
+                                                vel[:, point.idx] ⋅ axis * axis,
+                                                vel[:, point.idx]
+                                        )
+                D(vel[:, point.idx]) ~  ifelse.(get_fix_point_sphere(psys, point.idx)==true,
+                                                acc[:, point.idx] ⋅ axis * axis,
+                                                acc[:, point.idx]
+                                        )
+                acc[:, point.idx]    ~ point_force[:, point.idx] / mass + [0, 0, -get_g_earth(pset)] - bridle_damp_vec
                                         # ifelse.(stabilize==true, r * norm(measured_ω_z)^2, zeros(3))
             ]
             defaults = [
@@ -546,7 +556,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             eqs = [
                 eqs
                 D(pulley_len[pulley.idx])  ~ pulley_vel[pulley.idx]
-                D(pulley_vel[pulley.idx]) ~ acc_multiplier * pulley_acc[pulley.idx] - pulley_damp * pulley_vel[pulley.idx]
+                D(pulley_vel[pulley.idx]) ~ pulley_acc[pulley.idx] - pulley_damp * pulley_vel[pulley.idx]
             ]
             defaults = [
                 defaults
@@ -584,8 +594,10 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         end
         eqs = [
             eqs
-            D(tether_len[winch.idx]) ~ ifelse(stabilize==true, 0, tether_vel[winch.idx])
-            D(tether_vel[winch.idx]) ~ ifelse(stabilize==true, 0, tether_acc[winch.idx])
+            D(tether_len[winch.idx]) ~ ifelse(get_brake(psys, winch.idx)==true,
+                                              0, tether_vel[winch.idx])
+            D(tether_vel[winch.idx]) ~ ifelse(get_brake(psys, winch.idx)==true,
+                                              0, tether_acc[winch.idx])
 
             tether_acc[winch.idx] ~ calc_moment_acc( # TODO: moment and speed control
                 winch.model, tether_vel[winch.idx], 
@@ -643,13 +655,12 @@ angular velocities and accelerations, and forces/moments.
 - `wing_pos`: Kite position vector
 - `wing_vel`: Kite velocity vector
 - `wing_acc`: Kite acceleration vector
-- `stabilize`: Whether in stabilize mode
 
 # Returns
 Tuple of updated equations and defaults
 """
 function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_moment, aero_force_b, 
-    aero_moment_b, ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, stabilize, fix_wing
+    aero_moment_b, ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing
 )
     wings = s.sys_struct.wings
     @variables begin
@@ -684,14 +695,14 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
             [Q_vel[wing.idx, i] ~ 0.5 * sum(Ω(ω_b_stable[wing.idx, :])[i, j] * Q_b_w[wing.idx, j] for j in 1:4) for i in 1:4]
             ω_b_stable[wing.idx, :] ~ ifelse.(fix_wing==true,
                 zeros(3),
-                ifelse.(stabilize==true,
+                ifelse.(get_fix_wing_sphere(psys, wing.idx)==true,
                     ω_b[wing.idx, :] - ω_b[wing.idx, :] ⋅ axis_b * axis_b,
                     ω_b[wing.idx, :]
                 )
             )
             D(ω_b[wing.idx, :]) ~ ifelse.(fix_wing==true,
                 zeros(3),
-                ifelse.(stabilize==true,
+                ifelse.(get_fix_wing_sphere(psys, wing.idx)==true,
                     α_b_damped[wing.idx, :] - α_b_damped[wing.idx, :] ⋅ axis_b * axis_b,
                     α_b_damped[wing.idx, :]
                 )
@@ -707,14 +718,14 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
             
             D(wing_pos[wing.idx, :]) ~ ifelse.(fix_wing==true,
                 zeros(3),
-                ifelse.(stabilize==true,
+                ifelse.(get_fix_wing_sphere(psys, wing.idx)==true,
                     wing_vel[wing.idx, :] ⋅ axis * axis,
                     wing_vel[wing.idx, :]
                 )
             )
             D(wing_vel[wing.idx, :]) ~ ifelse.(fix_wing==true,
                 zeros(3),
-                ifelse.(stabilize==true,
+                ifelse.(get_fix_wing_sphere(psys, wing.idx)==true,
                     wing_acc[wing.idx, :] ⋅ axis * axis,
                     wing_acc[wing.idx, :]
                 )
@@ -948,7 +959,6 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
     @parameters begin
         psys::SystemStructure = system
         pset::Settings = s.set
-        stabilize = false
         fix_wing = false
     end
     @variables begin
@@ -976,12 +986,12 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
     eqs, defaults, guesses, tether_wing_force, tether_wing_moment = 
         force_eqs!(s, system, psys, pset, eqs, defaults, guesses; 
             R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, 
-            twist_angle, twist_ω, stabilize, set_values, fix_wing)
+            twist_angle, twist_ω, set_values, fix_wing)
     eqs, guesses = linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, 
             aero_moment_b, group_aero_moment, twist_angle, va_wing_b, ω_b)
     eqs, defaults = wing_eqs!(s, eqs, psys, pset, defaults; 
             tether_wing_force, tether_wing_moment, aero_force_b, aero_moment_b, 
-            ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, stabilize, fix_wing)
+            ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing)
     eqs = scalar_eqs!(s, eqs, psys, pset; 
             R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, 
             twist_angle, twist_ω, ω_b, α_b)
