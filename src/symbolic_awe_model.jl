@@ -29,7 +29,6 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
     set_lin_vsm::Union{Function, Nothing}       = nothing
     set_lin_set_values::Union{Function, Nothing}= nothing
     set_lin_unknowns::Union{Function, Nothing}  = nothing
-    set_stabilize::Union{Function, Nothing}     = nothing
     
     get_set_values::Union{Function, Nothing}    = nothing
     get_unknowns::Union{Function, Nothing}      = nothing
@@ -43,7 +42,6 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
     get_pulley_state::Union{Function, Nothing}  = nothing
     get_group_state::Union{Function, Nothing}   = nothing
     get_spring_force::Union{Function, Nothing}  = nothing
-    get_stabilize::Union{Function, Nothing}     = nothing
     get_lin_x::Union{Function, Nothing}         = nothing
     get_lin_dx::Union{Function, Nothing}        = nothing
     get_lin_y::Union{Function, Nothing}         = nothing
@@ -315,8 +313,8 @@ function init!(s::SymbolicAWEModel;
         
         inputs = create_sys!(s, s.sys_struct; prn)
         prn && @info "Simplifying the system"
-        prn ? (@time sys = mtkcompile(s.full_sys; inputs)) :
-            (sys = mtkcompile(s.full_sys; inputs))
+        prn ? (@time sys = mtkcompile(s.full_sys; inputs, additional_passes = [ModelingToolkit.IfLifting])) :
+            (sys = mtkcompile(s.full_sys; inputs, additional_passes = [ModelingToolkit.IfLifting]))
         s.sys = sys
         dt = SimFloat(1/s.set.sample_freq)
         if prn
@@ -573,7 +571,7 @@ function generate_getters!(s, sym_vec, lin_y_vec)
              sys.tether_len,   # Unstretched len per winch
              sys.tether_vel,      # Reeling velocity per winch
              sys.set_values,
-             sys.winch_force,     # Force at winch connection point per winch
+             sys.winch_force_vec,     # Force at winch connection point per winch
         ]))
         s.get_winch_state = (integ) -> get_winch_state(integ)
         get_set_values = getp(sys, sys.set_values)
@@ -592,14 +590,6 @@ function generate_getters!(s, sym_vec, lin_y_vec)
         s.get_tether_state = (integ) -> get_tether_state(integ)
     end
 
-    if length(winches) + length(wings) > 0
-        set_stabilize = setp(sys, sys.stabilize)
-        s.set_stabilize = (integ, val) -> set_stabilize(integ, val)
-
-        get_stabilize = getp(sys, sys.stabilize)
-        s.get_stabilize = (integ) -> get_stabilize(integ)
-    end
-    
     set_psys = setp(sys, sys.psys)
     s.set_psys = (integ, val) -> set_psys(integ, val)
     set_set = setp(sys, sys.pset)
@@ -616,6 +606,7 @@ function generate_getters!(s, sym_vec, lin_y_vec)
     get_point_state = getu(sys, c.([
          sys.pos,             # Particle positions
          sys.vel,             # Kite center acceleration vector (world frame)
+         sys.point_force
     ]))
     s.get_point_state = (integ) -> get_point_state(integ)
     get_spring_force = getu(sys, sys.spring_force)
@@ -681,10 +672,11 @@ end
 
 function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, integ=s.integrator)
     @unpack points, groups, segments, pulleys, winches, tethers, wings = sys_struct
-    pos, vel = s.get_point_state(integ)
+    pos, vel, force = s.get_point_state(integ)
     for point in points
         point.pos_w .= pos[:, point.idx]
         point.vel_w .= vel[:, point.idx]
+        point.force .= force[:, point.idx]
     end
     if length(pulleys) > 0
         len, vel = s.get_pulley_state(integ)
@@ -708,12 +700,12 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, in
         end
     end
     if length(winches) > 0
-        tether_len, tether_vel, set_value, winch_force = s.get_winch_state(integ)
+        tether_len, tether_vel, set_value, winch_force_vec = s.get_winch_state(integ)
         for winch in winches
             winch.tether_len = tether_len[winch.idx]
             winch.tether_vel = tether_vel[winch.idx]
             winch.set_value = set_value[winch.idx]
-            winch.force .= winch_force[winch.idx]
+            winch.force .= winch_force_vec[:, winch.idx]
         end
     end
     if length(tethers) > 0
@@ -895,7 +887,7 @@ tether_length(s::SymbolicAWEModel) = [winch.tether_len for winch in s.sys_struct
 calc_height(s::SymbolicAWEModel) = [wing.pos_w[3] for wing in s.sys_struct.wings]
 
 """Returns the winch force in the symbolic AWE model."""
-winch_force(s::SymbolicAWEModel) = [winch.force for winch in s.sys_struct.winches]
+winch_force(s::SymbolicAWEModel) = [norm(winch.force) for winch in s.sys_struct.winches]
 
 """Returns the spring forces in the symbolic AWE model."""
 spring_forces(s::SymbolicAWEModel) = [segment.force for segment in s.sys_struct.segments]

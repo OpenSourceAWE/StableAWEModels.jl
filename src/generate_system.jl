@@ -100,6 +100,11 @@ get_wind_disturb(sys::SystemStructure, idx::Int16) = sys.wings[idx].wind_disturb
     size=(3,)
     eltype=SimFloat
 end
+get_disturb(sys::SystemStructure, idx::Int16) = sys.points[idx].disturb
+@register_array_symbolic get_disturb(sys::SystemStructure, idx::Int16) begin
+    size=(3,)
+    eltype=SimFloat
+end
 get_vsm_y(sys::SystemStructure, idx::Int16, iy::Int) = sys.wings[idx].vsm_y[iy]
 @register_symbolic get_vsm_y(sys::SystemStructure, idx::Int16, iy::Int)
 get_vsm_x(sys::SystemStructure, idx::Int16, ix::Int) = sys.wings[idx].vsm_x[ix]
@@ -205,11 +210,13 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         vel(t)[1:3, eachindex(points)]
         acc(t)[1:3, eachindex(points)]
         point_force(t)[1:3, eachindex(points)]
+        disturb_force(t)[1:3, eachindex(points)]
         tether_r(t)[1:3, eachindex(points)]
         point_mass(t)[eachindex(points)]
         chord_b(t)[1:3, eachindex(points)]
         normal(t)[1:3, eachindex(points)]
         pos_b(t)[1:3, eachindex(points)]
+        fix_point_sphere(t)[eachindex(points)]
 
         spring_force_vec(t)[1:3, eachindex(segments)]
         drag_force(t)[1:3, eachindex(segments)]
@@ -236,7 +243,8 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         eqs = [
             eqs
             point_mass[point.idx] ~ mass
-            point_force[:, point.idx]  ~ F
+            disturb_force[:, point.idx] ~ get_disturb(psys, point.idx)
+            point_force[:, point.idx]  ~ F + disturb_force[:, point.idx]
         ]
 
         if point.type == WING
@@ -300,15 +308,18 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             # r = (p - n) # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Vector_formulation
             if length(wings) > 0
                 bridle_damp_vec = get_bridle_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
+            else
+                bridle_damp_vec = zeros(3)
             end
             axis = sym_normalize(pos[:, point.idx])
             eqs = [
                 eqs
-                D(pos[:, point.idx]) ~  ifelse.(get_fix_point_sphere(psys, point.idx)==true,
+                fix_point_sphere[point.idx] ~ get_fix_point_sphere(psys, point.idx)
+                D(pos[:, point.idx]) ~  ifelse.(fix_point_sphere[point.idx]==true,
                                                 vel[:, point.idx] ⋅ axis * axis,
                                                 vel[:, point.idx]
                                         )
-                D(vel[:, point.idx]) ~  ifelse.(get_fix_point_sphere(psys, point.idx)==true,
+                D(vel[:, point.idx]) ~  ifelse.(fix_point_sphere[point.idx]==true,
                                                 acc[:, point.idx] ⋅ axis * axis,
                                                 acc[:, point.idx]
                                         )
@@ -583,20 +594,23 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         tether_vel(t)[eachindex(winches)]
         tether_acc(t)[eachindex(winches)]
         winch_force(t)[eachindex(winches)]
+        winch_force_vec(t)[1:3, eachindex(winches)]
+        brake(t)[eachindex(winches)]
     end
     for winch in winches
-        F = zero(Num)
+        F = zeros(Num, 3)
         for tether_idx in winch.tether_idxs
             winch_idx = tethers[tether_idx].winch_idx
             (winch_idx > length(points)) && 
                 error("Point number $winch_idx does not exist.")
-            F += norm(point_force[:, winch_idx])
+            F .+= point_force[:, winch_idx]
         end
         eqs = [
             eqs
-            D(tether_len[winch.idx]) ~ ifelse(get_brake(psys, winch.idx)==true,
+            brake[winch.idx] ~ get_brake(psys, winch.idx)
+            D(tether_len[winch.idx]) ~ ifelse(brake[winch.idx]==true,
                                               0, tether_vel[winch.idx])
-            D(tether_vel[winch.idx]) ~ ifelse(get_brake(psys, winch.idx)==true,
+            D(tether_vel[winch.idx]) ~ ifelse(brake[winch.idx]==true,
                                               0, tether_acc[winch.idx])
 
             tether_acc[winch.idx] ~ calc_moment_acc( # TODO: moment and speed control
@@ -604,7 +618,8 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 winch_force[winch.idx], 
                 set_values[winch.idx]
             )
-            winch_force[winch.idx] ~ F
+            winch_force_vec[:, winch.idx] ~ F
+            winch_force[winch.idx] ~ norm(winch_force_vec[:, winch.idx])
         ]
         defaults = [
             defaults
@@ -676,6 +691,7 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
         # rest: forces, moments, vectors and scalar values
         moment_b(t)[eachindex(wings), 1:3] # moment in principal frame
         wing_mass(t)[eachindex(wings)]
+        fix_wing_sphere(t)[eachindex(wings)]
     end
     @parameters ω_damp = 150
 
@@ -691,18 +707,19 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
         axis_b = R_b_w[wing.idx, :, :]' * axis
         eqs = [
             eqs
+            fix_wing_sphere[wing.idx] ~ get_fix_wing_sphere(psys, wing.idx)
             [D(Q_b_w[wing.idx, i]) ~ Q_vel[wing.idx, i] for i in 1:4]
             [Q_vel[wing.idx, i] ~ 0.5 * sum(Ω(ω_b_stable[wing.idx, :])[i, j] * Q_b_w[wing.idx, j] for j in 1:4) for i in 1:4]
             ω_b_stable[wing.idx, :] ~ ifelse.(fix_wing==true,
                 zeros(3),
-                ifelse.(get_fix_wing_sphere(psys, wing.idx)==true,
+                ifelse.(fix_wing_sphere[wing.idx]==true,
                     ω_b[wing.idx, :] - ω_b[wing.idx, :] ⋅ axis_b * axis_b,
                     ω_b[wing.idx, :]
                 )
             )
             D(ω_b[wing.idx, :]) ~ ifelse.(fix_wing==true,
                 zeros(3),
-                ifelse.(get_fix_wing_sphere(psys, wing.idx)==true,
+                ifelse.(fix_wing_sphere[wing.idx]==true,
                     α_b_damped[wing.idx, :] - α_b_damped[wing.idx, :] ⋅ axis_b * axis_b,
                     α_b_damped[wing.idx, :]
                 )
@@ -718,14 +735,14 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
             
             D(wing_pos[wing.idx, :]) ~ ifelse.(fix_wing==true,
                 zeros(3),
-                ifelse.(get_fix_wing_sphere(psys, wing.idx)==true,
+                ifelse.(fix_wing_sphere[wing.idx]==true,
                     wing_vel[wing.idx, :] ⋅ axis * axis,
                     wing_vel[wing.idx, :]
                 )
             )
             D(wing_vel[wing.idx, :]) ~ ifelse.(fix_wing==true,
                 zeros(3),
-                ifelse.(get_fix_wing_sphere(psys, wing.idx)==true,
+                ifelse.(fix_wing_sphere[wing.idx]==true,
                     wing_acc[wing.idx, :] ⋅ axis * axis,
                     wing_acc[wing.idx, :]
                 )

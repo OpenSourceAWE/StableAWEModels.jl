@@ -65,6 +65,8 @@ mutable struct Point
     const pos_b::KVec3 # pos relative to wing COM in body frame
     const pos_w::KVec3 # pos in world frame
     const vel_w::KVec3 # vel in world frame
+    const disturb::KVec3 # disturbing force
+    const force::KVec3
     const type::DynamicsType
     mass::SimFloat
     bridle_damping::SimFloat
@@ -110,10 +112,10 @@ To create a Point:
 """
 function Point(idx, pos_cad, type;
     wing_idx=1, vel_w=zeros(KVec3), transform_idx=1, 
-    mass=0.0, bridle_damping=0.0
+    mass=0.0, bridle_damping=0.0, fix_sphere=false
 )
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
-        vel_w, type, mass, bridle_damping, false)
+        vel_w, zeros(KVec3), zeros(KVec3), type, mass, bridle_damping, fix_sphere)
 end
 
 """
