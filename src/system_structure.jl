@@ -951,16 +951,17 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
         point_idx = length(points)+1 # last point idx
         segment_idx = length(segments)+1 # last segment idx
         if i == 1
-            points = [points; Point(point_idx, pos, dynamics_type)]
-            segments = [segments; Segment(segment_idx, set, (attach_point.idx, point_idx), type)]
-        elseif i == set.segments
+            last_idx = attach_point.idx
+        else
+            last_idx = point_idx-1
+        end
+        if i == set.segments
             points = [points; Point(point_idx, pos, STATIC)]
             winch_idx = points[end].idx
-            segments = [segments; Segment(segment_idx, set, (point_idx-1, point_idx), type)]
         else
             points = [points; Point(point_idx, pos, dynamics_type)]
-            segments = [segments; Segment(segment_idx, set, (point_idx-1, point_idx), type)]
         end
+        segments = [segments; Segment(segment_idx, set, (last_idx, point_idx), type)]
         push!(segment_idxs, segment_idx)
     end
     tethers = [tethers; Tether(tether_idx, segment_idxs, winch_idx)]
@@ -1030,5 +1031,91 @@ function reinit!(sys_struct::SystemStructure, set::Settings)
     end
 
     return nothing
+end
+
+# Copies the state from one sam to another sam
+function copy!(sys1::SystemStructure, sys2::SystemStructure; forces=nothing)
+    direct_len = 0.0
+
+    # copy point pos and vel
+    if length(sys1.points) > 0
+        if length(sys1.points) == length(sys2.points)
+            for (point1, point2) in zip(sys1.points, sys2.points)
+                point2.pos_w = point1.pos_w
+                point2.vel_w = point1.vel_w
+            end
+        # if different number of points, copy only the tether points
+        elseif length(sys1.tethers) > 1 && length(sys1.tethers) == length(sys2.tethers)
+            for (tether1, tether2) in zip(sys1.tethers, sys2.tethers)
+                if length(tether1.segment_idxs) == length(tether2.segment_idxs)
+                    # copy the points of the segments of the tethers
+                    for (segment_idx1, segment_idx2) in zip(tether1.segment_idxs, tether2.segment_idxs)
+                        point_idxs1 = sys1.segments[segment_idx1].point_idxs
+                        point_idxs2 = sys2.segments[segment_idx2].point_idxs
+                        for (point_idx1, point_idx2) in zip(point_idxs1, point_idxs2)
+                            sys2.points[point_idx2].pos_w .= sys1.points[point_idx1].pos_w
+                            sys2.points[point_idx2].vel_w .= sys1.points[point_idx1].vel_w
+                        end
+                    end
+                elseif length(tether2.segment_idxs) == 1
+                    # copy the first and last point of the tether
+                    point_idxs1 = [sys1.segments[tether1.segment_idxs[1]].point_idxs[1],
+                                   sys1.segments[tether1.segment_idxs[end]].point_idxs[2]]
+                    point_idxs2 = sys2.segments[tether2.segment_idxs[1]].point_idxs
+                    sys2.points[point_idxs2[1]].pos_w .= sys1.points[point_idxs1[1]].pos_w
+                    sys2.points[point_idxs2[2]].pos_w .= sys1.points[point_idxs1[2]].pos_w
+                    sys2.points[point_idxs2[1]].vel_w .= sys1.points[point_idxs1[1]].vel_w
+                    sys2.points[point_idxs2[2]].vel_w .= sys1.points[point_idxs1[2]].vel_w
+                    direct_len = norm(sys2.points[point_idxs2[1]].pos_w .-
+                                      sys2.points[point_idxs2[2]].pos_w)
+                end
+            end
+        end
+    end
+
+    # copy twist and twist_ω of groups
+    if length(sys1.groups) > 1 && length(sys1.groups) == length(sys2.groups)
+        for (group1, group2) in zip(sys1.groups, sys2.groups)
+            group2.twist = group1.twist
+            group2.twist_ω = group1.twist_ω
+        end
+    end
+
+    # copy winch tether lengths and velocities
+    if length(sys1.winches) > 1 && length(sys1.winches) == length(sys2.winches)
+        for (winch2, winch1) in zip(sys2.winches, sys1.winches)
+            if iszero(direct_len)
+                winch2.tether_len = winch1.tether_len
+                winch2.tether_vel = winch1.tether_vel
+            else
+                delta_len = 0.0
+                for tether_idx in winch1.tether_idxs
+                    slen = sys1.tethers[tether_idx].stretched_len
+                    delta_len += (slen - direct_len) / length(winch1.tether_idxs)
+                end
+                @show delta_len
+                winch2.tether_len = winch1.tether_len + delta_len
+                winch2.tether_vel = winch1.tether_vel
+            end
+        end
+    end
+
+    # copy pulley lengths and velocities
+    if length(sys1.pulleys) > 1 && length(sys1.pulleys) == length(sys2.pulleys)
+        for (pulley1, pulley2) in zip(sys1.pulleys, sys2.pulleys)
+            pulley2.len = pulley1.len
+            pulley2.vel = pulley1.vel
+        end
+    end
+
+    # copy wing positions and velocities
+    if length(sys1.wings) > 1 && length(sys1.wings) == length(sys2.wings)
+        for (wing1, wing2) in zip(sys1.wings, sys2.wings)
+            wing2.pos_w = wing1.pos_w
+            wing2.vel_w = wing1.vel_w
+            wing2.ω_b = wing1.ω_b
+            wing2.Q_b_w = wing1.Q_b_w
+        end
+    end
 end
 

@@ -168,23 +168,23 @@ function create_tether_sys_struct(set::Settings)
     return SystemStructure("tether", set; points, segments, tethers, winches, transforms)
 end
 
-# Copies the state from the ram sam to the tether sam
-function update_tether_sys!(tsys::SystemStructure, sys::SystemStructure)
-    for (tether, ttether) in zip(sys.tethers, tsys.tethers)
-        for (segment_idx, tsegment_idx) in zip(tether.segment_idxs, ttether.segment_idxs)
-            point_idxs = sys.segments[segment_idx].point_idxs
-            tpoint_idxs = tsys.segments[tsegment_idx].point_idxs
-            for (point_idx, tpoint_idx) in zip(point_idxs, tpoint_idxs)
-                tsys.points[tpoint_idx].pos_w .= sys.points[point_idx].pos_w
-                tsys.points[tpoint_idx].vel_w .= sys.points[point_idx].vel_w
-            end
-        end
-    end
-    for (twinch, winch) in zip(tsys.winches, sys.winches)
-        twinch.tether_len = winch.tether_len
-        twinch.tether_vel = winch.tether_vel
-    end
-end
+# # Copies the state from the ram sam to the tether sam
+# function update_tether_sys!(tsys::SystemStructure, sys::SystemStructure)
+#     for (tether, ttether) in zip(sys.tethers, tsys.tethers)
+#         for (segment_idx, tsegment_idx) in zip(tether.segment_idxs, ttether.segment_idxs)
+#             point_idxs = sys.segments[segment_idx].point_idxs
+#             tpoint_idxs = tsys.segments[tsegment_idx].point_idxs
+#             for (point_idx, tpoint_idx) in zip(point_idxs, tpoint_idxs)
+#                 tsys.points[tpoint_idx].pos_w .= sys.points[point_idx].pos_w
+#                 tsys.points[tpoint_idx].vel_w .= sys.points[point_idx].vel_w
+#             end
+#         end
+#     end
+#     for (twinch, winch) in zip(tsys.winches, sys.winches)
+#         twinch.tether_len = winch.tether_len
+#         twinch.tether_vel = winch.tether_vel
+#     end
+# end
 
 function create_simple_ram_sys_struct(set::Settings)
     vsm_wing = RamAirWing(set)
