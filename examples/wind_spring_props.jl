@@ -25,9 +25,10 @@ F_0 = [-tsys.points[i].force for i in 1:4]
 steps = 200
 F_step = -0.1
 
-function response(sam, steps, F_step, F_0;
+function step(sam, steps, F_step, F_0;
                   abs_tol=1e-6,
-                  consecutive_steps_needed=10)
+                  consecutive_steps_needed=10,
+                  stop_at_peak=false)
 
     points = sam.sys_struct.points
 
@@ -62,78 +63,71 @@ function response(sam, steps, F_step, F_0;
     return tether_lens
 end
 
-tether_lens = response(tsam, steps, F_step, F_0)
+tether_lens = step(tsam, steps, F_step, F_0)
 
 display(plotx(
     dt .* collect(1:steps+1), 
     tether_lens[1,:], tether_lens[2,:], tether_lens[3,:], tether_lens[4,:];
-    title="Force step response",
+    title="Force step step",
     ylabels=["Left power [m]", "Right power [m]", "Left steering [m]", "Right steering [m]"],
 ))
 
+# Damping ratio from overshoot (PO = fractional overshoot, i.e. (peak - final)/|final - initial|)
+function damping_ratio_from_PO(PO)
+    if PO <= 0 || PO >= 1
+        error("PO must be between 0 and 1 (exclusive) for this method.")
+    end
+    ζ = -log(PO) / sqrt(π^2 + log(PO)^2)
+    return ζ
+end
+
 k_values = zeros(4)
 c_values = zeros(4)
+
+diameters = [
+    set.power_tether_diameter/1000
+    set.power_tether_diameter/1000
+    set.steering_tether_diameter/1000
+    set.steering_tether_diameter/1000
+]
+mass_per_meter = set.rho_tether * π * ((diameters/2).^2)
 
 for j in 1:4
     tether_len_series = tether_lens[j, :]
     initial_len = tether_len_series[1]
     final_len = tether_len_series[end]
-
     delta_x_ss = final_len - initial_len
 
-    if abs(delta_x_ss) < 1e-6 # Avoid division by zero or very small numbers
-        println("Warning: Steady-state change in length is too small for Tether $(j). Cannot reliably calculate k.")
-        k_values[j] = NaN
-        c_values[j] = NaN
+    # Effective mass approximation (as before)
+    m = mass_per_meter[j] * 0.5 * set.l_tether
+
+    if abs(delta_x_ss) < 1e-6
+        println("Warning: Steady-state change too small for Tether $j; skipping.")
+        k_values[j] = NaN; c_values[j] = NaN
         continue
     end
 
-    # Calculate Spring Stiffness (k)
-    k = F_step / delta_x_ss * initial_len
+    # Spring stiffness
+    k = F_step / delta_x_ss
     k_values[j] = k
 
-    # Calculate Time Constant (tau)
-    # Target value for (1 - 1/ℯ) of the change
-    target_len = initial_len + (1 - 1/ℯ) * delta_x_ss
-
-    # Find the index where the series crosses this target value
-    tau_index = -1
-    for i in eachindex(tether_len_series)
-        if (delta_x_ss > 0 && tether_len_series[i] >= target_len) ||
-           (delta_x_ss < 0 && tether_len_series[i] <= target_len)
-            tau_index = i
-            break
-        end
-    end
-
-    if tau_index == -1
-        println("Warning: Could not find time constant (tau) for Tether $(j).
-            Response might not have settled enough.")
-        tau = NaN
-    else
-        # Interpolate for better accuracy, or just use the found index
-        # For simplicity, using the index
-        tau = (tau_index - 1) * dt # (index - 1) because time starts from 0 for the change
-    end
-
-    # Calculate Damping Coefficient (c)
-    if !isnan(tau)
-        c = k * tau
-        c_values[j] = c
-    else
-        c_values[j] = NaN
-    end
+    # Determine peak for overshoot
+    peak_val = delta_x_ss > 0 ? maximum(tether_len_series) : minimum(tether_len_series)
+    PO = abs((peak_val - final_len) / delta_x_ss)
+    ζ = damping_ratio_from_PO(PO)
+    c = 2 * ζ * sqrt(k * m)
+    c_values[j] = c
 end
 
 println("Summary of Results:")
 for j in 1:4
-    println("Tether $(j): k = $(k_values[j]) N, c = $(c_values[j]) Ns")
+    println("Tether $(j): k = $(k_values[j]) N/m, c = $(c_values[j]) Ns/m")
 end
 
 set.segments = 1
 ssys = SymbolicAWEModels.create_tether_sys_struct(set; 
-                                                  axial_stiffness=k_values, 
-                                                  axial_damping=c_values)
+                                                  axial_stiffness=k_values.*set.l_tether, 
+                                                  axial_damping=c_values.*set.l_tether)
 ssam = SymbolicAWEModel(set, ssys)
 init!(ssam)
 
@@ -142,13 +136,13 @@ SymbolicAWEModels.copy!(sam.sys_struct, ssam.sys_struct)
 OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
 SymbolicAWEModels.update_sys_struct!(ssam, ssam.sys_struct)
 
-tether_lens = response(ssam, steps, 0.0,    F_0)
-tether_lens = response(ssam, steps, F_step, F_0)
+tether_lens = step(ssam, steps, 0.0,    F_0)
+tether_lens = step(ssam, steps, F_step, F_0)
 
 display(plotx(
     dt .* collect(1:steps+1), 
     tether_lens[1,:], tether_lens[2,:], tether_lens[3,:], tether_lens[4,:];
-    title="Force step response",
+    title="Force step step",
     ylabels=["Left power [m]", "Right power [m]", "Left steering [m]", "Right steering [m]"],
 ))
 
