@@ -105,16 +105,16 @@ function create_ram_sys_struct(set::Settings)
 
     points, segments, tethers, left_power_idx =
         create_tether(1, set, points, segments, tethers, attach_points[1], 
-                      POWER_LINE, dynamics_type, z)
+                      POWER_LINE, dynamics_type; z)
     points, segments, tethers, right_power_idx =
         create_tether(2, set, points, segments, tethers, attach_points[3], 
-                      POWER_LINE, dynamics_type, z)
+                      POWER_LINE, dynamics_type; z)
     points, segments, tethers, left_steering_idx =
         create_tether(3, set, points, segments, tethers, attach_points[2], 
-                      STEERING_LINE, dynamics_type, z)
+                      STEERING_LINE, dynamics_type; z)
     points, segments, tethers, right_steering_idx =
         create_tether(4, set, points, segments, tethers, attach_points[4], 
-                      STEERING_LINE, dynamics_type, z)
+                      STEERING_LINE, dynamics_type; z)
 
     winches = [
         Winch(1, TorqueControlledMachine(set), [left_power_idx, right_power_idx])
@@ -131,7 +131,9 @@ function create_ram_sys_struct(set::Settings)
     return SystemStructure(set.physical_model, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 end
 
-function create_tether_sys_struct(set::Settings)
+function create_tether_sys_struct(set::Settings; 
+                                  axial_stiffness=fill(NaN, 4), 
+                                  axial_damping=fill(NaN,4))
     points = Point[]
     segments = Segment[]
     tethers = Tether[]
@@ -144,17 +146,17 @@ function create_tether_sys_struct(set::Settings)
     ]
     
     points, segments, tethers, left_power_idx =
-        create_tether(1, set, points, segments, tethers, points[1], 
-                      POWER_LINE, DYNAMIC)
+        create_tether(1, set, points, segments, tethers, points[1], POWER_LINE, DYNAMIC, 
+                      axial_stiffness=axial_stiffness[1], axial_damping=axial_damping[1])
     points, segments, tethers, right_power_idx =
-        create_tether(2, set, points, segments, tethers, points[2], 
-                      POWER_LINE, DYNAMIC)
+        create_tether(2, set, points, segments, tethers, points[2], POWER_LINE, DYNAMIC, 
+                      axial_stiffness=axial_stiffness[2], axial_damping=axial_damping[2])
     points, segments, tethers, left_steering_idx =
-        create_tether(3, set, points, segments, tethers, points[3], 
-                      STEERING_LINE, DYNAMIC)
+        create_tether(3, set, points, segments, tethers, points[3], STEERING_LINE, DYNAMIC, 
+                      axial_stiffness=axial_stiffness[3], axial_damping=axial_damping[3])
     points, segments, tethers, right_steering_idx =
-        create_tether(4, set, points, segments, tethers, points[4], 
-                      STEERING_LINE, DYNAMIC)
+        create_tether(4, set, points, segments, tethers, points[4], STEERING_LINE, DYNAMIC, 
+                      axial_stiffness=axial_stiffness[4], axial_damping=axial_damping[4])
     
     winches = [
         Winch(1, TorqueControlledMachine(set), [left_power_idx, right_power_idx]; brake=true)
@@ -167,24 +169,6 @@ function create_tether_sys_struct(set::Settings)
 
     return SystemStructure("tether", set; points, segments, tethers, winches, transforms)
 end
-
-# # Copies the state from the ram sam to the tether sam
-# function update_tether_sys!(tsys::SystemStructure, sys::SystemStructure)
-#     for (tether, ttether) in zip(sys.tethers, tsys.tethers)
-#         for (segment_idx, tsegment_idx) in zip(tether.segment_idxs, ttether.segment_idxs)
-#             point_idxs = sys.segments[segment_idx].point_idxs
-#             tpoint_idxs = tsys.segments[tsegment_idx].point_idxs
-#             for (point_idx, tpoint_idx) in zip(point_idxs, tpoint_idxs)
-#                 tsys.points[tpoint_idx].pos_w .= sys.points[point_idx].pos_w
-#                 tsys.points[tpoint_idx].vel_w .= sys.points[point_idx].vel_w
-#             end
-#         end
-#     end
-#     for (twinch, winch) in zip(tsys.winches, sys.winches)
-#         twinch.tether_len = winch.tether_len
-#         twinch.tether_vel = winch.tether_vel
-#     end
-# end
 
 function create_simple_ram_sys_struct(set::Settings)
     vsm_wing = RamAirWing(set)

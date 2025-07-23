@@ -4,7 +4,9 @@ using OrdinaryDiffEqCore
 
 # Assuming 'sam' setup code from your snippet has been run
 set = Settings("system.yaml")
-set.sample_freq = 100
+set.sample_freq = 800
+set.abs_tol = 1e-5
+set.rel_tol = 1e-5
 dt = 1/set.sample_freq
 sam = SymbolicAWEModel(set)
 SymbolicAWEModels.init!(sam)
@@ -20,11 +22,11 @@ OrdinaryDiffEqCore.reinit!(tsam.integrator; reinit_dae=true)
 SymbolicAWEModels.update_sys_struct!(tsam, tsam.sys_struct)
 F_0 = [-tsys.points[i].force for i in 1:4]
 
-steps = 100
+steps = 200
 F_step = -0.1
 
 function response(sam, steps, F_step, F_0;
-                  abs_tol=1e-7,
+                  abs_tol=1e-6,
                   consecutive_steps_needed=10)
 
     points = sam.sys_struct.points
@@ -69,22 +71,15 @@ display(plotx(
     ylabels=["Left power [m]", "Right power [m]", "Left steering [m]", "Right steering [m]"],
 ))
 
-println("Analysis of Tether Stiffness and Damping:")
-
 k_values = zeros(4)
 c_values = zeros(4)
 
 for j in 1:4
-    println("\n--- Tether $(j) ---")
-
     tether_len_series = tether_lens[j, :]
     initial_len = tether_len_series[1]
     final_len = tether_len_series[end]
 
     delta_x_ss = final_len - initial_len
-    println("Initial Tether Length: $(initial_len) m")
-    println("Final (Steady-State) Tether Length: $(final_len) m")
-    println("Steady-State Change in Length (Delta_x_ss): $(delta_x_ss) m")
 
     if abs(delta_x_ss) < 1e-6 # Avoid division by zero or very small numbers
         println("Warning: Steady-state change in length is too small for Tether $(j). Cannot reliably calculate k.")
@@ -96,7 +91,6 @@ for j in 1:4
     # Calculate Spring Stiffness (k)
     k = F_step / delta_x_ss * initial_len
     k_values[j] = k
-    println("Spring stiffness constant (k): $(k) N")
 
     # Calculate Time Constant (tau)
     # Target value for (1 - 1/ℯ) of the change
@@ -120,38 +114,35 @@ for j in 1:4
         # Interpolate for better accuracy, or just use the found index
         # For simplicity, using the index
         tau = (tau_index - 1) * dt # (index - 1) because time starts from 0 for the change
-        println("Time Constant (tau): $(tau) seconds")
     end
 
     # Calculate Damping Coefficient (c)
     if !isnan(tau)
         c = k * tau
         c_values[j] = c
-        println("Damping coefficient constant (c): $(c) Ns")
     else
         c_values[j] = NaN
     end
 end
 
-println("\nSummary of Results:")
+println("Summary of Results:")
 for j in 1:4
     println("Tether $(j): k = $(k_values[j]) N, c = $(c_values[j]) Ns")
 end
 
-sset = Settings("system.yaml")
-sset.sample_freq = 100
-sset.segments = 1
-ssys = SymbolicAWEModels.create_tether_sys_struct(sset)
-ssam = SymbolicAWEModel(sset, ssys)
+set.segments = 1
+ssys = SymbolicAWEModels.create_tether_sys_struct(set; 
+                                                  axial_stiffness=k_values, 
+                                                  axial_damping=c_values)
+ssam = SymbolicAWEModel(set, ssys)
 init!(ssam)
 
 forces = [F ⋅ normalize(point.pos_w) for (F, point) in zip(F_0, ssys.points[1:4])]
-SymbolicAWEModels.copy!(sam.sys_struct, ssam.sys_struct; forces)
+SymbolicAWEModels.copy!(sam.sys_struct, ssam.sys_struct)
 OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
 SymbolicAWEModels.update_sys_struct!(ssam, ssam.sys_struct)
 
-F_step = 0.0
-
+tether_lens = response(ssam, steps, 0.0,    F_0)
 tether_lens = response(ssam, steps, F_step, F_0)
 
 display(plotx(

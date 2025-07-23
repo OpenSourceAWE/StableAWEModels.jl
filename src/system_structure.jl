@@ -277,21 +277,23 @@ function Segment(idx, point_idxs, axial_stiffness, axial_damping, diameter;
 end
 
 function Segment(idx, set, point_idxs, type;
-    l0=zero(SimFloat), compression_frac=0.1
+    l0=zero(SimFloat), compression_frac=0.1, axial_stiffness=NaN, axial_damping=NaN
 )
     (type == BRIDLE) && (diameter = 0.001* set.bridle_tether_diameter)
     (type == POWER_LINE) && (diameter = 0.001* set.power_tether_diameter)
     (type == STEERING_LINE) && (diameter = 0.001* set.steering_tether_diameter)
 
-    axial_stiffness = set.e_tether * (diameter/2)^2 * π
-    if type == BRIDLE
-        stiffness_frac = 0.01
-    else
-        stiffness_frac = 1.0
-    end
-    axial_stiffness = stiffness_frac * axial_stiffness
+    if isnan(axial_stiffness) || isnan(axial_damping)
+        axial_stiffness = set.e_tether * (diameter/2)^2 * π
+        if type == BRIDLE
+            stiffness_frac = 0.01
+        else
+            stiffness_frac = 1.0
+        end
+        axial_stiffness = stiffness_frac * axial_stiffness
 
-    axial_damping = (set.damping / set.c_spring) * axial_stiffness
+        axial_damping = (set.damping / set.c_spring) * axial_stiffness
+    end
 
     Segment(idx, point_idxs, axial_stiffness, axial_damping, l0, compression_frac, 
         diameter, zero(SimFloat), zero(SimFloat))
@@ -940,7 +942,9 @@ function calc_pos(wing::RamAirWing, gamma, frac)
     return pos
 end
 
-function create_tether(tether_idx, set, points, segments, tethers, attach_point, type, dynamics_type, z=[0,0,1])
+function create_tether(tether_idx, set, points, segments, tethers, attach_point, 
+                       type, dynamics_type; z=[0,0,1], axial_stiffness=NaN, 
+                       axial_damping=NaN)
     winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z)
     dir = winch_pos - attach_point.pos_cad
     segment_idxs = Int16[]
@@ -961,7 +965,8 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
         else
             points = [points; Point(point_idx, pos, dynamics_type)]
         end
-        segments = [segments; Segment(segment_idx, set, (last_idx, point_idx), type)]
+        segments = [segments; Segment(segment_idx, set, (last_idx, point_idx), type;
+                                      axial_stiffness, axial_damping)]
         push!(segment_idxs, segment_idx)
     end
     tethers = [tethers; Tether(tether_idx, segment_idxs, winch_idx)]
@@ -1034,8 +1039,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings)
 end
 
 # Copies the state from one sam to another sam
-function copy!(sys1::SystemStructure, sys2::SystemStructure; forces=nothing)
-    direct_len = 0.0
+function copy!(sys1::SystemStructure, sys2::SystemStructure)
+    simple = false
 
     # copy point pos and vel
     if length(sys1.points) > 0
@@ -1066,8 +1071,7 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure; forces=nothing)
                     sys2.points[point_idxs2[2]].pos_w .= sys1.points[point_idxs1[2]].pos_w
                     sys2.points[point_idxs2[1]].vel_w .= sys1.points[point_idxs1[1]].vel_w
                     sys2.points[point_idxs2[2]].vel_w .= sys1.points[point_idxs1[2]].vel_w
-                    direct_len = norm(sys2.points[point_idxs2[1]].pos_w .-
-                                      sys2.points[point_idxs2[2]].pos_w)
+                    simple = true
                 end
             end
         end
@@ -1084,17 +1088,21 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure; forces=nothing)
     # copy winch tether lengths and velocities
     if length(sys1.winches) > 1 && length(sys1.winches) == length(sys2.winches)
         for (winch2, winch1) in zip(sys2.winches, sys1.winches)
-            if iszero(direct_len)
+            if !simple
                 winch2.tether_len = winch1.tether_len
                 winch2.tether_vel = winch1.tether_vel
             else
-                delta_len = 0.0
+                winch2.tether_len = 0.0
                 for tether_idx in winch1.tether_idxs
-                    slen = sys1.tethers[tether_idx].stretched_len
-                    delta_len += (slen - direct_len) / length(winch1.tether_idxs)
+                    tether2 = sys2.tethers[tether_idx]
+                    segment2 = sys2.segments[tether2.segment_idxs[1]]
+                    point_idxs2 = segment2.point_idxs
+                    slen = norm(sys2.points[point_idxs2[1]].pos_w .-
+                                      sys2.points[point_idxs2[2]].pos_w)
+                    stiffness = segment2.axial_stiffness / slen
+                    nt = length(winch1.tether_idxs)
+                    winch2.tether_len += (slen - norm(winch1.force)/stiffness/nt) / nt
                 end
-                @show delta_len
-                winch2.tether_len = winch1.tether_len + delta_len
                 winch2.tether_vel = winch1.tether_vel
             end
         end
