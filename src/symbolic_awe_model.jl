@@ -981,38 +981,3 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     return sha1(content)
 end
 
-function step(sam::SymbolicAWEModel, steps, F_step, F_0;
-                  abs_tol=1e-6,
-                  consecutive_steps_needed=10,
-                  prn=false)
-
-    @unpack points, tethers = sam.sys_struct
-
-    initial_tether_lens = [norm(points[i].pos_w) for i in eachindex(tethers)]
-    [points[i].disturb .= F_0[i] .+ F_step * normalize(points[i].pos_w) for i in eachindex(tethers)]
-
-    tether_lens = zeros(length(tethers), steps+1)
-    tether_lens[:, 1] .= initial_tether_lens # Store the initial lengths
-    settled_steps = 0
-    for step in 1:steps
-        next_step!(sam; vsm_interval=0)
-        for j in eachindex(tethers)
-            tether_lens[j, step+1] = norm(points[j].pos_w)
-        end
-        # Check absolute delta for all tethers
-        step_deltas = abs.(tether_lens[:, step+1] .- tether_lens[:, step])
-        max_delta = maximum(step_deltas)
-        if max_delta < abs_tol
-            settled_steps += 1
-        else
-            settled_steps = 0
-        end
-        if settled_steps >= consecutive_steps_needed
-            prn && println("Stopped at step $step: all tethers within $abs_tol for $consecutive_steps_needed steps.")
-            tether_lens[:, step+2:end] .= tether_lens[:, step+1]
-            break
-        end
-    end
-    return tether_lens
-end
-

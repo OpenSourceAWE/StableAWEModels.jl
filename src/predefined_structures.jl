@@ -4,6 +4,8 @@ function SystemStructure(set::Settings)
         return create_ram_sys_struct(set)
     elseif set.physical_model == "simple_ram"
         return create_simple_ram_sys_struct(set)
+    elseif set.physical_model == "tether"
+        return create_tether_sys_struct(set)
     else
         throw(ArgumentError("Undefined physical model"))
     end

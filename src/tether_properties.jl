@@ -1,52 +1,15 @@
-using SymbolicAWEModels, VortexStepMethod, KiteUtils, WinchModels
-using ControlPlots, Statistics, LinearAlgebra
-using OrdinaryDiffEqCore
-using UnPack
 
-# Assuming 'sam' setup code from your snippet has been run
-set = Settings("system.yaml")
-set.sample_freq = 800
-set.abs_tol = 1e-5
-set.rel_tol = 1e-5
-dt = 1/set.sample_freq
-sam = SymbolicAWEModel(set)
-SymbolicAWEModels.init!(sam)
-sys = sam.sys
-
-tsys = SymbolicAWEModels.create_tether_sys_struct(set)
-tsam = SymbolicAWEModel(set, tsys)
-init!(tsam)
-
-find_steady_state!(sam; t=10.0, dt=3.0)
-SymbolicAWEModels.copy!(sam.sys_struct, tsam.sys_struct)
-OrdinaryDiffEqCore.reinit!(tsam.integrator; reinit_dae=true)
-SymbolicAWEModels.update_sys_struct!(tsam, tsam.sys_struct)
-F_0 = [-tsys.points[i].force for i in 1:4]
-
-steps = 200
-F_step = -0.1
-
-tether_lens = SymbolicAWEModels.step(tsam, steps, F_step, F_0)
-
-display(plotx(
-    dt .* collect(1:steps+1), 
-    tether_lens[1,:].-tether_lens[1,1], 
-    tether_lens[2,:].-tether_lens[2,1], 
-    tether_lens[3,:].-tether_lens[3,1], 
-    tether_lens[4,:].-tether_lens[4,1];
-    title="Force step response",
-    ylabels=["Left power [m]", "Right power [m]", "Left steering [m]", "Right steering [m]"],
-))
-
-# Helper: Check if all values after index i are within 2% band of steady-state
+# Helper: Check if all values after index i are within p% band of steady-state
 function in_percent_band(x, steady, delta_x, i, p)
     tol = p/100 * abs(delta_x)
-    # All subsequent points must be within steady ± 2%
+    # All subsequent points must be within steady ± p%
     all(abs.(x[i:end] .- steady) .<= tol)
 end
 
-function calc_spring_props(sam; p=5, prn=false)
+function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=false)
     @unpack tethers, segments = sam.sys_struct
+    set = sam.set
+    dt = 1/set.sample_freq
 
     k_values = zeros(4)
     c_values = zeros(4)
@@ -60,8 +23,8 @@ function calc_spring_props(sam; p=5, prn=false)
         final_len = tether_len_series[end]
         delta_x_ss = final_len - initial_len
 
-        # Effective mass approximation (as before)
-        m = mass_per_meter[j] * 0.5 * set.l_tether
+        m = mass_per_meter[j] * 0.5 * tethers[j].stretched_len
+        @assert m > 0
 
         if abs(delta_x_ss) < 1e-6
             @warn "Steady-state change too small for Tether $j; skipping."
@@ -121,32 +84,38 @@ function calc_spring_props(sam; p=5, prn=false)
     return k_values, c_values
 end
 
-k_values, c_values = calc_spring_props(sam)
+function step(sam::SymbolicAWEModel, steps, F_step, F_0;
+                  abs_tol=1e-6,
+                  consecutive_steps_needed=10,
+                  prn=false)
 
-set.segments = 1
-ssys = SymbolicAWEModels.create_tether_sys_struct(set; 
-                                                  axial_stiffness=k_values.*set.l_tether, 
-                                                  axial_damping=c_values.*set.l_tether)
-ssam = SymbolicAWEModel(set, ssys)
-init!(ssam)
+    @unpack points, tethers = sam.sys_struct
 
-forces = [F ⋅ normalize(point.pos_w) for (F, point) in zip(F_0, ssys.points[1:4])]
-SymbolicAWEModels.copy!(sam.sys_struct, ssam.sys_struct)
-OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
-SymbolicAWEModels.update_sys_struct!(ssam, ssam.sys_struct)
+    initial_tether_lens = [norm(points[i].pos_w) for i in eachindex(tethers)]
+    [points[i].disturb .= F_0[i] .+ F_step * normalize(points[i].pos_w) for i in eachindex(tethers)]
 
-stether_lens = SymbolicAWEModels.step(ssam, steps, 0.0,    F_0)
-stether_lens = SymbolicAWEModels.step(ssam, steps, F_step, F_0)
-
-display(plotx(
-    dt .* collect(1:steps+1), 
-    stether_lens[1,:].-stether_lens[1,1], 
-    stether_lens[2,:].-stether_lens[2,1], 
-    stether_lens[3,:].-stether_lens[3,1], 
-    stether_lens[4,:].-stether_lens[4,1];
-    title="Force step response",
-    ylabels=["Left power [m]", "Right power [m]", "Left steering [m]", "Right steering [m]"],
-))
-
-@info "Difference at t=0: $(stether_lens[:,1] .- tether_lens[:,1])"
+    tether_lens = zeros(length(tethers), steps+1)
+    tether_lens[:, 1] .= initial_tether_lens # Store the initial lengths
+    settled_steps = 0
+    for step in 1:steps
+        next_step!(sam; vsm_interval=0)
+        for j in eachindex(tethers)
+            tether_lens[j, step+1] = norm(points[j].pos_w)
+        end
+        # Check absolute delta for all tethers
+        step_deltas = abs.(tether_lens[:, step+1] .- tether_lens[:, step])
+        max_delta = maximum(step_deltas)
+        if max_delta < abs_tol
+            settled_steps += 1
+        else
+            settled_steps = 0
+        end
+        if settled_steps >= consecutive_steps_needed
+            prn && println("Stopped at step $step: all tethers within $abs_tol for $consecutive_steps_needed steps.")
+            tether_lens[:, step+2:end] .= tether_lens[:, step+1]
+            break
+        end
+    end
+    return tether_lens
+end
 
