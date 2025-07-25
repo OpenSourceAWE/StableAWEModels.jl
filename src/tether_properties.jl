@@ -46,6 +46,7 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
         z_airf = x_airf * sin(sgroup.twist) + init_z_airf * cos(sgroup.twist)
         force = steering_force[sgroup.idx] * normalize(swing.pos_w) ⋅ (swing.R_b_w * z_airf)
         r = moment[sgroup.idx] / force
+        @show r steering_force[sgroup.idx] force
         spoint = ssys.points[sgroup.point_idxs[1]]
         spoint.pos_b .= sgroup.le_pos + sgroup.chord * (r / norm(sgroup.chord) + sgroup.moment_frac)
 
@@ -81,7 +82,7 @@ function in_percent_band(x, steady, delta_x, i, p)
     all(abs.(x[i:end] .- steady) .<= tol)
 end
 
-function calc_spring_props(sam::SymbolicAWEModel, tsam::SymbolicAWEModel)
+function calc_spring_props(sam::SymbolicAWEModel, tsam::SymbolicAWEModel; prn=false)
     find_steady_state!(sam; t=10.0, dt=3.0)
     copy!(sam.sys_struct, tsam.sys_struct)
     OrdinaryDiffEqCore.reinit!(tsam.integrator; reinit_dae=true)
@@ -91,7 +92,7 @@ function calc_spring_props(sam::SymbolicAWEModel, tsam::SymbolicAWEModel)
     steps = 200
     F_step = -0.1
     tether_lens = step(tsam, steps, F_step, F_0)
-    k_values, c_values = calc_spring_props(sam, tether_lens, F_step; prn=true)
+    k_values, c_values = calc_spring_props(sam, tether_lens, F_step; prn)
     return k_values .* tether_lens[:,1], c_values .* tether_lens[:,1]
 end
 

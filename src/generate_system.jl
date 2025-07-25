@@ -282,10 +282,16 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 eqs = [
                     eqs
                     pos_b[:, point.idx]     ~ get_pos_b(psys, point.idx)
-                    tether_r[:, point.idx]  ~ pos[:, point.idx] - wing_pos[point.wing_idx, :]
+                #     tether_r[:, point.idx]  ~ pos[:, point.idx] - wing_pos[point.wing_idx, :]
                 ]
-                tether_wing_moment[point.wing_idx, :] .+= tether_r[:, point.idx] × point_force[:, point.idx]
+                # tether_wing_moment[point.wing_idx, :] .+= tether_r[:, point.idx] × point_force[:, point.idx]
             end
+            eqs = [
+                eqs
+                # pos_b[:, point.idx]     ~ get_pos_b(psys, point.idx)
+                tether_r[:, point.idx]  ~ pos[:, point.idx] - wing_pos[point.wing_idx, :]
+            ]
+            tether_wing_moment[point.wing_idx, :] .+= tether_r[:, point.idx] × point_force[:, point.idx]
             tether_wing_force[point.wing_idx, :] .+= point_force[:, point.idx]
             
             eqs = [

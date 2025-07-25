@@ -34,6 +34,7 @@ set = Settings("system.yaml")
 set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 set.quasi_static = false
 set.physical_model = SIMPLE ? "simple_ram" : "ram"
+# set.physical_model = "4_attach_ram"
 
 @info "Creating SymbolicAWEModel:"
 sam = SymbolicAWEModel(set)
@@ -55,6 +56,9 @@ t = 0.0
 runtime = 0.0
 integ_runtime = 0.0
 bias = set.quasi_static ? 0.45 : 0.35
+if set.physical_model == "4_attach_ram"
+    bias = 0.05
+end
 t0 = sam.integrator.t
 
 try
@@ -76,6 +80,8 @@ try
         t_new = sam.integrator.t
         integ_steptime = sam.t_step
         t = t_new - t0  # Adjust for initial stabilization time
+
+        @show mean([group.moment / group.force for group in sam.sys_struct.groups][1:2])
 
         # Track performance after initial transient
         if (t > total_time/2)

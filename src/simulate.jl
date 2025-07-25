@@ -26,7 +26,7 @@ function sim_oscillate!(
     steering_freq=0.5,
     steering_magnitude=10.0,
     vsm_interval=3,
-    bias = sam.set.quasi_static ? 0.45 : 0.35
+    bias = sam.set.quasi_static ? 0.45 : 0.13
 )
     steps = Int(round(total_time / dt))
     logger = Logger(length(sam.sys_struct.points), steps)
@@ -36,9 +36,7 @@ function sim_oscillate!(
         t = (step-1)*dt
         steering = steering_magnitude * cos(2π * steering_freq * t + bias)
         set_values = -sam.set.drum_radius .* [norm(winch.force) for winch in sam.sys_struct.winches]
-        if t > 1.0
-            set_values .+= [0.0, steering, -steering]
-        end
+        set_values .+= [0.0, steering, -steering]
         try
             next_step!(sam; set_values, dt, vsm_interval=vsm_interval)
         catch e

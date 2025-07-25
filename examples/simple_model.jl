@@ -8,7 +8,7 @@ init!(sam)
 tsam = SymbolicAWEModel(set, "tether")
 init!(tsam)
 
-axial_stiffness, axial_damping = SymbolicAWEModels.calc_spring_props(sam, tsam)
+axial_stiffness, axial_damping = SymbolicAWEModels.calc_spring_props(sam, tsam; prn=true)
 
 ssam = SymbolicAWEModel(set, "simple_ram"; axial_stiffness, axial_damping)
 init!(ssam)
@@ -19,5 +19,11 @@ SymbolicAWEModels.copy_to_simple!(sam.sys_struct, ssam.sys_struct)
 OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
 SymbolicAWEModels.update_sys_struct!(ssam, ssam.sys_struct)
 
-plot(sim_oscillate!(ssam))
+# TODO: plot effective group arm
+
+# sl = sim_oscillate!(sam)
+# plot(sam.sys_struct, sl)
+
+sl = sim_oscillate!(ssam)
+plot(ssam.sys_struct, sl)
 
