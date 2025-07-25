@@ -1,6 +1,21 @@
 
 # Copies the state from one sam to another sam
 function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
+    (sys.name != "ram") && error("provide a ram sys as the first argument")
+    (ssys.name != "simple_ram") && error("provide a simple ram sys as the second argument")
+
+    # copy point pos and vel
+    for (tether, stether) in zip(sys.tethers, ssys.tethers)
+        (length(stether.segment_idxs) != 1) && 
+            error("Provide a simple system structure with 1-segment tethers.")
+
+        # copy ground point of the tether
+        point_idx = sys.segments[tether.segment_idxs[end]].point_idxs[2]
+        spoint_idx = ssys.segments[stether.segment_idxs[1]].point_idxs[2]
+        ssys.points[spoint_idx].pos_w .= sys.points[point_idx].pos_w
+        ssys.points[spoint_idx].vel_w .= sys.points[point_idx].vel_w
+    end
+
     # copy wing state
     swing = ssys.wings[1]
     wing = sys.wings[1]
@@ -8,21 +23,9 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
     swing.vel_w .= wing.vel_w
     swing.ω_b .= wing.ω_b
     swing.Q_b_w .= wing.Q_b_w
-
-    # copy point pos and vel
-    for (tether, stether) in zip(sys.tethers, ssys.tethers)
-        (length(stether.segment_idxs) != 1) && 
-            error("Provide a simple system structure with 1-segment tethers.")
-
-        # copy the first and last point of the tether
-        point_idxs1 = [sys.segments[tether.segment_idxs[1]].point_idxs[1],
-                        sys.segments[tether.segment_idxs[end]].point_idxs[2]]
-        point_idxs2 = ssys.segments[stether.segment_idxs[1]].point_idxs
-        ssys.points[point_idxs2[1]].pos_w .= sys.points[point_idxs1[1]].pos_w
-        ssys.points[point_idxs2[2]].pos_w .= sys.points[point_idxs1[2]].pos_w
-        ssys.points[point_idxs2[1]].vel_w .= sys.points[point_idxs1[1]].vel_w
-        ssys.points[point_idxs2[2]].vel_w .= sys.points[point_idxs1[2]].vel_w
-    end
+    # update non-group pos
+    ssys.points[1].pos_w .= wing.pos_w + wing.R_b_w * ssys.points[1].pos_b
+    ssys.points[2].pos_w .= wing.pos_w + wing.R_b_w * ssys.points[2].pos_b
 
     # copy twist
     (length(sys.groups) != 4) && error("Sys should have 4 groups.")
@@ -45,6 +48,7 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
         r = moment[sgroup.idx] / force
         spoint = ssys.points[sgroup.point_idxs[1]]
         spoint.pos_b .= sgroup.le_pos + sgroup.chord * (r / norm(sgroup.chord) + sgroup.moment_frac)
+
         # update pos_w for correct tether len
         chord_b = spoint.pos_b .- sgroup.le_pos
         normal = chord_b × sgroup.y_airf
@@ -75,6 +79,20 @@ function in_percent_band(x, steady, delta_x, i, p)
     tol = p/100 * abs(delta_x)
     # All subsequent points must be within steady ± p%
     all(abs.(x[i:end] .- steady) .<= tol)
+end
+
+function calc_spring_props(sam::SymbolicAWEModel, tsam::SymbolicAWEModel)
+    find_steady_state!(sam; t=10.0, dt=3.0)
+    copy!(sam.sys_struct, tsam.sys_struct)
+    OrdinaryDiffEqCore.reinit!(tsam.integrator; reinit_dae=true)
+    update_sys_struct!(tsam, tsam.sys_struct)
+
+    F_0 = [-tsam.sys_struct.points[i].force for i in 1:4]
+    steps = 200
+    F_step = -0.1
+    tether_lens = step(tsam, steps, F_step, F_0)
+    k_values, c_values = calc_spring_props(sam, tether_lens, F_step; prn=true)
+    return k_values .* tether_lens[:,1], c_values .* tether_lens[:,1]
 end
 
 function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=false)

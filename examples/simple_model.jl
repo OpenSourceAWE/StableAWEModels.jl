@@ -5,17 +5,19 @@ set = Settings("system.yaml")
 
 sam = SymbolicAWEModel(set, "ram")
 init!(sam)
-ssam = SymbolicAWEModel(set, "simple_ram")
-init!(ssam)
 tsam = SymbolicAWEModel(set, "tether")
 init!(tsam)
 
-find_steady_state!(sam; t=10.0, dt=3.0)
-SymbolicAWEModels.copy!(sam.sys_struct, tsam.sys_struct)
-OrdinaryDiffEqCore.reinit!(tsam.integrator; reinit_dae=true)
-SymbolicAWEModels.update_sys_struct!(tsam, tsam.sys_struct)
+axial_stiffness, axial_damping = SymbolicAWEModels.calc_spring_props(sam, tsam)
+
+ssam = SymbolicAWEModel(set, "simple_ram"; axial_stiffness, axial_damping)
+init!(ssam)
+
+sim_oscillate!(sam; total_time=1.0)
 
 SymbolicAWEModels.copy_to_simple!(sam.sys_struct, ssam.sys_struct)
+OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
+SymbolicAWEModels.update_sys_struct!(ssam, ssam.sys_struct)
 
-plot(sim_oscillate(sam))
+plot(sim_oscillate!(ssam))
 

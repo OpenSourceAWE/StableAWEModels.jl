@@ -21,12 +21,12 @@ find_steady_state!(sam; t=10.0, dt=3.0)
 SymbolicAWEModels.copy!(sam.sys_struct, tsam.sys_struct)
 OrdinaryDiffEqCore.reinit!(tsam.integrator; reinit_dae=true)
 SymbolicAWEModels.update_sys_struct!(tsam, tsam.sys_struct)
-F_0 = [-tsys.points[i].force for i in 1:4]
 
+F_0 = [-tsys.points[i].force for i in 1:4]
 steps = 200
 F_step = -0.1
-
 tether_lens = SymbolicAWEModels.step(tsam, steps, F_step, F_0)
+k_values, c_values = SymbolicAWEModels.calc_spring_props(sam, tether_lens, F_step; prn=true)
 
 display(plotx(
     dt .* collect(1:steps+1), 
@@ -37,8 +37,6 @@ display(plotx(
     title="Force step response",
     ylabels=["Left power [m]", "Right power [m]", "Left steering [m]", "Right steering [m]"],
 ))
-
-k_values, c_values = SymbolicAWEModels.calc_spring_props(sam, tether_lens, F_step; prn=true)
 
 set.segments = 1
 ssys = SymbolicAWEModels.create_tether_sys_struct(set; 

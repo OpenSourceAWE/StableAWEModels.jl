@@ -133,12 +133,13 @@ model = SymbolicAWEModel(set, sys_struct, [aero], [solver])
 """
 function SymbolicAWEModel(
     set::Settings, 
-    sys_struct::SystemStructure,
+    sys_struct::SystemStructure;
+    kwargs...
 )
     set_hash = get_set_hash(set)
     sys_struct_hash = get_sys_struct_hash(sys_struct)
     serialized_model = SerializedModel(; set_hash, sys_struct_hash)
-    return SymbolicAWEModel(; set, sys_struct, serialized_model)
+    return SymbolicAWEModel(; set, sys_struct, serialized_model, kwargs...)
 end
 
 """
@@ -170,14 +171,14 @@ for i in 1:1000
 end
 ```
 """
-function SymbolicAWEModel(set::Settings)
-    sys_struct = SystemStructure(set)
+function SymbolicAWEModel(set::Settings; kwargs...)
+    sys_struct = SystemStructure(set; kwargs...)
     return SymbolicAWEModel(set, sys_struct)
 end
 
-function SymbolicAWEModel(set::Settings, name::String)
+function SymbolicAWEModel(set::Settings, name::String; kwargs...)
     set.physical_model = name
-    sys_struct = SystemStructure(set)
+    sys_struct = SystemStructure(set; kwargs...)
     return SymbolicAWEModel(set, sys_struct)
 end
 

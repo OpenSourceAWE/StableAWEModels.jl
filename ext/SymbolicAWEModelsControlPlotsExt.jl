@@ -3,11 +3,12 @@
 # SPDX-License-Identifier: MIT
 
 module SymbolicAWEModelsControlPlotsExt
-using ControlPlots, LaTeXStrings, SymbolicAWEModels
+using ControlPlots, LaTeXStrings, KiteUtils, SymbolicAWEModels
 
 export plot
 
-function ControlPlots.plot(sl::SysLog)
+function ControlPlots.plot(lg::SysLog)
+    sl = lg.syslog
     turn_rates_deg = rad2deg.(hcat(sl.turn_rates...))
     v_reelout_23 = [sl.v_reelout[i][2] for i in eachindex(sl.v_reelout)], [sl.v_reelout[i][3] for i in eachindex(sl.v_reelout)] # Winch 2 and 3
     aero_force_z = [sl.aero_force_b[i][3] for i in eachindex(sl.aero_force_b)]

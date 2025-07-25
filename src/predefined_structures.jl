@@ -1,9 +1,9 @@
 
-function SystemStructure(set::Settings)
+function SystemStructure(set::Settings; kwargs...)
     if set.physical_model == "ram"
         return create_ram_sys_struct(set)
     elseif set.physical_model == "simple_ram"
-        return create_simple_ram_sys_struct(set)
+        return create_simple_ram_sys_struct(set; kwargs...)
     elseif set.physical_model == "tether"
         return create_tether_sys_struct(set)
     else
@@ -172,7 +172,9 @@ function create_tether_sys_struct(set::Settings;
     return SystemStructure("tether", set; points, segments, tethers, winches, transforms)
 end
 
-function create_simple_ram_sys_struct(set::Settings)
+function create_simple_ram_sys_struct(set::Settings; 
+                                  axial_stiffness=fill(NaN, 4), 
+                                  axial_damping=fill(NaN,4))
     vsm_wing = RamAirWing(set; prn=false)
     gammas = [-1/2, 1/2] * vsm_wing.gamma_tip
     
@@ -195,10 +197,14 @@ function create_simple_ram_sys_struct(set::Settings)
         Group(2, [4], vsm_wing, gammas[2], DYNAMIC, set.bridle_fracs[2])
     ]
     segments = [
-        Segment(1, set, (1,5), POWER_LINE)
-        Segment(2, set, (2,6), POWER_LINE)
-        Segment(3, set, (3,7), STEERING_LINE)
-        Segment(4, set, (4,8), STEERING_LINE)
+        Segment(1, set, (1,5), POWER_LINE; axial_stiffness=axial_stiffness[1],
+                axial_damping=axial_damping[1])
+        Segment(2, set, (2,6), POWER_LINE; axial_stiffness=axial_stiffness[2],
+                axial_damping=axial_damping[2])
+        Segment(3, set, (3,7), STEERING_LINE; axial_stiffness=axial_stiffness[3],
+                axial_damping=axial_damping[3])
+        Segment(4, set, (4,8), STEERING_LINE; axial_stiffness=axial_stiffness[4],
+                axial_damping=axial_damping[4])
     ]
     tethers = [
         Tether(1, [1], 5)
