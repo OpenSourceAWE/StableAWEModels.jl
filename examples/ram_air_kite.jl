@@ -106,7 +106,7 @@ save_log(logger, "tmp")
 lg =load_log("tmp")
 sl = lg.syslog
 
-# --- Updated Plotting ---
+# --- Plotting ---
 # Extract necessary data using meaningful names
 turn_rates_deg = rad2deg.(hcat(sl.turn_rates...))
 v_reelout_23 = [sl.v_reelout[i][2] for i in eachindex(sl.v_reelout)], [sl.v_reelout[i][3] for i in eachindex(sl.v_reelout)] # Winch 2 and 3

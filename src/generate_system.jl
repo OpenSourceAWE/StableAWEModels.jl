@@ -357,6 +357,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             trailing_edge_α(t)[eachindex(groups)] # angular acc
             free_twist_angle(t)[eachindex(groups)]
             twist_α(t)[eachindex(groups)] # angular acc
+            group_tether_force(t)[eachindex(groups)]
             group_tether_moment(t)[eachindex(groups)]
             tether_force(t)[eachindex(groups), eachindex(groups[1].point_idxs)]
             tether_moment(t)[eachindex(groups), eachindex(groups[1].point_idxs)]
@@ -399,6 +400,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
 
         eqs = [
             eqs
+            group_tether_force[group.idx] ~ sum(tether_force[group.idx, :])
             group_tether_moment[group.idx] ~ sum(tether_moment[group.idx, :])
             twist_α[group.idx] ~ (group_aero_moment[group.idx] + group_tether_moment[group.idx]) / inertia
             twist_angle[group.idx] ~ clamp(free_twist_angle[group.idx], -max_twist, max_twist)

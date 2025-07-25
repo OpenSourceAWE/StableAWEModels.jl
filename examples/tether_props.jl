@@ -48,7 +48,7 @@ ssam = SymbolicAWEModel(set, ssys)
 init!(ssam)
 
 forces = [F ⋅ normalize(point.pos_w) for (F, point) in zip(F_0, ssys.points[1:4])]
-SymbolicAWEModels.copy!(sam.sys_struct, ssam.sys_struct)
+SymbolicAWEModels.copy_to_simple!(sam.sys_struct, ssam.sys_struct)
 OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
 SymbolicAWEModels.update_sys_struct!(ssam, ssam.sys_struct)
 

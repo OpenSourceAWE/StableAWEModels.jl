@@ -175,6 +175,12 @@ function SymbolicAWEModel(set::Settings)
     return SymbolicAWEModel(set, sys_struct)
 end
 
+function SymbolicAWEModel(set::Settings, name::String)
+    set.physical_model = name
+    sys_struct = SystemStructure(set)
+    return SymbolicAWEModel(set, sys_struct)
+end
+
 function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(s.integrator) ? 0.0 : s.integrator.t # Use integrator time
     @unpack points, groups, segments, pulleys, winches, wings = s.sys_struct
@@ -554,6 +560,8 @@ function generate_getters!(s, sym_vec, lin_y_vec)
         get_group_state = getu(sys, c.([
             sys.twist_angle,     # Twist angle per group
             sys.twist_ω,       # Twist velocity per group
+            sys.group_tether_force,
+            sys.group_tether_moment,
         ]))
         s.get_group_state = (integ) -> get_group_state(integ)
     end
@@ -693,10 +701,12 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, in
         end
     end
     if length(groups) > 0
-        twist, twist_ω = s.get_group_state(integ)
+        twist, twist_ω, force, moment = s.get_group_state(integ)
         for group in groups
             group.twist = twist[group.idx]
             group.twist_ω = twist_ω[group.idx]
+            group.force = force[group.idx]
+            group.moment = moment[group.idx]
         end
     end
     if length(winches) > 0

@@ -45,6 +45,7 @@ export find_steady_state!
 # High-Level Workers
 export init!
 export next_step!
+export sim_oscillate!
 
 # Getters
 export winch_force
@@ -125,6 +126,7 @@ include("tether_properties.jl")
 include("linearize.jl")
 include("generate_system.jl")
 include("plot_recipe.jl")
+include("simulate.jl")
 
 function upwind_dir(v_wind_gnd)
     if v_wind_gnd[1] == 0.0 && v_wind_gnd[2] == 0.0

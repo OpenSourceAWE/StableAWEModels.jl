@@ -1,4 +1,75 @@
 
+# Copies the state from one sam to another sam
+function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
+    # copy wing state
+    swing = ssys.wings[1]
+    wing = sys.wings[1]
+    swing.pos_w .= wing.pos_w
+    swing.vel_w .= wing.vel_w
+    swing.ω_b .= wing.ω_b
+    swing.Q_b_w .= wing.Q_b_w
+
+    # copy point pos and vel
+    for (tether, stether) in zip(sys.tethers, ssys.tethers)
+        (length(stether.segment_idxs) != 1) && 
+            error("Provide a simple system structure with 1-segment tethers.")
+
+        # copy the first and last point of the tether
+        point_idxs1 = [sys.segments[tether.segment_idxs[1]].point_idxs[1],
+                        sys.segments[tether.segment_idxs[end]].point_idxs[2]]
+        point_idxs2 = ssys.segments[stether.segment_idxs[1]].point_idxs
+        ssys.points[point_idxs2[1]].pos_w .= sys.points[point_idxs1[1]].pos_w
+        ssys.points[point_idxs2[2]].pos_w .= sys.points[point_idxs1[2]].pos_w
+        ssys.points[point_idxs2[1]].vel_w .= sys.points[point_idxs1[1]].vel_w
+        ssys.points[point_idxs2[2]].vel_w .= sys.points[point_idxs1[2]].vel_w
+    end
+
+    # copy twist
+    (length(sys.groups) != 4) && error("Sys should have 4 groups.")
+    (length(ssys.groups) != 2) && error("Simple sys should have 2 groups.")
+    ssys.groups[1].twist = (sys.groups[1].twist + sys.groups[2].twist) / 2
+    ssys.groups[2].twist = (sys.groups[3].twist + sys.groups[4].twist) / 2
+    ssys.groups[1].twist_ω = (sys.groups[1].twist_ω + sys.groups[2].twist_ω) / 2
+    ssys.groups[2].twist_ω = (sys.groups[3].twist_ω + sys.groups[4].twist_ω) / 2
+
+    # match moment by changing moment frac
+    # TODO: add aero force
+    moment = [group.moment for group in sys.groups]
+    moment = [mean(moment[1:2]), mean(moment[3:4])]
+    steering_force = [norm(sys.winches[2].force), norm(sys.winches[3].force)]
+    for sgroup in ssys.groups
+        x_airf = normalize(sgroup.chord)
+        init_z_airf = x_airf × sgroup.y_airf
+        z_airf = x_airf * sin(sgroup.twist) + init_z_airf * cos(sgroup.twist)
+        force = steering_force[sgroup.idx] * normalize(swing.pos_w) ⋅ (swing.R_b_w * z_airf)
+        r = moment[sgroup.idx] / force
+        spoint = ssys.points[sgroup.point_idxs[1]]
+        spoint.pos_b .= sgroup.le_pos + sgroup.chord * (r / norm(sgroup.chord) + sgroup.moment_frac)
+        # update pos_w for correct tether len
+        chord_b = spoint.pos_b .- sgroup.le_pos
+        normal = chord_b × sgroup.y_airf
+        pos_b = sgroup.le_pos + cos(sgroup.twist) * chord_b - 
+                sin(sgroup.twist) * normal
+        spoint.pos_w .= swing.pos_w + swing.R_b_w * pos_b
+    end
+
+    # match winch force by changing tether length
+    for (swinch, winch) in zip(ssys.winches, sys.winches)
+        swinch.tether_len = 0.0
+        for tether_idx in winch.tether_idxs
+            stether = ssys.tethers[tether_idx]
+            ssegment = ssys.segments[stether.segment_idxs[1]]
+            spoint_idxs = ssegment.point_idxs
+            slen = norm(ssys.points[spoint_idxs[1]].pos_w .-
+                                ssys.points[spoint_idxs[2]].pos_w)
+            stiffness = ssegment.axial_stiffness / slen
+            nt = length(winch.tether_idxs)
+            swinch.tether_len += (slen - norm(winch.force)/stiffness/nt) / nt
+        end
+        swinch.tether_vel = winch.tether_vel
+    end
+end
+
 # Helper: Check if all values after index i are within p% band of steady-state
 function in_percent_band(x, steady, delta_x, i, p)
     tol = p/100 * abs(delta_x)

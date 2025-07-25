@@ -173,8 +173,8 @@ function create_tether_sys_struct(set::Settings;
 end
 
 function create_simple_ram_sys_struct(set::Settings)
-    vsm_wing = RamAirWing(set)
-    gammas = [-1/2, 1/2] * wing.gamma_tip
+    vsm_wing = RamAirWing(set; prn=false)
+    gammas = [-1/2, 1/2] * vsm_wing.gamma_tip
     
     bridle_top_left = [vsm_wing.R_cad_body * (set.top_bridle_points[i] + vsm_wing.T_cad_body) for i in eachindex(set.top_bridle_points)] # cad to kite frame
     bridle_top_right = [bridle_top_left[i] .* [1, -1, 1] for i in eachindex(set.top_bridle_points)]

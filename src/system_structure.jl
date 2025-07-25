@@ -135,6 +135,8 @@ mutable struct Group
     moment_frac::SimFloat
     twist::SimFloat
     twist_ω::SimFloat
+    force::SimFloat
+    moment::SimFloat
 end
 
 """
@@ -188,7 +190,7 @@ function Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac)
     le_pos = [vsm_wing.le_interp[i](gamma) for i in 1:3]
     chord = [vsm_wing.te_interp[i](gamma) for i in 1:3] .- le_pos
     y_airf = normalize([vsm_wing.le_interp[i](gamma-0.01) for i in 1:3] - le_pos)
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, 0.0, 0.0)
+    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, 0.0, 0.0, 0.0, 0.0)
 end
 
 """
@@ -277,7 +279,7 @@ function Segment(idx, point_idxs, axial_stiffness, axial_damping, diameter;
 end
 
 function Segment(idx, set, point_idxs, type;
-    l0=zero(SimFloat), compression_frac=0.1, axial_stiffness=NaN, axial_damping=NaN
+    l0=zero(SimFloat), compression_frac=0.0, axial_stiffness=NaN, axial_damping=NaN
 )
     (type == BRIDLE) && (diameter = 0.001* set.bridle_tether_diameter)
     (type == POWER_LINE) && (diameter = 0.001* set.power_tether_diameter)
@@ -851,8 +853,6 @@ function SystemStructure(name, set;
                 winch.tether_len += segments[segment_idx].l0
             end
         end
-        set.l_tethers[i]   = winch.tether_len
-        set.v_reel_outs[i] = winch.tether_vel
     end
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
