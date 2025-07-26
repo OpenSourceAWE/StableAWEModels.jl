@@ -19,11 +19,9 @@ SymbolicAWEModels.copy_to_simple!(sam.sys_struct, ssam.sys_struct)
 OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
 SymbolicAWEModels.update_sys_struct!(ssam, ssam.sys_struct)
 
-# TODO: plot effective group arm
-
-sl = sim_oscillate!(sam)
+sl = sim_oscillate!(sam; total_time=5.0, prn=true)
 display(plot(sam.sys_struct, sl))
 
-sl = sim_oscillate!(ssam)
+sl = sim_oscillate!(ssam; total_time=5.0, prn=true)
 display(plot(ssam.sys_struct, sl))
 

@@ -12,6 +12,8 @@ using Parameters
 using DocStringExtensions
 using SHA
 using RecipesBase
+using Printf
+using Timers
 
 using OrdinaryDiffEqCore
 using OrdinaryDiffEqBDF

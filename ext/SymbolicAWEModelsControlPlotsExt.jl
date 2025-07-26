@@ -18,7 +18,6 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog)
     heading_deg = rad2deg.(sl.heading)
 
     twist_labels = ["twist[$i]" for i in eachindex(sys.groups)]
-    @show twist_labels size(twist_angles_deg)
 
     ControlPlots.plotx(sl.time,
         [turn_rates_deg[1,:], turn_rates_deg[2,:], turn_rates_deg[3,:]],

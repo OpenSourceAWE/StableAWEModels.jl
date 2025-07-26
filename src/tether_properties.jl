@@ -47,7 +47,6 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
         z_airf = x_airf * sin(sgroup.twist) + init_z_airf * cos(sgroup.twist)
         force = steering_force[sgroup.idx] * normalize(swing.pos_w) ⋅ (swing.R_b_w * z_airf)
         r = moment[sgroup.idx] / force
-        @show r steering_force[sgroup.idx] force
         spoint = ssys.points[sgroup.point_idxs[1]]
         spoint.pos_b .= sgroup.le_pos + sgroup.chord * (r / norm(sgroup.chord) + moment_frac)
 
