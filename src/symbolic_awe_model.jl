@@ -563,6 +563,7 @@ function generate_getters!(s, sym_vec, lin_y_vec)
             sys.twist_ω,       # Twist velocity per group
             sys.group_tether_force,
             sys.group_tether_moment,
+            sys.group_aero_moment,
         ]))
         s.get_group_state = (integ) -> get_group_state(integ)
     end
@@ -702,12 +703,13 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, in
         end
     end
     if length(groups) > 0
-        twist, twist_ω, force, moment = s.get_group_state(integ)
+        twist, twist_ω, tether_force, tether_moment, aero_moment = s.get_group_state(integ)
         for group in groups
             group.twist = twist[group.idx]
             group.twist_ω = twist_ω[group.idx]
-            group.force = force[group.idx]
-            group.moment = moment[group.idx]
+            group.tether_force = tether_force[group.idx]
+            group.tether_moment = tether_moment[group.idx]
+            group.aero_moment = aero_moment[group.idx]
         end
     end
     if length(winches) > 0

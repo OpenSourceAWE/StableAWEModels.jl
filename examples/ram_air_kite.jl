@@ -81,8 +81,6 @@ try
         integ_steptime = sam.t_step
         t = t_new - t0  # Adjust for initial stabilization time
 
-        @show mean([group.moment / group.force for group in sam.sys_struct.groups][1:2])
-
         # Track performance after initial transient
         if (t > total_time/2)
             runtime += steptime

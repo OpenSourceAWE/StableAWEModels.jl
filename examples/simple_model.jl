@@ -21,9 +21,9 @@ SymbolicAWEModels.update_sys_struct!(ssam, ssam.sys_struct)
 
 # TODO: plot effective group arm
 
-# sl = sim_oscillate!(sam)
-# plot(sam.sys_struct, sl)
+sl = sim_oscillate!(sam)
+display(plot(sam.sys_struct, sl))
 
 sl = sim_oscillate!(ssam)
-plot(ssam.sys_struct, sl)
+display(plot(ssam.sys_struct, sl))
 

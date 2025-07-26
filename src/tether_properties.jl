@@ -37,7 +37,8 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
 
     # match moment by changing moment frac
     # TODO: add aero force
-    moment = [group.moment for group in sys.groups]
+    moment = [group.tether_moment for group in sys.groups]
+    moment_frac = sys.groups[1].moment_frac
     moment = [mean(moment[1:2]), mean(moment[3:4])]
     steering_force = [norm(sys.winches[2].force), norm(sys.winches[3].force)]
     for sgroup in ssys.groups
@@ -48,7 +49,7 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
         r = moment[sgroup.idx] / force
         @show r steering_force[sgroup.idx] force
         spoint = ssys.points[sgroup.point_idxs[1]]
-        spoint.pos_b .= sgroup.le_pos + sgroup.chord * (r / norm(sgroup.chord) + sgroup.moment_frac)
+        spoint.pos_b .= sgroup.le_pos + sgroup.chord * (r / norm(sgroup.chord) + moment_frac)
 
         # update pos_w for correct tether len
         chord_b = spoint.pos_b .- sgroup.le_pos

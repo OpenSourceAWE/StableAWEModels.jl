@@ -135,8 +135,9 @@ mutable struct Group
     moment_frac::SimFloat
     twist::SimFloat
     twist_ω::SimFloat
-    force::SimFloat
-    moment::SimFloat
+    tether_force::SimFloat
+    tether_moment::SimFloat
+    aero_moment::SimFloat
 end
 
 """
@@ -190,7 +191,7 @@ function Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac)
     le_pos = [vsm_wing.le_interp[i](gamma) for i in 1:3]
     chord = [vsm_wing.te_interp[i](gamma) for i in 1:3] .- le_pos
     y_airf = normalize([vsm_wing.le_interp[i](gamma-0.01) for i in 1:3] - le_pos)
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, 0.0, 0.0, 0.0, 0.0)
+    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, 0.0, 0.0, 0.0, 0.0, 0.0)
 end
 
 """
