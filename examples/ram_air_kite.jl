@@ -5,7 +5,7 @@ using Timers
 tic()
 @info "Loading packages "
 
-PLOT = false
+PLOT = true
 using Pkg
 if ! ("LaTeXStrings" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
@@ -70,10 +70,8 @@ try
         # Calculate steering inputs based on cosine wave
         steering = steering_magnitude * cos(2π * steering_freq * t + bias)
         set_values = -sam.set.drum_radius .* sam.integrator[sys.winch_force]
-        _vsm_interval = 1
-        if t > 1.0
-            set_values .+= [0.0, steering, -steering]  # Opposite steering for left/right
-            _vsm_interval = vsm_interval
+        if t < 1.0
+            set_values .+= [0.0, steering_magnitude, -steering_magnitude]  # Opposite steering for left/right
         end
         # Step simulation
         steptime = @elapsed next_step!(sam; set_values, dt, vsm_interval=vsm_interval)
@@ -87,6 +85,8 @@ try
             integ_runtime += integ_steptime
             sam.integrator.ps[sys.twist_damp] = 10
         end
+
+        @show norm(sam.integrator[sam.sys.wind_vel_wing[1,:]])
 
         # Log state variables
         update_sys_state!(sys_state, sam)

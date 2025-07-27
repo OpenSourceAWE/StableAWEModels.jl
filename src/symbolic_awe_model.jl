@@ -319,36 +319,40 @@ function init!(s::SymbolicAWEModel;
         reinit!(s.sys_struct, s.set)
         
         inputs = create_sys!(s, s.sys_struct; prn)
-        prn && @info "Simplifying the system"
-        prn ? (@time sys = mtkcompile(s.full_sys; inputs, additional_passes = [ModelingToolkit.IfLifting])) :
-            (sys = mtkcompile(s.full_sys; inputs, additional_passes = [ModelingToolkit.IfLifting]))
-        s.sys = sys
-        dt = SimFloat(1/s.set.sample_freq)
-        if prn
-            @info "Creating ODEProblem"
-            @time s.prob = ODEProblem(s.sys, s.defaults, (0.0, dt); s.guesses)
-        else
-            s.prob = ODEProblem(s.sys, s.defaults, (0.0, dt); s.guesses)
+        prn && @info "Simplifying the System..."
+        time = @elapsed @suppress_err begin
+            sys = mtkcompile(s.full_sys; inputs, additional_passes = [ModelingToolkit.IfLifting])
+            s.sys = sys
         end
+        prn && @info "Simplified the System in $time seconds"
+
+        prn && @info "Creating the ODEProblem..."
+        dt = SimFloat(1/s.set.sample_freq)
+        time = @elapsed s.prob = ODEProblem(s.sys, s.defaults, (0.0, dt); s.guesses)
+        prn && @info "Created the ODEProblem in $time seconds"
 
         if isnothing(lin_outputs)
             lin_outputs = Num[]
             if length(s.sys_struct.wings) > 0
-                push!(lin_outputs, sys.heading[1])
-                push!(lin_outputs, sys.angle_of_attack[1])
+                push!(lin_outputs, s.sys.heading[1])
+                push!(lin_outputs, s.sys.angle_of_attack[1])
             end
             if length(s.sys_struct.winches) > 0
-                push!(lin_outputs, sys.tether_len[1])
-                push!(lin_outputs, sys.winch_force[1])
+                push!(lin_outputs, s.sys.tether_len[1])
+                push!(lin_outputs, s.sys.winch_force[1])
             end
         end
-        lin_fun, _ = linearization_function(s.full_sys, [inputs...], lin_outputs; op=s.defaults, guesses=s.guesses)
-        s.lin_prob = LinearizationProblem(lin_fun, 0.0)
-        s.lin_outputs = lin_outputs
+        prn && @info "Creating the LinearizationProblem..."
+        time = @elapsed @suppress_err begin
+            lin_fun, _ = linearization_function(s.full_sys, [inputs...], lin_outputs; op=s.defaults, guesses=s.guesses)
+            s.lin_prob = LinearizationProblem(lin_fun, 0.0)
+            s.lin_outputs = lin_outputs
+        end
+        prn && @info "Created the LinearizationProblem in $time seconds"
 
         sym_vec = get_unknowns(s.sys_struct, s.sys)
         s.unknowns_vec = zeros(SimFloat, length(sym_vec))
-        generate_getters!(s, sym_vec, lin_outputs)
+        generate_getters!(s, sym_vec, s.lin_outputs)
         s.set_hash = get_set_hash(s.set)
         s.sys_struct_hash = get_sys_struct_hash(s.sys_struct)
         serialize(model_path, s.serialized_model)
@@ -359,12 +363,12 @@ function init!(s::SymbolicAWEModel;
     if !ispath(model_path) || remake
         init(s)
     end
-    _, success = reinit!(s, solver; adaptive, precompile, reload, lin_outputs, prn)
+    _, success = reinit!(s, solver; adaptive, precompile, reload, s.lin_outputs, prn)
     if !success
         rm(model_path)
         @info "Rebuilding the system. This can take some minutes..."
         init(s)
-        reinit!(s, solver; adaptive, precompile, lin_outputs, prn, reload=true)
+        reinit!(s, solver; adaptive, precompile, s.lin_outputs, prn, reload=true)
     end
     return s.integrator
 end
@@ -406,7 +410,7 @@ function reinit!(
     s::SymbolicAWEModel,
     solver;
     adaptive=true,
-    prn=true, 
+    prn=false, 
     reload=true, 
     precompile=false,
     lin_outputs=Num[]

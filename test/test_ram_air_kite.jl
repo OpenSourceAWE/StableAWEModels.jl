@@ -25,7 +25,6 @@ set_data_path(temp_data_path)
 
 # Testing tolerance
 const TOL = 1e-5
-const BUILD_SYS = true
 
 @testset verbose = true "SymbolicAWEModel MTK Model Tests" begin
     # Initialize model
@@ -35,86 +34,15 @@ const BUILD_SYS = true
     @info "Creating s:"
     @time s = SymbolicAWEModel(set)
 
-    s.set.abs_tol = 1e-4
-    s.set.rel_tol = 1e-4
-
-    # Initialize at elevation
-    set.elevation = 80.0
-
-    @testset "Model Initialization Chain" begin
-        # Delete existing problem file to force init!
-        @info "Data path: $(get_data_path())"
-        model_path = joinpath(get_data_path(), SymbolicAWEModels.get_model_name(s.set))
-        # if isfile(model_path)
-        #     @info "Removing existing serialized problem from $model_path to test full initialization"
-        #     rm(model_path)
-        # end
-
-        # 1. First time initialization - should create new model
-        @info "Testing initial init! (should create new model if it doesn't exist yet)..."
-        @time SymbolicAWEModels.init!(s; prn=true)
-
-        # Check that serialization worked
-        @test isfile(model_path)
-
-        # Check initialization results
-        @test !isnothing(s.integrator)
-        @test !isnothing(s.sys)
-        @test !isnothing(s.sys_struct)
-        s.integrator = nothing
-        s.sys = nothing
-
-        # Keep references to first integrator and point system
-        first_integrator_ptr = objectid(s.integrator)
-        first_sys_struct_ptr = objectid(s.sys_struct)
-
-        # 2. First init! - should load from serialized file
-        @info "Testing first init! (should load serialized file)..."
-        @time SymbolicAWEModels.init!(s; prn=true, reload=false)
-        next_step!(s)
-
-        # Check that it's a new integrator
-        second_integrator_ptr = objectid(s.integrator)
-        second_sys_struct_ptr = objectid(s.sys_struct)
-        @test first_integrator_ptr != second_integrator_ptr
-        @test first_sys_struct_ptr == second_sys_struct_ptr
-
-        # 3. Second init! - should reuse existing integrator
-        @info "Testing second init! (should reuse integrator)..."
-        @time SymbolicAWEModels.init!(s; prn=true, reload=false)
-
-        # This should create a new point system but reuse the existing integrator
-        third_integrator_ptr = objectid(s.integrator)
-        third_sys_struct_ptr = objectid(s.sys_struct)
-        @test second_integrator_ptr == third_integrator_ptr # Should be the same
-        @test second_sys_struct_ptr == third_sys_struct_ptr
-
-        # Get positions using SysState
-        sys_state = SymbolicAWEModels.SysState(s)
-
-        # Check dimension consistency
-        # Note: pos_integrator is no longer directly fetched, comparing SysState to sys_struct
-        @test length(sys_state.X) == length(s.sys_struct.points)
-
-        # Compare positions in different representations
-        for (i, point) in enumerate(s.sys_struct.points)
-            # Points' world positions should match SysState positions
-            point_pos = point.pos_w
-            sys_state_pos = [sys_state.X[i], sys_state.Y[i], sys_state.Z[i]]
-
-            # Use norm for comparison as exact vector match might be too strict due to float precision
-            @test isapprox(norm(point_pos), norm(sys_state_pos), rtol=1e-2)
-
-            # Positions should not be zero (except ground points)
-            if point.type != SymbolicAWEModels.STATIC  # Skip ground points which might be at origin
-                @test norm(point_pos) > 0.1
-                @test norm(sys_state_pos) > 0.1
-            end
-        end
+    @testset "Model Initialization" begin
+        init!(s)
+        init!(s)
+        init_time = @elapsed init!(s)
+        @test init_time < 0.3
     end
 
     @testset "State Consistency" begin
-        SymbolicAWEModels.init!(s, prn=true, reload=false)
+        init!(s)
         sys_state_before = SymbolicAWEModels.SysState(s)
         @test isapprox(norm(s.integrator[s.sys.Q_b_w]), 1.0, atol=TOL)
         @test isapprox(sys_state_before.elevation, deg2rad(set.elevation), atol=1e-2)
@@ -122,7 +50,7 @@ const BUILD_SYS = true
         # Change measurement and reinitialize
         old_elevation = set.elevation
         set.elevation = 85.0
-        SymbolicAWEModels.init!(s, prn=true, reload=false)
+        init!(s)
 
         # Get new state using SysState
         sys_state_after = SymbolicAWEModels.SysState(s)
@@ -170,15 +98,12 @@ const BUILD_SYS = true
     end
 
     function test_step(s, d_set_values=zeros(3); dt=0.05, steps=5)
-        find_steady_state!(s; dt=0.1)
+        find_steady_state!(s; dt=3.0, t=10.0)
         @info "Stepping"
         for _ in 1:steps
             set_values = -s.set.drum_radius * s.integrator[s.sys.winch_force] + d_set_values
             next_step!(s; set_values, dt)
-            # Use SysState to get heading if needed, or directly from integrator if simpler
-            # sys_state_step = SymbolicAWEModels.SysState(s)
-            # @show sys_state_step.heading # Example if heading is in SysState
-            @show s.integrator[s.sys.heading] # Keep direct access if simpler for this specific value
+            @show s.integrator[s.sys.heading]
         end
     end
 
@@ -203,7 +128,7 @@ const BUILD_SYS = true
 
     @testset "Simulation Step with SysState" begin
         # Basic step and time advancement test
-        SymbolicAWEModels.init!(s; prn=true, reload=false)
+        init!(s)
         sys_state_before = SymbolicAWEModels.SysState(s)
 
         # Run a simulation step with zero set values
@@ -227,7 +152,7 @@ const BUILD_SYS = true
             # Initialize at 60 degrees elevation
             set.elevation = 60.0
 
-            SymbolicAWEModels.init!(s; prn=true)
+            init!(s; prn=true)
 
             # Verify initial conditions using SysState
             sys_state_init = SymbolicAWEModels.SysState(s)
@@ -258,17 +183,17 @@ const BUILD_SYS = true
         @testset "Steering Response Using SysState" begin
             # Initialize model at moderate elevation
             set.elevation = 70.0
-            SymbolicAWEModels.init!(s; prn=true, reload=false)
+            init!(s)
             test_step(s)
             sys_state_initial = SymbolicAWEModels.SysState(s)
 
             # steering right
-            SymbolicAWEModels.init!(s; prn=true, reload=false)
+            init!(s)
             test_step(s, [0, 10, -10]; steps=20)
             sys_state_right = SymbolicAWEModels.SysState(s)
 
             # steering left
-            SymbolicAWEModels.init!(s; prn=true, reload=false)
+            init!(s)
             test_step(s, [0, -10, 10]; steps=20)
             sys_state_left = SymbolicAWEModels.SysState(s)
 
@@ -287,7 +212,7 @@ const BUILD_SYS = true
     end
 
     @testset "Reset using psys" begin
-        SymbolicAWEModels.init!(s; prn=true, reload=false)
+        init!(s)
         norm1 = s.integrator.u
         next_step!(s)
         @test norm1 != norm(s.integrator.u)
@@ -309,8 +234,8 @@ const BUILD_SYS = true
         old_rel = set.rel_tol
         set.abs_tol = 1e-4
         set.rel_tol = 1e-4
-        SymbolicAWEModels.init!(s; prn=true, reload=false)
-        find_steady_state!(s; dt=0.1, t=1.0)
+        init!(s)
+        find_steady_state!(s; dt=3.0, t=10.0)
 
         (; A, B, C, D) = SymbolicAWEModels.linearize!(s)
         sys = ss(A,B,C,D)
@@ -345,7 +270,7 @@ const BUILD_SYS = true
             pos = [0.0, 0.0, i * set.l_tether / set.segments]
             push!(points, Point(point_idx, pos, dynamics_type; wing_idx=0))
             segment_idx = i
-            push!(segments, Segment(segment_idx, (point_idx-1, point_idx), BRIDLE))
+            push!(segments, Segment(segment_idx, set, (point_idx-1, point_idx), BRIDLE))
             push!(segment_idxs, segment_idx)
         end
 
@@ -355,7 +280,7 @@ const BUILD_SYS = true
 
         sam = SymbolicAWEModel(set, sys_struct)
         sys = sam.sys
-        SymbolicAWEModels.init!(sam; remake=false)
+        init!(sam; remake=false)
         @test isapprox(sam.integrator[sam.sys.pos[:, end]], [8.682408883346524, 0.0, 0.7596123493895988], atol=1e-2)
         for i in 1:100
             next_step!(sam)

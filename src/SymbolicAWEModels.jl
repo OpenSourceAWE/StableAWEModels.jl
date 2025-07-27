@@ -14,6 +14,7 @@ using SHA
 using RecipesBase
 using Printf
 using Timers
+using Suppressor
 
 using OrdinaryDiffEqCore
 using OrdinaryDiffEqBDF
@@ -39,7 +40,6 @@ export SymbolicAWEModel
 # Helper Functions
 export copy_examples
 export copy_bin
-export update_sys_state!
 
 # Low-Level Workers
 export find_steady_state!
@@ -59,15 +59,8 @@ export create_ram_sys_struct
 export create_simple_ram_sys_struct
 
 # Types
-export SystemStructure
-export Point
-export Group
-export Segment
-export Pulley
-export Tether
-export Winch
-export Wing
-export Transform
+export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
+export SysState, Settings, update_sys_state!
 
 # Dynamics Types
 export DynamicsType

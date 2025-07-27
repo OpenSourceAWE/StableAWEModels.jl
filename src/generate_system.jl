@@ -544,7 +544,8 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             height[segment.idx]          ~ max(0.0, 0.5(pos[:, p1][3] + pos[:, p2][3]))
             segment_vel[:, segment.idx]  ~ 0.5(vel[:, p1] + vel[:, p2])
             segment_rho[segment.idx]     ~ calc_rho(s.am, height[segment.idx])
-            wind_vel[:, segment.idx]     ~ AtmosphericModels.calc_wind_factor(s.am, max(height[segment.idx], 1e-3), s.set.profile_law) * wind_vec_gnd
+            wind_vel[:, segment.idx]     ~ AtmosphericModels.calc_wind_factor(s.am, 
+                    max(height[segment.idx], 1.0), s.set.profile_law) * wind_vec_gnd
             va[:, segment.idx]           ~ wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
             area[segment.idx]            ~ len[segment.idx] * get_diameter(psys, segment.idx)
             app_perp_vel[:, segment.idx] ~ va[:, segment.idx] - 
@@ -842,9 +843,11 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
             e_x[wing.idx, :]     ~ R_b_w[wing.idx, :,1]
             e_y[wing.idx, :]     ~ R_b_w[wing.idx, :,2]
             e_z[wing.idx, :]     ~ R_b_w[wing.idx, :,3]
-            wind_vel_wing[wing.idx, :] ~ AtmosphericModels.calc_wind_factor(s.am, wing_pos[wing.idx, 3], s.set.profile_law) * wind_vec_gnd
+            wind_vel_wing[wing.idx, :] ~ AtmosphericModels.calc_wind_factor(s.am, 
+                    max(wing_pos[wing.idx, 3], 1.0), s.set.profile_law) * wind_vec_gnd
             wind_disturb[wing.idx, :] ~ get_wind_disturb(psys, wing.idx)
-            va_wing[wing.idx, :] ~ wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :] + wind_disturb[wing.idx, :]
+            va_wing[wing.idx, :] ~ wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :] + 
+                                    wind_disturb[wing.idx, :]
             va_wing_b[wing.idx, :] ~ R_b_w[wing.idx, :, :]' * va_wing[wing.idx, :]
         ]
     end

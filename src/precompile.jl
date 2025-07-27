@@ -43,12 +43,12 @@ end
     @compile_workload begin
         # all calls in this block will be precompiled, regardless of whether(
         # they belong to your package or not (on Julia 1.8 and higher)
-        sam_set = Settings("system.yaml")
-        sam_set.segments = 3
+        set = Settings("system.yaml")
+        set.segments = 3
         set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
-        sam_set.quasi_static = false
-        sam_set.physical_model = "ram"
-        model_name   = get_model_name(sam_set)
+        set.quasi_static = false
+        set.physical_model = "ram"
+        model_name   = get_model_name(set)
         model_file   = normpath(joinpath(path, "..", "data", model_name))
         output_file = normpath(joinpath(path, "..", "data", model_name * ".default"))
         input_file  = normpath(joinpath(path, "..", "data", model_name * ".default.xz"))
@@ -75,16 +75,21 @@ end
         end
         # Check if the output file exists and is the same as the input file
         if isfile(output_file) && filecmp(m1, m2)
-            s = SymbolicAWEModel(sam_set)
-
-            # Initialize at elevation
-            SymbolicAWEModels.init!(s; prn=false, precompile=true)
+            sam = SymbolicAWEModel(set)
+            init!(sam; precompile=true)
             @info "Copying $output_file to $model_file !"
             cp(output_file, model_file; force=true)
-            find_steady_state!(s)
+            init!(sam)
+            init_time = @elapsed init!(sam)
+            if init_time > 1.0
+                @warn "Precompilation failed"
+            end
+            find_steady_state!(sam)
+            next_step!(sam)
             steps = Int(round(10 / 0.05))
-            logger = Logger(length(s.sys_struct.points), steps)
-            sys_state = SysState(s)
+            logger = Logger(length(sam.sys_struct.points), steps)
+            sys_state = SysState(sam)
+            update_sys_state!(sam, sys_state)
         end
         nothing
     end

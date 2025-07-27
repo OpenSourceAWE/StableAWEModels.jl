@@ -19,7 +19,7 @@ SymbolicAWEModels.copy_to_simple!(sam.sys_struct, ssam.sys_struct)
 OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
 SymbolicAWEModels.update_sys_struct!(ssam, ssam.sys_struct)
 
-sl = sim_oscillate!(sam; total_time=5.0, prn=true)
+sl = sim_oscillate!(sam; total_time=5.0, prn=true) # TODO: add first frac ram model
 display(plot(sam.sys_struct, sl))
 
 sl = sim_oscillate!(ssam; total_time=5.0, prn=true)
