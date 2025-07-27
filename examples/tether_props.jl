@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Bart van de Lint <bart@vandelint.net>
+#
+# SPDX-License-Identifier: MPL-2.0
+
 using SymbolicAWEModels, VortexStepMethod, KiteUtils, WinchModels
 using ControlPlots, Statistics, LinearAlgebra
 using OrdinaryDiffEqCore

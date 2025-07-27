@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Bart van de Lint <bart@vandelint.net>
+#
+# SPDX-License-Identifier: MPL-2.0
 
 # Copies the state from one sam to another sam
 function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)

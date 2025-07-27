@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Bart van de Lint <bart@vandelint.net>
+#
+# SPDX-License-Identifier: MPL-2.0
 
 function SystemStructure(set::Settings; kwargs...)
     func_name = Symbol("create_$(set.physical_model)_sys_struct")
