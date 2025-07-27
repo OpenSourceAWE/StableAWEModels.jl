@@ -2,53 +2,60 @@
 # SPDX-License-Identifier: MIT
 
 """
-    sim_oscillate(set, sam, dt, total_time; steering_freq=0.5, steering_magnitude=10.0, vsm_interval=3)
+    sim!(sam, set_values; dt, total_time, vsm_interval, prn)
 
-Run a simulation with oscillating steering input on the given AWE model.
+Run a simulation for a given AWE model and a matrix of set_values.
 
 # Arguments
 - `sam::SymbolicAWEModel`: Initialized AWE model.
+- `set_values::Matrix{Float64}`: A matrix of control inputs for each time step.
+                                 The number of rows must be equal to the number of simulation steps.
 
 # Keywords
 - `dt::Float64`: Time step [s].
 - `total_time::Float64`: Simulation duration [s].
-- `steering_freq`: Steering oscillation frequency [Hz] (default 0.5).
-- `steering_magnitude`: Steering torque amplitude [Nm] (default 10.0).
 - `vsm_interval`: Value state machine interval (default 3).
+- `prn`: Boolean flag to enable printing of performance summary (default false).
 
 # Returns
 - `SysLog`: Logged simulation data.
 """
-function sim_oscillate!(
-    sam::SymbolicAWEModel;
+function sim!(
+    sam::SymbolicAWEModel,
+    set_values::Matrix{Float64};
     dt=1/sam.set.sample_freq,
     total_time=10.0,
-    steering_freq=0.5,
-    steering_magnitude=10.0,
     vsm_interval=3,
-    bias = sam.set.quasi_static ? 0.45 : 0.13,
-    prn=false
+    prn=true
 )
     steps = Int(round(total_time / dt))
+    if size(set_values, 1) != steps
+        error("The number of rows in set_values ($(size(set_values, 1))) must match the number of simulation steps ($steps).")
+    end
+
     logger = Logger(length(sam.sys_struct.points), steps)
     sys_state = SysState(sam)
 
     if prn
-        @info "Starting oscillation simulation"
+        @info "Starting simulation"
     end
     step_time = 0.0
     vsm_time = 0.0
     integ_time = 0.0
-    tic()  # start timer from Timers.jl
+    tic() # start timer from Timers.jl
+
     for step in 1:steps
-        t = (step-1)*dt
-        steering = steering_magnitude * cos(2π * steering_freq * t + bias)
-        set_values = -sam.set.drum_radius .* [norm(winch.force) for winch in sam.sys_struct.winches]
-        set_values .+= [0.0, steering, -steering]
+        t = (step-1) * dt
+
+        # Calculate internal set values based on current winch forces and external inputs
+        internal_set_values = -sam.set.drum_radius .* [norm(winch.force) for winch in sam.sys_struct.winches]
+        internal_set_values .+= set_values[step, :]
+
         try
-            step_time += @elapsed next_step!(sam; set_values, dt, vsm_interval=vsm_interval)
+            step_time += @elapsed next_step!(sam; set_values=internal_set_values, dt, vsm_interval=vsm_interval)
             integ_time += sam.t_step
             vsm_time += sam.t_vsm
+            # Reset timers for the first half of the simulation to get a more stable performance measure
             if step < steps ÷ 2
                 step_time, integ_time, vsm_time = 0.0, 0.0, 0.0
             end
@@ -66,7 +73,7 @@ function sim_oscillate!(
         sys_state.time = t
         log!(logger, sys_state)
     end
-    elapsed = toc(false)  # stop timer, do not print automatically
+    elapsed = toc(false) # stop timer, do not print automatically
 
     save_log(logger, "tmp_run")
     lg = load_log("tmp_run")
@@ -86,3 +93,116 @@ function sim_oscillate!(
 
     return lg
 end
+
+
+"""
+    sim_oscillate!(sam; dt, total_time, steering_freq, steering_magnitude, vsm_interval, bias, prn)
+
+Run a simulation with oscillating steering input on the given AWE model.
+
+This function is a wrapper around `sim!` that generates the required oscillating
+control inputs and then calls the main simulation function.
+
+# Arguments
+- `sam::SymbolicAWEModel`: Initialized AWE model.
+
+# Keywords
+- `dt::Float64`: Time step [s].
+- `total_time::Float64`: Simulation duration [s].
+- `steering_freq`: Steering oscillation frequency [Hz] (default 0.5).
+- `steering_magnitude`: Steering torque amplitude [Nm] (default 10.0).
+- `vsm_interval`: Value state machine interval (default 3).
+- `bias`: Phase bias for the steering oscillation (default depends on quasi_static setting).
+- `prn`: Boolean flag to enable printing of performance summary (default false).
+
+# Returns
+- `SysLog`: Logged simulation data.
+"""
+function sim_oscillate!(
+    sam::SymbolicAWEModel;
+    dt=1/sam.set.sample_freq,
+    total_time=10.0,
+    steering_freq=0.5,
+    steering_magnitude=10.0,
+    vsm_interval=3,
+    bias = 0.13,
+    prn=false
+)
+    steps = Int(round(total_time / dt))
+    num_winches = length(sam.sys_struct.winches)
+    @assert num_winches == 3
+    set_values = zeros(Float64, steps, num_winches)
+
+    if prn
+        @info "Generating oscillating steering commands..."
+    end
+
+    for step in 1:steps
+        t = (step-1) * dt
+        steering = steering_magnitude * cos(2π * steering_freq * t + bias)
+        set_values[step, :] = [0.0, steering, -steering]
+    end
+
+    if prn
+        @info "Starting oscillation simulation..."
+    end
+
+    return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval, prn=prn)
+end
+
+"""
+    sim_turn!(sam; dt, total_time, steering_time, steering_magnitude, vsm_interval, prn)
+
+Run a simulation with a constant steering input for a specified duration.
+
+This function is a wrapper around `sim!` that generates a constant steering
+input until `steering_time` and then calls the main simulation function.
+
+# Arguments
+- `sam::SymbolicAWEModel`: Initialized AWE model.
+
+# Keywords
+- `dt::Float64`: Time step [s].
+- `total_time::Float64`: Simulation duration [s].
+- `steering_time`: Duration of the steering input [s] (default 2.0).
+- `steering_magnitude`: Steering torque amplitude [Nm] (default 10.0).
+- `vsm_interval`: Value state machine interval (default 3).
+- `prn`: Boolean flag to enable printing of performance summary (default false).
+
+# Returns
+- `SysLog`: Logged simulation data.
+"""
+function sim_turn!(
+    sam::SymbolicAWEModel;
+    dt=1/sam.set.sample_freq,
+    total_time=10.0,
+    steering_time=2.0,
+    steering_magnitude=10.0,
+    vsm_interval=3,
+    prn=false
+)
+    steps = Int(round(total_time / dt))
+    steering_steps = Int(round(steering_time / dt))
+    num_winches = length(sam.sys_struct.winches)
+    @assert num_winches == 3
+    set_values = zeros(Float64, steps, num_winches)
+
+    if prn
+        @info "Generating turn commands..."
+    end
+
+    for step in 1:steps
+        if step <= steering_steps
+            set_values[step, :] = [0.0, steering_magnitude, -steering_magnitude]
+        else
+            set_values[step, :] = zeros(num_winches)
+        end
+    end
+
+    if prn
+        @info "Starting turn simulation..."
+    end
+
+    return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval, prn=prn)
+end
+

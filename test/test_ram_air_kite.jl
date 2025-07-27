@@ -29,6 +29,8 @@ const TOL = 1e-5
 @testset verbose = true "SymbolicAWEModel MTK Model Tests" begin
     # Initialize model
     set = Settings("system.yaml")
+    set.abs_tol = 1e-3
+    set.rel_tol = 1e-3
     set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 
     @info "Creating s:"

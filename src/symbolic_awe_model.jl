@@ -297,7 +297,7 @@ and only update the state variables. Otherwise, it will create a new model from 
 - `integrator::OrdinaryDiffEqCore.ODEIntegrator`: The initialized ODE integrator.
 """
 function init!(s::SymbolicAWEModel; 
-    solver=nothing, adaptive=true, prn=true, 
+    solver=nothing, adaptive=true, prn=false, 
     precompile=false, remake=false, reload=false, 
     lin_outputs=nothing
 )

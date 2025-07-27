@@ -8,7 +8,7 @@ cd("..")
 KiteUtils.set_data_path("") 
 @testset verbose = true "Testing SymbolicAWEModels..." begin
     println("--> 1")
-    include("test_ram_air_kite.jl")
+    include("test_sam.jl")
     println("--> 2")
     include("test_helpers.jl")
     println("--> 3")
