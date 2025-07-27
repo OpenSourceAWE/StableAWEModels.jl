@@ -1,7 +1,7 @@
 name = "SymbolicAWEModels"
 uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
 authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
-version = "0.1.2"
+version = "0.1.3"
 
 [deps]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
@@ -65,7 +65,7 @@ DiscretePIDs = "0.1.5"
 DocStringExtensions = "0.9.4"
 Documenter = "1.10.1"
 FFTW = "1.9.0"
-Interpolations = "0.15.1"
+Interpolations = "0.15.1, 0.16"
 JLD2 = "0.5"
 KiteUtils = "0.10.10"
 LaTeXStrings = "1.4.0"
