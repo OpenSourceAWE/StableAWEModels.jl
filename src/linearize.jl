@@ -122,11 +122,14 @@ function jacobian(f::Function, x::AbstractVector, ϵ::AbstractVector)
 end
 
 function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
+    @unpack segments, winches, tethers, wings = s.sys_struct
     integ = s.integrator
     update_sys_struct!(s, s.sys_struct)
     state0 = getstate(s.sys_struct)
-    old_stab = s.get_stabilize(integ)
-    s.set_stabilize(integ, true)
+    old_brakes = [winch.brake for winch in winches]
+    old_fixes = [wing.fix_sphere for wing in wings]
+    [winch.brake=true for winch in winches]
+    [wing.fix_sphere=true for wing in wings]
     lin_x0 = s.get_lin_x(integ)
     u0 = [winch.set_value for winch in s.sys_struct.winches]
     @unpack A, B, C, D = s.simple_lin_model
@@ -168,7 +171,6 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     h_x(x) = h(x, u0)
     h_u(u) = h(lin_x0, u)
 
-    @unpack segments, winches, tethers = s.sys_struct
     segment = segments[tethers[1].segment_idxs[1]]
     mass_per_meter = s.set.rho_tether * π * (segment.diameter/2)^2
     mass = winches[1].tether_len * mass_per_meter + s.set.mass
@@ -184,7 +186,8 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     A[:,1] .= 0.0 # Aero moment due to change in heading cannot be found in steady state
     C[4,1] = 0.0
     s.set_set_values(integ, u0)
-    s.set_stabilize(integ, old_stab)
+    [winch.brake=old_brakes[winch.idx] for winch in winches]
+    [wing.fix_sphere=old_fixes[wing.idx] for wing in wings]
     setstate!(s.sys_struct, state0)
     OrdinaryDiffEqCore.reinit!(integ)
     return s.simple_lin_model
