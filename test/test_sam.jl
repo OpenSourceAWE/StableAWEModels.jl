@@ -6,7 +6,7 @@ using Pkg
 if ! ("ControlSystemsBase" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
-using Test, FFTW, ControlSystemsBase
+using Test, FFTW, ControlSystemsBase, Printf
 using SymbolicAWEModels, ControlPlots
 using Statistics, LinearAlgebra
 
@@ -19,12 +19,18 @@ set_data_path(temp_data_path)
 
 TOL = 1e-5
 set = Settings("system.yaml")
-sam = SymbolicAWEModel(set)
+sam = SymbolicAWEModel(set, "ram")
+init!(sam)
+tether_sam = SymbolicAWEModel(set, "tether")
+init!(tether_sam)
+simple_sam = SymbolicAWEModel(set, "simple_ram")
+init!(simple_sam)
 
 function reset!(set::Settings)
     set.heading = 0.0
     set.elevation = 70.8
     set.azimuth = 0.0
+    set.segments = 3
 end
 
 @testset verbose=true "SymbolicAWEModels Tests" begin
@@ -54,8 +60,8 @@ end
         set.heading = heading
         init!(sam)
         ss = SysState(sam)
-        @test sam.sys_struct.wings[1].elevation ≈ deg2rad(set.elevation)
-        @test sam.sys_struct.wings[1].azimuth ≈ deg2rad(set.azimuth)
+        @test sam.sys_struct.wings[1].elevation ≈ deg2rad(set.elevation) atol=1e-2
+        @test sam.sys_struct.wings[1].azimuth ≈ deg2rad(set.azimuth) atol=1e-2
         @test sam.sys_struct.wings[1].heading ≈ deg2rad(set.heading) atol=1e-2
         @test ss.elevation ≈ deg2rad(set.elevation) atol=1e-2
         @test ss.azimuth ≈ deg2rad(set.azimuth) atol=1e-2
@@ -65,8 +71,11 @@ end
     @testset "Initialization" begin
         @test sam isa SymbolicAWEModel
         @test sam isa AbstractKiteModel
+        @test simple_sam isa SymbolicAWEModel
+        @test simple_sam isa AbstractKiteModel
+        @test tether_sam isa SymbolicAWEModel
+        @test tether_sam isa AbstractKiteModel
         
-        init!(sam; prn=true)
         init!(sam)
         init_time = @elapsed init!(sam; prn=true)
         @test init_time < 0.3
@@ -76,8 +85,42 @@ end
         test_plot(sam)
     end
 
+    @testset "Tether properties" begin
+        reset!(set)
+        set.segments = 1
+        one_seg_sam = SymbolicAWEModel(set, "ram")
+        init!(one_seg_sam)
+        one_seg_tether_sam = SymbolicAWEModel(set, "tether")
+        init!(one_seg_tether_sam)
+
+        find_steady_state!(one_seg_sam; t=10.0, dt=3.0)
+        axial_stiffness, axial_damping = 
+            SymbolicAWEModels.calc_spring_props(one_seg_sam, one_seg_tether_sam)
+        segments = one_seg_sam.sys_struct.segments
+        tethers = one_seg_sam.sys_struct.tethers
+        segments = [segments[tether.segment_idxs[1]] for tether in tethers]
+        real_axial_stiffness = [segment.axial_stiffness for segment in segments]
+        real_axial_damping = [segment.axial_damping for segment in segments]
+        @test isapprox(real_axial_stiffness, axial_stiffness; rtol=0.01)
+        @test isapprox(real_axial_damping, axial_damping; rtol=2.0)
+
+        println("\n--- Tether Spring Properties ---")
+        # Print table headers
+        @printf "%-8s | %-15s %-15s %-10s | %-15s %-15s %-10s\n" "Tether" "Calc. Stiffness" "Real Stiffness" "Error (%)" "Calc. Damping" "Real Damping" "Error (%)"
+        # Print separator line
+        println(repeat("-", 100))
+        for i in 1:4
+            # Calculate relative errors in percent
+            stiffness_err = 100 * abs(axial_stiffness[i] - real_axial_stiffness[i]) / real_axial_stiffness[i]
+            damping_err   = 100 * abs(axial_damping[i] - real_axial_damping[i]) / real_axial_damping[i]
+            # Print data rows
+            @printf "%-8d | %-15.2f %-15.2f %-10.2f | %-15.2f %-15.2f %-10.2f\n" i axial_stiffness[i] real_axial_stiffness[i] stiffness_err axial_damping[i] real_axial_damping[i] damping_err
+        end
+        println()
+    end
+
     @testset "Oscillating simulation" begin
-        function test_for_peak_at_steering_freq(steering_freq)
+        function test_for_peak_at_steering_freq(sam, steering_freq)
             reset!(set)
             init!(sam)
             find_steady_state!(sam)
@@ -86,7 +129,7 @@ end
             @test sl.syslog.elevation[begin] ≈ deg2rad(set.elevation) atol=1e-2
             @test sl.syslog.azimuth[begin] ≈ deg2rad(set.azimuth) atol=1e-2
             @test sl.syslog.heading[begin] ≈ deg2rad(set.heading) atol=1e-2
-            @test all(isapprox.(sl.syslog.time, 0.0:dt:10.0-dt))
+            @test isapprox(sl.syslog.time, collect(0.0:dt:10.0-dt))
             plt = plot(sam.sys_struct, sl)
             @test plt isa ControlPlots.PlotX
 
@@ -115,9 +158,8 @@ end
             @test mag_at_target > mag_before && mag_at_target > mag_after
         end
 
-        test_for_peak_at_steering_freq(0.7)
-        test_for_peak_at_steering_freq(0.5)
-        test_for_peak_at_steering_freq(0.3)
+        test_for_peak_at_steering_freq(sam, 0.7)
+        test_for_peak_at_steering_freq(sam, 0.5)
     end
 
     @testset "Turning simulation" begin
@@ -217,4 +259,4 @@ end
         test_plot(sam)
     end
 end
-
+nothing

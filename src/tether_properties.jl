@@ -2,6 +2,20 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
+function copy_to_simple!(sam::SymbolicAWEModel, tsam::SymbolicAWEModel, 
+                         ssam::SymbolicAWEModel; prn=true)
+    axial_stiffness, axial_damping = calc_spring_props(sam, tsam; prn)
+    for tether in ssam.sys_struct.tethers
+        segment = ssam.sys_struct.segments[tether.segment_idxs[1]]
+        segment.axial_stiffness = axial_stiffness[segment.idx]
+        segment.axial_damping = axial_damping[segment.idx]
+    end
+    copy_to_simple!(sam.sys_struct, ssam.sys_struct)
+    OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
+    update_sys_struct!(ssam, ssam.sys_struct)
+    return ssam
+end
+
 # Copies the state from one sam to another sam
 function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
     (sys.name != "ram") && error("provide a ram sys as the first argument")
@@ -99,7 +113,7 @@ function calc_spring_props(sam::SymbolicAWEModel, tsam::SymbolicAWEModel; prn=fa
     return k_values .* tether_lens[:,1], c_values .* tether_lens[:,1]
 end
 
-function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=false)
+function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=2, prn=false)
     @unpack tethers, segments = sam.sys_struct
     set = sam.set
     dt = 1/set.sample_freq
@@ -162,12 +176,12 @@ function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=
         T_s = (T_s_index - 1) * dt
         # Calculate damping ratio based on variable percentage settling criterion:
         X = -log(p / 100)
-        zeta = X / (ω_n * T_s)
-        c = 2 * zeta * sqrt(k * m)
+        ζ = X / (ω_n * T_s)
+        c = 2 * ζ * sqrt(k * m)
         c_values[j] = c
         prn && println("Tether $j: ω_n=$(round(ω_n,digits=3)) rad/s,
                 T_s=$(round(T_s,digits=3)) s, 
-                ζ=$(round(zeta,digits=4)), c=$(round(c,digits=4)) Ns/m")
+                ζ=$(round(ζ,digits=4)), c=$(round(c,digits=4)) Ns/m")
     end
 
     prn && println("Summary of Results:")
@@ -208,6 +222,9 @@ function step(sam::SymbolicAWEModel, steps, F_step, F_0;
             tether_lens[:, step+2:end] .= tether_lens[:, step+1]
             break
         end
+    end
+    if settled_steps == 0
+        error("Stepping is not settled")
     end
     return tether_lens
 end
