@@ -12,4 +12,5 @@
 if [[ $(basename "$(pwd)") == "bin" ]]; then
     cd ..
 fi
+./bin/update_manifest --default
 ./bin/run_julia "$@" -e 'include("scripts/create_xz_files.jl")'
