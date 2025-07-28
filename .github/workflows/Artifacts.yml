@@ -1,0 +1,27 @@
+name: Create xz files on release tags
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on all version tags like v1.0, v1.1.2, etc.
+  workflow_dispatch:
+
+jobs:
+  create-xz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Julia
+        uses: julia-actions/setup-julia@v1
+        with:
+          version: '1.11'
+
+      - name: Run create_xz_files script
+        run: ./bin/create_xz_files
+
+      - name: Upload xz artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: xz-files
+          path: data/model_*.bin.xz  # Or the exact pattern your script outputs

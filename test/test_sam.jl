@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MIT
 
-ENV["MPLBACKEND"] = "Agg"
+# ENV["MPLBACKEND"] = "Agg"
 using Pkg
 if ! ("ControlSystemsBase" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
@@ -76,7 +76,7 @@ end
         @test tether_sam isa SymbolicAWEModel
         @test tether_sam isa AbstractKiteModel
         
-        init!(sam)
+        init!(sam; prn=true)
         init_time = @elapsed init!(sam; prn=true)
         @test init_time < 0.3
 
@@ -160,6 +160,10 @@ end
 
         test_for_peak_at_steering_freq(sam, 0.7)
         test_for_peak_at_steering_freq(sam, 0.5)
+
+        SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
+        test_for_peak_at_steering_freq(simple_sam, 0.7)
+        test_for_peak_at_steering_freq(simple_sam, 0.5)
     end
 
     @testset "Turning simulation" begin
@@ -202,9 +206,10 @@ end
         set.abs_tol = 1e-4
         set.rel_tol = 1e-4
         init!(sam)
+        init!(simple_sam)
 
-        (; A, B, C, D) = SymbolicAWEModels.linearize!(sam)
-        sys = ss(A,B,C,D)
+        (; A, B, C, D) = SymbolicAWEModels.linearize!(simple_sam)
+        global sys = ss(A,B,C,D)
         res = lsim(sys, repeat([-1.0 0.0 -1.0], 2)', [0.0, 0.5])
         println(res.y[:,2])
         @test isapprox(res.y[:,2], 

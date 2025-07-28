@@ -297,6 +297,7 @@ end
 function create_simple_ram_sys_struct(set::Settings; 
                                     axial_stiffness=fill(NaN, 4), 
                                     axial_damping=fill(NaN,4))
+    set.segments = 1
     vsm_wing = RamAirWing(set; prn=false)
     gammas = [-1/2, 1/2] * vsm_wing.gamma_tip
     

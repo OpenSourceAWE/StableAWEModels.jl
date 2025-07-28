@@ -15,6 +15,7 @@ using Parameters
 using Printf
 using Serialization
 using SHA
+using CodecXz
 using Statistics
 using Suppressor
 using Timers

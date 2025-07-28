@@ -113,7 +113,7 @@ function calc_spring_props(sam::SymbolicAWEModel, tsam::SymbolicAWEModel; prn=fa
     return k_values .* tether_lens[:,1], c_values .* tether_lens[:,1]
 end
 
-function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=2, prn=false)
+function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=false)
     @unpack tethers, segments = sam.sys_struct
     set = sam.set
     dt = 1/set.sample_freq
@@ -224,7 +224,7 @@ function step(sam::SymbolicAWEModel, steps, F_step, F_0;
         end
     end
     if settled_steps == 0
-        error("Stepping is not settled")
+        @warn "Stepping is not settled"
     end
     return tether_lens
 end

@@ -1,6 +1,8 @@
 LocalPreferences*
 *.arrow
 *.bin
+*.bin.xz
+*.bak
 *.xopp
 *.so
 *.so.bak
