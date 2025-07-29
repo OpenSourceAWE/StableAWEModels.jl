@@ -52,9 +52,8 @@ function sim!(
     step_time = 0.0
     vsm_time = 0.0
     integ_time = 0.0
-    tic() # start timer from Timers.jl
 
-    for step in 1:steps
+    elapsed = @elapsed for step in 1:steps
         t = (step-1) * dt
 
         # Calculate internal set values based on current winch forces and external inputs
@@ -83,7 +82,6 @@ function sim!(
         sys_state.time = t
         log!(logger, sys_state)
     end
-    elapsed = toc(false) # stop timer, do not print automatically
 
     save_log(logger, "tmp_run")
     lg = load_log("tmp_run")
@@ -154,10 +152,6 @@ function sim_oscillate!(
         set_values[step, :] = [0.0, steering, -steering]
     end
 
-    if prn
-        @info "Starting oscillation simulation..."
-    end
-
     return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval, prn=prn)
 end
 
@@ -210,10 +204,6 @@ function sim_turn!(
         else
             set_values[step, :] = zeros(num_winches)
         end
-    end
-
-    if prn
-        @info "Starting turn simulation..."
     end
 
     return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval, prn=prn)

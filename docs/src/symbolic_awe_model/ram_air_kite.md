@@ -2,9 +2,14 @@
 CurrentModule = SymbolicAWEModels
 ```
 ## Introduction
-The [`SystemStructure`](@ref) provides a flexible framework for defining the physical structure of airborne wind energy (AWE) systems using discrete mass-spring-damper models. This structure can represent many different AWE system configurations, from simple single-line kites to complex multi-wing systems with intricate bridle networks.
+The [`SystemStructure`](@ref) provides a flexible framework for defining the physical 
+structure of airborne wind energy (AWE) systems using discrete mass-spring-damper models. 
+This structure can represent many different AWE system configurations, from simple 
+single-line kites to complex multi-wing systems with intricate bridle networks.
 
-The [`SystemStructure`](@ref) serves as input to the [`SymbolicAWEModel`](@ref), which is based on ModelingToolkit and automatically generates symbolic differential algebraic equations from the structural definition.
+The [`SystemStructure`](@ref) serves as input to the [`SymbolicAWEModel`](@ref), which is 
+based on ModelingToolkit and automatically generates symbolic differential algebraic 
+equations from the structural definition.
 
 ## Workflow
 1. Define system components ([`Point`](@ref), [`Segment`](@ref), [`Group`](@ref), etc.) 

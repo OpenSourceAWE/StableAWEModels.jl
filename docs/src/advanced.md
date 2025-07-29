@@ -2,61 +2,52 @@
 CurrentModule = SymbolicAWEModels
 ```
 # Advanced usage
-For advanced users it is suggested to install git, bash and vscode or vscodium in addition to Julia. vscode and vscodium both have a very good plugin for Julia support, see [https://www.julia-vscode.org](https://www.julia-vscode.org/).
+For advanced users it is suggested to install git, bash and vscode or vscodium in addition to 
+Julia. vscode and vscodium both have a very good plugin for Julia support, see [https://www.julia-vscode.org](https://www.julia-vscode.org/).
 Installation instructions: [Julia and VSCode](https://OpenSourceAWE.github.io/2024/08/09/installing-julia-with-juliaup.html) .
 
-Whe using vscode, I do NOT use the Julia terminal provided by vscode, but the normal bash terminal which is also available in vscode by selecting **Terminal->New Terminal** From this terminal I start Julia with ```julia --project``` or a different command as explained below. This makes it easier to understand what happens and is also faster when you need to restart.
-
 ## Forking the repository and creating a custom system image
-To reduce the startup time it is suggested to use a custom system image that contains all the packages you use on a daily base in compiled form.
+1. Add [Revise](https://timholy.github.io/Revise.jl/stable/config/#Using-Revise-by-default)
+    to avoid having to restart your Julia session. This makes development a lot easier and 
+    faster.
+2. Go to the website https://github.com/OpenSourceAWE/SymbolicAWEModels.jl and click on the 
+    **Fork** button at the top right.
+3. clone the new repository which is owned by you with a command similar to this one: 
+    ```git clone https://github.com/OpenSourceAWE/SymbolicAWEModels.jl``` 
+    Your own git user name must appear in the URL, otherwise you will not be able to push 
+    your changes.
 
-1. Go to the website https://github.com/OpenSourceAWE/SymbolicAWEModels.jl and click on the **Fork** button at the top right.
-2. clone the new repository which is owned by you with a command similar to this one: ```git clone https://github.com/OpenSourceAWE/SymbolicAWEModels.jl``` Your own git user name must appear in the URL, otherwise you will not be able to push your changes.
-
-After cloning the repo you can create a new system image:
+After cloning the repo you can launch julia with the command:
 ```bash
-cd SymbolicAWEModels.jl
-cd bin
-./create_sys_image
+julia --project=.
 ```
-This will take about 12 min on a  Ryzen 7950X CPU. You should now see a new file in the bin folder:
-```
-~/repos/test/bin$ ls -lah kps*
--rwxrwxr-x 1 ufechner ufechner 723M apr 18 18:23 kps-image-1.10-main.so
-```
-You can launch julia such that it makes use of this system image with the commands:
-```bash
-cd ..
-./bin/run_julia
-```
-If you now run any of the examples the time-to-first-plot (TTFP) should be less than 10s:
+And run an example:
 ```julia
-julia> @time include("examples/simulate_simple.jl")
-lift, drag  [N]: 597.47, 129.31
-Average number of callbacks per time step: 114.92
-  10.009223 seconds (29.83 M allocations: 1.727 GiB, 4.31% gc time, 50.81% compilation time)
-
-julia> 
+julia> @time include("examples/ram_air_kite.jl")
 ```
-A second run of this command needs about 3.7 s which means the startup time (load and compilation time of the package and the libraries) has been reduced to about 6.3s.
 
-Without a system image the first time execution of the script "simulate_simple.jl" on the same computer is about 22.5 seconds
-while the time for the second execution is the same (3.9s). So now about 15s of time are saved after each restart.
+Running the example after starting your Julia session and assuming everything is precompiled
+takes around 30 seconds, while it takes less than 10 seconds the second time. This is why 
+Revise is so useful: you can edit the source code without having to restart Julia, and save 
+20 seconds (or a lot more if precompilation is triggered).
 
 ## Hints for Developers
 ### Coding style
 
 - add the packages `TestEnv` and `Revise` to your global environment, not to any project
 
-- avoid hard-coded numeric values like `9.81` in the code, instead define a global constant `G_EARTH` or read this value from a configuration file
+- avoid hard-coded numeric values like `9.81` in the code, instead define a global constant 
+    `G_EARTH` or read this value from a configuration file
 
-- stick to a line length limit of 120 characters
+- stick to a line length limit of 100 characters (also in docs)
 
 - try to avoid dot operators unless you have to. 
 Bad: `norm1        .~ norm(segment)`
 Good: `norm1        ~ norm(segment)`
 
-- if you need to refer to the settings you can use `se()` which will load the settings of the active project. To define the active project use a line like `set = se("system_3l.yaml")` at the beginning of your program.
+- if you need to refer to the settings you can use `se()` which will load the settings of the 
+    active project. To define the active project use a line like `set = se("system_3l.yaml")` 
+    at the beginning of your program.
 - use the `\cdot` operator for the dot product for improved readability
 - use a space after a comma, e.g. `force_eqs[j, i]`
 - enclose operators like `+` and `*` in single spaces, like `0.5 * (s.pos[s.i_C] + s.pos[s.i_D])`;  
@@ -71,8 +62,7 @@ Good: `norm1        ~ norm(segment)`
 ## Outlook
 
 The next steps:
-- finish and merge the KPS5 kite power system model, based on ModellingToolkit
-- use VortexStepMethod.jl for KPS5 
+- add LEI kite
+- add swinging arm system
 - add a rigid wing model
-- add a Matlab/ Simulink wrapper similar to the Python wrapper [pykitemodels](https://github.com/OpenSourceAWE/pykitemodels)
 

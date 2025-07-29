@@ -49,5 +49,9 @@ if set.physical_model == "4_attach_ram"
 end
 sl = sim_oscillate!(sam; dt, total_time, vsm_interval, steering_freq, steering_magnitude, 
                          bias, prn=true)
+@info "Simulated at:"
+toc()
 display(plot(sam.sys_struct, sl))
+@info "Plotted at:"
+toc()
 
