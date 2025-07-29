@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2022, 2024, 2025 Uwe Fechner
 # SPDX-License-Identifier: MIT
 
+ENV["MPLBACKEND"] = "Agg"
 using SymbolicAWEModels, KiteUtils
 using Test
 

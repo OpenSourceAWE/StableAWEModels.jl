@@ -1,27 +1,48 @@
-name: Create xz files on release tags
+name: Create Release Assets and Update Artifacts
 
 on:
   push:
     tags:
-      - 'v*'  # Trigger on all version tags like v1.0, v1.1.2, etc.
-  workflow_dispatch:
+      - 'v*'  # Trigger on your version tags like v1.0, v1.0.1, ...
 
 jobs:
-  create-xz:
+  create-assets:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Setup Julia
-        uses: julia-actions/setup-julia@v1
-        with:
-          version: '1.11'
+    - name: Setup Julia
+      uses: julia-actions/setup-julia@v1
+      with:
+        version: '1.10'  # or your Julia version
 
-      - name: Run create_xz_files script
-        run: ./bin/create_xz_files
+    - name: Install ArtifactUtils package
+      run: julia -e 'using Pkg; Pkg.add("ArtifactUtils");'
 
-      - name: Upload xz artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: xz-files
-          path: data/model_*.bin.xz  # Or the exact pattern your script outputs
+    - name: Run create_xz_files script
+      run: julia test/create_xz_files.jl
+
+    - name: Create GitHub Release and upload .xz assets
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: 'data/*.xz'  # adjust path pattern as needed
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Generate or update Artifacts.toml
+      run: julia scripts/update_artifacts.jl
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+    - name: Commit and push updated Artifacts.toml
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add Artifacts.toml
+        git commit -m "Update Artifacts.toml for release ${{ github.ref_name }}" || echo "No changes to commit"
+        git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
