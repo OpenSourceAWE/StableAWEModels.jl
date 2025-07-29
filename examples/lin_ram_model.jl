@@ -14,7 +14,7 @@ tic()
 
 PLOT = true
 using Pkg
-if ! ("LaTeXStrings" ∈ keys(Pkg.project().dependencies))
+if ! ("ControlSystemsBase" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
 using ControlPlots, LaTeXStrings, ControlSystemsBase

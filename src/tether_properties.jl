@@ -2,6 +2,30 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
+"""
+    copy_to_simple!(sam, tsam, ssam; prn=true)
+
+Simplify a detailed AWE model into a 1-segment tether model.
+
+This high-level function orchestrates the simplification process:
+1.  Calculates the equivalent axial stiffness and damping of the detailed model (`tsam`)
+    by analyzing its step response.
+2.  Assigns these calculated properties to the single-segment tethers of the simple model (`ssam`).
+3.  Copies the dynamic state (wing position, orientation, tether attachment points, etc.)
+    from the detailed model (`sam`) to the simple model (`ssam`).
+4.  Reinitializes the simple model's integrator to apply the new state.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The detailed source model, used as a reference for state.
+- `tsam::SymbolicAWEModel`: A copy of the detailed model, used to perform the step response test.
+- `ssam::SymbolicAWEModel`: The destination simple model to be updated.
+
+# Keywords
+- `prn::Bool=true`: If true, enables printing during the process.
+
+# Returns
+- `SymbolicAWEModel`: The updated simple model `ssam`.
+"""
 function copy_to_simple!(sam::SymbolicAWEModel, tsam::SymbolicAWEModel, 
                          ssam::SymbolicAWEModel; prn=true)
     axial_stiffness, axial_damping = calc_spring_props(sam, tsam; prn)
@@ -16,7 +40,20 @@ function copy_to_simple!(sam::SymbolicAWEModel, tsam::SymbolicAWEModel,
     return ssam
 end
 
-# Copies the state from one sam to another sam
+"""
+    copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
+
+Copy the dynamic state from a detailed `SystemStructure` to a simplified one.
+
+This is a low-level utility that maps the state of a complex model (e.g., "ram" with
+4 groups and bridle pulleys) to a simpler model (e.g., "simple_ram" with 2 groups
+and direct connections). It ensures the simplified model matches the key dynamic
+properties of the detailed one.
+
+# Arguments
+- `sys::SystemStructure`: The source `ram` model structure.
+- `ssys::SystemStructure`: The destination `simple_ram` model structure.
+"""
 function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
     (sys.name != "ram") && error("provide a ram sys as the first argument")
     (ssys.name != "simple_ram") && error("provide a simple ram sys as the second argument")
@@ -83,7 +120,7 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
             ssegment = ssys.segments[stether.segment_idxs[1]]
             spoint_idxs = ssegment.point_idxs
             slen = norm(ssys.points[spoint_idxs[1]].pos_w .-
-                                ssys.points[spoint_idxs[2]].pos_w)
+                        ssys.points[spoint_idxs[2]].pos_w)
             stiffness = ssegment.axial_stiffness / slen
             nt = length(winch.tether_idxs)
             swinch.tether_len += (slen - norm(winch.force)/stiffness/nt) / nt
@@ -92,13 +129,41 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
     end
 end
 
-# Helper: Check if all values after index i are within p% band of steady-state
+"""
+    in_percent_band(x, steady, delta_x, i, p) -> Bool
+
+Helper function to check if a time series has settled within a percentage band.
+
+It checks if all values of the time series `x` from index `i` to the end are
+within a tolerance band defined by `p` percent of the total change `delta_x`.
+"""
 function in_percent_band(x, steady, delta_x, i, p)
     tol = p/100 * abs(delta_x)
     # All subsequent points must be within steady ± p%
     all(abs.(x[i:end] .- steady) .<= tol)
 end
 
+"""
+    calc_spring_props(sam, tsam; prn=false) -> (Vector, Vector)
+
+Calculate the equivalent axial stiffness and damping for each tether of a model.
+
+This function orchestrates the process by performing a step response test on the
+`tsam` model and then analyzing the resulting tether length data to extract the
+spring-damper properties.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The reference model, used for its physical properties.
+- `tsam::SymbolicAWEModel`: A copy of the model to perform the step test on.
+
+# Keywords
+- `prn::Bool=false`: If true, enables printing of intermediate results.
+
+# Returns
+- `Tuple{Vector{Float64}, Vector{Float64}}`: A tuple containing two vectors:
+    1.  `axial_stiffness` [N]
+    2.  `axial_damping` [Ns]
+"""
 function calc_spring_props(sam::SymbolicAWEModel, tsam::SymbolicAWEModel; prn=false)
     find_steady_state!(sam; t=10.0, dt=3.0)
     copy!(sam.sys_struct, tsam.sys_struct)
@@ -113,6 +178,29 @@ function calc_spring_props(sam::SymbolicAWEModel, tsam::SymbolicAWEModel; prn=fa
     return k_values .* tether_lens[:,1], c_values .* tether_lens[:,1]
 end
 
+"""
+    calc_spring_props(sam, tether_lens, F_step; p=5, prn=false) -> (Vector, Vector)
+
+Calculate spring constant `k` and damping coefficient `c` from a step response.
+
+This function analyzes the time series of tether lengths (`tether_lens`) resulting
+from a step force (`F_step`) to estimate the parameters of an equivalent second-order
+mass-spring-damper system.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The model from which to take physical parameters (mass).
+- `tether_lens::Matrix{Float64}`: A matrix of tether length time series data.
+- `F_step::Float64`: The magnitude of the applied step force.
+
+# Keywords
+- `p::Int=5`: The percentage band used to determine the settling time.
+- `prn::Bool=false`: If true, enables printing of detailed calculations.
+
+# Returns
+- `Tuple{Vector{Float64}, Vector{Float64}}`: A tuple containing two vectors:
+    1.  `k_values` (spring constants [N/m])
+    2.  `c_values` (damping coefficients [Ns/m])
+"""
 function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=false)
     @unpack tethers, segments = sam.sys_struct
     set = sam.set
@@ -180,8 +268,8 @@ function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=
         c = 2 * ζ * sqrt(k * m)
         c_values[j] = c
         prn && println("Tether $j: ω_n=$(round(ω_n,digits=3)) rad/s,
-                T_s=$(round(T_s,digits=3)) s, 
-                ζ=$(round(ζ,digits=4)), c=$(round(c,digits=4)) Ns/m")
+                      T_s=$(round(T_s,digits=3)) s, 
+                      ζ=$(round(ζ,digits=4)), c=$(round(c,digits=4)) Ns/m")
     end
 
     prn && println("Summary of Results:")
@@ -191,10 +279,34 @@ function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=
     return k_values, c_values
 end
 
+"""
+    step(sam, steps, F_step, F_0; abs_tol, consecutive_steps_needed, prn) -> Matrix
+
+Apply a step force to a model and simulate its dynamic response.
+
+This function records the length of each tether over a specified number of simulation
+steps. It includes an early exit condition if the system's state settles.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The model to be simulated.
+- `steps::Int`: The total number of simulation steps.
+- `F_step::Float64`: The magnitude of the step force to apply.
+- `F_0::Vector{KVec3}`: The initial force vector for each tether attachment point.
+
+# Keywords
+- `abs_tol::Float64=1e-6`: Absolute tolerance for the settling check.
+- `consecutive_steps_needed::Int=10`: Number of consecutive steps required to be
+  within tolerance to be considered settled.
+- `prn::Bool=false`: If true, enables printing of status messages.
+
+# Returns
+- `Matrix{Float64}`: A matrix where each row corresponds to a tether and each
+  column to a time step, containing the tether lengths.
+"""
 function step(sam::SymbolicAWEModel, steps, F_step, F_0;
-                  abs_tol=1e-6,
-                  consecutive_steps_needed=10,
-                  prn=false)
+              abs_tol=1e-6,
+              consecutive_steps_needed=10,
+              prn=false)
 
     @unpack points, tethers = sam.sys_struct
 
@@ -223,9 +335,8 @@ function step(sam::SymbolicAWEModel, steps, F_step, F_0;
             break
         end
     end
-    if settled_steps == 0
-        @warn "Stepping is not settled"
+    if settled_steps < consecutive_steps_needed
+        @warn "Stepping simulation did not settle within the given steps."
     end
     return tether_lens
 end
-

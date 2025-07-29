@@ -2,11 +2,48 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
+"""
+    SystemStructure(set::Settings; kwargs...)
+
+Factory function to create a `SystemStructure` for a specific physical model.
+
+This function acts as a dispatcher, calling the appropriate `create_*_sys_struct`
+function based on the `physical_model` field in the `Settings` object.
+
+# Arguments
+- `set::Settings`: The settings object that defines which model to create.
+- `kwargs...`: Keyword arguments passed through to the specific constructor.
+
+# Returns
+- `SystemStructure`: The fully constructed system model.
+"""
 function SystemStructure(set::Settings; kwargs...)
     func_name = Symbol("create_$(set.physical_model)_sys_struct")
     return getfield(SymbolicAWEModels, func_name)(set; kwargs...)
 end
 
+"""
+    create_4_attach_ram_sys_struct(set::Settings)
+
+Create a detailed `SystemStructure` for a ram-air kite with a 4-point attachment bridle.
+
+This function procedurally builds a complex kite model. Its key feature is that all four
+bridle attachment points on each of the four wing `Group` sections are modeled as
+deforming with the group's twist dynamics.
+
+This model includes:
+- A flexible wing simulated with 4 deformable `Group` sections.
+- A detailed bridle system with multiple segments and `Pulley`s to distribute forces.
+- Four main tethers (left/right power, left/right steering) connecting the bridle
+  to the ground winches.
+- A 3-winch system controlling the tethers.
+
+# Arguments
+- `set::Settings`: Configuration parameters defining the kite's geometry and properties.
+
+# Returns
+- `SystemStructure`: A new `SystemStructure` object representing the detailed model.
+"""
 function create_4_attach_ram_sys_struct(set::Settings)
     vsm_wing = RamAirWing(set; prn=false)
     points = Point[]
@@ -128,11 +165,32 @@ function create_4_attach_ram_sys_struct(set::Settings)
     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
     wings = [Wing(1, vsm_aero, vsm_wing, vsm_solver, [1,2,3,4], I(3), zeros(3))]
     transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
-                                    base_pos= zeros(3), base_point_idx=points[end].idx, wing_idx=1)]
+                            base_pos= zeros(3), base_point_idx=points[end].idx, wing_idx=1)]
     
     return SystemStructure(set.physical_model, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 end
 
+"""
+    create_ram_sys_struct(set::Settings)
+
+Create a `SystemStructure` for the primary "ram" model with a stability-enhancing bridle.
+
+This is the main, detailed model configuration. It differs from the `4_attach` version
+by having each of its four `Group` sections defined by three deforming bridle points and
+one statically attached (non-deforming) point. This design improves stability
+by ensuring the kite's z-axis remains aligned with the bridle system.
+
+The model features:
+- A flexible wing with 4 deformable groups (3 deforming points + 1 static point each).
+- A complex bridle system with pulleys.
+- Four main tethers and three winches.
+
+# Arguments
+- `set::Settings`: Configuration parameters defining the kite's geometry and properties.
+
+# Returns
+- `SystemStructure`: A new `SystemStructure` object representing the "ram" model.
+"""
 function create_ram_sys_struct(set::Settings)
     vsm_wing = RamAirWing(set; prn=false)
     points = Point[]
@@ -250,11 +308,31 @@ function create_ram_sys_struct(set::Settings)
     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
     wings = [Wing(1, vsm_aero, vsm_wing, vsm_solver, [1,2,3,4], I(3), zeros(3))]
     transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
-                                    base_pos= zeros(3), base_point_idx=points[end].idx, wing_idx=1)]
+                                      base_pos= zeros(3), base_point_idx=points[end].idx, wing_idx=1)]
     
     return SystemStructure(set.physical_model, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 end
 
+"""
+    create_tether_sys_struct(set::Settings; axial_stiffness, axial_damping)
+
+Create a simplified `SystemStructure` for testing tether dynamics.
+
+This model consists of only four independent tethers, each represented by a dynamic
+point mass connected to a fixed ground anchor. It does not include a wing or bridle
+system, making it ideal for isolating and analyzing the behavior of the tethers
+themselves.
+
+# Arguments
+- `set::Settings`: Configuration parameters.
+
+# Keywords
+- `axial_stiffness::Vector{Float64}`: Predefined axial stiffness [N] for each tether.
+- `axial_damping::Vector{Float64}`: Predefined axial damping [Ns] for each tether.
+
+# Returns
+- `SystemStructure`: A new `SystemStructure` representing the 4-tether test system.
+"""
 function create_tether_sys_struct(set::Settings; 
                                   axial_stiffness=fill(NaN, 4), 
                                   axial_damping=fill(NaN,4))
@@ -289,14 +367,33 @@ function create_tether_sys_struct(set::Settings;
     ]
     
     transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
-                            base_pos=zeros(3), base_point_idx=points[end].idx, rot_point_idx=1)]
+                                      base_pos=zeros(3), base_point_idx=points[end].idx, rot_point_idx=1)]
 
     return SystemStructure("tether", set; points, segments, tethers, winches, transforms)
 end
 
+"""
+    create_simple_ram_sys_struct(set::Settings; axial_stiffness, axial_damping)
+
+Create a simplified `SystemStructure` for a ram-air kite with direct tether connections.
+
+This model represents a kite with a flexible wing (2 deformable groups) but simplifies
+the bridle by connecting the four main tethers directly to the wing attachment points,
+omitting the complex pulley system. Each tether is modeled as a single segment.
+
+# Arguments
+- `set::Settings`: Configuration parameters.
+
+# Keywords
+- `axial_stiffness::Vector{Float64}`: Predefined axial stiffness [N] for each tether.
+- `axial_damping::Vector{Float64}`: Predefined axial damping [Ns] for each tether.
+
+# Returns
+- `SystemStructure`: A new `SystemStructure` representing the simplified model.
+"""
 function create_simple_ram_sys_struct(set::Settings; 
-                                    axial_stiffness=fill(NaN, 4), 
-                                    axial_damping=fill(NaN,4))
+                                      axial_stiffness=fill(NaN, 4), 
+                                      axial_damping=fill(NaN,4))
     set.segments = 1
     vsm_wing = RamAirWing(set; prn=false)
     gammas = [-1/2, 1/2] * vsm_wing.gamma_tip
@@ -345,14 +442,9 @@ function create_simple_ram_sys_struct(set::Settings;
     wings = [Wing(1, vsm_aero, vsm_wing, vsm_solver, [1,2], I(3), zeros(3))]
     transforms = [
         Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
-                    base_pos=zeros(3), base_point_idx=5, wing_idx=1)
+                base_pos=zeros(3), base_point_idx=5, wing_idx=1)
     ]
 
     return SystemStructure(set.physical_model, set; 
         points, groups, segments, tethers, winches, wings, transforms)
 end
-
-function update_simple_sam!(ssam::SymbolicAWEModel, sam::SymbolicAWEModel)
-    
-end
-

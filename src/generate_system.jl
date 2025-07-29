@@ -3,21 +3,47 @@
 
 # Implementation of the ram air wing model using ModelingToolkit.jl
 
+"""
+    calc_speed_acc(winch::AsyncMachine, tether_vel, norm_, set_speed)
+
+Calculate winch acceleration for a speed-controlled asynchronous machine model.
+"""
 function calc_speed_acc(winch::AsyncMachine, tether_vel, norm_, set_speed)
     calc_acceleration(winch, tether_vel, norm_; set_speed, set_torque=nothing, use_brake=false) # TODO: add brake setting
 end
+
+"""
+    calc_moment_acc(winch::TorqueControlledMachine, tether_vel, norm_, set_torque)
+
+Calculate winch acceleration for a torque-controlled machine model.
+"""
 function calc_moment_acc(winch::TorqueControlledMachine, tether_vel, norm_, set_torque)
     calc_acceleration(winch, tether_vel, norm_; set_speed=nothing, set_torque, use_brake=false)
 end
 
+"""
+    calc_angle_of_attack(va_wing_b)
+
+Calculate the angle of attack [rad] from the apparent wind vector in the body frame.
+"""
 function calc_angle_of_attack(va_wing_b)
     return atan(va_wing_b[3], va_wing_b[1])
 end
 
+"""
+    sym_normalize(vec)
+
+Symbolic-safe normalization of a vector.
+"""
 function sym_normalize(vec)
     return vec / norm(vec)
 end
 
+"""
+    quaternion_to_rotation_matrix(q)
+
+Convert a quaternion `q` (scalar-first format [w, x, y, z]) to a 3x3 rotation matrix.
+"""
 function quaternion_to_rotation_matrix(q)
     w, x, y, z = q[1], q[2], q[3], q[4]
     
@@ -28,6 +54,11 @@ function quaternion_to_rotation_matrix(q)
     ]
 end
 
+"""
+    rotation_matrix_to_quaternion(R)
+
+Convert a 3x3 rotation matrix `R` to a quaternion (scalar-first format [w, x, y, z]).
+"""
 function rotation_matrix_to_quaternion(R)
     tr_ = tr(R)
     
@@ -60,6 +91,9 @@ function rotation_matrix_to_quaternion(R)
     return [w, x, y, z]
 end
 
+# The following functions are registered for use within ModelingToolkit.jl's symbolic context.
+# They act as symbolic placeholders for accessing fields from the SystemStructure (`psys`)
+# and Settings (`pset`) parameter objects during equation generation.
 get_pos_w(sys::SystemStructure, idx::Int16) = sys.points[idx].pos_w
 @register_array_symbolic get_pos_w(sys::SystemStructure, idx::Int16) begin
     size=(3,)
@@ -170,35 +204,33 @@ get_g_earth(set::Settings) = set.g_earth
 @register_symbolic get_g_earth(set::Settings)
 
 """
-    force_eqs!(s, system, eqs, defaults, guesses; kwargs...)
+    force_eqs!(s, system, psys, pset, eqs, defaults, guesses; R_b_w, wing_pos, ...)
 
-Generate the force equations for the wing system including spring forces, drag forces,
-pulley dynamics and winch forces.
+Generate the force and constraint equations for the mass-spring-damper components.
+
+This function builds the core equations for:
+- **Points**: Newton's second law for dynamic points, force balance for quasi-static
+  points, and kinematic constraints for points attached to the wing.
+- **Segments**: Spring-damper forces (Hooke's law) and aerodynamic drag forces.
+- **Pulleys**: Length redistribution dynamics or constraints.
+- **Winches**: Tether length and velocity dynamics based on the winch model.
+- **Groups**: Rotational dynamics for wing twist deformation.
 
 # Arguments
-- `s::SymbolicAWEModel`: The wing system state
-- `system::SystemStructure`: The point mass representation
-- `eqs`: Current system equations
-- `defaults`: Default values for variables
-- `guesses`: Initial guesses for variables
-- `R_b_w`: Body to world rotation matrix
-- `wing_pos`: Kite position vector
-- `wing_vel`: Kite velocity vector  
-- `wind_vec_gnd`: Ground wind vector
-- `group_aero_moment`: Aerodynamic moments per group
-- `twist_angle`: Twist angles per group
+- `s::SymbolicAWEModel`: The main model object.
+- `system::SystemStructure`: The physical structure definition.
+- `psys`, `pset`: Symbolic parameters representing `system` and `s.set`.
+- `eqs`, `defaults`, `guesses`: The accumulating vectors for the MTK system.
+- `R_b_w`, `wing_pos`, etc.: Symbolic variables for the wing's state.
 
 # Returns
-Tuple containing:
-- Updated equations
-- Updated defaults
-- Updated guesses
-- Tether forces on wing
-- Tether moments on wing
+- `(eqs, defaults, guesses, tether_wing_force, tether_wing_moment)`: A tuple containing
+  the updated equation lists and the calculated aggregate forces and moments exerted
+  by the tethers on the wing.
 """
 function force_eqs!(s, system, psys, pset, eqs, defaults, guesses; 
-        R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, 
-        twist_angle, twist_ω, set_values, fix_wing)
+                    R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, 
+                    twist_angle, twist_ω, set_values, fix_wing)
 
     @unpack points, groups, segments, pulleys, tethers, winches, wings = system
     
@@ -257,7 +289,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 end
             end
             !(found in [0,1]) && error("Kite point number $(point.idx) is part of $found groups, 
-                and should be part of exactly 0 or 1 groups.")
+                  and should be part of exactly 0 or 1 groups.")
 
             if found == 1
                 found = 0
@@ -269,13 +301,13 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                     end
                 end
                 !(found == 1) && error("Kite group number $(group.idx) is part of $found wings, 
-                    and should be part of exactly 1 wing.")
+                      and should be part of exactly 1 wing.")
 
                 fixed_pos = group.le_pos
                 eqs = [
                     eqs
                     chord_b[:, point.idx]   ~ get_pos_b(psys, point.idx) .- fixed_pos
-                    normal[:, point.idx]    ~ chord_b[:, point.idx] × group.y_airf
+                    normal[:, point.idx]   ~ chord_b[:, point.idx] × group.y_airf
                     pos_b[:, point.idx]     ~ fixed_pos .+ cos(twist_angle[group.idx]) * chord_b[:, point.idx] - sin(twist_angle[group.idx]) * normal[:, point.idx]
                 ]
             elseif found == 0
@@ -296,16 +328,16 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             
             eqs = [
                 eqs
-                pos[:, point.idx]    ~ wing_pos[point.wing_idx, :] + R_b_w[point.wing_idx, :, :] * pos_b[:, point.idx]
-                vel[:, point.idx]    ~ zeros(3)
-                acc[:, point.idx]    ~ zeros(3)
+                pos[:, point.idx]   ~ wing_pos[point.wing_idx, :] + R_b_w[point.wing_idx, :, :] * pos_b[:, point.idx]
+                vel[:, point.idx]   ~ zeros(3)
+                acc[:, point.idx]   ~ zeros(3)
             ]
         elseif point.type == STATIC
             eqs = [
                 eqs
-                pos[:, point.idx]    ~ get_pos_w(psys, point.idx)
-                vel[:, point.idx]    ~ zeros(3)
-                acc[:, point.idx]    ~ zeros(3)
+                pos[:, point.idx]   ~ get_pos_w(psys, point.idx)
+                vel[:, point.idx]   ~ zeros(3)
+                acc[:, point.idx]   ~ zeros(3)
             ]
         elseif point.type == DYNAMIC
             # p = pos[:, point.idx]
@@ -330,7 +362,6 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                                                 acc[:, point.idx]
                                         )
                 acc[:, point.idx]    ~ point_force[:, point.idx] / mass + [0, 0, -get_g_earth(pset)] - bridle_damp_vec
-                                        # ifelse.(stabilize==true, r * norm(measured_ω_z)^2, zeros(3))
             ]
             defaults = [
                 defaults
@@ -340,9 +371,9 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         elseif point.type == QUASI_STATIC
             eqs = [
                 eqs
-                vel[:, point.idx]    ~ zeros(3)
-                acc[:, point.idx]    ~ zeros(3)
-                acc[:, point.idx]    ~ point_force[:, point.idx] / mass + [0, 0, -get_g_earth(pset)]
+                vel[:, point.idx]   ~ zeros(3)
+                acc[:, point.idx]   ~ zeros(3)
+                acc[:, point.idx]   ~ point_force[:, point.idx] / mass + [0, 0, -get_g_earth(pset)]
             ]
             guesses = [
                 guesses
@@ -382,7 +413,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             end
         end
         !(found == 1) && error("Kite group number $(group.idx) is part of $found wings, 
-            and should be part of exactly 1 wing.")
+              and should be part of exactly 1 wing.")
 
         all(iszero.(tether_wing_moment[wing.idx, :])) && 
             error("Tether wing moment is zero. At least one of the wing connection points should not be part of a deforming group.")
@@ -464,12 +495,10 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
     end
     for segment in segments
         p1, p2 = segment.point_idxs[1], segment.point_idxs[2]
-        # if s.set.quasi_static
-            guesses = [
-                guesses
-                [segment_vec[i, segment.idx] => get_pos_w(psys, p2)[i] - get_pos_w(psys, p1)[i] for i in 1:3]
-            ]
-        # end
+        guesses = [
+            guesses
+            [segment_vec[i, segment.idx] => get_pos_w(psys, p2)[i] - get_pos_w(psys, p1)[i] for i in 1:3]
+        ]
 
         in_pulley = 0
         for pulley in pulleys
@@ -489,9 +518,8 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             end
         end
         (in_pulley > 1) && error("Bridle segment number $(segment.idx) is part of
-            $in_pulley pulleys, and should be part of either 0 or 1 pulleys.")
+              $in_pulley pulleys, and should be part of either 0 or 1 pulleys.")
 
-        #TODO: Segments cannot be part of a tether if they are part of a pulley.
         if in_pulley == 0
             in_tether = 0
             for tether in tethers
@@ -505,7 +533,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                         end
                     end
                     (in_winch != 1) && error("Tether number $(tether.idx) is connected to
-                        $(in_winch) winches, and should have 1 winch connected.")
+                          $(in_winch) winches, and should have 1 winch connected.")
 
                     eqs = [
                         eqs
@@ -515,7 +543,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 end
             end
             !(in_tether in [0,1]) && error("Segment number $(segment.idx) is part of 
-                $in_tether tethers, and should be part of exactly 0 or 1 tether.")
+                  $in_tether tethers, and should be part of exactly 0 or 1 tether.")
             if in_tether == 0
                 eqs = [
                     eqs
@@ -529,15 +557,15 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             # spring force equations
             segment_vec[:, segment.idx]  ~ pos[:, p2] - pos[:, p1]
             len[segment.idx]             ~ norm(segment_vec[:, segment.idx])
-            unit_vec[:, segment.idx]  ~ segment_vec[:, segment.idx]/len[segment.idx]
+            unit_vec[:, segment.idx]   ~ segment_vec[:, segment.idx]/len[segment.idx]
             rel_vel[:, segment.idx]      ~ vel[:, p1] - vel[:, p2]
             spring_vel[segment.idx]      ~ rel_vel[:, segment.idx] ⋅ unit_vec[:, segment.idx]
             damping[segment.idx]         ~ get_axial_damping(psys, segment.idx) / len[segment.idx]
             stiffness[segment.idx]       ~ ifelse(len[segment.idx] > l0[segment.idx],
-                                        get_axial_stiffness(psys, segment.idx) / len[segment.idx],
-                                        get_compression_frac(psys, segment.idx) * get_axial_stiffness(psys, segment.idx) / len[segment.idx])
+                                            get_axial_stiffness(psys, segment.idx) / len[segment.idx],
+                                            get_compression_frac(psys, segment.idx) * get_axial_stiffness(psys, segment.idx) / len[segment.idx])
             spring_force[segment.idx] ~  (stiffness[segment.idx] * (len[segment.idx] - l0[segment.idx]) - 
-                            damping[segment.idx] * spring_vel[segment.idx])
+                                     damping[segment.idx] * spring_vel[segment.idx])
             spring_force_vec[:, segment.idx]  ~ spring_force[segment.idx] * unit_vec[:, segment.idx]
             
             # drag force equations
@@ -545,13 +573,12 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             segment_vel[:, segment.idx]  ~ 0.5(vel[:, p1] + vel[:, p2])
             segment_rho[segment.idx]     ~ calc_rho(s.am, height[segment.idx])
             wind_vel[:, segment.idx]     ~ AtmosphericModels.calc_wind_factor(s.am, 
-                    max(height[segment.idx], 1.0), s.set.profile_law) * wind_vec_gnd
+                                           max(height[segment.idx], 1.0), s.set.profile_law) * wind_vec_gnd
             va[:, segment.idx]           ~ wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
             area[segment.idx]            ~ len[segment.idx] * get_diameter(psys, segment.idx)
             app_perp_vel[:, segment.idx] ~ va[:, segment.idx] - 
-                                        (va[:, segment.idx] ⋅ unit_vec[:, segment.idx]) * unit_vec[:, segment.idx]
-            drag_force[:, segment.idx]   ~ (0.5 * segment_rho[segment.idx] * get_cd_tether(pset) * norm(va[:, segment.idx]) * 
-                                        area[segment.idx]) * app_perp_vel[:, segment.idx]
+                                           (va[:, segment.idx] ⋅ unit_vec[:, segment.idx]) * unit_vec[:, segment.idx]
+            drag_force[:, segment.idx]   ~ (0.5 * segment_rho[segment.idx] * get_cd_tether(pset) * norm(va[:, segment.idx]) * area[segment.idx]) * app_perp_vel[:, segment.idx]
         ]
     end
 
@@ -653,7 +680,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         eqs = [
             eqs
             stretched_len[tether.idx] ~ slen
-            tether_spring_force[tether.idx] ~ tforce
+            tether_spring_force[tether.idx] ~ tforce
         ]
     end
 
@@ -661,27 +688,24 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
 end
 
 """
-    wing_eqs!(s, eqs, pset, defaults; kwargs...)
+    wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, ...)
 
-Generate the differential equations for wing dynamics including quaternion kinematics,
-angular velocities and accelerations, and forces/moments.
+Generate the differential equations for the wing's rigid body dynamics.
+
+This function builds the equations for:
+- Quaternion kinematics for the wing's orientation.
+- Euler's rotation equations for the angular acceleration, including gyroscopic effects.
+- Newton's second law for the translational motion of the wing's center of mass.
 
 # Arguments
-- `s::SymbolicAWEModel`: The wing system state
-- `eqs`: Current system equations  
-- `defaults`: Default values for variables
-- `tether_wing_force`: Forces from tethers on wing
-- `tether_wing_moment`: Moments from tethers on wing
-- `aero_force_b`: Aerodynamic forces in body frame
-- `aero_moment_b`: Aerodynamic moments in body frame
-- `ω_b`: Angular velocity in body frame
-- `R_b_w`: Body to world rotation matrix
-- `wing_pos`: Kite position vector
-- `wing_vel`: Kite velocity vector
-- `wing_acc`: Kite acceleration vector
+- `s::SymbolicAWEModel`: The main model object.
+- `eqs`, `psys`, `pset`, `defaults`: Accumulating vectors and symbolic parameters.
+- `tether_wing_force`, `tether_wing_moment`: Aggregate forces/moments from tethers.
+- `aero_force_b`, `aero_moment_b`: Aerodynamic forces/moments.
+- `ω_b`, `α_b`, `R_b_w`, `wing_pos`, `wing_vel`, `wing_acc`: Symbolic state variables.
 
 # Returns
-Tuple of updated equations and defaults
+- `(eqs, defaults)`: A tuple containing the updated equation and default value lists.
 """
 function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_moment, aero_force_b, 
     aero_moment_b, ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing
@@ -771,12 +795,25 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
     return eqs, defaults
 end
 
+"""
+    rotate_v_around_k(v, k, θ)
+
+Rotate vector `v` around axis `k` by angle `θ` using Rodrigues' rotation formula.
+"""
 function rotate_v_around_k(v, k, θ)
     k = sym_normalize(k)
     v_rot = v * cos(θ) + (k × v) * sin(θ)  + k * (k ⋅ v) * (1 - cos(θ))
     return v_rot
 end
 
+"""
+    calc_R_v_w(wing_pos, e_x)
+
+Calculate the rotation matrix from the view frame (`_v`) to the world frame (`_w`).
+
+The view frame is defined with its z-axis pointing from the origin to the wing,
+and its x-axis aligned with the wing's x-axis projected onto the view plane.
+"""
 function calc_R_v_w(wing_pos, e_x)
     z = sym_normalize(wing_pos)
     y = sym_normalize(z × e_x)
@@ -784,6 +821,13 @@ function calc_R_v_w(wing_pos, e_x)
     return [x y z]
 end
 
+"""
+    calc_R_t_w(elevation, azimuth)
+
+Calculate the rotation matrix from the tether frame (`_t`) to the world frame (`_w`).
+
+The tether frame is a spherical coordinate system defined by elevation and azimuth angles.
+"""
 function calc_R_t_w(elevation, azimuth)
     x = rotate_around_z(rotate_around_y([0, 0, -1], -elevation), azimuth)
     z = rotate_around_z(rotate_around_y([1, 0, 0], -elevation), azimuth)
@@ -791,6 +835,13 @@ function calc_R_t_w(elevation, azimuth)
     return [x y z]
 end
 
+"""
+    calc_heading(R_t_w, R_v_w)
+
+Calculate the heading angle [rad] of the wing.
+
+Heading is defined as the rotation angle between the tether frame and the view frame.
+"""
 function calc_heading(R_t_w::AbstractMatrix, R_v_w::AbstractMatrix)
     heading_vec = R_t_w' * R_v_w[:, 1]
     heading = atan(heading_vec[2], heading_vec[1])
@@ -798,28 +849,22 @@ function calc_heading(R_t_w::AbstractMatrix, R_v_w::AbstractMatrix)
 end
 
 """
-    scalar_eqs!(s, eqs; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, twist_angle, twist_ω)
+    scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, ...)
 
-Generate equations for scalar quantities like elevation, azimuth, heading and course angles.
-    
-    # Arguments
-    - `s::SymbolicAWEModel`: The wing system state
-    - `eqs`: Current system equations
-    - `R_b_w`: Body to world rotation matrix
-    - `wind_vec_gnd`: Ground wind vector
-    - `va_wing_b`: Apparent wind velocity in body frame
-    - `wing_pos`: Kite position vector
-    - `wing_vel`: Kite velocity vector
-    - `wing_acc`: Kite acceleration vector
-    
-    # Returns
-    - Updated system equations including:
-    - Heading angle from x-axis
-    - Elevation angle
-    - Azimuth angle
-    - Course angle
-    - Angular velocities and accelerations
-    """
+Generate equations for derived scalar kinematic quantities.
+
+This function calculates variables that are useful for control and analysis but are not
+fundamental states of the system, such as elevation, azimuth, heading, and course angles,
+along with their time derivatives.
+
+# Arguments
+- `s::SymbolicAWEModel`: The main model object.
+- `eqs`, `psys`, `pset`: Accumulating vectors and symbolic parameters.
+- `R_b_w`, `wind_vec_gnd`, etc.: Symbolic variables for the system's state.
+
+# Returns
+- `eqs`: The updated list of system equations.
+"""
 function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, twist_angle, twist_ω, ω_b, α_b)
     @unpack wings = s.sys_struct
     wind_scale_gnd = get_v_wind(pset)
@@ -840,14 +885,14 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
     for wing in wings
         eqs = [
             eqs
-            e_x[wing.idx, :]     ~ R_b_w[wing.idx, :,1]
-            e_y[wing.idx, :]     ~ R_b_w[wing.idx, :,2]
-            e_z[wing.idx, :]     ~ R_b_w[wing.idx, :,3]
+            e_x[wing.idx, :]       ~ R_b_w[wing.idx, :,1]
+            e_y[wing.idx, :]       ~ R_b_w[wing.idx, :,2]
+            e_z[wing.idx, :]       ~ R_b_w[wing.idx, :,3]
             wind_vel_wing[wing.idx, :] ~ AtmosphericModels.calc_wind_factor(s.am, 
                     max(wing_pos[wing.idx, 3], 1.0), s.set.profile_law) * wind_vec_gnd
             wind_disturb[wing.idx, :] ~ get_wind_disturb(psys, wing.idx)
             va_wing[wing.idx, :] ~ wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :] + 
-                                    wind_disturb[wing.idx, :]
+                                       wind_disturb[wing.idx, :]
             va_wing_b[wing.idx, :] ~ R_b_w[wing.idx, :, :]' * va_wing[wing.idx, :]
         ]
     end
@@ -884,24 +929,22 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
 
         eqs = [
             eqs
-            vec(R_v_w[wing.idx, :, :])     .~ vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
-            vec(R_t_w[wing.idx, :, :])     .~ vec(calc_R_t_w(elevation[wing.idx], azimuth[wing.idx]))
+            vec(R_v_w[wing.idx, :, :])    .~ vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
+            vec(R_t_w[wing.idx, :, :])    .~ vec(calc_R_t_w(elevation[wing.idx], azimuth[wing.idx]))
             heading[wing.idx]         ~ calc_heading(R_t_w[wing.idx, :, :], R_v_w[wing.idx, :, :])
-            turn_rate[wing.idx, :]       ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * ω_b[wing.idx, :]) # Project angular velocity onto view frame
-            turn_acc[wing.idx, :]        ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * α_b[wing.idx, :])
+            turn_rate[wing.idx, :]      ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * ω_b[wing.idx, :]) # Project angular velocity onto view frame
+            turn_acc[wing.idx, :]       ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * α_b[wing.idx, :])
             distance[wing.idx]        ~ norm(wing_pos[wing.idx, :])
             distance_vel[wing.idx]    ~ wing_vel[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
             distance_acc[wing.idx]    ~ wing_acc[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
 
             elevation[wing.idx]           ~ KiteUtils.calc_elevation(wing_pos[wing.idx, :])
-            # elevation_vel = d/dt(atan(z/x)) = (x*ż' - z*ẋ')/(x^2 + z^2) according to wolframalpha
             elevation_vel[wing.idx]       ~ (x*z´ - z*x´) / 
-                                    (x^2 + z^2)
+                                            (x^2 + z^2)
             elevation_acc[wing.idx]       ~ ((x^2 + z^2)*(x*z´´ - z*x´´) + 2(z*x´ - x*z´)*(x*x´ + z*z´))/(x^2 + z^2)^2
             azimuth[wing.idx]             ~ -KiteUtils.azimuth_east(wing_pos[wing.idx, :])
-            # azimuth_vel = d/dt(atan(y/x)) = (-y*x´ + x*y´)/(x^2 + y^2) # TODO: check if correct
             azimuth_vel[wing.idx]         ~ (-y*x´ + x*y´) / 
-                                    (x^2 + y^2)
+                                            (x^2 + y^2)
             azimuth_acc[wing.idx]         ~ ((x^2 + y^2)*(-y*x´´ + x*y´´) + 2(y*x´ - x*y´)*(x*x´ + y*y´))/(x^2 + y^2)^2
             course[wing.idx]              ~ atan(-azimuth_vel[wing.idx], elevation_vel[wing.idx])
             x_acc[wing.idx]               ~ wing_acc ⋅ e_x
@@ -914,32 +957,32 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
     return eqs
 end
 
+"""
+    Base.getindex(x::ModelingToolkit.Symbolics.SymArray, idxs::Vector{Int16})
+
+Extend `getindex` to allow indexing a symbolic array with a vector of indices.
+"""
 function Base.getindex(x::ModelingToolkit.Symbolics.SymArray, idxs::Vector{Int16})
     Num[Base.getindex(x, idx) for idx in idxs]
 end
 
 """
-linear_vsm_eqs!(s, eqs; aero_force_b, aero_moment_b, group_aero_moment, twist_angle, va_wing_b, ω_b)
+    linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, ...)
 
 Generate linearized aerodynamic equations using the Vortex Step Method (VSM).
-Uses linearization around current operating point to approximate aerodynamic forces
-and moments. The Jacobian is computed using the VSM solver.
+
+This function approximates the complex, nonlinear aerodynamic forces and moments
+by using a first-order Taylor expansion around the current operating point. The
+Jacobian of the aerodynamic forces with respect to the state variables (`va_wing_b`,
+`ω_b`, `twist_angle`) is pre-calculated and provided as a parameter (`vsm_jac`).
 
 # Arguments
-- `s::SymbolicAWEModel`: The wing system state
-- `eqs`: Current system equations
-- `aero_force_b`: Aerodynamic forces in body frame
-- `aero_moment_b`: Aerodynamic moments in body frame 
-- `group_aero_moment`: Aerodynamic moments per group
-- `twist_angle`: Twist angles per group
-- `va_wing_b`: Apparent wind velocity in body frame
-- `ω_b`: Angular velocity in body frame
+- `s::SymbolicAWEModel`: The main model object.
+- `eqs`, `guesses`, `psys`: Accumulating vectors and symbolic parameters.
+- `aero_force_b`, `aero_moment_b`, etc.: Symbolic variables for aerodynamic and state quantities.
 
 # Returns
-- Updated system equations including linearized aerodynamics:
-- Force and moment calculations
-- Group moment distributions
-- Jacobian matrix for state derivatives
+- `(eqs, guesses)`: A tuple containing the updated equation and guess lists.
 """
 function linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, aero_moment_b, group_aero_moment, twist_angle, va_wing_b, ω_b)
     @unpack groups, wings = s.sys_struct
@@ -977,6 +1020,24 @@ function linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, aero_moment_b, gro
     return eqs, guesses
 end
 
+"""
+    create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
+
+Create the full `ModelingToolkit.System` for the AWE model.
+
+This is the main top-level function that orchestrates the generation of the entire
+set of differential-algebraic equations (DAEs). It calls specialized sub-functions
+to build the equations for each part of the system (forces, wing dynamics, scalar
+kinematics, linearized aerodynamics) and assembles them into a single `System` object.
+
+# Arguments
+- `s::SymbolicAWEModel`: The main model object to be populated.
+- `system::SystemStructure`: The physical structure definition.
+- `prn::Bool=true`: If true, print progress information.
+
+# Returns
+- `set_values`: The symbolic variable representing the control inputs.
+"""
 function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
     eqs = []
     defaults = Pair{Num, Any}[]
