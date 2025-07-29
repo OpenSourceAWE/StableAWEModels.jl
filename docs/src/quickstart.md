@@ -4,7 +4,8 @@ CurrentModule = SymbolicAWEModels
 # Quickstart
 
 ## Installation of Julia
-For a quick test of this program, it is NOT needed to install VSCode, git or bash. Just installing Julia is sufficient, and that can be done in a few minutes. 
+For a quick test of this program, it is NOT needed to install VSCode, git or bash. Just 
+installing Julia is sufficient, and that can be done in a few minutes. 
 
 ```@raw html
 <details>
@@ -128,27 +129,3 @@ Now you can quit Julia with the command ``` exit()```. If you want to launch Jul
 
 The first run of the script will be slow because Julia must compile the code. The second and any further run is very fast, but only as long as you do not leave your Julia session.
 
-## Comparing the one-point and the four-point kite model
-Start Julia in the project folder you created before:
-```bash
-cd test
-julia --project
-```
-and then execute the command
-```
-using SymbolicAWEModels
-include("examples/compare_kps3_kps4.jl")
-```
-Use the command ```include("examples\\compare_kps3_kps4.jl")``` on Windows.
-
-The last view of the animation should look like this:
-
-![Initial State](kite.png)
-
-You can save what you see with the command ```savefig("kite.png")```.
-
-### Exercise
-Modify the variable ```ALPHA_ZERO``` in line 11 of the script until the lift force of the 1 point model and the 4 point model match.
-
-## Questions?
-If you have any questions, please ask in the Julia Discourse forum in the section [modelling and simulation](https://discourse.julialang.org/c/domain/models) , or in in the section [First steps](https://discourse.julialang.org/c/first-steps) . The Julia community is very friendly and responsive.

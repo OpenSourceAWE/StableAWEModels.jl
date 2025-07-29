@@ -1,4 +1,4 @@
-# Copyright (c) 2020, 2021, 2022, 2024 Uwe Fechner, Bart van de Lint and Daan van Wolffelaar
+# Copyright (c) 2020, 2021, 2022, 2024, 2025 Uwe Fechner, Bart van de Lint and Daan van Wolffelaar
 # SPDX-License-Identifier: MIT
 
 module SymbolicAWEModels
@@ -74,6 +74,7 @@ export linearize!, simple_linearize!
 
 # --- System Structure Creators ---
 export create_ram_sys_struct
+export create_tether_sys_struct
 export create_simple_ram_sys_struct
 
 # --- Getter Functions ---

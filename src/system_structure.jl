@@ -160,7 +160,7 @@ The governing equation is:
 \\end{aligned}
 ```
 
-![System Overview](group_slice.svg)
+![System Overview](assets/group_slice.svg)
 
 where:
 - ``\\tau`` is the total torque about the twist axis

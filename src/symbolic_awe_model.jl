@@ -196,16 +196,6 @@ function SymbolicAWEModel(set::Settings, name::String; kwargs...)
     return SymbolicAWEModel(set, sys_struct)
 end
 
-"""
-    update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
-
-Update the high-level `SysState` log object from the detailed `SymbolicAWEModel` state.
-
-This function extracts key performance indicators and state variables from the full
-simulation model and populates the simpler `SysState` struct, which is used for
-logging and visualization. It calculates derived quantities like roll, pitch, yaw,
-angle of attack, and side slip.
-"""
 function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(s.integrator) ? 0.0 : s.integrator.t # Use integrator time
     @unpack points, groups, segments, pulleys, winches, wings = s.sys_struct
@@ -269,11 +259,6 @@ function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
     nothing
 end
 
-"""
-    SysState(s::SymbolicAWEModel, zoom=1.0)
-
-Create and populate a `SysState` logging object from the current state of a `SymbolicAWEModel`.
-"""
 function SysState(s::SymbolicAWEModel, zoom=1.0)
     ss = SysState{length(s.sys_struct.points)}()
     update_sys_state!(ss, s, zoom)

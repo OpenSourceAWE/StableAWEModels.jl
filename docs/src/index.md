@@ -6,17 +6,20 @@ CurrentModule = SymbolicAWEModels
 Documentation for the package [SymbolicAWEModels](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl).
 
 This package provides modular symbolic models of Airborne Wind Energy (AWE) systems, 
-which consist of a wing, one or more tethers, one or more winches and a bridle system with or without pulleys.
-The kite is modeled as a deforming rigid body with orientation governed by quaternion dynamics. The aerodynamic forces and moments are computed using the Vortex Step Method. The tether is modeled as point masses connected by spring-damper elements, with aerodynamic drag modeled realistically. 
-The winch is modeled as a motor/generator that can reel in or out the tethers.
+which consist of one or more wings, tethers, winches and a bridle system with 
+or without pulleys. The kite is modeled as a deforming rigid body with orientation governed 
+by quaternion dynamics. The aerodynamic forces and moments are computed using the 
+Vortex Step Method. The tether is modeled as point masses connected by spring-damper 
+elements, with aerodynamic drag modeled realistically. The winchs are modeled as
+motors/generators that can reel in or out the tethers.
 
-The [`SymbolicAWEModel`](@ref) has the following subcomponents, implemented in separate packages:
+The [`SymbolicAWEModel`](@ref) has the following subcomponents implemented in separate packages:
 - AtmosphericModel from [AtmosphericModels](https://github.com/aenarete/AtmosphericModels.jl)
 - WinchModel from [WinchModels](https://github.com/aenarete/WinchModels.jl) 
-- The aerodynamic forces and moments of some of the models are calculated using the package [VortexStepMethod](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+- The aerodynamic forces and moments of some of the models are calculated using the 
+  package [VortexStepMethod](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
 
-This package is part of [`KiteModels`](https://github.com/ufechner7/KiteModels.jl),
-which in turn is part of the Julia Kite Power Tools, which consist of the following packages:
+This package is part of the Julia Kite Power Tools, which consist of the following packages:
 
 ![Julia Kite Power Tools](kite_power_tools.png)
 
@@ -59,26 +62,47 @@ This might take two minutes. To speed up the model initialization, you can creat
 cd bin
 ./create_sys_image
 ```
-If you now launch Julia with `./bin/run_julia` and then run the above example again, it should be about three
-times faster.
+If you now launch Julia with `./bin/run_julia` and then run the above example again, it should 
+be about three times faster.
 
 ## Ram air kite model
-This model represents the kite as a deforming rigid body, with orientation governed by quaternion dynamics. Aerodynamics are computed using the Vortex Step Method. The kite is controlled from the ground via four tethers.
+This model represents the kite as a deforming rigid body, with orientation governed by 
+quaternion dynamics. Aerodynamics are computed using the Vortex Step Method. The kite is 
+controlled from the ground via four tethers.
 
-## Tether
-The tether is modeled as point masses, connected by spring-damper elements. Aerodynamic drag is modeled realistically. When reeling out or in the unstreched length of the spring-damper elements
-is varied. This does not translate into physics directly, but it avoids adding point masses at run-time, which would be even worse because it would introduce discontinuities. When using
-Dyneema or similar high-strength materials for the tether the resulting system is very stiff which is a challenge for the solver.
+Initialize:
+```julia
+using SymbolicAWEModels, ControlPlots
+set = Settings("system.yaml")
+sam = SymbolicAWEModel(set, "ram")
+init!(sam)
+```
 
-## Reference frames and control inputs
-- a positive `set_torque` will accelerate the reel-out, a negative `set_torque` counteract the pulling force of the kite. The unit is [N/m] as seen at the motor/generator axis.
-- the `depower` settings are dimensionless and can be between zero and one. A value equal to $\mathrm{depower\_zero}/100$ from the `settings.yaml` file means that the kite is fully powered. 
-- the `heading` angle, the direction the nose of the kite is pointing to is positive in clockwise direction when seen from above.
-- the `steering` input, dimensionless and in the range of -1.0 .. 1.0. A positive steering input causes a positive turn rate (derivative of the heading).
+Model and plot:
+```julia
+log = sim_oscillate!(sam)
+plot(sam.sys_struct, log)
+```
 
-A definition of the reference frames can be found [here](https://OpenSourceAWE.github.io/KiteUtils.jl/dev/reference_frames/) .
+The simple ram air kite model removes the bridle system, and has 1-segment tethers. 
+The tether properties and attach points can be approximated using the complex ram air kite 
+model and a helper tether model.
 
-## Further reading
+Initialize:
+```julia
+init!(sam)
+tether_sam = SymbolicAWEModel(set, "tether")
+init!(tether_sam)
+simple_sam = SymbolicAWEModel(set, "simple_ram")
+init!(simple_sam)
+```
+
+Model and plot:
+```julia
+SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
+simple_log = sim_oscillate!(simple_sam)
+plot(sam.sys_struct, simple_log)
+```
 
 ## See also
 - [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) for the scientic background of the winches and tethers.
@@ -88,5 +112,12 @@ A definition of the reference frames can be found [here](https://OpenSourceAWE.g
 - the packages [WinchModels](https://github.com/aenarete/WinchModels.jl) and [KitePodModels](https://github.com/aenarete/KitePodModels.jl) and [AtmosphericModels](https://github.com/aenarete/AtmosphericModels.jl)
 - the packages [KiteControllers](https://github.com/aenarete/KiteControllers.jl) and [KiteViewers](https://github.com/aenarete/KiteViewers.jl)
 - the [VortexStepMethod](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+
+## Questions?
+If you have any questions, please ask in the Julia Discourse forum in the section 
+[modelling and simulation](https://discourse.julialang.org/c/domain/models) , or in in the 
+section [First steps](https://discourse.julialang.org/c/first-steps) . The Julia community 
+is very friendly and responsive.
+You can also send an email to Bart van de Lint (bart@vandelint.net).
 
 Authors: Bart van de Lint (bart@vandelint.net), Uwe Fechner (uwe.fechner.msc@gmail.com)

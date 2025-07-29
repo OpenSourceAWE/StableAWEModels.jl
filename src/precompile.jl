@@ -69,34 +69,35 @@ end
     set_data_path(joinpath(path, "..", "data"))
 
     @compile_workload begin
-        m1 = "Manifest-v1.$(VERSION.minor).toml"
-        m2 = "Manifest-v1.$(VERSION.minor).toml.default"
-        if filecmp(m1, m2)
-            @info "Manifest files match, using the default xz files will work!"
-            for input_path in readdir("data", join=true)
-                if endswith(input_path, ".xz") && startswith("model", input_path)
-                    output_path = replace(input_path, ".xz" => "")
-                    decompress_binary(input_path, output_path)
-                    println("Decompressed $input_path -> $output_path")
+        if get(ENV, "SAM_PRECOMPILE", "true") != "false"
+            m1 = "Manifest-v1.$(VERSION.minor).toml"
+            m2 = "Manifest-v1.$(VERSION.minor).toml.default"
+            if filecmp(m1, m2)
+                @info "Manifest files match, using the default xz files will work!"
+                for input_path in readdir("data", join=true)
+                    if endswith(input_path, ".xz") && startswith("model", input_path)
+                        output_path = replace(input_path, ".xz" => "")
+                        decompress_binary(input_path, output_path)
+                        println("Decompressed $input_path -> $output_path")
+                    end
                 end
+            else
+                @warn "Manifest files differ, precompilation might be slow."
             end
-        else
-            @warn "Manifest files differ, precompilation might be slow."
+
+            prn=true
+            sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
+
+            init!(sam; prn=false, reload=true)
+            init!(sam; prn=false, reload=false)
+            sim_oscillate!(sam; total_time=1.0)
+            @show sam.sys_struct.name
+            copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
+            find_steady_state!(sam)
+            ss = SysState(sam)
+            next_step!(sam)
+            update_sys_state!(ss, sam)
         end
-
-        prn=true
-        sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
-
-        init!(sam; prn=false, reload=true)
-        init!(sam; prn=false, reload=false)
-        sim_oscillate!(sam; total_time=1.0)
-        @show sam.sys_struct.name
-        copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
-        find_steady_state!(sam)
-        ss = SysState(sam)
-        next_step!(sam)
-        update_sys_state!(ss, sam)
-        nothing
     end
 end   
   
