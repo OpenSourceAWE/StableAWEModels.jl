@@ -8,6 +8,7 @@ system:
     zoom:        0.03              # zoom factor for the system view
     kite_scale:   3.0              # relative zoom factor for the 4 point kite
     fixed_font: ""                 # name or filepath+filename of alternative fixed pitch font
+    g_earth:     9.81
 
 initial:
     l_tethers: [50.0, 50.0, 50.0]  # initial tether length       [m]

@@ -4,7 +4,7 @@
 
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 
-set = se("system.yaml")
+set = Settings("system.yaml")
 set.v_wind = 10.0
 set.l_tether = 5.0
 set.abs_tol = 1e-4
@@ -20,9 +20,9 @@ push!(points, Point(2, [2.0, 0.0, 2.0], STATIC))
 push!(points, Point(3, [0.1, 0.0, 1.0], DYNAMIC))
 push!(points, Point(4, [0.1, 0.0, 0.0], DYNAMIC; mass=0.1))
 
-push!(segments, Segment(1, (3,1), BRIDLE))
-push!(segments, Segment(2, (3,2), BRIDLE))
-push!(segments, Segment(3, (3,4), BRIDLE))
+push!(segments, Segment(1, set, (3,1), BRIDLE))
+push!(segments, Segment(2, set, (3,2), BRIDLE))
+push!(segments, Segment(3, set, (3,4), BRIDLE))
 
 push!(pulleys, Pulley(1, (1,2), DYNAMIC))
 
