@@ -9,12 +9,12 @@ using Test, FFTW, ControlSystemsBase, Printf
 using SymbolicAWEModels, ControlPlots
 using Statistics, LinearAlgebra
 
-# Copy data dir for testing
-old_path = get_data_path()
-package_data_path = joinpath(dirname(dirname(pathof(SymbolicAWEModels))), "data")
-temp_data_path = joinpath(tempdir(), "data")
-Base.Filesystem.cptree(package_data_path, temp_data_path; force=true)
-set_data_path(temp_data_path)
+# # Copy data dir for testing
+# old_path = get_data_path()
+# package_data_path = joinpath(dirname(dirname(pathof(SymbolicAWEModels))), "data")
+# temp_data_path = joinpath(tempdir(), "data")
+# Base.Filesystem.cptree(package_data_path, temp_data_path; force=true)
+# set_data_path(temp_data_path)
 
 TOL = 1e-5
 set = Settings("system.yaml")
