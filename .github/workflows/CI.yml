@@ -77,7 +77,7 @@ jobs:
       - uses: julia-actions/julia-runtest@v1
 
   test-with-code-coverage:
-    name: Julia 1 - ubuntu-latest - x64 - with code coverage
+    name: Julia 1.11 - ubuntu-latest - x64 - with code coverage
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -88,8 +88,8 @@ jobs:
 
       - name: Copy default Manifest files
         run: |
-          cp Manifest-v${{ matrix.version }}.toml.default Manifest.toml || 
-                echo "No default available for Manifest-v${{ matrix.version }}.toml"
+          cp Manifest-v1.11.toml.default Manifest.toml || 
+                echo "No default available for Manifest-v1.11.toml"
         shell: bash
 
       - name: Install matplotlib
@@ -98,7 +98,7 @@ jobs:
 
       - uses: julia-actions/setup-julia@v2
         with:
-          version: '1'
+          version: '1.11'
           arch: x64
 
       - uses: julia-actions/cache@v2
@@ -131,8 +131,8 @@ jobs:
 
       - name: Copy default Manifest files
         run: |
-          cp Manifest-v${{ matrix.version }}.toml.default Manifest.toml || 
-                echo "No default available for Manifest-v${{ matrix.version }}.toml"
+          cp Manifest-v1.11.toml.default Manifest.toml || 
+                echo "No default available for Manifest-v1.11.toml"
         shell: bash
           
       - name: Install matplotlib
