@@ -1,5 +1,5 @@
-# Copyright (c) 2020, 2021, 2022, 2024, 2025 Uwe Fechner, Bart van de Lint and Daan van Wolffelaar
-# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Bart van de Lint and Uwe Fechner
+# SPDX-License-Identifier: MPL-2.0
 
 module SymbolicAWEModels
 

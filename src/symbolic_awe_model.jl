@@ -96,7 +96,7 @@ $(TYPEDFIELDS)
     lin_integ::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
     "Relative start time of the current time interval"
     t_0::SimFloat = 0.0
-    "Number of solve! calls"
+    "Number of next_step! calls"
     iter::Int64 = 0
     "Time spent in the VSM linearization step"
     t_vsm::SimFloat  = zero(SimFloat)
@@ -337,7 +337,7 @@ function init!(s::SymbolicAWEModel;
         end
         prn && @info "Created the LinearizationProblem in $time seconds"
 
-        funcs = generate_getters(s.sys, s.sys_struct, s.lin_prob, lin_outputs)
+        funcs, simple_lin_model = generate_getters(s.sys, s.sys_struct, s.lin_prob, lin_outputs)
         
         # Create the new, fully typed SerializedModel
         s.serialized_model = SerializedModel(
@@ -349,7 +349,8 @@ function init!(s::SymbolicAWEModel;
             lin_outputs = lin_outputs,
             prob = s.prob,
             defaults = s.defaults,
-            guesses = s.guesses;
+            guesses = s.guesses,
+            simple_lin_model = simple_lin_model;
             funcs... # Splat the named tuple of functions
         )
 
@@ -490,6 +491,16 @@ function generate_getters(sys, sys_struct, lin_prob, lin_y_vec)
         get_lin_x = getu(sys, lin_x_vec)
         get_lin_dx = getu(sys, lin_dx_vec)
         get_lin_y = getu(sys, lin_y_vec)
+
+        nx = length(lin_x_vec)
+        ny = length(lin_y_vec)
+        nu = length(winches)
+        simple_lin_model = (
+            A = zeros(nx, nx),
+            B = zeros(nx, nu),
+            C = zeros(ny, nx),
+            D = zeros(ny, nu)
+        )
     end
 
     if length(wings) > 0
@@ -554,7 +565,7 @@ function generate_getters(sys, sys_struct, lin_prob, lin_y_vec)
         get_lin_x = get_lin_x,
         get_lin_dx = get_lin_dx,
         get_lin_y = get_lin_y,
-    )
+    ), simple_lin_model
 end
 
 """
