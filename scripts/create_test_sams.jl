@@ -4,3 +4,4 @@
 
 using SymbolicAWEModels
 sams = SymbolicAWEModels.create_default_models(; prn=true)
+nothing

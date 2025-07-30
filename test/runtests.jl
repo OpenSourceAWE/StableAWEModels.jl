@@ -3,10 +3,11 @@
 
 ENV["MPLBACKEND"] = "Agg"
 using SymbolicAWEModels, KiteUtils
+data_path = joinpath(dirname(dirname(pathof(SymbolicAWEModels))), "data")
+@show data_path
+set_data_path(data_path)
 using Test
 
-cd("..")
-KiteUtils.set_data_path("") 
 @testset verbose = true "Testing SymbolicAWEModels..." begin
     println("--> 1")
     include("test_sam.jl")
