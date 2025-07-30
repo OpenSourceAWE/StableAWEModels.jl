@@ -476,6 +476,7 @@ function generate_getters(sys, sys_struct, lin_prob, lin_y_vec)
     get_segment_state, get_group_state, get_pulley_state = nothing, nothing, nothing
     get_winch_state, get_tether_state = nothing, nothing
     set_lin_set_values = nothing
+    simple_lin_model = nothing
 
     if length(wings) == 1
         lin_x_vec = [
