@@ -5,7 +5,7 @@ CurrentModule = SymbolicAWEModels
 
 # API Reference
 
-This page provides a detailed reference for all public types and functions exported by the 
+This page provides a detailed reference for all public functions exported by the 
 `SymbolicAWEModels.jl` package.
 
 ## High-Level Simulation Functions
@@ -27,6 +27,7 @@ init!
 next_step!
 find_steady_state!
 linearize!
+copy_to_simple!
 simple_linearize!
 ```
 

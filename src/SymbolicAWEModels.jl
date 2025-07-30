@@ -71,6 +71,7 @@ export sim!, sim_oscillate!, sim_turn!
 # --- Low-Level Simulation Functions ---
 export find_steady_state!
 export linearize!, simple_linearize!
+export copy_to_simple!
 
 # --- System Structure Creators ---
 export create_ram_sys_struct

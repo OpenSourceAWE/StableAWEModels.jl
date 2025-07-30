@@ -10,9 +10,10 @@ A custom `SystemStructure` can be used to create models of kite power systems of
 - different amounts of stiffness, damping and diameter on different tether segments
 
 ## Precondition
-First, following the [Quickstart](@ref) section up to the installation of the examples. Make sure that
-at least `SymbolicAWEModels` version 0.8 is installed by typing `using Pkg; Pkg.status()`. To start Julia,
-either use `julia --project`, or `./bin/run_julia`.
+First, following the [Home](index.md) section up to the installation of the examples. To start Julia,
+either use `julia --project=.`, or `./bin/run_julia`. Make sure that
+at least `SymbolicAWEModels` version 0.2 is installed by typing `]status` in the Julia REPL. 
+If necessary, update `SymbolicAWEModels` by typing `]up`.
 
 ## Creating a simple tether
 
@@ -68,7 +69,7 @@ From the points, segments and transform we create a [`SystemStructure(name, set)
 sys_struct = SystemStructure("tether", set; points, segments, transforms)
 plot(sys_struct, 0.0)
 ```
-![SystemStructure visualization](tether_sys_struct.png)
+![SystemStructure visualization](assets/tether_sys_struct.png)
 
 If the system looks good, we can easily model it, by first creating a [`SymbolicAWEModel`](@ref), initializing it and stepping through time.
 ```julia
@@ -80,7 +81,7 @@ for i in 1:80
     next_step!(sam)
 end
 ```
-![Tether during simulation](tether_during_sim.png)
+![Tether during simulation](assets/tether_during_sim.png)
 
 # Using a winch and a tether
 

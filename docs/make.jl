@@ -26,13 +26,13 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
-        "Quickstart" => "quickstart.md",
         "Examples" => "examples.md",
-        "Functions" => "exported_functions.md",
-        "Types" => "exported_types.md",
+        "Custom Model" => "tutorial_system_structure.md",
+        "Exported Types" => "exported_types.md",
+        "Exported Functions" => "exported_functions.md",
         "Parameters" => "parameters.md",
         "Private functions" => "private_functions.md",
-        "Advanced usage" => "advanced.md",
+        "Developers" => "developers.md",
     ],
 )
 

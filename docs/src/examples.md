@@ -23,45 +23,57 @@ SymbolicAWEModels.install_examples()
 include("examples/ram_air_kite.jl")
 ```
 Expected output for first run:
-```
+```julia
 [ Info: Loading packages 
-Time elapsed: 7.483472342 s
-[ Info: Creating wing, aero, vsm_solver, sys_struct and s:
-Time elapsed: 15.341197455 s
-[ Info: Creating System
-  4.316010 seconds (8.72 M allocations: 222.606 MiB, 1.42% gc time, 25.46% compilation time: 14% of which was recompilation)
-[ Info: Simplifying the system
- 38.520311 seconds (335.98 M allocations: 11.256 GiB, 3.30% gc time, 26.34% compilation time: 29% of which was recompilation)
-[ Info: Creating ODEProblem
- 79.285815 seconds (668.64 M allocations: 22.706 GiB, 3.52% gc time, 19.17% compilation time: 19% of which was recompilation)
-[ Info: Initialized integrator in 20.055285573 seconds
+[ Info: Precompiling SymbolicAWEModelsControlPlotsExt [986c3e0b-c4a6-5a67-87ac-f6b86e76af74] (cache mi
+sses: include_dependency fsize change (2), wrong dep version loaded (14), mismatched flags (2))
+Time elapsed: 24.149010176 s
+[ Info: Creating SymbolicAWEModel:
+Time elapsed: 38.51030329 s
 [ Info: System initialized at:
-Time elapsed: 184.100123328 s
-[ Info: Total time without plotting:
-Time elapsed: 201.450775931 s
-┌ Info: Performance:
-│   times_realtime = 5.425567300328113
-└   integrator_times_realtime = 17.86788617896347
+Time elapsed: 120.861073757 s
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         2.34 |       2.14
+│ Step         |         5.96 |       0.84
+│ Integrator   |        34.15 |       0.15
+└ VSM          |         2.62 |       1.91
+[ Info: Simulated at:
+Time elapsed: 213.981574478 s
+[ Info: Plotted at:
+Time elapsed: 220.05251771 s
+220.05251771
 ```
 After the second time it runs much faster, because the simplified ODE system is cached in the 
-`prob_dynamic_1.11_3_seg.bin` file in the `data` folder and the deserialization is precompiled:
-```
+`model*.bin` file in the `data` folder and the deserialization is precompiled:
+```julia
 [ Info: Loading packages 
-Time elapsed: 7.396961284 s
-[ Info: Creating wing, aero, vsm_solver, sys_struct and s:
-Time elapsed: 15.387790726 s
-[ Info: Initialized integrator in 29.545349428 seconds
+Time elapsed: 0.017465498 s
+[ Info: Creating SymbolicAWEModel:
+Time elapsed: 1.85496798 s
 [ Info: System initialized at:
-Time elapsed: 57.134361795 s
-[ Info: Total time without plotting:
-Time elapsed: 75.475794933 s
-┌ Info: Performance:
-│   times_realtime = 5.038873691119553
-└   integrator_times_realtime = 16.40954043592023
+Time elapsed: 5.364508521 s
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         2.53 |       1.97
+│ Step         |         6.61 |       0.76
+│ Integrator   |        41.21 |       0.12
+└ VSM          |         2.79 |       1.79
+[ Info: Simulated at:
+Time elapsed: 7.995500858 s
+[ Info: Plotted at:
+Time elapsed: 8.309523118 s
+8.309523118
 ```
 
 In this example, the kite is first stabilized, and then a sinus-shaped steering input is 
-applied such that is dancing in the sky.
+applied such that the kite is dancing in the sky.
 
 ![Oscillating steering input response](assets/oscillating_steering.png)
 
@@ -69,9 +81,51 @@ applied such that is dancing in the sky.
 ```julia
 include("examples/simple_model.jl")
 ```
-The simple model has a very simple bridle system without pulleys and with less attachment 
-points on the wing. While the default model has a [speed system](https://kiteboarding.com/proddetail.asp?prod=ozone-r1v4-pro-tune-speedsystem-complete) 
-with pulleys and more attachment points on the wing.
+
+```julia
+Tether 1: ω_n=227.039 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1319, c=3.4209 Ns/m
+Tether 2: ω_n=228.866 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1309, c=3.4211 Ns/m
+Tether 3: ω_n=235.585 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1272, c=0.8549 Ns/m
+Tether 4: ω_n=236.834 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1265, c=0.8552 Ns/m
+Summary of Results:
+Tether 1: k = 2943.0749476475257 N/m, c = 3.4208593453647103 Ns/m
+Tether 2: k = 2990.816045085089 N/m, c = 3.4210625600793843 Ns/m
+Tether 3: k = 791.9269801315223 N/m, c = 0.8549123148071024 Ns/m
+Tether 4: k = 800.5953494095929 N/m, c = 0.8551804418169453 Ns/m
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         1.99 |       1.25
+│ Step         |         5.54 |       0.45
+│ Integrator   |        24.27 |       0.10
+└ VSM          |         2.59 |       0.97
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         0.46 |       5.44
+│ Step         |        10.22 |       0.24
+│ Integrator   |      1385.79 |       0.00
+└ VSM          |         3.49 |       0.72
+```
+
+The simple model connects the tethers directly to the wing. In contrast, the default model 
+features a more complex [speed system](https://kiteboarding.com/proddetail.asp?prod=ozone-r1v4-pro-tune-speedsystem-complete)
+that uses pulleys and multiple attachment points. By 
+matching key dynamic properties—such as the moment on the wing groups, stiffness, and 
+damping—the simple model can be tuned to closely replicate the response of the more complex 
+default model, at a much better performance.
 
 ![Oscillating steering input response, simple system](assets/oscillating_steering_simple.png)
 

@@ -24,7 +24,7 @@ This package is part of the Julia Kite Power Tools, which consist of the followi
 ![Julia Kite Power Tools](kite_power_tools.png)
 
 ## Installation
-Install [Julia 1.11](https://OpenSourceAWE.github.io/2024/08/09/installing-julia-with-juliaup.html), if you haven't already. On Linux, make sure that Python3 and Matplotlib are installed:
+Install [Julia 1.11](https://julialang.org/install/) using `juliaup`, if you haven't already. On Linux, make sure that Python3 and Matplotlib are installed:
 ```
 sudo apt install python3-matplotlib
 ```
@@ -57,13 +57,8 @@ You can also run the ram-air-kite example like this:
 ```julia
 include("examples/ram_air_kite.jl")
 ```
-This might take two minutes. To speed up the model initialization, you can create a system image:
-```bash
-cd bin
-./create_sys_image
-```
-If you now launch Julia with `./bin/run_julia` and then run the above example again, it should 
-be about three times faster.
+
+This will take some minutes to precompile the first time you run it.
 
 ## Ram air kite model
 This model represents the kite as a deforming rigid body, with orientation governed by 
@@ -78,15 +73,18 @@ sam = SymbolicAWEModel(set, "ram")
 init!(sam)
 ```
 
-Model and plot:
+Simulate and plot:
 ```julia
 log = sim_oscillate!(sam)
-plot(sam.sys_struct, log)
+plot(sam.sys_struct, log; plot_all=false, plot_heading=true)
 ```
 
-The simple ram air kite model removes the bridle system, and has 1-segment tethers. 
+![Ram heading](assets/ram_heading.png)
+
+The **simple_ram** model removes the bridle system, and has 1-segment tethers. 
 The tether properties and attach points can be approximated using the complex ram air kite 
-model and a helper tether model.
+model and a helper tether model. This makes the heading response of the simple model very
+close to the heading response of the complex model.
 
 Initialize:
 ```julia
@@ -97,12 +95,14 @@ simple_sam = SymbolicAWEModel(set, "simple_ram")
 init!(simple_sam)
 ```
 
-Model and plot:
+Simulate and plot:
 ```julia
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
 simple_log = sim_oscillate!(simple_sam)
-plot(sam.sys_struct, simple_log)
+plot(simple_sam.sys_struct, simple_log; plot_all=false, plot_heading=true)
 ```
+
+![Simple ram heading](assets/simple_ram_heading.png)
 
 ## See also
 - [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) for the scientic background of the winches and tethers.
@@ -114,10 +114,9 @@ plot(sam.sys_struct, simple_log)
 - the [VortexStepMethod](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
 
 ## Questions?
-If you have any questions, please ask in the Julia Discourse forum in the section 
-[modelling and simulation](https://discourse.julialang.org/c/domain/models) , or in in the 
-section [First steps](https://discourse.julialang.org/c/first-steps) . The Julia community 
-is very friendly and responsive.
+If you have any questions or problems, please submit an [issue](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/issues/new)
+or start a [discussion](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/discussions/new/choose).
+The Julia community is also very helpful: [Julia Discourse](https://discourse.julialang.org/).
 You can also send an email to Bart van de Lint (bart@vandelint.net).
 
 Authors: Bart van de Lint (bart@vandelint.net), Uwe Fechner (uwe.fechner.msc@gmail.com)

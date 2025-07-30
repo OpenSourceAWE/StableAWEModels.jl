@@ -27,7 +27,6 @@ SymbolicAWEModels.getstate
 SymbolicAWEModels.setstate!
 SymbolicAWEModels.set_measured!
 SymbolicAWEModels.copy!
-SymbolicAWEModels.copy_to_simple!
 SymbolicAWEModels.reinit!
 SymbolicAWEModels.update_sys_struct!
 SymbolicAWEModels.get_set_hash
