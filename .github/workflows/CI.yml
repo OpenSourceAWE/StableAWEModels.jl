@@ -51,7 +51,6 @@ jobs:
         with:
           ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
 
-      # Add this step to copy Manifest*.default to Manifest*
       - name: Copy default Manifest files
         run: |
           cp Manifest-v${{ matrix.version }}.toml.default Manifest.toml || 
@@ -72,7 +71,7 @@ jobs:
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Build PyCall
-        run: julia --project -e 'ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
+        run: julia --project -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
         shell: bash
 
       - uses: julia-actions/julia-runtest@v1
@@ -87,6 +86,12 @@ jobs:
         with:
           ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
 
+      - name: Copy default Manifest files
+        run: |
+          cp Manifest-v${{ matrix.version }}.toml.default Manifest.toml || 
+                echo "No default available for Manifest-v${{ matrix.version }}.toml"
+        shell: bash
+
       - name: Install matplotlib
         run: sudo apt-get install -y python3-matplotlib
         shell: bash
@@ -97,10 +102,11 @@ jobs:
           arch: x64
 
       - uses: julia-actions/cache@v2
+      
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Build PyCall
-        run: julia --project -e 'ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
+        run: julia --project -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
         shell: bash
 
       - uses: julia-actions/julia-runtest@v1
@@ -122,6 +128,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
+
+      - name: Copy default Manifest files
+        run: |
+          cp Manifest-v${{ matrix.version }}.toml.default Manifest.toml || 
+                echo "No default available for Manifest-v${{ matrix.version }}.toml"
+        shell: bash
           
       - name: Install matplotlib
         run: sudo apt-get install -y python3-matplotlib
@@ -129,12 +141,14 @@ jobs:
         
       - uses: julia-actions/setup-julia@v2
       
+      - uses: julia-actions/cache@v2
+
+      - uses: julia-actions/julia-buildpkg@v1
+
       - name: Build PyCall
-        run: julia --project=docs/ -e 'ENV["PYTHON"]=""; using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate(); Pkg.build("PyCall")'
+        run: julia --project=docs/ -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
         shell: bash
         
-      - uses: julia-actions/cache@v2
-      - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
