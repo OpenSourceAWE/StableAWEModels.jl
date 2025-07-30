@@ -34,7 +34,7 @@ jobs:
       matrix:
         version:
           - '1.10'
-          - '1'
+          - '1.11'
         os:
           - ubuntu-latest
           - windows-latest
@@ -51,16 +51,24 @@ jobs:
         with:
           ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
 
+      # Add this step to copy Manifest*.default to Manifest*
+      - name: Copy default Manifest files
+        run: |
+          cp Manifest-v${{ matrix.version }}.toml.default Manifest.toml || 
+                echo "No default available for Manifest-v${{ matrix.version }}.toml"
+        shell: bash
+
       - name: Install matplotlib
         run: if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get install -y python3-matplotlib; fi
         shell: bash
-        
+
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
 
       - uses: julia-actions/cache@v2
+
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Build PyCall

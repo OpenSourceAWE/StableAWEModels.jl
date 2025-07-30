@@ -20,7 +20,7 @@ $(TYPEDFIELDS)
     F_set_psys, F_set_set_values, F_set_set, F_set_lin_set_values,
     F_get_set_values, F_get_wing_state, F_get_vsm_y, F_get_segment_state,
     F_get_winch_state, F_get_tether_state, F_get_struct_state, F_get_point_state,
-    F_get_pulley_state, F_get_group_state, F_get_spring_force, F_get_lin_x,
+    F_get_pulley_state, F_get_group_state, F_get_lin_x,
     F_get_lin_dx, F_get_lin_y
 }
     set_hash::Vector{UInt8}
@@ -53,7 +53,6 @@ $(TYPEDFIELDS)
     get_point_state::F_get_point_state = nothing
     get_pulley_state::F_get_pulley_state = nothing
     get_group_state::F_get_group_state = nothing
-    get_spring_force::F_get_spring_force = nothing
     get_lin_x::F_get_lin_x = nothing
     get_lin_dx::F_get_lin_dx = nothing
     get_lin_y::F_get_lin_y = nothing
@@ -159,7 +158,7 @@ function SymbolicAWEModel(
     # Initialize with an untyped, empty SerializedModel. It will be replaced by a 
     # fully typed one during init!
     serialized_model = SerializedModel{
-        (repeat([Nothing], 18))...
+        (repeat([Nothing], 17))...
     }(; set_hash, sys_struct_hash)
     return SymbolicAWEModel(; set, sys_struct, serialized_model, kwargs...)
 end
@@ -538,6 +537,8 @@ function generate_getters(sys, sys_struct, lin_prob, lin_y_vec)
              sys.tether_len, sys.tether_vel, sys.set_values, sys.winch_force_vec,
         ])
         get_winch_state = getu(sys, winch_state_vars)
+        set_set_values = setp(sys, sys.set_values)
+        get_set_values = getp(sys, sys.set_values)
         if !isnothing(lin_prob)
             set_lin_set_values = setp(lin_prob, sys.set_values)
         end
@@ -549,10 +550,10 @@ function generate_getters(sys, sys_struct, lin_prob, lin_y_vec)
 
     return (
         set_psys = setp(sys, sys.psys),
-        set_set_values = setp(sys, sys.set_values),
+        set_set_values = set_set_values,
         set_set = setp(sys, sys.pset),
         set_lin_set_values = set_lin_set_values,
-        get_set_values = getp(sys, sys.set_values),
+        get_set_values = get_set_values,
         get_wing_state = get_wing_state,
         get_vsm_y = get_vsm_y,
         get_segment_state = get_segment_state,
@@ -562,7 +563,6 @@ function generate_getters(sys, sys_struct, lin_prob, lin_y_vec)
         get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force])),
         get_pulley_state = get_pulley_state,
         get_group_state = get_group_state,
-        get_spring_force = getu(sys, sys.spring_force),
         get_lin_x = get_lin_x,
         get_lin_dx = get_lin_dx,
         get_lin_y = get_lin_y,
