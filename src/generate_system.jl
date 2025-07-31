@@ -276,7 +276,8 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             eqs
             point_mass[point.idx] ~ mass
             disturb_force[:, point.idx] ~ get_disturb(psys, point.idx)
-            point_force[:, point.idx]  ~ F + disturb_force[:, point.idx]
+            point_force[:, point.idx]  ~ F + [0, 0, -get_g_earth(pset) * mass] + 
+                                            disturb_force[:, point.idx]
         ]
 
         if point.type == WING
@@ -361,7 +362,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                                                 acc[:, point.idx] ⋅ axis * axis,
                                                 acc[:, point.idx]
                                         )
-                acc[:, point.idx]    ~ point_force[:, point.idx] / mass + [0, 0, -get_g_earth(pset)] - bridle_damp_vec
+                acc[:, point.idx]    ~ point_force[:, point.idx] / mass - bridle_damp_vec
             ]
             defaults = [
                 defaults
@@ -373,7 +374,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 eqs
                 vel[:, point.idx]   ~ zeros(3)
                 acc[:, point.idx]   ~ zeros(3)
-                acc[:, point.idx]   ~ point_force[:, point.idx] / mass + [0, 0, -get_g_earth(pset)]
+                acc[:, point.idx]   ~ point_force[:, point.idx] / mass
             ]
             guesses = [
                 guesses

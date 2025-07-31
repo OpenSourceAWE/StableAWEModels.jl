@@ -288,7 +288,7 @@ If a serialized model exists for the current configuration, it will load that mo
 - `OrdinaryDiffEqCore.ODEIntegrator`: The initialized ODE integrator.
 """
 function init!(s::SymbolicAWEModel; 
-    solver=nothing, adaptive=true, prn=false, 
+    solver=nothing, adaptive=true, prn=true, 
     precompile=false, remake=false, reload=false, 
     delta=nothing, stiffness_factor=nothing,
     lin_outputs=nothing
@@ -434,10 +434,10 @@ function reinit!(
         t = @elapsed begin
             dt = SimFloat(1/s.set.sample_freq)
             s.integrator = OrdinaryDiffEqCore.init(s.prob, solver; 
-                adaptive, dt, abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
+                adaptive, dt, tspan=(0.0, dt), abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
                 save_on=false, save_everystep=false)
             s.lin_integ = OrdinaryDiffEqCore.init(s.prob, solver; 
-                adaptive, dt, abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
+                adaptive, dt, tspan=(0.0, dt), abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
                 save_on=false, save_everystep=false)
         end
         prn && @info "Initialized integrator in $t seconds"
@@ -574,7 +574,7 @@ end
 
 Take a simulation step, using the provided integrator.
 """
-function KiteUtils.next_step!(s::SymbolicAWEModel, integrator::OrdinaryDiffEqCore.ODEIntegrator; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
+function next_step!(s::SymbolicAWEModel, integrator::OrdinaryDiffEqCore.ODEIntegrator; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
     !(s.integrator === integrator) && error("The ODEIntegrator doesn't belong to the SymbolicAWEModel")
     next_step!(s; set_values=set_values, dt=dt, vsm_interval=vsm_interval)
 end
@@ -592,7 +592,7 @@ Take a simulation step forward in time.
 - `dt=1/s.set.sample_freq`: Time step size [s].
 - `vsm_interval=1`: Interval (in steps) to re-linearize the VSM model. If 0, it is not re-linearized.
 """
-function KiteUtils.next_step!(s::SymbolicAWEModel; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
+function next_step!(s::SymbolicAWEModel; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
     if (!isnothing(set_values)) 
         s.set_set_values(s.integrator, set_values)
     end

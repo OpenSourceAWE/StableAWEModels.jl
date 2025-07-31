@@ -6,12 +6,15 @@ using SymbolicAWEModels, VortexStepMethod, KiteUtils, ControlPlots, Statistics
 using OrdinaryDiffEqCore
 
 set = Settings("system.yaml")
-
 sam = SymbolicAWEModel(set, "ram")
 init!(sam)
-tsam = SymbolicAWEModel(set, "tether")
+
+tset = Settings("system.yaml")
+tsam = SymbolicAWEModel(tset, "tether")
 init!(tsam)
-ssam = SymbolicAWEModel(set, "simple_ram")
+
+sset = Settings("system.yaml")
+ssam = SymbolicAWEModel(sset, "simple_ram")
 init!(ssam)
 
 sim_oscillate!(sam; total_time=1.0)

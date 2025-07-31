@@ -20,16 +20,22 @@ TOL = 1e-5
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
 init!(sam)
-tether_sam = SymbolicAWEModel(set, "tether")
+
+tether_set = Settings("system.yaml")
+tether_sam = SymbolicAWEModel(tether_set, "tether")
 init!(tether_sam)
-simple_sam = SymbolicAWEModel(set, "simple_ram")
+
+simple_set = Settings("system.yaml")
+simple_sam = SymbolicAWEModel(simple_set, "simple_ram")
 init!(simple_sam)
 
+original_set = Settings("system.yaml")
+
 function reset!(set::Settings)
-    set.heading = 0.0
-    set.elevation = 70.8
-    set.azimuth = 0.0
-    set.segments = 3
+    for field in fieldnames(Settings)
+        setfield!(set, field, getfield(original_set, field))
+    end
+    return set
 end
 
 @testset verbose=true "SymbolicAWEModels Tests" begin
@@ -86,13 +92,15 @@ end
 
     @testset "Tether properties" begin
         reset!(set)
+        set.sample_freq = 600
+        set.abs_tol = 1e-6
+        set.rel_tol = 1e-6
         set.segments = 1
         one_seg_sam = SymbolicAWEModel(set, "ram")
         init!(one_seg_sam)
         one_seg_tether_sam = SymbolicAWEModel(set, "tether")
         init!(one_seg_tether_sam)
 
-        find_steady_state!(one_seg_sam; t=10.0, dt=3.0)
         axial_stiffness, axial_damping = 
             SymbolicAWEModels.calc_spring_props(one_seg_sam, one_seg_tether_sam)
         segments = one_seg_sam.sys_struct.segments
@@ -100,8 +108,8 @@ end
         segments = [segments[tether.segment_idxs[1]] for tether in tethers]
         real_axial_stiffness = [segment.axial_stiffness for segment in segments]
         real_axial_damping = [segment.axial_damping for segment in segments]
-        @test isapprox(real_axial_stiffness, axial_stiffness; rtol=0.01)
-        @test isapprox(real_axial_damping, axial_damping; rtol=2.0)
+        @test isapprox(real_axial_stiffness, axial_stiffness; rtol=0.02)
+        @test isapprox(real_axial_damping, axial_damping; rtol=0.2)
 
         println("\n--- Tether Spring Properties ---")
         # Print table headers

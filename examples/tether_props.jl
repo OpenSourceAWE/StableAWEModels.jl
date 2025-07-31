@@ -2,70 +2,50 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-using SymbolicAWEModels, VortexStepMethod, KiteUtils, WinchModels
-using ControlPlots, Statistics, LinearAlgebra
-using OrdinaryDiffEqCore
-using UnPack
+using SymbolicAWEModels, KiteUtils, Printf, ControlPlots, LaTeXStrings
 
-# Assuming 'sam' setup code from your snippet has been run
+# --- Setup Models ---
 set = Settings("system.yaml")
-set.sample_freq = 800
-set.abs_tol = 1e-5
-set.rel_tol = 1e-5
-dt = 1/set.sample_freq
-sam = SymbolicAWEModel(set)
-SymbolicAWEModels.init!(sam)
-sys = sam.sys
-
-tsys = SymbolicAWEModels.create_tether_sys_struct(set)
-tsam = SymbolicAWEModel(set, tsys)
-init!(tsam)
-
-find_steady_state!(sam; t=10.0, dt=3.0)
-SymbolicAWEModels.copy!(sam.sys_struct, tsam.sys_struct)
-OrdinaryDiffEqCore.reinit!(tsam.integrator; reinit_dae=true)
-SymbolicAWEModels.update_sys_struct!(tsam, tsam.sys_struct)
-
-F_0 = [-tsys.points[i].force for i in 1:4]
-steps = 200
-F_step = -0.1
-tether_lens = SymbolicAWEModels.step(tsam, steps, F_step, F_0)
-k_values, c_values = SymbolicAWEModels.calc_spring_props(sam, tether_lens, F_step; prn=true)
-
-display(plotx(
-    dt .* collect(1:steps+1), 
-    tether_lens[1,:].-tether_lens[1,1], 
-    tether_lens[2,:].-tether_lens[2,1], 
-    tether_lens[3,:].-tether_lens[3,1], 
-    tether_lens[4,:].-tether_lens[4,1];
-    title="Force step response",
-    ylabels=["Left power [m]", "Right power [m]", "Left steering [m]", "Right steering [m]"],
-))
-
+set.sample_freq = 600
+set.abs_tol = 1e-6
+set.rel_tol = 1e-6
 set.segments = 1
-ssys = SymbolicAWEModels.create_tether_sys_struct(set; 
-                                                  axial_stiffness=k_values.*set.l_tether, 
-                                                  axial_damping=c_values.*set.l_tether)
-ssam = SymbolicAWEModel(set, ssys)
-init!(ssam)
+one_seg_sam = SymbolicAWEModel(set, "ram")
+init!(one_seg_sam)
+one_seg_tether_sam = SymbolicAWEModel(set, "tether")
+init!(one_seg_tether_sam)
 
-forces = [F ⋅ normalize(point.pos_w) for (F, point) in zip(F_0, ssys.points[1:4])]
-SymbolicAWEModels.copy_to_simple!(sam.sys_struct, ssam.sys_struct)
-OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
-SymbolicAWEModels.update_sys_struct!(ssam, ssam.sys_struct)
+# --- Calculate Properties and Get Step Response Data ---
+find_steady_state!(one_seg_sam; t=10.0, dt=3.0)
+axial_stiffness, axial_damping, tether_lens, dt = 
+    SymbolicAWEModels.calc_spring_props(one_seg_sam, one_seg_tether_sam; F_step=-0.1)
 
-stether_lens = SymbolicAWEModels.step(ssam, steps, 0.0,    F_0)
-stether_lens = SymbolicAWEModels.step(ssam, steps, F_step, F_0)
+# --- Print Comparison Table ---
+segments = one_seg_sam.sys_struct.segments
+tethers = one_seg_sam.sys_struct.tethers
+segments = [segments[tether.segment_idxs[1]] for tether in tethers]
+real_axial_stiffness = [segment.axial_stiffness for segment in segments]
+real_axial_damping = [segment.axial_damping for segment in segments]
 
+println("\n--- Tether Spring Properties ---")
+@printf "%-8s | %-15s %-15s %-10s | %-15s %-15s %-10s\n" "Tether" "Calc. Stiffness" "Real Stiffness" "Error (%)" "Calc. Damping" "Real Damping" "Error (%)"
+println(repeat("-", 100))
+for i in 1:4
+    # Calculate relative errors in percent
+    stiffness_err = 100 * abs(axial_stiffness[i] - real_axial_stiffness[i]) / real_axial_stiffness[i]
+    damping_err   = 100 * abs(axial_damping[i] - real_axial_damping[i]) / real_axial_damping[i]
+    # Print data rows
+    @printf "%-8d | %-15.2f %-15.2f %-10.2f | %-15.2f %-15.2f %-10.2f\n" i axial_stiffness[i] real_axial_stiffness[i] stiffness_err axial_damping[i] real_axial_damping[i] damping_err
+end
+
+# --- Plot Step Response ---
+steps = size(tether_lens, 2) - 1
 display(plotx(
-    dt .* collect(1:steps+1), 
-    stether_lens[1,:].-stether_lens[1,1], 
-    stether_lens[2,:].-stether_lens[2,1], 
-    stether_lens[3,:].-stether_lens[3,1], 
-    stether_lens[4,:].-stether_lens[4,1];
+    dt .* collect(0:steps), 
+    tether_lens[1,:] .- tether_lens[1,1], 
+    tether_lens[2,:] .- tether_lens[2,1], 
+    tether_lens[3,:] .- tether_lens[3,1], 
+    tether_lens[4,:] .- tether_lens[4,1];
     title="Force step response",
     ylabels=["Left power [m]", "Right power [m]", "Left steering [m]", "Right steering [m]"],
 ))
-
-@info "Difference at t=0: $(stether_lens[:,1] .- tether_lens[:,1])"
-
