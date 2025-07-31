@@ -19,14 +19,15 @@ equilibrium before starting a maneuver or analysis.
 - `t::Float64=1.0`: The duration [s] for which to run the settling simulation.
 - `dt::Float64`: The time step [s] for the settling simulation.
 """
-function find_steady_state!(s::SymbolicAWEModel, integ=s.integrator; t=1.0, dt=1/s.set.sample_freq)
+function find_steady_state!(s::SymbolicAWEModel; 
+                            t=1.0, dt=1/s.set.sample_freq, vsm_interval=1)
     @unpack winches, wings = s.sys_struct
     old_brakes = [winch.brake for winch in winches]
     old_fixes = [wing.fix_sphere for wing in wings]
     [winch.brake=true for winch in winches]
     [wing.fix_sphere=true for wing in wings]
     for _ in 1:Int(round(t÷dt))
-        next_step!(s; dt, vsm_interval=1)
+        next_step!(s; dt, vsm_interval)
     end
     [winch.brake=old_brakes[winch.idx] for winch in winches]
     [wing.fix_sphere=old_fixes[wing.idx] for wing in wings]

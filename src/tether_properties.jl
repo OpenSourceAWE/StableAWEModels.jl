@@ -168,7 +168,7 @@ This function orchestrates the process by performing a step response test on the
 """
 function calc_spring_props(sam::SymbolicAWEModel, tether_sam::SymbolicAWEModel; 
                            F_step=-0.1, prn=false)
-    find_steady_state!(sam; t=10.0, dt=3.0)
+    find_steady_state!(sam; t=10.0, dt=10.0, vsm_interval=0)
     copy!(sam.sys_struct, tether_sam.sys_struct)
     OrdinaryDiffEqCore.reinit!(tether_sam.integrator; reinit_dae=true)
     update_sys_struct!(tether_sam, tether_sam.sys_struct)
