@@ -3,41 +3,44 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-    copy_to_simple!(sam, tsam, ssam; prn=true)
+    copy_to_simple!(sam, tether_sam, simple_sam; prn=true)
 
 Simplify a detailed AWE model into a 1-segment tether model.
 
 This high-level function orchestrates the simplification process:
-1.  Calculates the equivalent axial stiffness and damping of the detailed model (`tsam`)
+1.  Calculates the equivalent axial stiffness and damping of the detailed model (`tether_sam`)
     by analyzing its step response.
-2.  Assigns these calculated properties to the single-segment tethers of the simple model (`ssam`).
+2.  Assigns these calculated properties to the single-segment tethers of the simple model (`simple_sam`).
 3.  Copies the dynamic state (wing position, orientation, tether attachment points, etc.)
-    from the detailed model (`sam`) to the simple model (`ssam`).
+    from the detailed model (`sam`) to the simple model (`simple_sam`).
 4.  Reinitializes the simple model's integrator to apply the new state.
 
 # Arguments
 - `sam::SymbolicAWEModel`: The detailed source model, used as a reference for state.
-- `tsam::SymbolicAWEModel`: A copy of the detailed model, used to perform the step response test.
-- `ssam::SymbolicAWEModel`: The destination simple model to be updated.
+- `tether_sam::SymbolicAWEModel`: A copy of the detailed model, used to perform the step response test.
+- `simple_sam::SymbolicAWEModel`: The destination simple model to be updated.
 
 # Keywords
 - `prn::Bool=true`: If true, enables printing during the process.
 
 # Returns
-- `SymbolicAWEModel`: The updated simple model `ssam`.
+- `SymbolicAWEModel`: The updated simple model `simple_sam`.
 """
-function copy_to_simple!(sam::SymbolicAWEModel, tsam::SymbolicAWEModel, 
-                         ssam::SymbolicAWEModel; prn=true)
-    axial_stiffness, axial_damping = calc_spring_props(sam, tsam; prn)
-    for tether in ssam.sys_struct.tethers
-        segment = ssam.sys_struct.segments[tether.segment_idxs[1]]
+function copy_to_simple!(sam::SymbolicAWEModel, tether_sam::SymbolicAWEModel, 
+                         simple_sam::SymbolicAWEModel; prn=true)
+    (sam.set.g_earth == 0.0) && @warn "Ram model should have gravity"
+    (simple_sam.set.g_earth == 0.0) && @warn "Simple model should have gravity"
+    (tether_sam.set.g_earth > 0.0) && @warn "Tether model should not have gravity"
+    axial_stiffness, axial_damping = calc_spring_props(sam, tether_sam; prn)
+    for tether in simple_sam.sys_struct.tethers
+        segment = simple_sam.sys_struct.segments[tether.segment_idxs[1]]
         segment.axial_stiffness = axial_stiffness[segment.idx]
         segment.axial_damping = axial_damping[segment.idx]
     end
-    copy_to_simple!(sam.sys_struct, ssam.sys_struct)
-    OrdinaryDiffEqCore.reinit!(ssam.integrator; reinit_dae=true)
-    update_sys_struct!(ssam, ssam.sys_struct)
-    return ssam
+    copy_to_simple!(sam.sys_struct, simple_sam.sys_struct)
+    OrdinaryDiffEqCore.reinit!(simple_sam.integrator; reinit_dae=true)
+    update_sys_struct!(simple_sam, simple_sam.sys_struct)
+    return simple_sam
 end
 
 """
@@ -55,8 +58,8 @@ properties of the detailed one.
 - `ssys::SystemStructure`: The destination `simple_ram` model structure.
 """
 function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
-    (sys.name != "ram") && error("provide a ram sys as the first argument")
-    (ssys.name != "simple_ram") && error("provide a simple ram sys as the second argument")
+    (sys.name != "ram") && @warn "provide a ram sys as the first argument"
+    (ssys.name != "simple_ram") && @warn "provide a simple ram sys as the second argument"
 
     # copy point pos and vel
     for (tether, stether) in zip(sys.tethers, ssys.tethers)
@@ -144,17 +147,17 @@ function in_percent_band(x, steady, delta_x, i, p)
 end
 
 """
-    calc_spring_props(sam, tsam; prn=false) -> (Vector, Vector)
+    calc_spring_props(sam, tether_sam; prn=false) -> (Vector, Vector)
 
 Calculate the equivalent axial stiffness and damping for each tether of a model.
 
 This function orchestrates the process by performing a step response test on the
-`tsam` model and then analyzing the resulting tether length data to extract the
+`tether_sam` model and then analyzing the resulting tether length data to extract the
 spring-damper properties.
 
 # Arguments
 - `sam::SymbolicAWEModel`: The reference model, used for its physical properties.
-- `tsam::SymbolicAWEModel`: A copy of the model to perform the step test on.
+- `tether_sam::SymbolicAWEModel`: A copy of the model to perform the step test on.
 
 # Keywords
 - `prn::Bool=false`: If true, enables printing of intermediate results.
@@ -164,16 +167,16 @@ spring-damper properties.
     1.  `axial_stiffness` [N]
     2.  `axial_damping` [Ns]
 """
-function calc_spring_props(sam::SymbolicAWEModel, tsam::SymbolicAWEModel; prn=false)
+function calc_spring_props(sam::SymbolicAWEModel, tether_sam::SymbolicAWEModel; prn=false)
     find_steady_state!(sam; t=10.0, dt=3.0)
-    copy!(sam.sys_struct, tsam.sys_struct)
-    OrdinaryDiffEqCore.reinit!(tsam.integrator; reinit_dae=true)
-    update_sys_struct!(tsam, tsam.sys_struct)
+    copy!(sam.sys_struct, tether_sam.sys_struct)
+    OrdinaryDiffEqCore.reinit!(tether_sam.integrator; reinit_dae=true)
+    update_sys_struct!(tether_sam, tether_sam.sys_struct)
 
-    F_0 = [-tsam.sys_struct.points[i].force for i in 1:4]
+    F_0 = [-tether_sam.sys_struct.points[i].force for i in 1:4]
     steps = 200
     F_step = -0.1
-    tether_lens = step(tsam, steps, F_step, F_0)
+    tether_lens = step(tether_sam, steps, F_step, F_0)
     k_values, c_values = calc_spring_props(sam, tether_lens, F_step; prn)
     return k_values .* tether_lens[:,1], c_values .* tether_lens[:,1]
 end
