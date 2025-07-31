@@ -81,22 +81,20 @@ end
                         println("Decompressed $input_path -> $output_path")
                     end
                 end
+                prn=true
+                sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
+                init!(sam; prn=false, reload=true)
+                init!(sam; prn=false, reload=false)
+                sim_oscillate!(sam; total_time=1.0)
+                @show sam.sys_struct.name
+                copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
+                find_steady_state!(sam)
+                ss = SysState(sam)
+                next_step!(sam)
+                update_sys_state!(ss, sam)
             else
-                @warn "Manifest files differ, precompilation might be slow."
+                @warn "Manifest files differ, no precompilation."
             end
-
-            prn=true
-            sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
-
-            init!(sam; prn=false, reload=true)
-            init!(sam; prn=false, reload=false)
-            sim_oscillate!(sam; total_time=1.0)
-            @show sam.sys_struct.name
-            copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
-            find_steady_state!(sam)
-            ss = SysState(sam)
-            next_step!(sam)
-            update_sys_state!(ss, sam)
         end
     end
 end   
