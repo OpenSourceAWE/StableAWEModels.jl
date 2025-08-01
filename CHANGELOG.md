@@ -3,6 +3,10 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.2.1 01-08-2025
+## Fixed
+- Import Pkg
+
 # v0.2.0 01-08-2025
 ## Added
 - Adds simple model and tether model
