@@ -8,6 +8,7 @@ module SymbolicAWEModels
 #======================================================================#
 
 # --- Julia Standard Library & General Utilities ---
+using Pkg
 using PrecompileTools: @setup_workload, @compile_workload
 using DocStringExtensions
 using LinearAlgebra
