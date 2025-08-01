@@ -2,29 +2,70 @@
 # SPDX-License-Identifier: MIT
 
 """
-    decompress_tar_gz(infile, out_dir="data")
+    create_model_archive(source_dir, archive_path)
 
-Decompress a `.tar.gz` file into a specified directory.
+Finds all `model*.bin` files in the `source_dir`, copies them to a temporary
+directory, and compresses that directory into a `.tar.gz` archive at the
+specified `archive_path`.
 """
-function decompress_tar_gz(infile, out_dir="data")
-    open(infile) do io
-        stream = GzipDecompressorStream(io)
-        Tar.extract(stream, out_dir)
-        close(stream)
+function create_model_archive(source_dir, archive_path; prn=true)
+    # Find all files matching the pattern "model*.bin"
+    version = VERSION.minor
+    model_files = filter(
+        x -> startswith(x, "model_1.$version") && endswith(x, ".bin"),
+        readdir(source_dir)
+    )
+    if isempty(model_files)
+        prn && @warn "No 'model*.bin' files found in '$source_dir'. Archive will be empty."
+        return
+    end
+    mktempdir() do tmp_dir
+        prn && @info "Staging files for compression in: $tmp_dir"
+        # Copy the relevant .bin files to the temporary directory
+        for file_name in model_files
+            full_path = joinpath(source_dir, file_name)
+            cp(full_path, joinpath(tmp_dir, file_name))
+        end
+        # Create the .tar.gz archive from the temporary directory
+        prn && @info "Compressing files into archive: $archive_path"
+        open(archive_path, "w") do io
+            stream = GzipCompressorStream(io)
+            Tar.create(tmp_dir, stream)
+            close(stream)
+        end
     end
 end
 
 """
-    compress_tar_gz(in_dir, outfile)
+    extract_model_archive(archive_path, dest_dir)
 
-Compress the contents of a directory into a `.tar.gz` file.
+Safely decompress a `.tar.gz` file by first extracting to a temporary
+directory and then copying the contents to the final destination.
+
+# Arguments
+- `archive_path::String`: The path to the `.tar.gz` file to be extracted.
+- `dest_dir::String`: The path to the target directory.
 """
-function compress_tar_gz(in_dir, outfile)
-    open(outfile, "w") do io
-        stream = GzipCompressorStream(io)
-        Tar.create(in_dir, stream)
-        close(stream)
+function extract_model_archive(archive_path::String, dest_dir::String; prn=true)
+    if !isfile(archive_path)
+        error("Archive file not found: $archive_path")
     end
+    prn && @info "Extracting '$archive_path' to '$dest_dir'..."
+    mktempdir() do temp_dir
+        # 1. Extract the archive to the temporary directory
+        open(archive_path) do io
+            stream = GzipDecompressorStream(io)
+            Tar.extract(stream, temp_dir)
+            close(stream)
+        end
+        # 2. Copy the extracted contents to the final destination
+        for item in readdir(temp_dir)
+            source_path = joinpath(temp_dir, item)
+            dest_path = joinpath(dest_dir, item)
+            cp(source_path, dest_path, force=true)
+        end
+    end
+    prn && @info "Extraction complete."
 end
 
 """
@@ -87,14 +128,12 @@ end
             if isfile(m1) && isfile(m2) && filecmp(m1, m2)
                 found_archive = false
                 @info "Manifest files match, using the default .tar.gz files will work!"
-                for input_path in readdir("data", join=true)
-                    if endswith(input_path, ".tar.gz") && startswith(basename(input_path), "model")
-                        println("Decompressing $input_path ...")
-                        decompress_tar_gz(input_path, "data")
-                        found_archive = true
-                    end
-                end
-                if found_archive
+                version = VERSION.minor
+                input_path = joinpath(get_data_path(), "models_v1.$version.tar.gz")
+                if isfile(input_path)
+                    println("Decompressing $input_path ...")
+                    extract_model_archive(input_path, get_data_path())
+
                     prn=true
                     sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
                     init!(sam; prn=false, reload=true)
