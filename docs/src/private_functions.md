@@ -83,6 +83,10 @@ SymbolicAWEModels.calc_spring_props
 SymbolicAWEModels.set_v_wind_ground!
 SymbolicAWEModels.in_percent_band
 SymbolicAWEModels.step
+SymbolicAWEModels.create_model_archive
+SymbolicAWEModels.filecmp
+SymbolicAWEModels.extract_model_archive
+SymbolicAWEModels.create_default_models
 ```
 
 ## Base Overloads (Internal Use)
