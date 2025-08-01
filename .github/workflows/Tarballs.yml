@@ -25,7 +25,10 @@ jobs:
 
     - name: Install ArtifactUtils package
       run: julia -e 'using Pkg; Pkg.instantiate(); Pkg.add("ArtifactUtils");'
-
+      
+    - name: Instantiate project
+      run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
+      
     - name: Run create_model_archive script
       run: ./bin/create_model_archive
 
