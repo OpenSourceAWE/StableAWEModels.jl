@@ -3,7 +3,8 @@ name: Create Release Assets and Update Artifacts
 on:
   push:
     tags:
-      - 'v*'  # Trigger on your version tags like v1.0, v1.0.1, ...
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   create-assets:
