@@ -17,19 +17,19 @@ jobs:
     - name: Setup Julia
       uses: julia-actions/setup-julia@v1
       with:
-        version: '1.10'  # or your Julia version
+        version: '1.11'  # or your Julia version
 
     - name: Install ArtifactUtils package
       run: julia -e 'using Pkg; Pkg.add("ArtifactUtils");'
 
     - name: Run create_xz_files script
-      run: julia test/create_xz_files.jl
+      run: julia scripts/create_tar_files.jl
 
-    - name: Create GitHub Release and upload .xz assets
+    - name: Create GitHub Release and upload .tar.gz assets
       id: create_release
       uses: softprops/action-gh-release@v1
       with:
-        files: 'data/*.xz'  # adjust path pattern as needed
+        files: 'data/*.tar.gz'  # adjust path pattern as needed
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
