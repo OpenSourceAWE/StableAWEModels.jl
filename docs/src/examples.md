@@ -1,123 +1,140 @@
 ```@meta
 CurrentModule = SymbolicAWEModels
 ```
-# Examples for using the one point kite model
+# Examples for using the ram air kite model
 
 ## Create a test project
 ```bash
 mkdir test
 cd test
-julia --project="."
+julia --project=.
 ```
+Don't forget to type the dot at the end of the last line.
 With the last command, we told Julia to create a new project in the current directory.
-
-Then add SymbolicAWEModels from  Julia's package manager, by typing:
-```julia
-using Pkg
-pkg"add SymbolicAWEModels"
-``` 
 
 You can copy the examples to your project with:
 ```julia
 using SymbolicAWEModels
 SymbolicAWEModels.install_examples()
 ```
-This also adds the extra packages, needed for the examples to the project. Furthermore, it creates a folder `data` with some example input files. You can now run the examples with the command:
+
+## Running the first example
 ```julia
-include("examples/menu.jl")
+include("examples/ram_air_kite.jl")
+```
+Expected output for first run:
+```julia
+[ Info: Loading packages 
+[ Info: Precompiling SymbolicAWEModelsControlPlotsExt [986c3e0b-c4a6-5a67-87ac-f6b86e76af74] (cache mi
+sses: include_dependency fsize change (2), wrong dep version loaded (14), mismatched flags (2))
+Time elapsed: 24.149010176 s
+[ Info: Creating SymbolicAWEModel:
+Time elapsed: 38.51030329 s
+[ Info: System initialized at:
+Time elapsed: 120.861073757 s
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         2.34 |       2.14
+│ Step         |         5.96 |       0.84
+│ Integrator   |        34.15 |       0.15
+└ VSM          |         2.62 |       1.91
+[ Info: Simulated at:
+Time elapsed: 213.981574478 s
+[ Info: Plotted at:
+Time elapsed: 220.05251771 s
+220.05251771
+```
+After the second time it runs much faster, because the simplified ODE system is cached in the 
+`model*.bin` file in the `data` folder and the deserialization is precompiled:
+```julia
+[ Info: Loading packages 
+Time elapsed: 0.017465498 s
+[ Info: Creating SymbolicAWEModel:
+Time elapsed: 1.85496798 s
+[ Info: System initialized at:
+Time elapsed: 5.364508521 s
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         2.53 |       1.97
+│ Step         |         6.61 |       0.76
+│ Integrator   |        41.21 |       0.12
+└ VSM          |         2.79 |       1.79
+[ Info: Simulated at:
+Time elapsed: 7.995500858 s
+[ Info: Plotted at:
+Time elapsed: 8.309523118 s
+8.309523118
 ```
 
-## Plotting the initial state
-First, an instance of the model of the kite control unit (KCU) is created which is needed by the Kite Power System model KPS3. Then we create a kps instance, passing the kcu model as parameter. We need to declare the type these variables to achieve a decent performance.
-```julia
-using SymbolicAWEModels
-kcu::KCU = KCU(se())
-kps::KPS3 = KPS3(kcu)
-```
-Then we call the function `find_steady_state` which uses a non-linear solver to find the solution for a given elevation angle, reel-out speed and wind speed. 
-```julia
-find_steady_state!(kps, prn=true)
-```
-To plot the result in 2D we extract the vectors of the x and z coordinates of the tether particles with a for loop:
-```julia
-x = Float64[] 
-z = Float64[]
-for i in 1:length(kps.pos)
-     push!(x, kps.pos[i][1])
-     push!(z, kps.pos[i][3])
-end
-```
-And finally, we plot the position of the particles in the x-z plane. When you type ```using ControlPlots``` you will be asked if you want to install the ControlPlots package. Just press \<ENTER\> and it gets installed.
-```julia
-using ControlPlots
-plot(x,z, xlabel="x [m]", ylabel="z [m]", scatter=true)
-```
-### Inital State
-![Initial State](initial_state.png)
+In this example, the kite is first stabilized, and then a sinus-shaped steering input is 
+applied such that the kite is dancing in the sky.
 
-## Print other model outputs
-Print the vector of the positions of the particles:
-```
-julia> kps.pos
-7-element StaticArrays.SVector{7, StaticArrays.MVector{3, Float64}} with indices SOneTo(7):
- [0.0, 0.0, 0.0]
- [26.95751778658999, 0.0, 59.59749511924355]
- [51.97088814144287, 0.0, 120.03746888266994]
- [75.01423773175357, 0.0, 181.25637381120865]
- [96.06809940556136, 0.0, 243.18841293054678]
- [115.11959241520753, 0.0, 305.7661763854397]
- [132.79571663189674, 0.0, 368.74701279158705]
+![Oscillating steering input response](assets/oscillating_steering.png)
 
-```
-Print the unstretched and stretched tether length and the height of the kite:
+## Running the second example
 ```julia
-julia> unstretched_length(kps)
-150.0
-
-julia> tether_length(kps)
-150.1461801769623
-
-julia> calc_height(kps)
-142.78102261557189
-``` 
-Print the force at the winch (groundstation, in Newton) and at each tether segment:
-```julia
-julia> winch_force(kps)
-592.5649922210812
-
-julia> spring_forces(kps)
-6-element Vector{Float64}:
- 592.5534481632459
- 595.0953689567787
- 597.6497034999358
- 600.215921248686
- 602.793488771366
- 605.3855398009119
+include("examples/simple_model.jl")
 ```
-The force increases when going upwards because the kite not only experiences the winch force but in addition the weight of the tether.
 
-Print the lift and drag forces of the kite (in Newton) and the lift-over-drag ratio:
 ```julia
-julia> lift, drag = lift_drag(kps)
-(730.5877517655691, 157.36420900755007)
-
-julia> lift_over_drag(kps)
-4.64265512706588
+Tether 1: ω_n=227.039 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1319, c=3.4209 Ns/m
+Tether 2: ω_n=228.866 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1309, c=3.4211 Ns/m
+Tether 3: ω_n=235.585 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1272, c=0.8549 Ns/m
+Tether 4: ω_n=236.834 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1265, c=0.8552 Ns/m
+Summary of Results:
+Tether 1: k = 2943.0749476475257 N/m, c = 3.4208593453647103 Ns/m
+Tether 2: k = 2990.816045085089 N/m, c = 3.4210625600793843 Ns/m
+Tether 3: k = 791.9269801315223 N/m, c = 0.8549123148071024 Ns/m
+Tether 4: k = 800.5953494095929 N/m, c = 0.8551804418169453 Ns/m
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         1.99 |       1.25
+│ Step         |         5.54 |       0.45
+│ Integrator   |        24.27 |       0.10
+└ VSM          |         2.59 |       0.97
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         0.46 |       5.44
+│ Step         |        10.22 |       0.24
+│ Integrator   |      1385.79 |       0.00
+└ VSM          |         3.49 |       0.72
 ```
-Print the wind speed vector at the kite:
+
+The simple model connects the tethers directly to the wing. In contrast, the default model 
+features a more complex [speed system](https://kiteboarding.com/proddetail.asp?prod=ozone-r1v4-pro-tune-speedsystem-complete)
+that uses pulleys and multiple attachment points. By 
+matching key dynamic properties—such as the moment on the wing groups, stiffness, and 
+damping—the simple model can be tuned to closely replicate the response of the more complex 
+default model, at a much better performance.
+
+![Oscillating steering input response, simple system](assets/oscillating_steering_simple.png)
+
+## Linearization
+The following example creates a nonlinear system model, finds a steady-state operating point, 
+linearizes the model around this operating point and creates bode plots from inputs (torques)
+to output (heading).
 ```julia
-julia> v_wind_kite(kps)
-3-element StaticArrays.MVector{3, Float64} with indices SOneTo(3):
- 12.54966091924401
-  0.0
-  0.0
+include("examples/lin_ram_model.jl")
 ```
-## Example of reeling out the tether
-```julia
-include("examples/reel_out_1p.jl")
-```
-![Reel out 1p model](reelout_force_1p.png)
+See: [`lin_ram_model.jl`](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/main/examples/lin_ram_model.jl)
 
-In this example, we first keep the tether length constant and at 15 s start to reel out the winch with an acceleration of 0.1 m/s². At a set speed below 2.2 m/s the brake of the winch is active, therefore the "jump" in the v_reelout at the beginning of the reel-out phase.
-
-It is not a real jump, but a high acceleration compared to the acceleration afterward.

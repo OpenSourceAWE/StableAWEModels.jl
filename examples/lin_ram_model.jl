@@ -14,7 +14,7 @@ tic()
 
 PLOT = true
 using Pkg
-if ! ("LaTeXStrings" ∈ keys(Pkg.project().dependencies))
+if ! ("ControlSystemsBase" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
 using ControlPlots, LaTeXStrings, ControlSystemsBase
@@ -25,7 +25,7 @@ using ModelingToolkit: t_nounits
 toc()
 
 # Initialize model
-set = Settings("system_ram.yaml")
+set = Settings("system.yaml")
 set_values = [-50.0, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 
 @info "Creating SymbolicAWEModel..."

@@ -12,6 +12,19 @@ function decompress_binary(infile, outfile; chunksize=4096)
     end
 end
 
+function compress_binary(infile, outfile; chunksize=4096)
+    open(infile, "r") do input
+        open(outfile, "w") do output
+            stream = XzCompressorStream(output)
+            while !eof(input)
+                data = read(input, chunksize)
+                write(stream, data)
+            end
+            close(stream)  # important to flush and close compressor stream
+        end
+    end
+end
+
 function filecmp(path1::AbstractString, path2::AbstractString)
     stat1, stat2 = stat(path1), stat(path2)
     if !(isfile(stat1) && isfile(stat2)) || filesize(stat1) != filesize(stat2)
@@ -33,60 +46,61 @@ function filecmp(path1::AbstractString, path2::AbstractString)
     end
 end
 
+function create_default_models(; prn=true)
+    function create_model(name; segments=3)
+        set = Settings("system.yaml")
+        set.segments = segments
+        set.physical_model = name
+        s = SymbolicAWEModel(set)
+        time = @elapsed init!(s; prn=false)
+        prn && @info "Loaded $name model in $time seconds"
+        return s
+    end
+    sam = create_model("ram")
+    tether_sam = create_model("tether")
+    simple_sam = create_model("simple_ram")
+    one_seg_sam = create_model("ram"; segments=1)
+    one_seg_tether_sam = create_model("tether"; segments=1)
+    return sam, tether_sam, simple_sam, one_seg_sam, one_seg_tether_sam
+end
+
 @setup_workload begin
-    # Putting some things in `@setup_workload` instead of `@compile_workload` can reduce the size of the
-    # precompile file and potentially make loading faster.
     path = dirname(pathof(@__MODULE__))
     set_data_path(joinpath(path, "..", "data"))
-    ver = "$(VERSION.major).$(VERSION.minor)_"
 
     @compile_workload begin
-        # all calls in this block will be precompiled, regardless of whether(
-        # they belong to your package or not (on Julia 1.8 and higher)
-        sam_set = Settings("system_ram.yaml")
-        sam_set.segments = 3
-        set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
-        sam_set.quasi_static = false
-        sam_set.physical_model = "ram"
-        model_name   = get_model_name(sam_set)
-        model_file   = normpath(joinpath(path, "..", "data", model_name))
-        output_file = normpath(joinpath(path, "..", "data", model_name * ".default"))
-        input_file  = normpath(joinpath(path, "..", "data", model_name * ".default.xz"))
-        if isfile(input_file) && ! isfile(output_file)
-            using CodecXz
-            decompress_binary(input_file, output_file)
-            @info "Decompressed $input_file to $output_file"
-        elseif isfile(output_file)
-            @info "Output file $output_file already exists, skipping decompression."
-        else
-            @error "Input file $input_file does not exist, skipping decompression."
+        if get(ENV, "SAM_PRECOMPILE", "true") != "false"
+            m1 = "Manifest-v1.$(VERSION.minor).toml"
+            m2 = "Manifest-v1.$(VERSION.minor).toml.default"
+            if filecmp(m1, m2)
+                found_xz = false
+                @info "Manifest files match, using the default xz files will work!"
+                for input_path in readdir("data", join=true)
+                    if endswith(input_path, ".xz") && startswith("model", input_path)
+                        output_path = replace(input_path, ".xz" => "")
+                        decompress_binary(input_path, output_path)
+                        println("Decompressed $input_path -> $output_path")
+                        found_xz = true
+                    end
+                end
+                if found_xz
+                    prn=true
+                    sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
+                    init!(sam; prn=false, reload=true)
+                    init!(sam; prn=false, reload=false)
+                    sim_oscillate!(sam; total_time=1.0)
+                    copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
+                    find_steady_state!(sam)
+                    ss = SysState(sam)
+                    next_step!(sam)
+                    update_sys_state!(ss, sam)
+                else
+                    @warn "No xz files found, no precompilation."
+                end
+            else
+                @warn "Manifest files differ, no precompilation."
+            end
         end
-        if VERSION.minor == 11
-            m1 = "Manifest-v1.11.toml"
-            m2 = "Manifest-v1.11.toml.default"
-        else
-            m1 = "Manifest-v1.10.toml"
-            m2 = "Manifest-v1.10.toml.default"
-        end
-        if filecmp(m1, m2)
-            @info "Manifest files match, using the default xz files will work!"
-        else
-            @warn "Manifest files differ, no precompilation will be done."
-        end
-        # Check if the output file exists and is the same as the input file
-        if isfile(output_file) && filecmp(m1, m2)
-            s = SymbolicAWEModel(sam_set)
-
-            # Initialize at elevation
-            SymbolicAWEModels.init!(s; prn=false, precompile=true)
-            @info "Copying $output_file to $model_file !"
-            cp(output_file, model_file; force=true)
-            find_steady_state!(s)
-            steps = Int(round(10 / 0.05))
-            logger = Logger(length(s.sys_struct.points), steps)
-            sys_state = SysState(s)
-        end
-        nothing
     end
 end   
   

@@ -31,7 +31,7 @@ steering_freq = 1/2  # Hz - full left-right cycle frequency
 steering_magnitude = 10.0      # Magnitude of steering input [Nm]
 
 # Initialize model
-set = Settings("system_ram.yaml")
+set = Settings("system.yaml")
 set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 
 @info "Creating wing, aero, vsm_solver, sys_struct and symbolic_awe_model:"

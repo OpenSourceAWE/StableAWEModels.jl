@@ -3,18 +3,18 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-    @recipe function f(sys::PointMassSystem; zoom=false, front=false, kite_pos=nothing, reltime=nothing)
+    @recipe function f(sys::SystemStructure; zoom=false, front=false, kite_pos=nothing, reltime=nothing)
 
-A plot recipe for a `PointMassSystem` type (assumed to be defined, e.g., in `SymbolicAWEModels.jl`)
+A plot recipe for a `SystemStructure` type (assumed to be defined, e.g., in `SymbolicAWEModels.jl`)
 using `RecipesBase.jl`.
 
-This recipe allows plotting a `PointMassSystem` in 2D, showing either a
+This recipe allows plotting a `SystemStructure` in 2D, showing either a
 side view (X-Z plane) or a front view (Y-Z plane). It supports zooming
 in on the last point of the system (assumed to be the kite or primary object of interest).
 
-## Type Assumptions for `PointMassSystem`
+## Type Assumptions for `SystemStructure`
 
-This recipe assumes `PointMassSystem` has fields:
+This recipe assumes `SystemStructure` has fields:
 - `points::Vector{Point}`: Where each `Point` object has a `pos_w` field
   (e.g., `p.pos_w`) that yields a 3D position vector (like `SVector{3, Float64}`).
 - `segments::Vector{Segment}`: Where each `Segment` object has a `points` field
@@ -41,7 +41,7 @@ These can be passed as keyword arguments to the `plot` call:
 ## Example
 
 ```julia
-# Make sure PointMassSystem, Point, Segment are defined and you have an instance `my_system`.
+# Make sure SystemStructure, Point, Segment are defined and you have an instance `my_system`.
 # using Plots # Or any other RecipesBase-compatible plotting backend
 
 # Basic side view
@@ -59,7 +59,7 @@ These can be passed as keyword arguments to the `plot` call:
 # plot(my_system, zoom=true, front=true, kite_pos=extra_kite_marker, reltime=current_time)
 ```
 """
-@recipe function f(sys::PointMassSystem) # Now using the actual PointMassSystem type
+@recipe function f(sys::SystemStructure) # Now using the actual SystemStructure type
     # --- Retrieve Plot Attributes ---
     user_zoom = get(plotattributes, :zoom, false)
     user_front = get(plotattributes, :front, false)

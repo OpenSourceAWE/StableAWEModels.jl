@@ -26,16 +26,13 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
-        "Types" => "types.md",
-        "Functions" => "functions.md",
-        "SymbolicAWEModel" => [
-		    "Overview" => "symbolic_awe_model/ram_air_kite.md",
-		    "Examples" => "symbolic_awe_model/examples_ram_air.md",
-		    "Tutorial" => "symbolic_awe_model/tutorial_system_structure.md"
-	    ],
+        "Examples" => "examples.md",
+        "Custom Model" => "tutorial_system_structure.md",
+        "Exported Types" => "exported_types.md",
+        "Exported Functions" => "exported_functions.md",
         "Parameters" => "parameters.md",
-        "Quickstart" => "quickstart.md",
-        "Advanced usage" => "advanced.md",
+        "Private functions" => "private_functions.md",
+        "Developers" => "developers.md",
     ],
 )
 

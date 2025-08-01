@@ -28,56 +28,68 @@ jobs:
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 80
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         version:
           - '1.10'
-          - '1'
+          - '1.11'
         os:
           - ubuntu-latest
           - windows-latest
-          - macOS-latest
         arch:
           - x64
         include:
           - os: macOS-latest
             arch: aarch64
-            version: 1
+            version: 1.11
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
 
+      - name: Copy default Manifest files
+        run: |
+          cp Manifest-v${{ matrix.version }}.toml.default Manifest.toml || 
+                echo "No default available for Manifest-v${{ matrix.version }}.toml"
+        shell: bash
+
       - name: Install matplotlib
         run: if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get install -y python3-matplotlib; fi
         shell: bash
-        
+
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
 
       - uses: julia-actions/cache@v2
+
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Build PyCall
-        run: julia --project -e 'ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
+        run: julia --project -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
         shell: bash
 
       - uses: julia-actions/julia-runtest@v1
 
   test-with-code-coverage:
-    name: Julia 1 - ubuntu-latest - x64 - with code coverage
+    name: Julia 1.11 - ubuntu-latest - x64 - with code coverage
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 120
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
+
+      - name: Copy default Manifest files
+        run: |
+          cp Manifest-v1.11.toml.default Manifest.toml || 
+                echo "No default available for Manifest-v1.11.toml"
+        shell: bash
 
       - name: Install matplotlib
         run: sudo apt-get install -y python3-matplotlib
@@ -85,14 +97,15 @@ jobs:
 
       - uses: julia-actions/setup-julia@v2
         with:
-          version: '1'
+          version: '1.11'
           arch: x64
 
       - uses: julia-actions/cache@v2
+      
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Build PyCall
-        run: julia --project -e 'ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
+        run: julia --project -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
         shell: bash
 
       - uses: julia-actions/julia-runtest@v1
@@ -108,12 +121,18 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 120
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
+
+      - name: Copy default Manifest files
+        run: |
+          cp Manifest-v1.11.toml.default Manifest.toml || 
+                echo "No default available for Manifest-v1.11.toml"
+        shell: bash
           
       - name: Install matplotlib
         run: sudo apt-get install -y python3-matplotlib
@@ -121,12 +140,14 @@ jobs:
         
       - uses: julia-actions/setup-julia@v2
       
+      - uses: julia-actions/cache@v2
+
+      - uses: julia-actions/julia-buildpkg@v1
+
       - name: Build PyCall
-        run: julia --project=docs/ -e 'ENV["PYTHON"]=""; using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate(); Pkg.build("PyCall")'
+        run: julia --project=docs/ -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
         shell: bash
         
-      - uses: julia-actions/cache@v2
-      - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

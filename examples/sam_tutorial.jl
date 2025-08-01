@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MPL-2.0
 using SymbolicAWEModels, VortexStepMethod, ControlPlots, LinearAlgebra
 
-set = Settings("system_ram.yaml")
+set = Settings("system.yaml")
 set.segments = 20
 set.l_tether = 50.0
 dynamics_type = DYNAMIC

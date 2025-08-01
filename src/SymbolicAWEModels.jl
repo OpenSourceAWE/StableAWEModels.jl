@@ -1,86 +1,91 @@
-# Copyright (c) 2020, 2021, 2022, 2024 Uwe Fechner, Bart van de Lint and Daan van Wolffelaar
-# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Bart van de Lint and Uwe Fechner
+# SPDX-License-Identifier: MPL-2.0
 
 module SymbolicAWEModels
 
+#======================================================================#
+#                         DEPENDENCIES
+#======================================================================#
+
+# --- Julia Standard Library & General Utilities ---
 using PrecompileTools: @setup_workload, @compile_workload
-using Serialization
-using StaticArrays
-using LinearAlgebra
-using Statistics
-using Parameters
 using DocStringExtensions
+using LinearAlgebra
+using Parameters
+using Printf
+using Serialization
 using SHA
+using CodecXz
+using Statistics
+using Suppressor
+using Timers
 
-using OrdinaryDiffEqCore
-using OrdinaryDiffEqBDF
-using OrdinaryDiffEqNonlinearSolve
-using NonlinearSolve
-using SteadyStateDiffEq
-
-using KiteUtils
-import KiteUtils: init!, next_step!, update_sys_state!
-using WinchModels
-using AtmosphericModels
-using VortexStepMethod
-
+# --- Numerical, Modeling & Scientific Computing ---
 using ModelingToolkit
+using RecipesBase
+using StaticArrays
 using SymbolicIndexingInterface
 
+# --- Solvers (Nonlinear, Differential Equations) ---
+using NonlinearSolve
+using OrdinaryDiffEqBDF
+using OrdinaryDiffEqCore
+using OrdinaryDiffEqNonlinearSolve
+using SteadyStateDiffEq
+
+# --- Open Source AWE Packages ---
+using AtmosphericModels
+using KiteUtils
+using VortexStepMethod
+using WinchModels
+
+#======================================================================#
+#                  IMPORTS (for extending functions)
+#======================================================================#
+
+import KiteUtils: init!, next_step!, update_sys_state!
 import ModelingToolkit: t_nounits as t, D_nounits as D
 import ModelingToolkit.SciMLBase: successful_retcode
 
-# Constants and Types
+#======================================================================#
+#                          EXPORTS
+#                 (The Public API of this Module)
+#======================================================================#
+
+# --- KiteUtils ---
+export init!, next_step!, update_sys_state!, get_data_path, set_data_path, se
+export SysState, Settings, AbstractKiteModel
+
+# --- Types ---
+# Core Model
 export SymbolicAWEModel
+# System Structure Components
+export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
+# Enums
+export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
+export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 
-# Helper Functions
-export copy_examples
-export copy_bin
-export update_sys_state!
+# --- High-Level Simulation Functions (Workers) ---
+export sim!, sim_oscillate!, sim_turn!
 
-# Low-Level Workers
+# --- Low-Level Simulation Functions ---
 export find_steady_state!
+export linearize!, simple_linearize!
+export copy_to_simple!
 
-# High-Level Workers
-export init!
-export next_step!
+# --- System Structure Creators ---
+export create_ram_sys_struct
+export create_tether_sys_struct
+export create_simple_ram_sys_struct
 
-# Getters
+# --- Getter Functions ---
 export winch_force
 export unstretched_length
 export tether_length
 
-# System Structure Creators
-export create_ram_sys_struct
-export create_simple_ram_sys_struct
-
-# Types
-export SystemStructure
-export Point
-export Group
-export Segment
-export Pulley
-export Tether
-export Winch
-export Wing
-export Transform
-
-# Dynamics Types
-export DynamicsType
-export DYNAMIC
-export QUASI_STATIC
-export WING
-export STATIC
-
-# Segment Types
-export SegmentType
-export POWER_LINE
-export STEERING_LINE
-export BRIDLE
-
-# Linearization Functions
-export linearize!
-export simple_linearize!
+# --- Helper Functions ---
+export copy_examples
+export copy_bin
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -119,8 +124,12 @@ end
 
 include("system_structure.jl")
 include("symbolic_awe_model.jl")
+include("predefined_structures.jl")
+include("tether_properties.jl")
 include("linearize.jl")
-include("mtk_model.jl")
+include("generate_system.jl")
+include("plot_recipe.jl")
+include("simulate.jl")
 
 function upwind_dir(v_wind_gnd)
     if v_wind_gnd[1] == 0.0 && v_wind_gnd[2] == 0.0
@@ -173,8 +182,8 @@ function copy_examples()
 end
 
 function copy_model_settings()
-    files = ["settings.yaml", "ram_air_kite_body.obj", "ram_air_kite_foil.dat", "system.yaml", "settings_ram.yaml", 
-             "system_ram.yaml", "ram_air_kite_foil_cd_polar.csv", "ram_air_kite_foil_cl_polar.csv", "ram_air_kite_foil_cm_polar.csv"]
+    files = ["settings.yaml", "ram_air_kite_body.obj", "ram_air_kite_foil.dat", "system.yaml", "settings.yaml", 
+             "system.yaml", "ram_air_kite_foil_cd_polar.csv", "ram_air_kite_foil_cl_polar.csv", "ram_air_kite_foil_cm_polar.csv"]
     dst_path = abspath(joinpath(pwd(), "data"))
     copy_files("data", files)
     set_data_path(joinpath(pwd(), "data"))

@@ -12,26 +12,5 @@
 if [[ $(basename "$(pwd)") == "bin" ]]; then
     cd ..
 fi
-
-# --- 1. Determine Julia Version ---
-julia_channel_arg=""
-if [[ "${1-}" == \+* ]]; then
-    julia_channel_arg="$1"
-    julia_major="${1#+}"
-else
-    julia_major=$(julia --version | cut -d' ' -f3 | cut -d'.' -f1,2)
-fi
-
-# --- 2. Define Dynamic Filenames ---
-MODEL_FILE_BASE="data/model_${julia_major}_ram_dynamic_3_seg.bin"
-MODEL_DEFAULT_FILE="${MODEL_FILE_BASE}.default"
-XZ_FILE="${MODEL_DEFAULT_FILE}.xz"
-
-# --- 3. Generate and Compress Model File ---
-echo "Creating xz file ${XZ_FILE}..."
-rm -f "$MODEL_DEFAULT_FILE" "$XZ_FILE"
-./bin/run_julia "$@" -e 'using SymbolicAWEModels; include("test/create_xz_file.jl")'
-echo "--> Compressing model file..."
-cp "$MODEL_FILE_BASE" "$MODEL_DEFAULT_FILE"
-xz "$MODEL_DEFAULT_FILE"
-echo "✅ Done creating ${XZ_FILE}!"
+./bin/update_manifest --default
+./bin/run_julia "$@" -e 'include("scripts/create_xz_files.jl")'

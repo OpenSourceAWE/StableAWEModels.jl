@@ -10,9 +10,10 @@ A custom `SystemStructure` can be used to create models of kite power systems of
 - different amounts of stiffness, damping and diameter on different tether segments
 
 ## Precondition
-First, following the [Quickstart](@ref) section up to the installation of the examples. Make sure that
-at least `SymbolicAWEModels` version 0.8 is installed by typing `using Pkg; Pkg.status()`. To start Julia,
-either use `julia --project`, or `./bin/run_julia`.
+First, following the [Home](index.md) section up to the installation of the examples. To start Julia,
+either use `julia --project=.`, or `./bin/run_julia`. Make sure that
+at least `SymbolicAWEModels` version 0.2 is installed by typing `]status` in the Julia REPL. 
+If necessary, update `SymbolicAWEModels` by typing `]up`.
 
 ## Creating a simple tether
 
@@ -21,7 +22,7 @@ We start by loading the necessary packages and defining settings and parameters.
 ```julia
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 
-set = Settings("system_ram.yaml")
+set = Settings("system.yaml")
 set.segments = 20
 set.l_tether = 50.0
 dynamics_type = DYNAMIC
@@ -51,7 +52,7 @@ for i in 1:set.segments
         push!(points, Point(point_idx, pos, dynamics_type; mass=1.0, wing_idx=0))
     end
     segment_idx = i
-    push!(segments, Segment(segment_idx, (point_idx-1, point_idx), BRIDLE))
+    push!(segments, Segment(segment_idx, set, (point_idx-1, point_idx), BRIDLE))
     push!(segment_idxs, segment_idx)
 end
 ```
@@ -68,7 +69,7 @@ From the points, segments and transform we create a [`SystemStructure(name, set)
 sys_struct = SystemStructure("tether", set; points, segments, transforms)
 plot(sys_struct, 0.0)
 ```
-![SystemStructure visualization](tether_sys_struct.png)
+![SystemStructure visualization](assets/tether_sys_struct.png)
 
 If the system looks good, we can easily model it, by first creating a [`SymbolicAWEModel`](@ref), initializing it and stepping through time.
 ```julia
@@ -80,7 +81,7 @@ for i in 1:80
     next_step!(sam)
 end
 ```
-![Tether during simulation](tether_during_sim.png)
+![Tether during simulation](assets/tether_during_sim.png)
 
 # Using a winch and a tether
 
@@ -122,7 +123,7 @@ First, we need to update some settings. `l_tether` is specified such that the pl
 ```julia
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 
-set = se("system_ram.yaml")
+set = se("system.yaml")
 set.v_wind = 10.0
 set.l_tether = 5.0
 set.abs_tol = 1e-4
@@ -142,9 +143,9 @@ push!(points, Point(2, [2.0, 0.0, 2.0], STATIC))
 push!(points, Point(3, [0.1, 0.0, 1.0], DYNAMIC))
 push!(points, Point(4, [0.1, 0.0, 0.0], DYNAMIC; mass=0.1))
 
-push!(segments, Segment(1, (3,1), BRIDLE))
-push!(segments, Segment(2, (3,2), BRIDLE))
-push!(segments, Segment(3, (3,4), BRIDLE))
+push!(segments, Segment(1, set, (3,1), BRIDLE))
+push!(segments, Segment(2, set, (3,2), BRIDLE))
+push!(segments, Segment(3, set, (3,4), BRIDLE))
 ```
 
 Pulleys can be modeled when three or more [`Segment`](@ref)s are connected to a common [`Point`](@ref). When creating a pulley, only two segments are specified: these are the segments of the tether moving through the pulley.

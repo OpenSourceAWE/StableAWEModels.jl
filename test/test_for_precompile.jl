@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
 using SymbolicAWEModels, KiteUtils, LinearAlgebra, ControlPlots
-sam_set = Settings("system_ram.yaml")
+sam_set = Settings("system.yaml")
 sam_set.segments = 3
 set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 sam_set.quasi_static = false
