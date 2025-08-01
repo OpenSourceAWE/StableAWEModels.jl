@@ -1,4 +1,4 @@
-name: Create Release Assets and Update Artifacts
+name: Create Release Artifacts
 
 on:
   push:
@@ -9,43 +9,23 @@ on:
   workflow_dispatch:
 
 jobs:
-  create-assets:
+  release:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Setup Julia
-      uses: julia-actions/setup-julia@v1
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
       with:
-        version: '1.10'  # or your Julia version
+        name: model-tarballs
+        path: data
 
-    - name: Install ArtifactUtils package
-      run: julia -e 'using Pkg; Pkg.add("ArtifactUtils");'
-
-    - name: Run create_xz_files script
-      run: julia test/create_xz_files.jl
-
-    - name: Create GitHub Release and upload .xz assets
+    - name: Create GitHub Release and upload .tar.gz assets
       id: create_release
       uses: softprops/action-gh-release@v1
       with:
-        files: 'data/*.xz'  # adjust path pattern as needed
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Generate or update Artifacts.toml
-      run: julia scripts/update_artifacts.jl
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-    - name: Commit and push updated Artifacts.toml
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add Artifacts.toml
-        git commit -m "Update Artifacts.toml for release ${{ github.ref_name }}" || echo "No changes to commit"
-        git push
+        files: 'data/*.tar.gz'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

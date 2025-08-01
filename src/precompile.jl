@@ -1,30 +1,78 @@
 # Copyright (c) 2024 Uwe Fechner, Bart van de Lint
 # SPDX-License-Identifier: MIT
 
-function decompress_binary(infile, outfile; chunksize=4096)
-    open(infile) do input
-        open(outfile, "w") do output
-            stream = XzDecompressorStream(input)
-            while !eof(stream)
-                write(output, read(stream, chunksize))
-            end
+"""
+    create_model_archive(source_dir, archive_path)
+
+Finds all `model*.bin` files in the `source_dir`, copies them to a temporary
+directory, and compresses that directory into a `.tar.gz` archive at the
+specified `archive_path`.
+"""
+function create_model_archive(source_dir, archive_path; prn=true)
+    # Find all files matching the pattern "model*.bin"
+    version = VERSION.minor
+    model_files = filter(
+        x -> startswith(x, "model_1.$version") && endswith(x, ".bin"),
+        readdir(source_dir)
+    )
+    if isempty(model_files)
+        prn && @warn "No 'model*.bin' files found in '$source_dir'. Archive will be empty."
+        return
+    end
+    mktempdir() do tmp_dir
+        prn && @info "Staging files for compression in: $tmp_dir"
+        # Copy the relevant .bin files to the temporary directory
+        for file_name in model_files
+            full_path = joinpath(source_dir, file_name)
+            cp(full_path, joinpath(tmp_dir, file_name))
+        end
+        # Create the .tar.gz archive from the temporary directory
+        prn && @info "Compressing files into archive: $archive_path"
+        open(archive_path, "w") do io
+            stream = GzipCompressorStream(io)
+            Tar.create(tmp_dir, stream)
+            close(stream)
         end
     end
 end
 
-function compress_binary(infile, outfile; chunksize=4096)
-    open(infile, "r") do input
-        open(outfile, "w") do output
-            stream = XzCompressorStream(output)
-            while !eof(input)
-                data = read(input, chunksize)
-                write(stream, data)
-            end
-            close(stream)  # important to flush and close compressor stream
+"""
+    extract_model_archive(archive_path, dest_dir)
+
+Safely decompress a `.tar.gz` file by first extracting to a temporary
+directory and then copying the contents to the final destination.
+
+# Arguments
+- `archive_path::String`: The path to the `.tar.gz` file to be extracted.
+- `dest_dir::String`: The path to the target directory.
+"""
+function extract_model_archive(archive_path::String, dest_dir::String; prn=true)
+    if !isfile(archive_path)
+        error("Archive file not found: $archive_path")
+    end
+    prn && @info "Extracting '$archive_path' to '$dest_dir'..."
+    mktempdir() do temp_dir
+        # 1. Extract the archive to the temporary directory
+        open(archive_path) do io
+            stream = GzipDecompressorStream(io)
+            Tar.extract(stream, temp_dir)
+            close(stream)
+        end
+        # 2. Copy the extracted contents to the final destination
+        for item in readdir(temp_dir)
+            source_path = joinpath(temp_dir, item)
+            dest_path = joinpath(dest_dir, item)
+            cp(source_path, dest_path, force=true)
         end
     end
+    prn && @info "Extraction complete."
 end
 
+"""
+    filecmp(path1::AbstractString, path2::AbstractString) -> Bool
+
+Compare two files byte-by-byte to check if they are identical.
+"""
 function filecmp(path1::AbstractString, path2::AbstractString)
     stat1, stat2 = stat(path1), stat(path2)
     if !(isfile(stat1) && isfile(stat2)) || filesize(stat1) != filesize(stat2)
@@ -46,6 +94,11 @@ function filecmp(path1::AbstractString, path2::AbstractString)
     end
 end
 
+"""
+    create_default_models(; prn=true)
+
+Create and initialize a set of default `SymbolicAWEModel` instances for precompilation.
+"""
 function create_default_models(; prn=true)
     function create_model(name; segments=3)
         set = Settings("system.yaml")
@@ -72,18 +125,15 @@ end
         if get(ENV, "SAM_PRECOMPILE", "true") != "false"
             m1 = "Manifest-v1.$(VERSION.minor).toml"
             m2 = "Manifest-v1.$(VERSION.minor).toml.default"
-            if filecmp(m1, m2)
-                found_xz = false
-                @info "Manifest files match, using the default xz files will work!"
-                for input_path in readdir("data", join=true)
-                    if endswith(input_path, ".xz") && startswith("model", input_path)
-                        output_path = replace(input_path, ".xz" => "")
-                        decompress_binary(input_path, output_path)
-                        println("Decompressed $input_path -> $output_path")
-                        found_xz = true
-                    end
-                end
-                if found_xz
+            if isfile(m1) && isfile(m2) && filecmp(m1, m2)
+                found_archive = false
+                @info "Manifest files match, using the default .tar.gz files will work!"
+                version = VERSION.minor
+                input_path = joinpath(get_data_path(), "models_v1.$version.tar.gz")
+                if isfile(input_path)
+                    println("Decompressing $input_path ...")
+                    extract_model_archive(input_path, get_data_path())
+
                     prn=true
                     sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
                     init!(sam; prn=false, reload=true)
@@ -95,12 +145,11 @@ end
                     next_step!(sam)
                     update_sys_state!(ss, sam)
                 else
-                    @warn "No xz files found, no precompilation."
+                    @warn "No .tar.gz model archives found, skipping precompilation."
                 end
             else
-                @warn "Manifest files differ, no precompilation."
+                @warn "Manifest files differ or are missing, skipping precompilation."
             end
         end
     end
-end   
-  
+end
