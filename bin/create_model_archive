@@ -14,5 +14,4 @@ if [[ $(basename "$(pwd)") == "bin" ]]; then
 fi
 
 export SAM_PRECOMPILE=false
-./bin/update_manifest "$@" --default
 ./bin/run_julia "$@" -e 'include("scripts/create_model_archive.jl")'

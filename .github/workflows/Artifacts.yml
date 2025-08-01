@@ -23,7 +23,7 @@ jobs:
       run: julia -e 'using Pkg; Pkg.add("ArtifactUtils");'
 
     - name: Run create_xz_files script
-      run: julia scripts/create_tar_files.jl
+      run: ./bin/create_model_archive
 
     - name: Create GitHub Release and upload .tar.gz assets
       id: create_release
@@ -42,8 +42,8 @@ jobs:
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add Artifacts.toml
-        git commit -m "Update Artifacts.toml for release ${{ github.ref_name }}" || echo "No changes to commit"
+        git add Artifacts.toml Manifest*
+        git commit -m "Update toml files for release ${{ github.ref_name }}" || echo "No changes to commit"
         git push
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
