@@ -1,30 +1,37 @@
 # Copyright (c) 2024 Uwe Fechner, Bart van de Lint
 # SPDX-License-Identifier: MIT
 
-function decompress_binary(infile, outfile; chunksize=4096)
-    open(infile) do input
-        open(outfile, "w") do output
-            stream = XzDecompressorStream(input)
-            while !eof(stream)
-                write(output, read(stream, chunksize))
-            end
-        end
+"""
+    decompress_tar_gz(infile, out_dir="data")
+
+Decompress a `.tar.gz` file into a specified directory.
+"""
+function decompress_tar_gz(infile, out_dir="data")
+    open(infile) do io
+        stream = GzipDecompressorStream(io)
+        Tar.extract(stream, out_dir)
+        close(stream)
     end
 end
 
-function compress_binary(infile, outfile; chunksize=4096)
-    open(infile, "r") do input
-        open(outfile, "w") do output
-            stream = XzCompressorStream(output)
-            while !eof(input)
-                data = read(input, chunksize)
-                write(stream, data)
-            end
-            close(stream)  # important to flush and close compressor stream
-        end
+"""
+    compress_tar_gz(in_dir, outfile)
+
+Compress the contents of a directory into a `.tar.gz` file.
+"""
+function compress_tar_gz(in_dir, outfile)
+    open(outfile, "w") do io
+        stream = GzipCompressorStream(io)
+        Tar.create(in_dir, stream)
+        close(stream)
     end
 end
 
+"""
+    filecmp(path1::AbstractString, path2::AbstractString) -> Bool
+
+Compare two files byte-by-byte to check if they are identical.
+"""
 function filecmp(path1::AbstractString, path2::AbstractString)
     stat1, stat2 = stat(path1), stat(path2)
     if !(isfile(stat1) && isfile(stat2)) || filesize(stat1) != filesize(stat2)
@@ -46,6 +53,11 @@ function filecmp(path1::AbstractString, path2::AbstractString)
     end
 end
 
+"""
+    create_default_models(; prn=true)
+
+Create and initialize a set of default `SymbolicAWEModel` instances for precompilation.
+"""
 function create_default_models(; prn=true)
     function create_model(name; segments=3)
         set = Settings("system.yaml")
@@ -72,18 +84,17 @@ end
         if get(ENV, "SAM_PRECOMPILE", "true") != "false"
             m1 = "Manifest-v1.$(VERSION.minor).toml"
             m2 = "Manifest-v1.$(VERSION.minor).toml.default"
-            if filecmp(m1, m2)
-                found_xz = false
-                @info "Manifest files match, using the default xz files will work!"
+            if isfile(m1) && isfile(m2) && filecmp(m1, m2)
+                found_archive = false
+                @info "Manifest files match, using the default .tar.gz files will work!"
                 for input_path in readdir("data", join=true)
-                    if endswith(input_path, ".xz") && startswith("model", input_path)
-                        output_path = replace(input_path, ".xz" => "")
-                        decompress_binary(input_path, output_path)
-                        println("Decompressed $input_path -> $output_path")
-                        found_xz = true
+                    if endswith(input_path, ".tar.gz") && startswith(basename(input_path), "model")
+                        println("Decompressing $input_path ...")
+                        decompress_tar_gz(input_path, "data")
+                        found_archive = true
                     end
                 end
-                if found_xz
+                if found_archive
                     prn=true
                     sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
                     init!(sam; prn=false, reload=true)
@@ -95,12 +106,11 @@ end
                     next_step!(sam)
                     update_sys_state!(ss, sam)
                 else
-                    @warn "No xz files found, no precompilation."
+                    @warn "No .tar.gz model archives found, skipping precompilation."
                 end
             else
-                @warn "Manifest files differ, no precompilation."
+                @warn "Manifest files differ or are missing, skipping precompilation."
             end
         end
     end
-end   
-  
+end
