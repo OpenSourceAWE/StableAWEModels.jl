@@ -34,7 +34,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Commit and push updated Artifacts.toml
+    - name: Commit and push updated toml files
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
