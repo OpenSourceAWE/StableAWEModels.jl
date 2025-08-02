@@ -78,7 +78,8 @@ echo "Preparing to update packages..."
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE="eager"
 MANIFEST_VERSION_FILE="Manifest-v${julia_major}.toml"
 mv -f Manifest.toml ${MANIFEST_VERSION_FILE} 2>/dev/null || true
-cp -f "$MANIFEST_VERSION_FILE" "${MANIFEST_VERSION_FILE}.bak" 2>/dev/null || true
+cp -f $MANIFEST_VERSION_FILE "$MANIFEST_VERSION_FILE.bak" 2>/dev/null || true
+cp -f "$MANIFEST_VERSION_FILE.default" $MANIFEST_VERSION_FILE
 ls Manifest* 2>/dev/null || echo "No Manifest files found."
 
 # --- 4. Update Julia Packages ---
