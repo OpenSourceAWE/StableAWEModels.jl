@@ -83,12 +83,13 @@ touch ${MANIFEST_VERSION_FILE}
 
 # --- 4. Update Julia Packages ---
 echo "Adding/updating Julia packages. This may take a while..."
-$JULIA_CMD --startup-file=no -e "using Pkg; Pkg.add(\"TestEnv\")"
+$JULIA_CMD --startup-file=no -e "using Pkg; Pkg.instantiate(); Pkg.add(\"TestEnv\")"
 $JULIA_CMD --startup-file=no --project -e '
+    using Pkg
+    Pkg.instantiate()
     using TestEnv
     println("--> Activating environment...");
     TestEnv.activate()
-    using Pkg
     println("--> Adding PyCall...")
     Pkg.add("PyCall");
     println("--> Building PyCall...");
