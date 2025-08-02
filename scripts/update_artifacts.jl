@@ -2,70 +2,99 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-using ArtifactUtils
-using HTTP
-using JSON
+using Pkg
+if ! ("JSON3" ∈ keys(Pkg.project().dependencies))
+    using TestEnv; TestEnv.activate()
+end
+using JSON3
+using Downloads
+using SHA
+using Tar
+using TOML
+using CodecZlib
 
-# Get information about current release from GitHub API
-function get_release_assets()
-    # Extract info from environment
-    repo = ENV["GITHUB_REPOSITORY"]
-    tag = ENV["GITHUB_REF_NAME"]
-    token = ENV["GITHUB_TOKEN"]
+# Params
+owner = "OpenSourceAWE"
+repo = "SymbolicAWEModels"
+project_toml_path = joinpath(@__DIR__, "..", "Project.toml")
+artifacts_toml_path = joinpath(@__DIR__, "..", "Artifacts.toml")
 
-    api_url = "https://api.github.com/repos/$repo/releases/tags/$tag"
+# Extract version from Project.toml
+function get_version(path)
+    toml = TOML.parsefile(path)
+    return toml["version"]
+end
 
-    headers = Dict("Authorization" => "token $token", "User-Agent" => "ArtifactUtils Script")
+version = get_version(project_toml_path)
+tag = "v$version"
+println("Detected version: $version, using tag: $tag")
 
-    response = HTTP.get(api_url, headers)
-    if response.status != 200
-        error("Failed to fetch release info from GitHub API: ", String(response.body))
+# Query GitHub API for release by tag
+function get_release_by_tag(owner, repo, tag)
+    url = "https://api.github.com/repos/$owner/$repo/releases/tags/$tag"
+    resp = Downloads.download(url; headers=["Accept" => "application/vnd.github.v3+json"])
+    open(resp) do io
+        return JSON3.read(io)
     end
-    release = JSON.parse(String(response.body))
-
-    # Return list of asset info dicts
-    release["assets"]
 end
 
-# Base URL for assets downloads
-function asset_download_url(asset)
-    # GitHub API Assets URL
-    asset["browser_download_url"]
+release = get_release_by_tag(owner, repo, tag)
+
+# Download asset to temp file
+function download_asset(url)
+    temp_path = mktemp(suffix=".tar.gz")[1]
+    Downloads.download(url, temp_path)
+    return temp_path
 end
 
-function main()
-    println("Updating Artifacts.toml with release assets...")
-
-    assets = get_release_assets()
-
-    artifact_file = "Artifacts.toml"
-
-    # For each .xz asset, add or update artifact entry
-    for asset in assets
-        name = asset["name"]
-        if endswith(name, ".xz")
-            url = asset_download_url(asset)
-            local_path = joinpath("data", name)  # Dummy local path for hashing - should have .xz file locally or skip hash (can redownload)
-
-            # Since local files don't exist in CI after build, fetch checksum from GitHub?
-            # Alternative approach: calculate hash locally during create_xz_files step and save a checksum file
-            # For simplicity, here we will download the file to temp and calculate hash:
-
-            println("Downloading $name for checksum...")
-            tmpfile = tempname()
-            HTTP.download(url, tmpfile)
-
-            # Compute SHA256 hash
-            hash = ArtifactUtils.sha256(tmpfile)
-
-            println("Adding artifact '$name' with checksum $hash and URL $url...")
-            add_artifact!(artifact_file, replace(name, "." => "_"), url, sha256=hash; force=true)
-
-            rm(tmpfile)
-        end
+# Compute sha256 hash of file
+function sha256_of_file(path)
+    open(path) do io
+        return bytes2hex(sha256(io))
     end
-
-    println("Artifacts.toml updated.")
 end
 
-main()
+# Compute git-tree-sha1 of decompressed tarball content
+function git_tree_sha1_of_tarball(path)
+    buf = IOBuffer()
+    open(GzipDecompressorStream, path) do gz
+        write(buf, read(gz))
+    end
+    seekstart(buf)
+    return bytes2hex(Tar.tree_hash(buf))
+end
+
+# Process assets and generate Artifacts.toml content
+artifacts = Dict{String,Any}()
+
+for asset in release["assets"]
+    fname = asset["name"]
+    url = asset["browser_download_url"]
+    if endswith(fname, ".tar.gz")
+        println("Processing asset: $fname")
+        local_path = download_asset(url)
+        sha256hash = sha256_of_file(local_path)
+        gtree_sha1 = git_tree_sha1_of_tarball(local_path)
+
+        artifact_name = replace(fname, r"\.tar\.gz" => "")
+        artifacts[artifact_name] = Dict(
+            "git-tree-sha1" => gtree_sha1,
+            "download" => [
+                Dict(
+                    "url" => url,
+                    "sha256" => sha256hash
+                )
+            ]
+        )
+        rm(local_path; force=true)
+    end
+end
+
+# Write Artifacts.toml
+toml_dict = Dict(artifact => Dict(v) for (artifact,v) in artifacts)
+
+open(artifacts_toml_path, "w") do io
+    TOML.print(io, toml_dict)
+end
+
+println("Artifacts.toml successfully written to $artifacts_toml_path")

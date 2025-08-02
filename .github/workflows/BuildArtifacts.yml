@@ -30,7 +30,7 @@ jobs:
       run: ./bin/create_model_archive
 
     - name: Generate or update Artifacts.toml
-      run: julia scripts/update_artifacts.jl
+      run: julia --project=. scripts/update_artifacts.jl
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
