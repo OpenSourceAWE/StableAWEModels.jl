@@ -26,15 +26,15 @@ jobs:
     - name: Install ArtifactUtils package
       run: julia -e 'using Pkg; Pkg.add("ArtifactUtils");'
 
+    - name: Run create_model_archive script
+      run: ./bin/create_model_archive
+
     - name: Upload tar.gz artifacts
       uses: actions/upload-artifact@v4
       with:
         name: model-tarballs
         path: data/*.tar.gz
         retention-days: 7
-
-    - name: Run create_model_archive script
-      run: ./bin/create_model_archive
 
     - name: Generate or update Artifacts.toml
       run: julia --project=. scripts/update_artifacts.jl
