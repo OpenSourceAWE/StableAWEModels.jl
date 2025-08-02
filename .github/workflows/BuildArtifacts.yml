@@ -26,6 +26,13 @@ jobs:
     - name: Install ArtifactUtils package
       run: julia -e 'using Pkg; Pkg.add("ArtifactUtils");'
 
+    - name: Upload tar.gz artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: model-tarballs
+        path: data/*.tar.gz
+        retention-days: 7
+
     - name: Run create_model_archive script
       run: ./bin/create_model_archive
 
@@ -43,10 +50,3 @@ jobs:
         git push
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload tar.gz artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: model-tarballs
-        path: data/*.tar.gz
-        retention-days: 7
