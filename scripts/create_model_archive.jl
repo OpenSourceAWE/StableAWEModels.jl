@@ -13,6 +13,7 @@ models = SymbolicAWEModels.create_default_models(; prn)
 @info "Created all models"
 toc()
 
+version = VERSION.minor
 SymbolicAWEModels.create_model_archive(get_data_path(), 
                                        joinpath(get_data_path(), "models_v1.$version.tar.gz"))
 
