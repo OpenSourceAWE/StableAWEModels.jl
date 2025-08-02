@@ -77,19 +77,17 @@ fi
 echo "Preparing to update packages..."
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE="eager"
 MANIFEST_VERSION_FILE="Manifest-v${julia_major}.toml"
-mv -f Manifest.toml "${MANIFEST_VERSION_FILE}.bak" 2>/dev/null || true
+mv -f Manifest.toml ${MANIFEST_VERSION_FILE} 2>/dev/null || true
 cp -f "$MANIFEST_VERSION_FILE" "${MANIFEST_VERSION_FILE}.bak" 2>/dev/null || true
-touch ${MANIFEST_VERSION_FILE}
 
 # --- 4. Update Julia Packages ---
 echo "Adding/updating Julia packages. This may take a while..."
-$JULIA_CMD --startup-file=no -e "using Pkg; Pkg.instantiate(); Pkg.add(\"TestEnv\")"
+$JULIA_CMD --startup-file=no -e "using Pkg; Pkg.add(\"TestEnv\")"
 $JULIA_CMD --startup-file=no --project -e '
-    using Pkg
-    Pkg.instantiate()
     using TestEnv
     println("--> Activating environment...");
     TestEnv.activate()
+    using Pkg
     println("--> Adding PyCall...")
     Pkg.add("PyCall");
     println("--> Building PyCall...");
