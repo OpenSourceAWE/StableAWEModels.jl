@@ -78,6 +78,7 @@ jobs:
       - uses: julia-actions/julia-runtest@v1
 
       - name: Upload PNG plots as artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-plots-${{ matrix.os }}-julia${{ matrix.version }}-${{ matrix.arch }}
