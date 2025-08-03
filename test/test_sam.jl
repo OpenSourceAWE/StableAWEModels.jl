@@ -138,6 +138,9 @@ end
             plt = plot(sam.sys_struct, sl)
             display(plt)
             @test plt isa ControlPlots.PlotX
+            savefig(joinpath(
+                get_data_path(), "oscillate_$(sam.sys_struct.name)_$steering_freq.png"
+            ))
 
             # 1. Extract the signal and define parameters
             heading_signal = sl.syslog.heading
