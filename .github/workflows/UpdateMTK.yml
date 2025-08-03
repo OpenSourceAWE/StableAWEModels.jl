@@ -1,0 +1,70 @@
+name: Nightly ModelingToolkit Compat Update
+
+on:
+  # Run automatically at 2:00 AM UTC every day
+  schedule:
+    - cron: '0 2 * * *'
+  # Allow manual runs from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  update-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1' # Use latest stable Julia
+
+      - name: Get latest ModelingToolkit version
+        id: get_version
+        run: |
+          # This Julia one-liner finds the latest version of ModelingToolkit in the General registry
+          # and prints its major.minor version string (e.g., "10.10") to be used in the next steps.
+          LATEST_VERSION=$(julia -e '
+            using Pkg, TOML
+            try
+                general_registry = only(filter(r -> r.name == "General", Pkg.Registry.reachable_registries()))
+                mtk_info = TOML.parsefile(joinpath(general_registry.path, "M", "ModelingToolkit", "Versions.toml"))
+                latest = maximum(VersionNumber.(keys(mtk_info)))
+                println("$(latest.major).$(latest.minor)")
+            catch e
+                println(stderr, "Error fetching ModelingToolkit version: ", e)
+                exit(1)
+            end
+          ')
+          echo "latest_version=$LATEST_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update Project.toml compat entry
+        run: |
+          # This command uses sed to find the line for ModelingToolkit and replaces its
+          # compat string with the new version fetched in the previous step.
+          # The regex is designed to handle existing version strings like "10" or "~10.9, 10".
+          sed -i -E 's/(ModelingToolkit\s*=\s*")[^"]+/\1~${{ steps.get_version.outputs.latest_version }}/' Project.toml
+
+      # Generate a token from the GitHub App to authorize the PR creation
+      - name: Generate token
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+
+      # Create the PR using the token generated from the GitHub App
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ steps.generate_token.outputs.token }}
+          commit-message: "chore: Update ModelingToolkit compat to ~${{ steps.get_version.outputs.latest_version }}"
+          branch: "chore/update-mtk-compat"
+          delete-branch: true
+          title: "🤖 Compat: Update ModelingToolkit to ~${{ steps.get_version.outputs.latest_version }}"
+          body: |
+            This is an automated PR to update the `ModelingToolkit.jl` compatibility entry.
+
+            **New Version:** `~${{ steps.get_version.outputs.latest_version }}`
+
+            This ensures the package remains compatible with the latest minor release of ModelingToolkit.
