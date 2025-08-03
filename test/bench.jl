@@ -117,7 +117,7 @@ println("--- Benchmark Complete ---")
 # --- Generate Final Plots ---
 
 p = plot(n_states_vec, creation_times, label="Model Creation (create_sys!)",
-         xaxis=:log, yaxis=:log,
+         xaxis=:linear, yaxis=:log,
          xlabel="Number of Unknowns",
          ylabel="Time (s)",
          title="SymbolicAWEModels.jl Performance",
