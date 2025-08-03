@@ -2,70 +2,66 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-using ArtifactUtils
-using HTTP
-using JSON
+using SHA, Tar, TOML, CodecZlib
 
-# Get information about current release from GitHub API
-function get_release_assets()
-    # Extract info from environment
-    repo = ENV["GITHUB_REPOSITORY"]
-    tag = ENV["GITHUB_REF_NAME"]
-    token = ENV["GITHUB_TOKEN"]
+# --- Get version from Project.toml ---
+project_toml_path = joinpath(@__DIR__, "..", "Project.toml")
 
-    api_url = "https://api.github.com/repos/$repo/releases/tags/$tag"
-
-    headers = Dict("Authorization" => "token $token", "User-Agent" => "ArtifactUtils Script")
-
-    response = HTTP.get(api_url, headers)
-    if response.status != 200
-        error("Failed to fetch release info from GitHub API: ", String(response.body))
-    end
-    release = JSON.parse(String(response.body))
-
-    # Return list of asset info dicts
-    release["assets"]
+if !isfile(project_toml_path)
+    error("Project.toml not found at $project_toml_path. Please ensure this script is in a 'build' or 'scripts' directory next to your Project.toml.")
 end
 
-# Base URL for assets downloads
-function asset_download_url(asset)
-    # GitHub API Assets URL
-    asset["browser_download_url"]
-end
+# Parse the Project.toml file to extract the version
+project_data = TOML.parsefile(project_toml_path)
+version = project_data["version"]
+println("Found project version: $version")
+# ---
 
-function main()
-    println("Updating Artifacts.toml with release assets...")
+data_dir = joinpath(@__DIR__, "..", "data")
+artifacts_toml_path = joinpath(@__DIR__, "..", "Artifacts.toml")
+artifacts = Dict()
 
-    assets = get_release_assets()
+for entry in readdir(data_dir)
+    if endswith(entry, ".tar.gz")
+        fname = entry
+        local_path = joinpath(data_dir, fname)
+        println("Processing local asset: $fname")
 
-    artifact_file = "Artifacts.toml"
-
-    # For each .xz asset, add or update artifact entry
-    for asset in assets
-        name = asset["name"]
-        if endswith(name, ".xz")
-            url = asset_download_url(asset)
-            local_path = joinpath("data", name)  # Dummy local path for hashing - should have .xz file locally or skip hash (can redownload)
-
-            # Since local files don't exist in CI after build, fetch checksum from GitHub?
-            # Alternative approach: calculate hash locally during create_xz_files step and save a checksum file
-            # For simplicity, here we will download the file to temp and calculate hash:
-
-            println("Downloading $name for checksum...")
-            tmpfile = tempname()
-            HTTP.download(url, tmpfile)
-
-            # Compute SHA256 hash
-            hash = ArtifactUtils.sha256(tmpfile)
-
-            println("Adding artifact '$name' with checksum $hash and URL $url...")
-            add_artifact!(artifact_file, replace(name, "." => "_"), url, sha256=hash; force=true)
-
-            rm(tmpfile)
+        # Compute sha256 hash of the local file
+        sha256hash = open(local_path) do io
+            bytes2hex(sha256(io))
         end
-    end
 
-    println("Artifacts.toml updated.")
+        # Compute git-tree-sha1 hash string of the decompressed tarball contents
+        gtree_sha1 = open(local_path) do file_io
+            # Call the stream constructor directly on the open file stream
+            gz_io = GzipDecompressorStream(file_io)
+            try
+                Tar.tree_hash(gz_io; algorithm="git-sha1", skip_empty=false)
+            finally
+                close(gz_io)
+            end
+        end
+
+        artifact_name = replace(fname, r"\.tar\.gz" => "")
+        # Construct the correct URL using the version from Project.toml
+        url = "https://github.com/OpenSourceAWE/SymbolicAWEModels/releases/download/v$version/$fname"
+
+        artifacts[artifact_name] = Dict(
+            "git-tree-sha1" => gtree_sha1,
+            "download" => [
+                Dict(
+                    "sha256" => sha256hash,
+                    "url" => url
+                )
+            ]
+        )
+    end
 end
 
-main()
+# Write the Artifacts.toml file
+open(artifacts_toml_path, "w") do io
+    TOML.print(io, artifacts)
+end
+
+println("Artifacts.toml successfully written at $artifacts_toml_path")

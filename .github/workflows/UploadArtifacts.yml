@@ -1,0 +1,31 @@
+name: Upload Release Artifacts
+
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [created, published]
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: model-tarballs
+        path: data
+
+    - name: Create GitHub Release and upload .tar.gz assets
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: 'data/*.tar.gz'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

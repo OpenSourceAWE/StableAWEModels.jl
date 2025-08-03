@@ -2,6 +2,7 @@
 *.arrow
 *.bin
 *.bin.xz
+*.tar.gz
 *.bak
 *.xopp
 *.so

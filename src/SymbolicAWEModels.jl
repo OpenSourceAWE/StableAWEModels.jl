@@ -8,6 +8,7 @@ module SymbolicAWEModels
 #======================================================================#
 
 # --- Julia Standard Library & General Utilities ---
+using Pkg
 using PrecompileTools: @setup_workload, @compile_workload
 using DocStringExtensions
 using LinearAlgebra
@@ -15,7 +16,8 @@ using Parameters
 using Printf
 using Serialization
 using SHA
-using CodecXz
+using CodecZlib
+using Tar
 using Statistics
 using Suppressor
 using Timers

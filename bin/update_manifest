@@ -77,13 +77,15 @@ fi
 echo "Preparing to update packages..."
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE="eager"
 MANIFEST_VERSION_FILE="Manifest-v${julia_major}.toml"
-mv -f Manifest.toml "${MANIFEST_VERSION_FILE}.bak" 2>/dev/null || true
-cp -f "$MANIFEST_VERSION_FILE" "${MANIFEST_VERSION_FILE}.bak" 2>/dev/null || true
+mv -f Manifest.toml ${MANIFEST_VERSION_FILE} 2>/dev/null || true
+cp -f $MANIFEST_VERSION_FILE "$MANIFEST_VERSION_FILE.bak" 2>/dev/null || true
+cp -f "$MANIFEST_VERSION_FILE.default" $MANIFEST_VERSION_FILE
+ls Manifest* 2>/dev/null || echo "No Manifest files found."
 
 # --- 4. Update Julia Packages ---
 echo "Adding/updating Julia packages. This may take a while..."
 $JULIA_CMD --startup-file=no -e "using Pkg; Pkg.add(\"TestEnv\")"
-$JULIA_CMD --startup-file=no --project -e '
+$JULIA_CMD --startup-file=no --project=. -e '
     using TestEnv
     println("--> Activating environment...");
     TestEnv.activate()
@@ -110,6 +112,7 @@ $JULIA_CMD --startup-file=no --project -e '
     println("Package update complete.");
 '
 echo "✅ Update successful. New manifest created at ${MANIFEST_VERSION_FILE}"
+ls Manifest* 2>/dev/null || echo "No Manifest files found."
 
 # --- 5. Create Default Manifest if requested ---
 if [ "$make_default" = true ]; then
@@ -117,3 +120,4 @@ if [ "$make_default" = true ]; then
   cp "$MANIFEST_VERSION_FILE" "$DEFAULT_FILE"
   echo "✅ Default manifest created at ${DEFAULT_FILE}"
 fi
+ls Manifest* 2>/dev/null || echo "No Manifest files found."

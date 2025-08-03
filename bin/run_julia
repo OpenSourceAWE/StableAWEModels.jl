@@ -17,6 +17,8 @@ else
     julia_major=$(julia --version | cut -d' ' -f3 | cut -d'.' -f1,2)
 fi
 
+# TODO: copy default manifest by default
+
 # --- Find system image ---
 branch=""
 if git rev-parse --git-dir > /dev/null 2>&1; then
@@ -34,6 +36,6 @@ if test -f "$SOFILE"; then
     echo "Found system image: $SOFILE"
     julia "$@" -J "$SOFILE" --project
 else
-    echo "No system image found, starting default Julia session..."
+    echo "No system image found, starting default Julia session"
     julia "$@" --project
 fi

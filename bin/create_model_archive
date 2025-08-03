@@ -6,11 +6,13 @@
 #
 # Usage:
 #   ./create_xz.sh          # Uses the default Julia version
-#   ./create_xz.sh +1.12    # Uses Julia v1.12
+#   ./create_xz.sh +1.11    # Uses Julia v1.11
 
 # Ensure the script runs from the project root
 if [[ $(basename "$(pwd)") == "bin" ]]; then
     cd ..
 fi
-./bin/update_manifest --default
-./bin/run_julia "$@" -e 'include("scripts/create_xz_files.jl")'
+
+export SAM_PRECOMPILE=false
+./bin/update_manifest "$@" --default
+./bin/run_julia "$@" -e 'include("scripts/create_model_archive.jl")'
