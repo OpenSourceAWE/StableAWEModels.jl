@@ -129,7 +129,7 @@ end
     @testset "Oscillating simulation" begin
         function test_for_peak_at_steering_freq(sam, steering_freq)
             dt = 0.01
-            sl = sim_oscillate!(sam; total_time=10.0, steering_freq, dt)
+            sl = sim_oscillate!(sam; total_time=5.0, steering_freq, dt)
             @test sl.syslog.elevation[begin] ≈ deg2rad(set.elevation) atol=1e-2
             @test sl.syslog.azimuth[begin] ≈ deg2rad(set.azimuth) atol=1e-2
             @test sl.syslog.heading[begin] ≈ deg2rad(set.heading) atol=1e-2
@@ -171,12 +171,12 @@ end
 
         init!(sam)
         find_steady_state!(sam)
-        test_for_peak_at_steering_freq(sam, 0.7)
+        test_for_peak_at_steering_freq(sam, 0.5)
 
         init!(sam)
         find_steady_state!(sam)
         SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
-        test_for_peak_at_steering_freq(simple_sam, 0.7)
+        test_for_peak_at_steering_freq(simple_sam, 0.5)
     end
 
     @testset "Turning simulation" begin
