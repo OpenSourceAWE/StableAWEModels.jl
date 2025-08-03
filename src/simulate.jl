@@ -83,6 +83,7 @@ function sim!(
         log!(logger, sys_state)
     end
 
+    mkpath(get_data_path())
     save_log(logger, "tmp_run")
     lg = load_log("tmp_run")
 
