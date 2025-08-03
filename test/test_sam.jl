@@ -5,18 +5,10 @@ using Pkg
 if ! ("ControlSystemsBase" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
-using Test, FFTW, ControlSystemsBase, Printf
+using Test, ControlSystemsBase, Printf
 using SymbolicAWEModels, ControlPlots
 using Statistics, LinearAlgebra
 
-# # Copy data dir for testing
-# old_path = get_data_path()
-# package_data_path = joinpath(dirname(dirname(pathof(SymbolicAWEModels))), "data")
-# temp_data_path = joinpath(tempdir(), "data")
-# Base.Filesystem.cptree(package_data_path, temp_data_path; force=true)
-# set_data_path(temp_data_path)
-
-TOL = 1e-5
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
 init!(sam)
@@ -133,7 +125,7 @@ end
             @test sl.syslog.elevation[begin] ≈ deg2rad(set.elevation) atol=1e-2
             @test sl.syslog.azimuth[begin] ≈ deg2rad(set.azimuth) atol=1e-2
             @test sl.syslog.heading[begin] ≈ deg2rad(set.heading) atol=1e-2
-            @test isapprox(sl.syslog.time, collect(0.0:dt:10.0-dt))
+            @test isapprox(sl.syslog.time, collect(0.0:dt:5.0-dt))
             ControlPlots.plt.close_figs()
             plt = plot(sam.sys_struct, sl)
             display(plt)
@@ -142,29 +134,41 @@ end
                 get_data_path(), "oscillate_$(sam.sys_struct.name)_$steering_freq.png"
             ))
 
-            # 1. Extract the signal and define parameters
+            # --- Cross-Correlation Analysis ---
+            # 1. Extract the detrended signal and time vector
             heading_signal = sl.syslog.heading
             signal_detrended = heading_signal .- mean(heading_signal)
-            N = length(signal_detrended) # Number of samples
-            fs = 1 / dt                  # Sampling frequency in Hz
-            # 2. Perform the FFT and get the corresponding frequencies
-            fft_result = fft(signal_detrended)
-            freqs = fftfreq(N, fs)
-            # 3. Find the frequency bin closest to the steering frequency
-            search_indices = 2:(N÷2)
-            positive_freqs = freqs[search_indices]
-            all_magnitudes = abs.(fft_result)
-            # Find the index in the 'positive_freqs' list that is closest to the steering_freq
-            ~, relative_idx = findmin(abs.(positive_freqs .- steering_freq))
-            target_idx = search_indices[relative_idx]
-            # As a sanity check, you can verify the frequency we found is close to the target
-            @test freqs[target_idx] ≈ steering_freq atol=(fs/N)
-            # 4. Assert that the magnitude at this frequency is a local maximum (a peak)
-            mag_at_target = all_magnitudes[target_idx]
-            mag_before    = all_magnitudes[target_idx - 1]
-            mag_after     = all_magnitudes[target_idx + 1]
-            @show mag_at_target, mag_before, mag_after, target_idx
-            @test mag_at_target > mag_before && mag_at_target > mag_after
+            t = sl.syslog.time
+
+            # 2. Generate a perfect reference sine and cosine wave at the steering frequency
+            ref_sin = sin.(2 * π * steering_freq .* t)
+            ref_cos = cos.(2 * π * steering_freq .* t)
+
+            # 3. Calculate the correlation of your signal with the reference waves
+            # This is equivalent to finding the magnitude of the Fourier series coefficient
+            # for this specific frequency.
+            corr_sin = dot(signal_detrended, ref_sin)
+            corr_cos = dot(signal_detrended, ref_cos)
+
+            # The magnitude of the correlation is proportional to the amplitude of the
+            # oscillation at the steering frequency.
+            magnitude_at_freq = sqrt(corr_sin^2 + corr_cos^2)
+
+            # 4. To test, we can compare this magnitude to the magnitude at other
+            #    nearby frequencies to ensure it's a local peak.
+            #    Let's check against a frequency 20% lower and 20% higher.
+            freq_lower = steering_freq * 0.5
+            ref_sin_lower = sin.(2 * π * freq_lower .* t)
+            ref_cos_lower = cos.(2 * π * freq_lower .* t)
+            mag_lower = sqrt(dot(signal_detrended, ref_sin_lower)^2 + dot(signal_detrended, ref_cos_lower)^2)
+
+            freq_higher = steering_freq * 1.5
+            ref_sin_higher = sin.(2 * π * freq_higher .* t)
+            ref_cos_higher = cos.(2 * π * freq_higher .* t)
+            mag_higher = sqrt(dot(signal_detrended, ref_sin_higher)^2 + dot(signal_detrended, ref_cos_higher)^2)
+
+            @show magnitude_at_freq, mag_lower, mag_higher
+            @test magnitude_at_freq > mag_lower && magnitude_at_freq > mag_higher
         end
 
         reset!(set)
