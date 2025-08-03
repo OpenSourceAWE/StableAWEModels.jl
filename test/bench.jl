@@ -148,7 +148,7 @@ plot!(p, n_states_vec, solve_times, label="Solve Time (1s sim)", marker=:circle)
 plot!(p, n_states_vec, total_times, label="Total Initial Time", linewidth=3, linestyle=:dash)
 
 display(p)
-savefig("symbolic_awe_benchmark.png")
+savefig(joinpath(get_data_path(), "symbolic_awe_benchmark.png"))
 
 # --- Appendix: Computer Information ---
 println("\n\n--- Appendix ---")
