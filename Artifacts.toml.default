@@ -1,0 +1,13 @@
+[models_v1_10]
+git-tree-sha1 = "6ed37174e958f565c09b2d5ff51a50a41eadab0e"
+
+    [[models_v1_10.download]]
+    sha256 = "d1d7558a5ff21f25a47a79a0331d6750a7fc50f4f79fbb7a5f350b2bebf26fe3"
+    url = "https://github.com/OpenSourceAWE/SymbolicAWEModels/releases/download/v0.2.1/models_v1.10.tar.gz"
+
+[models_v1_11]
+git-tree-sha1 = "0b6fd2795b0c4c7c34889c59b8805041cd2c9139"
+
+    [[models_v1_11.download]]
+    sha256 = "8b6173f33d4dc41e461fdf4ef7ec5c30972ea10835d199e2001faad57abe031e"
+    url = "https://github.com/OpenSourceAWE/SymbolicAWEModels/releases/download/v0.2.1/models_v1.11.tar.gz"
