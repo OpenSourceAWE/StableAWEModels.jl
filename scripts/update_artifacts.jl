@@ -43,7 +43,9 @@ for entry in readdir(data_dir)
             end
         end
 
-        artifact_name = replace(fname, r"\.tar\.gz" => "")
+        # First remove the extension, then replace dots with underscores for valid TOML keys
+        artifact_name = replace(replace(fname, r"\.tar\.gz" => ""), "." => "_")
+
         # Construct the correct URL using the version from Project.toml
         url = "https://github.com/OpenSourceAWE/SymbolicAWEModels/releases/download/v$version/$fname"
 
