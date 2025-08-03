@@ -18,7 +18,7 @@ println("Found project version: $version")
 # ---
 
 data_dir = joinpath(@__DIR__, "..", "data")
-artifacts_toml_path = joinpath(@__DIR__, "..", "Artifacts.toml")
+artifacts_toml_path = joinpath(@__DIR__, "..", "Artifacts-v1.$(VERSION.minor).toml.default")
 artifacts = Dict()
 
 for entry in readdir(data_dir)
@@ -59,7 +59,7 @@ for entry in readdir(data_dir)
     end
 end
 
-# Write the Artifacts.toml file
+# Write the Artifacts.toml.default file
 open(artifacts_toml_path, "w") do io
     TOML.print(io, artifacts)
 end
