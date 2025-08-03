@@ -3,7 +3,7 @@
 
 using SymbolicAWEModels, KiteUtils, ModelingToolkit, BenchmarkTools, Plots, Printf
 using OrdinaryDiffEqCore, OrdinaryDiffEqBDF
-using Suppressor
+using Suppressor, UnPack
 
 # --- Setup ---
 
@@ -23,6 +23,9 @@ function build_and_time(segments; solver=FBDF())
     set.segments = segments
     set.physical_model = "ram"
     sam = SymbolicAWEModel(set)
+    @unpack wings, winches = sam.sys_struct
+    [winch.brake=true for winch in winches]
+    [wing.fix_sphere=true for wing in wings]
 
     suffix = segments > 1 ? "s" : ""
     println("Creating sys with $segments segment$suffix...")
@@ -42,24 +45,37 @@ function build_and_time(segments; solver=FBDF())
     prob = ODEProblem(sys, sam.defaults, (0.0, 10.0); sam.guesses)
     
     # Benchmark init
-    b_init = @benchmark OrdinaryDiffEqCore.init($prob, $solver; reltol=1e-4, abstol=1e-4, save_on=false)
+    b_init = @benchmark OrdinaryDiffEqCore.init($prob, $solver; 
+                                                reltol=1e-4, abstol=1e-4, 
+                                                save_on=false) samples=100
     t_init = median(b_init).time * 1e-9
-    integ = OrdinaryDiffEqCore.init(prob, solver; reltol=1e-4, abstol=1e-4, save_on=false)
+    integ = OrdinaryDiffEqCore.init(prob, solver;
+                                    reltol=1e-4, abstol=1e-4, 
+                                    save_on=false)
 
     # Benchmark reinit!
     dt = 1/sam.set.sample_freq
-    b_reinit = @benchmark OrdinaryDiffEqCore.reinit!($integ)
     b_reinit = @benchmark(OrdinaryDiffEqCore.reinit!($integ), 
-                          setup=(OrdinaryDiffEqCore.step!($integ, $dt, true)))
+                          setup=(OrdinaryDiffEqCore.step!($integ, $dt, true)), 
+                          samples=100)
     t_reinit = median(b_reinit).time * 1e-9
 
-    # Benchmark step!
-    b_step = @benchmark(OrdinaryDiffEqCore.step!($integ, $dt, true), 
-                        setup=(OrdinaryDiffEqCore.reinit!($integ)))
+    # Benchmark 10dt step!
+    function step!(integ, dt)
+        for _ in 1:10
+            OrdinaryDiffEqCore.step!(integ, dt, true)
+        end
+    end
+    b_step = @benchmark(step!($integ, $dt), 
+                        setup=(OrdinaryDiffEqCore.reinit!($integ)),
+                        samples=50)
     t_step = median(b_step).time * 1e-9
 
-    # Benchmark a full 1s solve for comparison
-    b_solve = @benchmark solve($prob, $solver; reltol=1e-4, abstol=1e-4, saveat=0.1, tspan=(0.0, 1.0))
+    # Benchmark 10dt solve
+    b_solve = @benchmark solve($prob, $solver; 
+                               reltol=1e-4, abstol=1e-4, 
+                               saveat=$dt, tspan=(0.0, $(10dt)),
+                               samples=50)
     t_solve = median(b_solve).time * 1e-9
 
     println("-"^20)
@@ -122,6 +138,7 @@ p = plot(n_states_vec, creation_times, label="Model Creation (create_sys!)",
          ylabel="Time (s)",
          title="SymbolicAWEModels.jl Performance",
          legend=:topleft,
+         size=(900,600),
          marker=:circle)
 
 plot!(p, n_states_vec, compilation_times, label="Symbolic Compilation (mtkcompile)", marker=:circle)
