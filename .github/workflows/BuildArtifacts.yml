@@ -9,6 +9,9 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  cancel-in-progress: true
+
 jobs:
   # This job runs in parallel for each Julia version specified in the matrix.
   build:
