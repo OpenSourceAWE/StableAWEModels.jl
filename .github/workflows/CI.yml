@@ -8,9 +8,11 @@ on:
       - main
     tags: '*'
   pull_request:
+
 concurrency:
+  # Group runs by the workflow name and the branch or tag name
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+  cancel-in-progress: true
 
 jobs:
   reuse-lint:
