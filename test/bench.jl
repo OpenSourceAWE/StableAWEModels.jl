@@ -74,8 +74,7 @@ function build_and_time(segments; solver=FBDF())
     # Benchmark 10dt solve
     b_solve = @benchmark solve($prob, $solver; 
                                reltol=1e-4, abstol=1e-4, 
-                               saveat=$dt, tspan=(0.0, $(10dt)),
-                               samples=50)
+                               saveat=$dt, tspan=(0.0, $(10dt))) samples=50
     t_solve = median(b_solve).time * 1e-9
 
     println("-"^20)
@@ -108,7 +107,7 @@ println("Precompilation complete.")
 println("-"^120)
 
 # Print table header
-@printf "%-10s | %-10s | %-10s | %-12s | %-10s | %-10s | %-10s | %-12s | %-10s\n" "Segments" "Unknowns" "Create (s)" "Compile (s)" "Init (s)" "Reinit (s)" "Step (s)" "Solve 1s (s)" "Total (s)"
+@printf "%-10s | %-10s | %-10s | %-12s | %-10s | %-10s | %-10s | %-12s | %-10s\n" "Segments" "Unknowns" "Create (s)" "Compile (s)" "Init (s)" "Reinit (s)" "Step (s)" "Solve (s)" "Total (s)"
 println(repeat("-", 120))
 
 # Main benchmark loop
