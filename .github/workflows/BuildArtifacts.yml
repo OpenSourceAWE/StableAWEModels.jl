@@ -32,7 +32,7 @@ jobs:
       shell: bash
 
     - name: Setup Julia ${{ matrix.julia-version }}
-      uses: julia-actions/setup-julia@v1
+      uses: julia-actions/setup-julia@v2
       with:
         version: ${{ matrix.julia-version }}
 
