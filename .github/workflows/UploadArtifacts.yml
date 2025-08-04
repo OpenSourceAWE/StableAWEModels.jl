@@ -24,7 +24,7 @@ jobs:
 
     - name: Create GitHub Release and upload .tar.gz assets
       id: create_release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: 'data/*.tar.gz'
       env:
