@@ -111,6 +111,7 @@ function sim!(
         lin_lg = load_log("tmp_run_lin")
     end
 
+    mkpath(get_data_path())
     save_log(logger, "tmp_run")
     lg = load_log("tmp_run")
     

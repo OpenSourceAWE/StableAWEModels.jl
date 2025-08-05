@@ -9,9 +9,14 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: build-artifacts-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # This job runs in parallel for each Julia version specified in the matrix.
   build:
+    if: "!contains(github.event.head_commit.message, 'Update TOML files')"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true

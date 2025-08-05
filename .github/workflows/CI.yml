@@ -77,6 +77,15 @@ jobs:
 
       - uses: julia-actions/julia-runtest@v1
 
+      - name: Upload PNG plots as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-plots-${{ matrix.os }}-julia${{ matrix.version }}-${{ matrix.arch }}
+          path: data/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
   test-with-code-coverage:
     name: Julia 1.11 - ubuntu-latest - x64 - with code coverage
     runs-on: ubuntu-latest
