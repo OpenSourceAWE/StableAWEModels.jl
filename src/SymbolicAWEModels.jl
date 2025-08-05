@@ -24,6 +24,7 @@ using Timers
 
 # --- Numerical, Modeling & Scientific Computing ---
 using ModelingToolkit
+using ControlSystemsBase
 using RecipesBase
 using StaticArrays
 using SymbolicIndexingInterface

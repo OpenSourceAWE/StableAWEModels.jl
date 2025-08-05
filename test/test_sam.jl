@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 using Pkg
-if ! ("ControlSystemsBase" ∈ keys(Pkg.project().dependencies))
+if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
 using Test, ControlSystemsBase, Printf
@@ -121,7 +121,7 @@ end
     @testset "Oscillating simulation" begin
         function test_for_peak_at_steering_freq(sam, steering_freq)
             dt = 0.01
-            sl = sim_oscillate!(sam; total_time=5.0, steering_freq, dt)
+            sl, _ = sim_oscillate!(sam; total_time=5.0, steering_freq, dt)
             @test sl.syslog.elevation[begin] ≈ deg2rad(set.elevation) atol=1e-2
             @test sl.syslog.azimuth[begin] ≈ deg2rad(set.azimuth) atol=1e-2
             @test sl.syslog.heading[begin] ≈ deg2rad(set.heading) atol=1e-2
@@ -202,7 +202,7 @@ end
             init!(sam)
             find_steady_state!(sam)
             dt = 0.05
-            sl = sim_turn!(sam; total_time=10.0, steering_time, steering_magnitude, dt)
+            sl, _ = sim_turn!(sam; total_time=10.0, steering_time, steering_magnitude, dt)
             unwrap!(sl.syslog.heading)
             @test sl.syslog.heading[begin] ≈ 0.0 atol=1e-1
             return sl.syslog.heading[end]
@@ -226,7 +226,8 @@ end
         init!(simple_sam)
 
         (; A, B, C, D) = SymbolicAWEModels.linearize!(simple_sam)
-        global sys = ss(A,B,C,D)
+        sys = ss(A,B,C,D)
+        norm_A = norm(A)
         res = lsim(sys, repeat([-1.0 0.0 -1.0], 2)', [0.0, 0.5])
         println(res.y[:,2])
         @test isapprox(res.y[:,2], 
@@ -241,6 +242,11 @@ end
         @test isapprox(res.y[:,2],
             [0.015575316961016356, -0.0001989661253600774, -0.017933805715950355, 
                        6.679990358160092], rtol=0.1)
+
+        # test that linearization is state-dependent
+        next_step!(simple_sam; dt=1.0)
+        (; A, B, C, D) = SymbolicAWEModels.linearize!(simple_sam)
+        @test !isapprox(norm(A), norm_A; atol=1e-3)
 
         set.abs_tol = old_abs
         set.rel_tol = old_rel
