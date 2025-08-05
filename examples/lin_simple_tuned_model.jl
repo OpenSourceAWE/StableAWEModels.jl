@@ -9,6 +9,7 @@ end
 
 using SymbolicAWEModels, VortexStepMethod, KiteUtils, ControlPlots, Statistics
 using OrdinaryDiffEqCore
+using ControlSystemsBase
 
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
@@ -30,6 +31,7 @@ bias = 0.2
 # display(plot(sam.sys_struct, sl))
 
 lin_model = linearize!(simple_sam)
-sl, lin_sl = sim_oscillate!(simple_sam; total_time=0.1, prn=true, bias, lin_sim=lin_model)
-display(plot(simple_sam.sys_struct, sl))
-
+lin_model = ss(lin_model...)
+sl, lin_sl = sim_oscillate!(simple_sam; total_time=1.0, prn=true, bias, lin_sim=lin_model)
+display(plot(simple_sam.sys_struct, sl; plot_all=false, plot_heading=true, suffix=" - simple"))
+display(plot(simple_sam.sys_struct, lin_sl; plot_all=false, plot_heading=true, suffix=" - lin"))

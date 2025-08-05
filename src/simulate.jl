@@ -5,7 +5,7 @@
     sim!(sam, set_values; dt, total_time, vsm_interval, prn, lin_sim)
 
 Run a generic simulation for a given AWE model and a matrix of control inputs.
-Optionally, also simulate a provided linear model (StateSpace), returning both logs.
+Optionally, also simulate a provided linear model, returning both logs.
 
 # Arguments
 - `sam::SymbolicAWEModel`: Initialized AWE model.
@@ -18,7 +18,7 @@ Optionally, also simulate a provided linear model (StateSpace), returning both l
 - `total_time::Float64`: Total simulation duration [s]. Defaults to 10.0.
 - `vsm_interval::Int`: Interval for the value state machine updates. Defaults to 3.
 - `prn::Bool`: If true, prints a performance summary upon completion. Defaults to true.
-- `lin_sim`: (optional) a NamedTuple or StateSpace struct with fields `A`, `B`, `C`, `D`.
+- `lin_sim`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
     If provided, the linear model is simulated in parallel and a second log is returned.
 
 # Returns
@@ -32,7 +32,7 @@ function sim!(
     total_time=10.0,
     vsm_interval=3,
     prn=true,
-    lin_sim=nothing
+    lin_sim::Union{Nothing, StateSpace}=nothing
 )
     steps = Int(round(total_time / dt))
     sys_struct = sam.sys_struct
@@ -43,43 +43,26 @@ function sim!(
     logger = Logger(length(sys_struct.points), steps)
     sys_state = SysState(sam)
 
-    lin_logger = nothing
-    lin_x = nothing
-    lin_y = nothing
-
-    if lin_sim !== nothing
-        # Accept both NamedTuple and StateSpace, use fieldnames
-        if hasfield(typeof(lin_sim), :A) && hasfield(typeof(lin_sim), :B) &&
-           hasfield(typeof(lin_sim), :C) && hasfield(typeof(lin_sim), :D)
-            A, B, C, D = lin_sim.A, lin_sim.B, lin_sim.C, lin_sim.D
-        elseif isa(lin_sim, NamedTuple)
-            A, B, C, D = lin_sim.A, lin_sim.B, lin_sim.C, lin_sim.D
-        else
-            error("lin_sim must have fields :A, :B, :C, :D")
-        end
-        n_states = size(A, 1)
-        n_outputs = size(C, 1)
-        n_points = length(sys_struct.points) # Use full points for SysState compatibility
-        lin_logger = Logger(n_points, steps)
-        lin_x = zeros(n_states)
-    end
-
     if prn
-        @info "Starting simulation"
+        @info "Starting nonlinear simulation..."
     end
     step_time = 0.0
     vsm_time = 0.0
     integ_time = 0.0
+    set_torques = similar(set_values)
+    y_op = sam.get_lin_y(sam.integrator)
 
+    # --- Nonlinear Simulation Loop ---
     elapsed = @elapsed for step in 1:steps
         t = (step-1) * dt
 
-        # --- Nonlinear System Step ---
-        internal_set_values = -sam.set.drum_radius .* [norm(winch.force) for winch in sys_struct.winches]
-        internal_set_values .+= set_values[step, :]
+        set_torques[step, :] = -sam.set.drum_radius .* [norm(winch.force) for winch in sys_struct.winches]
+        set_torques[step, :] .+= set_values[step, :]
 
         try
-            step_time += @elapsed next_step!(sam; set_values=internal_set_values, dt, vsm_interval=vsm_interval)
+            step_time += @elapsed next_step!(sam;
+                                             set_values=set_torques[step, :],
+                                             dt, vsm_interval=vsm_interval)
             integ_time += sam.t_step
             vsm_time += sam.t_vsm
             if step < steps ÷ 2
@@ -98,26 +81,39 @@ function sim!(
         update_sys_state!(sys_state, sam)
         sys_state.time = t
         log!(logger, sys_state)
-
-        # --- Linear System Step ---
-        if lin_sim !== nothing
-            u = set_values[step, :]
-            # xₖ₊₁ = A*xₖ + B*uₖ; yₖ = C*xₖ + D*uₖ
-            lin_x = A * lin_x .+ B * u
-            lin_y = C * lin_x .+ D * u
-            lin_sys_state = SysState(lin_y, sam, t)
-            log!(lin_logger, lin_sys_state)
-        end
     end
 
-    save_log(logger, "tmp_run")
-    lg = load_log("tmp_run")
+    # --- Linear Simulation ---
     lin_lg = nothing
-    if lin_logger !== nothing
+    if !isnothing(lin_sim)
+        t_vec = 0:dt:(total_time - dt)
+        @show set_torques[1, :]
+        ΔU = permutedims(set_torques) .- set_torques[1, :]
+        lin_res = lsim(lin_sim, ΔU, t_vec)
+        
+        # Reconstruct full output from deviation output: y = y_op + Δy
+        ΔY = lin_res.y
+        @show ΔY ΔU
+        lin_y_full = ΔY .+ y_op
+        
+        # Log the complete linear simulation result
+        n_points = length(sys_struct.points)
+        lin_logger = Logger(n_points, steps)
+        lin_sys_state = SysState(y_op, sam, t_vec[1])
+        @show typeof(lin_sys_state)
+        for step in 1:steps
+            y_k = lin_y_full[:, step]
+            @show typeof(lin_sys_state)
+            update_sys_state!(lin_sys_state, y_k, sam, t_vec[step])
+            log!(lin_logger, lin_sys_state)
+        end
         save_log(lin_logger, "tmp_run_lin")
         lin_lg = load_log("tmp_run_lin")
     end
 
+    save_log(logger, "tmp_run")
+    lg = load_log("tmp_run")
+    
     if prn
         lines = [
             "Performance Summary:",
@@ -141,7 +137,7 @@ Run a simulation with oscillating steering input on the given AWE model.
 Optionally also simulate a provided linear model.
 
 # Keywords (see sim!)
-- `lin_sim`: (optional) a NamedTuple or StateSpace struct with fields `A`, `B`, `C`, `D`.
+- `lin_sim`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
 """
 function sim_oscillate!(
     sam::SymbolicAWEModel;
@@ -180,7 +176,7 @@ Run a simulation with a constant steering input for a specified duration.
 Optionally also simulate a provided linear model.
 
 # Keywords (see sim!)
-- `lin_sim`: (optional) a NamedTuple or StateSpace struct with fields `A`, `B`, `C`, `D`.
+- `lin_sim`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
 """
 function sim_turn!(
     sam::SymbolicAWEModel;
@@ -213,6 +209,7 @@ function sim_turn!(
 
     return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval, prn=prn, lin_sim=lin_sim)
 end
+
 
 """
     SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
@@ -268,5 +265,5 @@ function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEMode
         end
     end
     ss.time = t
-    return nothing
+    return ss
 end
