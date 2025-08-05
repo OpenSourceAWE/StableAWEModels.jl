@@ -3,6 +3,14 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# Unreleased
+## Changed
+- Breaking: sim!, sim_oscillate! and sim_turn! return a tuple (sl, lin_sl) instead of just a sl
+## Fixed
+- Fixed `linearize!(sam)` to get updated when the state gets updated
+## Added
+- Added `lin_simple_tuned_model.jl` example
+
 # v0.2.1 01-08-2025
 ## Fixed
 - Import Pkg
