@@ -31,8 +31,6 @@ SymbolicAWEModels.reinit!
 SymbolicAWEModels.update_sys_struct!
 SymbolicAWEModels.get_set_hash
 SymbolicAWEModels.get_sys_struct_hash
-# KiteUtils.update_sys_state!
-# KiteUtils.SysState
 ```
 
 ## Physics and Geometry Helpers
