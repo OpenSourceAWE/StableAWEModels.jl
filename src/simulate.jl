@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-    sim!(sam, set_values; dt, total_time, vsm_interval, prn, lin_sim)
+    sim!(sam, set_values; dt, total_time, vsm_interval, prn, lin_model)
 
 Run a generic simulation for a given AWE model and a matrix of control inputs.
 Optionally, also simulate a provided linear model, returning both logs.
@@ -18,12 +18,12 @@ Optionally, also simulate a provided linear model, returning both logs.
 - `total_time::Float64`: Total simulation duration [s]. Defaults to 10.0.
 - `vsm_interval::Int`: Interval for the value state machine updates. Defaults to 3.
 - `prn::Bool`: If true, prints a performance summary upon completion. Defaults to true.
-- `lin_sim`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
+- `lin_model`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
     If provided, the linear model is simulated in parallel and a second log is returned.
 
 # Returns
-- If `lin_sim` is not provided: `SysLog` (nonlinear log)
-- If `lin_sim` is provided: `(SysLog, SysLog)` (nonlinear, linear logs)
+- If `lin_model` is not provided: `SysLog` (nonlinear log)
+- If `lin_model` is provided: `(SysLog, SysLog)` (nonlinear, linear logs)
 """
 function sim!(
     sam::SymbolicAWEModel,
@@ -32,12 +32,15 @@ function sim!(
     total_time=10.0,
     vsm_interval=3,
     prn=true,
-    lin_sim::Union{Nothing, StateSpace}=nothing
+    lin_model::Union{Nothing, <:NamedTuple, StateSpace}=nothing
 )
     steps = Int(round(total_time / dt))
     sys_struct = sam.sys_struct
     if size(set_values, 1) != steps
         error("The number of rows in set_values ($(size(set_values, 1))) must match the number of simulation steps ($steps).")
+    end
+    if lin_model isa NamedTuple
+        lin_model = ss(lin_model...)
     end
 
     logger = Logger(length(sys_struct.points), steps)
@@ -85,25 +88,21 @@ function sim!(
 
     # --- Linear Simulation ---
     lin_lg = nothing
-    if !isnothing(lin_sim)
+    if !isnothing(lin_model)
         t_vec = 0:dt:(total_time - dt)
-        @show set_torques[1, :]
         ΔU = permutedims(set_torques) .- set_torques[1, :]
-        lin_res = lsim(lin_sim, ΔU, t_vec)
+        lin_res = lsim(lin_model, ΔU, t_vec)
         
         # Reconstruct full output from deviation output: y = y_op + Δy
         ΔY = lin_res.y
-        @show ΔY ΔU
         lin_y_full = ΔY .+ y_op
         
         # Log the complete linear simulation result
         n_points = length(sys_struct.points)
         lin_logger = Logger(n_points, steps)
         lin_sys_state = SysState(y_op, sam, t_vec[1])
-        @show typeof(lin_sys_state)
         for step in 1:steps
             y_k = lin_y_full[:, step]
-            @show typeof(lin_sys_state)
             update_sys_state!(lin_sys_state, y_k, sam, t_vec[step])
             log!(lin_logger, lin_sys_state)
         end
@@ -132,13 +131,14 @@ function sim!(
 end
 
 """
-    sim_oscillate!(sam; dt, total_time, steering_freq, steering_magnitude, vsm_interval, bias, prn, lin_sim)
+    sim_oscillate!(sam; dt, total_time, steering_freq, steering_magnitude, vsm_interval,
+                   bias, prn, lin_model)
 
 Run a simulation with oscillating steering input on the given AWE model.
 Optionally also simulate a provided linear model.
 
 # Keywords (see sim!)
-- `lin_sim`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
+- `lin_model`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
 """
 function sim_oscillate!(
     sam::SymbolicAWEModel;
@@ -149,7 +149,7 @@ function sim_oscillate!(
     vsm_interval=3,
     bias = 0.13,
     prn=false,
-    lin_sim=nothing
+    lin_model=nothing
 )
     sys_struct = sam.sys_struct
     steps = Int(round(total_time / dt))
@@ -167,17 +167,19 @@ function sim_oscillate!(
         set_values[step, :] = [0.0, steering, -steering]
     end
 
-    return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval, prn=prn, lin_sim=lin_sim)
+    return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval,
+                prn=prn, lin_model=lin_model)
 end
 
 """
-    sim_turn!(sam; dt, total_time, steering_time, steering_magnitude, vsm_interval, prn, lin_sim)
+    sim_turn!(sam; dt, total_time, steering_time, steering_magnitude, vsm_interval, prn,
+              lin_model)
 
 Run a simulation with a constant steering input for a specified duration.
 Optionally also simulate a provided linear model.
 
 # Keywords (see sim!)
-- `lin_sim`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
+- `lin_model`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
 """
 function sim_turn!(
     sam::SymbolicAWEModel;
@@ -187,7 +189,7 @@ function sim_turn!(
     steering_magnitude=10.0,
     vsm_interval=3,
     prn=false,
-    lin_sim=nothing
+    lin_model=nothing
 )
     sys_struct = sam.sys_struct
     steps = Int(round(total_time / dt))
@@ -208,14 +210,16 @@ function sim_turn!(
         end
     end
 
-    return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval, prn=prn, lin_sim=lin_sim)
+    return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval,
+                prn=prn, lin_model=lin_model)
 end
 
 
 """
     SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
 
-Construct a SysState for logging linear state-space simulation output y (ordered as sam.lin_outputs).
+Construct a SysState for logging linear state-space simulation output y (ordered as
+sam.lin_outputs).
 """
 function SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
     P = length(sam.sys_struct.points)
@@ -225,11 +229,13 @@ function SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
 end
 
 """
-    update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
+    update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
+                      zoom=1.0)
 
 Update a SysState for a linear state-space simulation, using output y and model sam.
 """
-function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
+function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
+                           zoom=1.0)
     sys = sam.sys
     lin_outputs = sam.lin_outputs
     for (i, sym) in enumerate(lin_outputs)

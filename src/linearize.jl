@@ -88,6 +88,8 @@ calculate the A, B, C, and D matrices for the complete, high-order system.
 function linearize!(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator))
     isnothing(s.lin_prob) && error("Run init! with remake=true and lin_outputs=...")
     s.set_lin_set_values(s.lin_prob, set_values)
+    s.set_psys(s.lin_prob, s.sys_struct)
+    s.set_set(s.lin_prob, s.set)
     s.lin_model = solve(s.lin_prob)[1]
     return s.lin_model
 end
