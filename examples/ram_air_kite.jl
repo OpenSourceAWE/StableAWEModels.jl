@@ -47,7 +47,7 @@ bias = set.quasi_static ? 0.45 : 0.15
 if set.physical_model == "4_attach_ram"
     bias = 0.05
 end
-sl = sim_oscillate!(sam; dt, total_time, vsm_interval, steering_freq, steering_magnitude, 
+sl, _ = sim_oscillate!(sam; dt, total_time, vsm_interval, steering_freq, steering_magnitude, 
                          bias, prn=true)
 @info "Simulated at:"
 toc()
