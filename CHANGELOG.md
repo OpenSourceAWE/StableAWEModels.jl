@@ -7,7 +7,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Fixed
 - Fix examples and menu
 
-## v0.3.0 06-08-2025
+# v0.3.0 06-08-2025
 ## Changed
 - Breaking: sim!, sim_oscillate! and sim_turn! return a tuple (sl, lin_sl) instead of just a sl
 ## Fixed
