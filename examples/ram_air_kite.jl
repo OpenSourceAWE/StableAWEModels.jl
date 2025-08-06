@@ -12,11 +12,6 @@ if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
 end
 using ControlPlots, LaTeXStrings
 using SymbolicAWEModels, KiteUtils, LinearAlgebra, Statistics
-
-if ! @isdefined SIMPLE
-    SIMPLE = false
-end
-
 toc()
 
 # Simulation parameters
@@ -30,10 +25,6 @@ steering_magnitude = 10.0      # Magnitude of steering input [Nm]
 
 # Initialize model
 set = Settings("system.yaml")
-set.quasi_static = false
-if SIMPLE
-    set.physical_model = "simple_ram"
-end
 
 @info "Creating SymbolicAWEModel:"
 sam = SymbolicAWEModel(set)
@@ -43,7 +34,7 @@ SymbolicAWEModels.init!(sam)
 toc()
 
 find_steady_state!(sam)
-bias = set.quasi_static ? 0.45 : 0.15
+bias = 0.15
 if set.physical_model == "4_attach_ram"
     bias = 0.05
 end
@@ -54,4 +45,3 @@ toc()
 display(plot(sam.sys_struct, sl))
 @info "Plotted at:"
 toc()
-
