@@ -3,6 +3,7 @@
 using REPL.TerminalMenus
 
 options = [
+        "pulley = include(\"pulley.jl\")",
         "ram_air_kite = SIMPLE=false; include(\"ram_air_kite.jl\")",
         "simple_ram_air_kite = SIMPLE=true; include(\"ram_air_kite.jl\")",
         "lin_ram_model = include(\"lin_ram_model.jl\")",

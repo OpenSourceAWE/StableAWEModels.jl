@@ -7,8 +7,8 @@ using SymbolicAWEModels, VortexStepMethod, ControlPlots
 set = Settings("system.yaml")
 set.v_wind = 10.0
 set.l_tether = 5.0
-set.abs_tol = 1e-4
-set.rel_tol = 1e-4
+set.abs_tol = 1e-3
+set.rel_tol = 1e-3
 dynamics_type = DYNAMIC
 
 points = Point[]
