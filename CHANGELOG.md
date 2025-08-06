@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
-# v0.3.1 06-08-2025
+# v0.3.0 06-08-2025
 ## Changed
 - Breaking: sim!, sim_oscillate! and sim_turn! return a tuple (sl, lin_sl) instead of just a sl
 ## Fixed
