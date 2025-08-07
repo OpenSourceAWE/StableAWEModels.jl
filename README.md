@@ -105,7 +105,7 @@ init!(sam)
 **Simulate and plot:**
 
 ```julia
-log = sim_oscillate!(sam)
+(log, _) = sim_oscillate!(sam)
 plot(sam.sys_struct, log; plot_all=false, plot_heading=true)
 ```
 
@@ -131,7 +131,7 @@ init!(simple_sam)
 
 ```julia
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
-simple_log = sim_oscillate!(simple_sam)
+(simple_log, _) = sim_oscillate!(simple_sam)
 plot(simple_sam.sys_struct, simple_log; plot_all=false, plot_heading=true)
 ```
 

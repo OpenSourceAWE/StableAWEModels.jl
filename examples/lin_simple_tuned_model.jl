@@ -27,7 +27,7 @@ sim_oscillate!(sam; total_time=1.0)
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
 
 bias = 0.2
-# sl = sim_oscillate!(sam; total_time=5.0, prn=true, bias) # TODO: add first frac ram model
+# sl, _ = sim_oscillate!(sam; total_time=5.0, prn=true, bias) # TODO: add first frac ram model
 # display(plot(sam.sys_struct, sl))
 
 lin_model = linearize!(simple_sam)

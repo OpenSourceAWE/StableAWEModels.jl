@@ -6,7 +6,7 @@ options = [
         "lin_ram_model = include(\"lin_ram_model.jl\")",
         "lin_simple_tuned_model = include(\"lin_simple_tuned_model.jl\")",
         "pulley = include(\"pulley.jl\")",
-        "ram_air_kite = SIMPLE=false; include(\"ram_air_kite.jl\")",
+        "ram_air_kite = include(\"ram_air_kite.jl\")",
         "sam_tutorial = include(\"sam_tutorial.jl\")",
         "simple_lin_model = include(\"simple_lin_model.jl\")",
         "simple_tuned_model = include(\"simple_tuned_model.jl\")",

@@ -7,7 +7,7 @@ tic()
 
 PLOT = false
 using Pkg
-if ! ("LaTeXStrings" ∈ keys(Pkg.project().dependencies))
+if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
 using ControlPlots, LaTeXStrings
