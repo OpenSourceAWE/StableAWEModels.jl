@@ -185,12 +185,43 @@ function copy_examples()
 end
 
 function copy_model_settings()
-    files = ["settings.yaml", "ram_air_kite_body.obj", "ram_air_kite_foil.dat", "system.yaml", "settings.yaml", 
-             "system.yaml", "ram_air_kite_foil_cd_polar.csv", "ram_air_kite_foil_cl_polar.csv", "ram_air_kite_foil_cm_polar.csv"]
-    dst_path = abspath(joinpath(pwd(), "data"))
-    copy_files("data", files)
-    set_data_path(joinpath(pwd(), "data"))
-    println("Copied $(length(files)) files to $(dst_path) !")
+    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "data")
+    dst_data_path = abspath(joinpath(pwd(), "data"))
+    
+    if !isdir(src_data_path)
+        @warn "Source data directory not found: $src_data_path"
+        return
+    end
+    
+    # Create destination data directory if it doesn't exist
+    if !isdir(dst_data_path)
+        mkdir(dst_data_path)
+    end
+    
+    # Copy all files and subdirectories recursively
+    for item in readdir(src_data_path)
+        src_item = joinpath(src_data_path, item)
+        dst_item = joinpath(dst_data_path, item)
+        
+        if isfile(src_item)
+            cp(src_item, dst_item, force=true)
+            chmod(dst_item, 0o664)
+        elseif isdir(src_item)
+            cp(src_item, dst_item, force=true)
+            # Set permissions recursively for directory contents
+            for (root, dirs, files) in walkdir(dst_item)
+                for file in files
+                    chmod(joinpath(root, file), 0o664)
+                end
+                for dir in dirs
+                    chmod(joinpath(root, dir), 0o755)
+                end
+            end
+        end
+    end
+    
+    set_data_path(dst_data_path)
+    println("Copied data directory structure to $(dst_data_path)")
 end
 
 function install_examples(add_packages=true)
