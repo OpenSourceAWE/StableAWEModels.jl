@@ -282,21 +282,27 @@ where:
 # Keyword Arguments
 - `l0::SimFloat=zero(SimFloat)`: Unstretched length [m]. Calculated from point positions if zero.
 - `compression_frac::SimFloat=0.0`: Stiffness reduction factor in compression.
-- `axial_stiffness::Float64=NaN`: Axial stiffness [N]. If `NaN`, it's calculated from settings.
+- `diameter::Float64=NaN`: Tether diameter [mm]. If `NaN`, uses default from settings.
+- `axial_stiffness::Float64=NaN`: Axial stiffness [N]. If `NaN`, it's calculated from diameter and material properties.
 - `axial_damping::Float64=NaN`: Axial damping [Ns]. If `NaN`, it's calculated from settings.
 
 # Returns
 - `Segment`: A new `Segment` object.
 """
 function Segment(idx, set, point_idxs, type;
-    l0=zero(SimFloat), compression_frac=0.0, axial_stiffness=NaN, axial_damping=NaN
+    l0=zero(SimFloat), compression_frac=0.0, diameter=NaN, axial_stiffness=NaN, axial_damping=NaN
 )
-    (type == BRIDLE) && (diameter = 0.001* set.bridle_tether_diameter)
-    (type == POWER_LINE) && (diameter = 0.001* set.power_tether_diameter)
-    (type == STEERING_LINE) && (diameter = 0.001* set.steering_tether_diameter)
+    # Set default diameter from settings if not specified
+    if isnan(diameter)
+        (type == BRIDLE) && (diameter = set.bridle_tether_diameter)
+        (type == POWER_LINE) && (diameter = set.power_tether_diameter)
+        (type == STEERING_LINE) && (diameter = set.steering_tether_diameter)
+    end
+    # Convert diameter from mm to m
+    diameter_m = 0.001 * diameter
 
     if isnan(axial_stiffness) || isnan(axial_damping)
-        axial_stiffness = set.e_tether * (diameter/2)^2 * π
+        axial_stiffness = set.e_tether * (diameter_m/2)^2 * π
         if type == BRIDLE
             stiffness_frac = 0.01
         else
@@ -308,7 +314,7 @@ function Segment(idx, set, point_idxs, type;
     end
 
     Segment(idx, point_idxs, axial_stiffness, axial_damping, l0, compression_frac, 
-        diameter, zero(SimFloat), zero(SimFloat))
+        diameter_m, zero(SimFloat), zero(SimFloat))
 end
 
 """

@@ -17,7 +17,7 @@ push!(points, Point(1, [2.0, 0.0, 5.0], STATIC))          # Anchor point at heig
 push!(points, Point(2, [2.0, 0.0, 2.0], DYNAMIC; mass=10.0)) # Hanging mass at height 2m, 1kg
 
 # Create single segment connecting the points
-push!(segments, Segment(1, set, (1, 2), BRIDLE; l0=2.0))  # 2m rest length (shorter than 3m distance = initial tension)
+push!(segments, Segment(1, set, (1, 2), BRIDLE; l0=2.0, diameter=1.5))  # 1.5mm diameter, 2m rest length
 
 # Transform to position the system  
 transforms = [Transform(1, -deg2rad(90.0), 0.0, 0.0; base_pos=[2.0, 0.0, 5.0], base_point_idx=1, rot_point_idx=2)]
@@ -33,7 +33,7 @@ sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=false)
 
 # Run simulation for 100 steps
-for i in 1:100
+for i in 1:1000
     plot(sam, i/set.sample_freq; zoom=false)
     next_step!(sam)
 end
