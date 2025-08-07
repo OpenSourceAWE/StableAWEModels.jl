@@ -10,8 +10,19 @@ This is a constructor helper that reads the model and foil file paths from the
 `Settings` object and initializes the `RamAirWing` object from `VortexStepMethod.jl`.
 """
 function VortexStepMethod.RamAirWing(set::Settings; prn=true, kwargs...)
-    obj_path = joinpath(dirname(get_data_path()), set.model)
-    dat_path = joinpath(dirname(get_data_path()), set.foil_file)
+    # Handle relative paths within model subdirectories
+    if startswith(set.model, "data/")
+        obj_path = joinpath(dirname(get_data_path()), set.model)
+    else
+        obj_path = joinpath(get_data_path(), set.model)
+    end
+    
+    if startswith(set.foil_file, "data/")
+        dat_path = joinpath(dirname(get_data_path()), set.foil_file)
+    else
+        dat_path = joinpath(get_data_path(), set.foil_file)
+    end
+    
     if set.physical_model == "simple_ram"
         n_groups=2
     else

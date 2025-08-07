@@ -1,0 +1,3 @@
+system:
+    sim_settings: "ram_air_kite/settings.yaml"  # simulator settings
+ 
