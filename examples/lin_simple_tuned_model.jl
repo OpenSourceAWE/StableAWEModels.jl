@@ -11,15 +11,15 @@ using SymbolicAWEModels, VortexStepMethod, KiteUtils, ControlPlots, Statistics
 using OrdinaryDiffEqCore
 using ControlSystemsBase
 
-set = Settings("system.yaml")
+set = Settings("ram_air_kite/system.yaml")
 sam = SymbolicAWEModel(set, "ram")
 init!(sam)
 
-tether_set = Settings("system.yaml")
+tether_set = Settings("ram_air_kite/system.yaml")
 tether_sam = SymbolicAWEModel(tether_set, "tether")
 init!(tether_sam)
 
-simple_set = Settings("system.yaml")
+simple_set = Settings("ram_air_kite/system.yaml")
 simple_sam = SymbolicAWEModel(simple_set, "simple_ram")
 init!(simple_sam)
 

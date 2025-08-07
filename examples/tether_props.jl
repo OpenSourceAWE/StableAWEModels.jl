@@ -5,7 +5,7 @@
 using SymbolicAWEModels, KiteUtils, Printf, ControlPlots, LaTeXStrings
 
 # --- Setup Models ---
-set = Settings("system.yaml")
+set = Settings("ram_air_kite/system.yaml")
 set.sample_freq = 600
 set.abs_tol = 1e-6
 set.rel_tol = 1e-6

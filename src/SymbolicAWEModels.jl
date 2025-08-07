@@ -120,8 +120,9 @@ const SVec3    = SVector{3, SimFloat}
 function plot end
 
 function __init__()
-    if isdir(joinpath(pwd(), "data")) && isfile(joinpath(pwd(), "data", "system.yaml"))
-        set_data_path(joinpath(pwd(), "data"))
+    data_dir = joinpath(pwd(), "data")
+    if isdir(data_dir) && isfile(joinpath(data_dir, "ram_air_kite", "system.yaml"))
+        set_data_path(data_dir)
     end
 end
 
