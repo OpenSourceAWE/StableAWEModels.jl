@@ -1,3 +1,4 @@
 system:
-    sim_settings: "simple_pulley/settings.yaml"  # simulator settings
- 
+    sim_settings: "base/settings.yaml"  # simulator settings
+
+##TODO: resolve unconvenience of having to changes system.yaml for every example 
