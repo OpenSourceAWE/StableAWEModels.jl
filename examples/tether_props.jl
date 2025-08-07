@@ -2,6 +2,10 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
+using Pkg
+if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
+    using TestEnv; TestEnv.activate()
+end
 using SymbolicAWEModels, KiteUtils, Printf, ControlPlots, LaTeXStrings
 
 # --- Setup Models ---
