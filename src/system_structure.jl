@@ -35,6 +35,70 @@ function VortexStepMethod.RamAirWing(set::Settings; prn=true, kwargs...)
 end
 
 """
+    load_settings(subdirectory::String)
+
+Load settings from a specific subdirectory in the data folder.
+
+This function temporarily creates a `system.yaml` file that points to the settings
+in the specified subdirectory, loads the settings using the KiteUtils Settings
+constructor, then cleans up the temporary file.
+
+# Arguments
+- `subdirectory::String`: Name of the subdirectory in data/ containing settings.yaml
+
+# Example
+```julia
+set = load_settings("ram_air_kite")  # Loads from data/ram_air_kite/settings.yaml
+```
+
+# Returns
+- `Settings`: A Settings object loaded from the specified subdirectory.
+"""
+function load_settings(subdirectory::String)
+    # Define paths
+    system_yaml_path = joinpath(get_data_path(), "system.yaml")
+    temp_created = false
+    
+    try
+        # Check if system.yaml already exists
+        if isfile(system_yaml_path)
+            # Backup existing file
+            backup_path = system_yaml_path * ".backup"
+            cp(system_yaml_path, backup_path; force=true)
+            temp_created = false
+        else
+            temp_created = true
+        end
+        
+        # Create temporary system.yaml content
+        yaml_content = """system:
+    sim_settings: "$subdirectory/settings.yaml"  # simulator settings
+"""
+        
+        # Write temporary system.yaml
+        write(system_yaml_path, yaml_content)
+        
+        # Load settings using KiteUtils
+        set = Settings("system.yaml")
+        
+        return set
+        
+    finally
+        # Clean up: remove or restore system.yaml
+        if temp_created
+            # Remove the temporary file we created
+            isfile(system_yaml_path) && rm(system_yaml_path)
+        else
+            # Restore the original file
+            backup_path = system_yaml_path * ".backup"
+            if isfile(backup_path)
+                mv(backup_path, system_yaml_path; force=true)
+            end
+        end
+    end
+end
+
+"""
     SegmentType `POWER_LINE` `STEERING_LINE` `BRIDLE`
 
 Enumeration for the type of a tether segment.

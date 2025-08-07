@@ -4,11 +4,12 @@
 
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 
-set = Settings("system.yaml")
+set = load_settings("base")  # Loads from data/base/settings.yaml
 set.v_wind = 0
 set.l_tether = 5.0 # set l_tether as it affects the plot size
 dynamics_type = DYNAMIC
 
+# pulley point was placed in the middle, as the side-to-sideo movement convergences very slowly
 points = Point[]
 push!(points, Point(1, [0.0, 0.0, 5.0], STATIC))
 push!(points, Point(2, [5.0, 0.0, 5.0], STATIC))

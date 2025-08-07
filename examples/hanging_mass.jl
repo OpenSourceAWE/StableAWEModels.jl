@@ -5,11 +5,8 @@
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 
 ### Loading Settings
-# settings are defined in: data/base/settings.yaml
-# which the code finds through data/system.yaml
-# that must be user-defined
-
-set = Settings("system.yaml")
+# Use load_settings() to temporarily create system.yaml pointing to the desired subdirectory
+set = load_settings("base")  # Loads from data/base/settings.yaml
 set.v_wind = 0  # No wind
 
 
