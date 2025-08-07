@@ -27,8 +27,8 @@ jobs:
       
       - name: Update Project.toml compat entry
         run: |
-          sed -i -E 's/(ModelingToolkit\s*=\s*")[^"]+/\1~${{ steps.get_version.outputs.latest_version }}/' Project.toml
-          
+          sed -i -E '/\[compat\]/,/\[/ s/(ModelingToolkit\s*=\s*")[^"]+/\1~${{ steps.get_version.outputs.latest_version }}/' Project.toml          
+
       # Generate a token from the GitHub App to authorize the PR creation
       - name: Generate token
         id: generate_token
