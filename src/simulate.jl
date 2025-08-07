@@ -22,7 +22,7 @@ Optionally, also simulate a provided linear model, returning both logs.
     If provided, the linear model is simulated in parallel and a second log is returned.
 
 # Returns
-- If `lin_model` is not provided: `SysLog` (nonlinear log)
+- If `lin_model` is not provided: `(SysLog, Nothing)` (nonlinear log, nothing)
 - If `lin_model` is provided: `(SysLog, SysLog)` (nonlinear, linear logs)
 """
 function sim!(
@@ -139,6 +139,10 @@ Optionally also simulate a provided linear model.
 
 # Keywords (see sim!)
 - `lin_model`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
+
+# Returns
+- If `lin_model` is not provided: `(SysLog, Nothing)` (nonlinear log, nothing)
+- If `lin_model` is provided: `(SysLog, SysLog)` (nonlinear, linear logs)
 """
 function sim_oscillate!(
     sam::SymbolicAWEModel;
@@ -180,6 +184,10 @@ Optionally also simulate a provided linear model.
 
 # Keywords (see sim!)
 - `lin_model`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
+
+# Returns
+- If `lin_model` is not provided: `(SysLog, Nothing)` (nonlinear log, nothing)
+- If `lin_model` is provided: `(SysLog, SysLog)` (nonlinear, linear logs)
 """
 function sim_turn!(
     sam::SymbolicAWEModel;
