@@ -69,6 +69,7 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
         spoint_idx = ssys.segments[stether.segment_idxs[1]].point_idxs[2]
         ssys.points[spoint_idx].pos_w .= sys.points[point_idx].pos_w
         ssys.points[spoint_idx].vel_w .= sys.points[point_idx].vel_w
+        ssys.points[spoint_idx].disturb .= sys.points[point_idx].disturb
     end
 
     # copy wing state
@@ -170,10 +171,14 @@ function calc_spring_props(sam::SymbolicAWEModel, tether_sam::SymbolicAWEModel;
                            F_step=-0.1, prn=false)
     find_steady_state!(sam; t=10.0, dt=10.0, vsm_interval=0)
     copy!(sam.sys_struct, tether_sam.sys_struct)
+    @show tether_sam.sys_struct.segments[1].force
+    @show tether_sam.sys_struct.points[1].disturb
     OrdinaryDiffEqCore.reinit!(tether_sam.integrator; reinit_dae=true)
     update_sys_struct!(tether_sam, tether_sam.sys_struct)
+    @show tether_sam.sys_struct.segments[1].force
 
     F_0 = [-tether_sam.sys_struct.points[i].force for i in 1:4]
+    @show norm.(F_0)
     steps = 200
     tether_lens = step(tether_sam, steps, F_step, F_0)
     k_values, c_values = calc_spring_props(sam, tether_lens, F_step; prn)

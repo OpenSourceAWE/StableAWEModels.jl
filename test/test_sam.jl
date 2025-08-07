@@ -93,6 +93,10 @@ end
         one_seg_tether_sam = SymbolicAWEModel(set, "tether")
         init!(one_seg_tether_sam)
 
+        # run twice to make sure state is reset properly
+        axial_stiffness, axial_damping = 
+            SymbolicAWEModels.calc_spring_props(one_seg_sam, one_seg_tether_sam)
+        next_step!(one_seg_sam; dt=1.0)
         axial_stiffness, axial_damping = 
             SymbolicAWEModels.calc_spring_props(one_seg_sam, one_seg_tether_sam)
         segments = one_seg_sam.sys_struct.segments
