@@ -314,24 +314,43 @@ match the current settings and system structure. If a match is found and
 - `Bool`: `true` if the model was successfully loaded, `false` otherwise.
 """
 function load_serialized_model!(sam, model_path; remake=false, reload=false)
+    set_hash = get_set_hash(sam.set)
+    sys_struct_hash = get_sys_struct_hash(sam.sys_struct)
+    
+    # Check if we have a serialized model file and don't want to remake it
     if ispath(model_path) && !remake
-        try
-            if !isnothing(sam.full_sys) && !reload
-                return true
-            end
-            serialized = deserialize(model_path)
-            if get_set_hash(sam.set) == serialized.set_hash &&
-               get_sys_struct_hash(sam.sys_struct) == serialized.sys_struct_hash
-                sam.serialized_model = serialized
-                return true
-            end
+        # If the current hashes do not match the stored ones, reset the serialized model
+        if set_hash != sam.set_hash || sys_struct_hash != sam.sys_struct_hash
+            sam.serialized_model = SerializedModel(; set_hash, sys_struct_hash)
             return false
+        end
+
+        # If the full system is already loaded and reload not requested, keep it as is
+        if !isnothing(sam.full_sys) && !reload
+            return true
+        end
+
+        # Attempt to deserialize the stored serialized model
+        try
+            serialized_model = deserialize(model_path)
+            # If hashes do not match after deserialization, reset serialized model
+            if set_hash != serialized_model.set_hash || sys_struct_hash != serialized_model.sys_struct_hash
+                sam.serialized_model = SerializedModel(; set_hash, sys_struct_hash)
+                return false
+            end
+            # Success: assign deserialized model
+            sam.serialized_model = serialized_model
+            return true
         catch e
             @warn "Failure to deserialize $model_path: $e"
+            # Fall through to recreate serialized model below
         end
     end
+    # If no file or remake requested, initialize a new SerializedModel
+    sam.serialized_model = SerializedModel(; set_hash, sys_struct_hash)
     return false
 end
+
 
 """
     maybe_create_prob!(s, lin_outputs; create_prob=true, prn=true)
@@ -463,7 +482,6 @@ function init!(sam::SymbolicAWEModel;
     lin_vsm::Bool=true
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
-    create_lin_prob && !create_prob && error("Linearization problem also needs normal problem.")
     time = @elapsed begin
         if isnothing(solver)
             solver = if sam.set.solver == "FBDF"

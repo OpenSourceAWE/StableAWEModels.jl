@@ -308,9 +308,9 @@ end
         model_path = joinpath(get_data_path(), SymbolicAWEModels.get_model_name(set))
 
         function test_init_with_reset(create_prob, create_lin_prob, create_control_func)
-            println("Create prob: $create_prob \t
-                    lin_prob: $create_lin_prob \t
-                    control_func: $create_control_func")
+            println("Create prob: $create_prob \t"*
+                    "lin_prob: $create_lin_prob \t"*
+                    "control_func: $create_control_func")
             rm(model_path; force=true)
             sam = SymbolicAWEModel(set, sys_struct)
             init!(sam; create_prob, create_lin_prob, create_control_func, prn=false)
@@ -320,7 +320,7 @@ end
         end
         test_init_with_reset(false, false, false)
         test_init_with_reset(true, false, false)
-        test_init_with_reset(true, true, false)
+        test_init_with_reset(false, true, false)
         test_init_with_reset(false, false, true)
 
         init!(sam; create_prob=true, create_lin_prob=true, create_control_func=true, prn=false)
@@ -336,7 +336,8 @@ end
         sam.sys_struct = sys_struct2
         model_path2 = joinpath(get_data_path(), SymbolicAWEModels.get_model_name(set))
         @test model_path == model_path2
-        # init!(sam; create_prob=false, create_lin_prob=false, create_control_func=false, prn=false)
+        # should create nothing because hashes are broken
+        init!(sam; create_prob=false, create_lin_prob=false, create_control_func=false, prn=false)
         @test isnothing(sam.prob)
         @test isnothing(sam.lin_prob)
         @test isnothing(sam.control_functions)
