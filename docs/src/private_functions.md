@@ -65,8 +65,11 @@ SymbolicAWEModels.linear_vsm_eqs!
 SymbolicAWEModels.force_eqs!
 SymbolicAWEModels.linearize_vsm!
 SymbolicAWEModels.jacobian
-SymbolicAWEModels.generate_getters
-```
+SymbolicAWEModels.load_serialized_model!
+SymbolicAWEModels.generate_getters!
+SymbolicAWEModels.maybe_create_lin_prob!
+SymbolicAWEModels.maybe_create_control_functions!
+SymbolicAWEModels.maybe_create_prob!
 
 ## Utility and Internal Functions
 
