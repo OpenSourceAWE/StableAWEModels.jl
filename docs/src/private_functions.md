@@ -70,6 +70,7 @@ SymbolicAWEModels.generate_getters!
 SymbolicAWEModels.maybe_create_lin_prob!
 SymbolicAWEModels.maybe_create_control_functions!
 SymbolicAWEModels.maybe_create_prob!
+```
 
 ## Utility and Internal Functions
 
