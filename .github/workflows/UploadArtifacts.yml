@@ -40,7 +40,7 @@ jobs:
           # Must match the artifact name used in the build workflow
           name: model-archives-${{ steps.version.outputs.version }}
           # Point to the workflow file that produced the artifact
-          workflow: build-artifacts.yml
+          workflow: BuildArtifacts.yml
           # Use the repository's default branch to find the matching run
           branch: ${{ github.event.repository.default_branch }}
           workflow_conclusion: success
