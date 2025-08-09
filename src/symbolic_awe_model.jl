@@ -34,6 +34,8 @@ $(TYPEDFIELDS)
     lin_outputs::Union{Vector{Union{Symbolics.Arr, Symbolics.Num}}, Nothing} = nothing
     "ODE function of the mtk model"
     prob::Union{OrdinaryDiffEqCore.ODEProblem, Nothing} = nothing
+    control_functions::Union{NamedTuple, Nothing} = nothing
+    inputs::Union{Symbolics.Arr, Vector{Num}, Nothing} = nothing
 
     defaults::Vector{Pair} = Pair[]
     guesses::Vector{Pair} = Pair[]
@@ -265,33 +267,125 @@ function SysState(s::SymbolicAWEModel, zoom=1.0)
 end
 
 """
-    init!(s::SymbolicAWEModel; solver, adaptive, prn, precompile, remake, reload, lin_outputs) -> ODEIntegrator
-
-Initialize a kite power system model, creating or loading a compiled version.
-
-If a serialized model exists for the current configuration, it will load that model
-(fast path). Otherwise, it will create a new model from scratch (slow path).
-
-# Arguments
-- `s::SymbolicAWEModel`: The kite system state object.
-
-# Keyword Arguments
-- `solver`: Solver algorithm to use. If `nothing`, defaults based on `s.set.solver`.
-- `adaptive::Bool=true`: Use adaptive time stepping.
-- `prn::Bool=false`: Print progress information.
-- `precompile::Bool=false`: Build a generic problem for precompilation.
-- `remake::Bool=false`: Force the system to be rebuilt, even if a serialized model exists.
-- `reload::Bool=false`: Force the system to reload the serialized model from disk.
-- `lin_outputs::Vector{Num}=nothing`: List of symbolic variables for linearization.
-
-# Returns
-- `OrdinaryDiffEqCore.ODEIntegrator`: The initialized ODE integrator.
+    load_serialized_model!(s, model_path; remake=false)
+Try to load and validate a serialized model.
 """
-function init!(s::SymbolicAWEModel; 
-    solver=nothing, adaptive=true, prn=true, 
-    precompile=false, remake=false, reload=false, 
-    delta=nothing, stiffness_factor=nothing,
-    lin_outputs=nothing
+function load_serialized_model!(s, model_path; remake=false)
+    if ispath(model_path) && !remake
+        try
+            serialized = deserialize(model_path)
+            if get_set_hash(s.set) == serialized.set_hash &&
+               get_sys_struct_hash(s.sys_struct) == serialized.sys_struct_hash
+                s.serialized_model = serialized
+                return true
+            end
+            return false
+        catch e
+            @warn "Failure to deserialize $model_path: $e"
+        end
+    end
+    return false
+end
+
+"""
+    maybe_create_prob!(s, model_pat(f_ip, f_ooph; create_prob=true)
+Create and store ODEProblem if requested and not present.
+"""
+function maybe_create_prob!(s, lin_outputs; create_prob=true, prn=true)
+    if create_prob && isnothing(s.prob)
+        prn && @info "Simplifying the System..."
+        time = @elapsed @suppress_err begin
+            s.sys = mtkcompile(s.full_sys; inputs = s.inputs,
+                               additional_passes = [ModelingToolkit.IfLifting])
+        end
+        prn && @info "Simplified the System in $time seconds"
+
+        prn && @info "Creating the ODEProblem..."
+        dt = SimFloat(1/s.set.sample_freq)
+        time = @elapsed s.prob = ODEProblem(s.sys, s.defaults, (0.0, dt); s.guesses)
+        prn && @info "Created the ODEProblem in $time seconds"
+
+        prn && @info "Creating getter functions..."
+        funcs, simple_lin_model = generate_getters(s.sys, s.sys_struct, s.lin_prob, lin_outputs)
+        prn && @info "Created the getter functions in $time seconds"
+        s.serialized_model = SerializedModel(
+            set_hash = get_set_hash(s.set),
+            sys_struct_hash = get_sys_struct_hash(s.sys_struct),
+            sys = s.sys,
+            full_sys = s.full_sys,
+            lin_prob = s.lin_prob,
+            lin_outputs = lin_outputs,
+            prob = s.prob,
+            defaults = s.defaults,
+            guesses = s.guesses,
+            simple_lin_model = simple_lin_model;
+            funcs...
+        )
+        return true
+    end
+    return false
+end
+
+"""
+    maybe_create_lin_prob!(s, model_path; create_lin_prob=true)
+Create and store LinearizationProblem if requested and not present.
+"""
+function maybe_create_lin_prob!(s, lin_outputs; create_lin_prob=true, prn=true)
+    if (create_lin_prob && isnothing(s.lin_prob)) ||
+       length(lin_outputs) != length(s.serialized_model.lin_outputs) ||
+       !all(string.(lin_outputs) .== string.(s.serialized_model.lin_outputs)) 
+
+        prn && @info "Creating the LinearizationProblem..."
+        time = @elapsed @suppress_err begin
+            @show s.inputs lin_outputs s.defaults s.guesses
+            lin_fun, _ = linearization_function(s.full_sys, [s.inputs...], lin_outputs;
+                                                op=s.defaults, guesses=s.guesses)
+            s.lin_prob = LinearizationProblem(lin_fun, 0.0)
+        end
+        prn && @info "Created the LinearizationProblem in $time seconds"
+        return true
+    end
+    return false
+end
+
+"""
+Generate control functions if requested and not present.
+"""
+function maybe_create_control_functions!(s; create_control_func=false, prn=true)
+    if create_control_func && isnothing(s.control_functions)
+        function generate_f_h(model, inputs, outputs)
+            (f_ip, f_oop), dvs, psym, io_sys = @suppress_err ModelingToolkit.generate_control_function(
+                model, inputs; simplify=false
+            )
+            nu, nx, ny = length(inputs), length(dvs), length(outputs)
+            (h_oop, h_ip) = ModelingToolkit.build_explicit_observed_function(
+                io_sys, outputs; inputs, return_inplace = true
+            )
+            return (f_oop=f_oop, f_ip=f_ip, h_oop=h_oop, h_ip=h_ip, nu=nu, nx=nx, ny=ny,
+                    dvs=dvs, psym=psym, io_sys=io_sys)
+        end
+        prn && @info "Creating the control functions..."
+        full_sys = s.serialized_model.full_sys
+        inputs = [full_sys.set_values...]
+        outputs = s.serialized_model.lin_outputs
+        s.serialized_model.control_functions = generate_f_h(full_sys, inputs, outputs)
+        prn && @info "Created the control functions in $time seconds"
+        return true
+    end
+    return false
+end
+
+"""
+    init!(s::SymbolicAWEModel; kwargs...)
+Orchestrates model loading/building and integrator creation.
+"""
+function init!(s::SymbolicAWEModel;
+    solver=nothing, adaptive=true, prn=true,
+    remake=false, reload=false,
+    lin_outputs=nothing,
+    create_prob::Bool=true,
+    create_lin_prob::Bool=true,
+    create_control_func::Bool=false
 )
     if isnothing(solver)
         solver = if s.set.solver == "FBDF"
@@ -304,72 +398,36 @@ function init!(s::SymbolicAWEModel;
         end
     end
 
-    function build_and_serialize_model(s, model_path, lin_outputs)
-        reinit!(s.sys_struct, s.set)
-        
-        inputs = create_sys!(s, s.sys_struct; prn)
-        prn && @info "Simplifying the System..."
-        time = @elapsed @suppress_err begin
-            s.sys = mtkcompile(s.full_sys; inputs, additional_passes = [ModelingToolkit.IfLifting])
+    if isnothing(lin_outputs)
+        @variables begin
+            heading(t)[1]
+            angle_of_attack(t)[1]
+            tether_len(t)[1:3]
+            winch_force(t)[1:3]
         end
-        prn && @info "Simplified the System in $time seconds"
-
-        prn && @info "Creating the ODEProblem..."
-        dt = SimFloat(1/s.set.sample_freq)
-        time = @elapsed s.prob = ODEProblem(s.sys, s.defaults, (0.0, dt); s.guesses)
-        prn && @info "Created the ODEProblem in $time seconds"
-
-        if isnothing(lin_outputs)
-            lin_outputs = Num[]
-            if length(s.sys_struct.wings) > 0
-                push!(lin_outputs, s.sys.heading[1], s.sys.angle_of_attack[1])
-            end
-            if length(s.sys_struct.winches) > 0
-                push!(lin_outputs, s.sys.tether_len[1], s.sys.winch_force[1])
-            end
+        lin_outputs = Num[]
+        if length(s.sys_struct.wings) > 0
+            push!(lin_outputs, heading[1], angle_of_attack[1])
         end
-
-        prn && @info "Creating the LinearizationProblem..."
-        time = @elapsed @suppress_err begin
-            lin_fun, _ = linearization_function(s.full_sys, [inputs...], lin_outputs; op=s.defaults, guesses=s.guesses)
-            s.lin_prob = LinearizationProblem(lin_fun, 0.0)
+        if length(s.sys_struct.winches) > 0
+            push!(lin_outputs, tether_len[1], winch_force[1])
         end
-        prn && @info "Created the LinearizationProblem in $time seconds"
+    end
 
-        funcs, simple_lin_model = generate_getters(s.sys, s.sys_struct, s.lin_prob, lin_outputs)
-        
-        # Create the new, fully typed SerializedModel
-        s.serialized_model = SerializedModel(
-            set_hash = get_set_hash(s.set),
-            sys_struct_hash = get_sys_struct_hash(s.sys_struct),
-            sys = s.sys,
-            full_sys = s.full_sys,
-            lin_prob = s.lin_prob,
-            lin_outputs = lin_outputs,
-            prob = s.prob,
-            defaults = s.defaults,
-            guesses = s.guesses,
-            simple_lin_model = simple_lin_model;
-            funcs... # Splat the named tuple of functions
-        )
-
+    reinit!(s.sys_struct, s.set)
+    model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set))
+    loaded = load_serialized_model!(s, model_path; remake)
+    if !loaded
+        s.inputs = create_sys!(s, s.sys_struct; prn)
+    end
+    changed = maybe_create_prob!(s, lin_outputs; create_prob, prn)
+    changed = changed | maybe_create_lin_prob!(s, lin_outputs; create_lin_prob, prn)
+    changed = changed | maybe_create_control_functions!(s; create_control_func, prn)
+    if changed
         serialize(model_path, s.serialized_model)
-        s.integrator = nothing
-        return nothing
     end
 
-    model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set; precompile))
-    if !ispath(model_path) || remake
-        build_and_serialize_model(s, model_path, lin_outputs)
-    end
-
-    _, success = reinit!(s, solver; adaptive, precompile, reload, lin_outputs, prn)
-    if !success
-        rm(model_path)
-        @info "Rebuilding the system. This can take some minutes..."
-        build_and_serialize_model(s, model_path, lin_outputs)
-        reinit!(s, solver; adaptive, precompile, lin_outputs, prn, reload=true)
-    end
+    reinit!(s, solver; adaptive, reload)
     return s.integrator
 end
 
@@ -393,54 +451,48 @@ function reinit!(
     s::SymbolicAWEModel,
     solver;
     adaptive=true,
-    prn=false, 
     reload=true, 
-    precompile=false,
-    lin_outputs=Num[]
 )
-    isnothing(s.sys_struct) && error("SystemStructure not defined")
+    # isnothing(s.sys_struct) && error("SystemStructure not defined")
 
-    if isnothing(s.prob) || reload
-        model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set; precompile))
-        if !ispath(model_path)
-            error("$model_path not found. Run init!(s::SymbolicAWEModel) first.")
-        end
-        prn && @info "Loading model from $model_path"
-        try
-            s.serialized_model = deserialize(model_path)
-        catch e
-            @warn "Failure to deserialize $model_path !"
-            return s.integrator, false
-        end
+    # if isnothing(s.prob) || reload
+    #     model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set; precompile))
+    #     if !ispath(model_path)
+    #         error("$model_path not found. Run init!(s::SymbolicAWEModel) first.")
+    #     end
+    #     prn && @info "Loading model from $model_path"
+    #     try
+    #         s.serialized_model = deserialize(model_path)
+    #     catch e
+    #         @warn "Failure to deserialize $model_path !"
+    #         return s.integrator, false
+    #     end
 
-        if isnothing(lin_outputs)
-            lin_outputs = s.serialized_model.lin_outputs
-        end
+    #     if isnothing(lin_outputs)
+    #         lin_outputs = s.serialized_model.lin_outputs
+    #     end
 
-        if length(lin_outputs) != length(s.serialized_model.lin_outputs) ||
-                !all(string.(lin_outputs) .== string.(s.serialized_model.lin_outputs)) 
-            @warn "The linear model outputs have changed."
-            return s.integrator, false
-        elseif (get_set_hash(s.set) != s.serialized_model.set_hash)
-            @warn "The Settings have changed."
-            return s.integrator, false
-        elseif (get_sys_struct_hash(s.sys_struct) != s.serialized_model.sys_struct_hash)
-            @warn "The SystemStructure has changed."
-            return s.integrator, false
-        end
-    end
+    #     if length(lin_outputs) != length(s.serialized_model.lin_outputs) ||
+    #             !all(string.(lin_outputs) .== string.(s.serialized_model.lin_outputs)) 
+    #         @warn "The linear model outputs have changed."
+    #         return s.integrator, false
+    #     elseif (get_set_hash(s.set) != s.serialized_model.set_hash)
+    #         @warn "The Settings have changed."
+    #         return s.integrator, false
+    #     elseif (get_sys_struct_hash(s.sys_struct) != s.serialized_model.sys_struct_hash)
+    #         @warn "The SystemStructure has changed."
+    #         return s.integrator, false
+    #     end
+    # end
 
     if isnothing(s.integrator) || !successful_retcode(s.integrator.sol) || reload
-        t = @elapsed begin
-            dt = SimFloat(1/s.set.sample_freq)
-            s.integrator = OrdinaryDiffEqCore.init(s.prob, solver; 
-                adaptive, dt, tspan=(0.0, dt), abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
-                save_on=false, save_everystep=false)
-            s.lin_integ = OrdinaryDiffEqCore.init(s.prob, solver; 
-                adaptive, dt, tspan=(0.0, dt), abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
-                save_on=false, save_everystep=false)
-        end
-        prn && @info "Initialized integrator in $t seconds"
+        dt = SimFloat(1/s.set.sample_freq)
+        s.integrator = OrdinaryDiffEqCore.init(s.prob, solver; 
+            adaptive, dt, tspan=(0.0, dt), abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
+            save_on=false, save_everystep=false)
+        s.lin_integ = OrdinaryDiffEqCore.init(s.prob, solver; 
+            adaptive, dt, tspan=(0.0, dt), abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
+            save_on=false, save_everystep=false)
     end
 
     reinit!(s.sys_struct, s.set)
