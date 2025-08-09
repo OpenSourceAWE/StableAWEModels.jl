@@ -162,7 +162,9 @@ function sim_oscillate!(
     set_values = zeros(Float64, steps, num_winches)
 
     if prn
-        @info "Generating oscillating steering commands..."
+        @info "Simulating using oscillating steering inputs\n" *
+              "\twith frequency = $steering_freq Hz\n" *
+              "\tand magnitude = $steering_magnitude N."
     end
 
     for step in 1:steps

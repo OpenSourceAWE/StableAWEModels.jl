@@ -11,7 +11,6 @@ using Statistics, LinearAlgebra
 
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
-init!(sam)
 
 tether_set = Settings("system.yaml")
 tether_sam = SymbolicAWEModel(tether_set, "tether")
@@ -73,6 +72,9 @@ end
         @test tether_sam isa SymbolicAWEModel
         @test tether_sam isa AbstractKiteModel
         
+        init_time = @elapsed init!(sam; prn=true)
+        @show init_time
+        @test init_time < 700
         init!(sam; prn=true)
         init_time = @elapsed init!(sam; prn=true)
         @test init_time < 0.3

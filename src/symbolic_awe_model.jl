@@ -298,16 +298,16 @@ function maybe_create_prob!(s, lin_outputs; create_prob=true, prn=true)
             s.sys = mtkcompile(s.full_sys; inputs = s.inputs,
                                additional_passes = [ModelingToolkit.IfLifting])
         end
-        prn && @info "Simplified the System in $time seconds"
+        prn && @info "Simplified the System in $time seconds."
 
         prn && @info "Creating the ODEProblem..."
         dt = SimFloat(1/s.set.sample_freq)
         time = @elapsed s.prob = ODEProblem(s.sys, s.defaults, (0.0, dt); s.guesses)
-        prn && @info "Created the ODEProblem in $time seconds"
+        prn && @info "Created the ODEProblem in $time seconds."
 
         prn && @info "Creating getter functions..."
         funcs, simple_lin_model = generate_getters(s.sys, s.sys_struct, s.lin_prob, lin_outputs)
-        prn && @info "Created the getter functions in $time seconds"
+        prn && @info "Created the getter functions in $time seconds."
         s.serialized_model = SerializedModel(
             set_hash = get_set_hash(s.set),
             sys_struct_hash = get_sys_struct_hash(s.sys_struct),
@@ -316,8 +316,11 @@ function maybe_create_prob!(s, lin_outputs; create_prob=true, prn=true)
             lin_prob = s.lin_prob,
             lin_outputs = lin_outputs,
             prob = s.prob,
+            control_functions = s.control_functions,
+            inputs = s.inputs,
             defaults = s.defaults,
             guesses = s.guesses,
+            lin_model = s.lin_model,
             simple_lin_model = simple_lin_model;
             funcs...
         )
@@ -337,12 +340,11 @@ function maybe_create_lin_prob!(s, lin_outputs; create_lin_prob=true, prn=true)
 
         prn && @info "Creating the LinearizationProblem..."
         time = @elapsed @suppress_err begin
-            @show s.inputs lin_outputs s.defaults s.guesses
             lin_fun, _ = linearization_function(s.full_sys, [s.inputs...], lin_outputs;
                                                 op=s.defaults, guesses=s.guesses)
             s.lin_prob = LinearizationProblem(lin_fun, 0.0)
         end
-        prn && @info "Created the LinearizationProblem in $time seconds"
+        prn && @info "Created the LinearizationProblem in $time seconds."
         return true
     end
     return false
@@ -351,8 +353,11 @@ end
 """
 Generate control functions if requested and not present.
 """
-function maybe_create_control_functions!(s; create_control_func=false, prn=true)
-    if create_control_func && isnothing(s.control_functions)
+function maybe_create_control_functions!(s, lin_outputs; create_control_func=false, prn=true)
+    if (create_control_func && isnothing(s.control_functions)) ||
+       length(lin_outputs) != length(s.serialized_model.lin_outputs) ||
+       !all(string.(lin_outputs) .== string.(s.serialized_model.lin_outputs)) 
+
         function generate_f_h(model, inputs, outputs)
             (f_ip, f_oop), dvs, psym, io_sys = @suppress_err ModelingToolkit.generate_control_function(
                 model, inputs; simplify=false
@@ -365,11 +370,9 @@ function maybe_create_control_functions!(s; create_control_func=false, prn=true)
                     dvs=dvs, psym=psym, io_sys=io_sys)
         end
         prn && @info "Creating the control functions..."
-        full_sys = s.serialized_model.full_sys
-        inputs = [full_sys.set_values...]
-        outputs = s.serialized_model.lin_outputs
-        s.serialized_model.control_functions = generate_f_h(full_sys, inputs, outputs)
-        prn && @info "Created the control functions in $time seconds"
+        inputs = [s.inputs...]
+        time = @elapsed s.serialized_model.control_functions = generate_f_h(s.full_sys, inputs, lin_outputs)
+        prn && @info "Created the control functions in $time seconds."
         return true
     end
     return false
@@ -387,47 +390,52 @@ function init!(s::SymbolicAWEModel;
     create_lin_prob::Bool=true,
     create_control_func::Bool=false
 )
-    if isnothing(solver)
-        solver = if s.set.solver == "FBDF"
-            s.set.quasi_static ? FBDF(nlsolve=OrdinaryDiffEqNonlinearSolve.NLNewton(relax=s.set.relaxation)) : FBDF()
-        elseif s.set.solver == "QNDF"
-            @warn "This solver is not tested."
-            QNDF()
-        else
-            error("Unavailable solver for SymbolicAWEModel: $(s.set.solver).")
+    prn && @info "Initializing $(s.sys_struct.name) model..."
+    time = @elapsed begin
+        if isnothing(solver)
+            solver = if s.set.solver == "FBDF"
+                s.set.quasi_static ? FBDF(nlsolve=OrdinaryDiffEqNonlinearSolve.NLNewton(relax=s.set.relaxation)) : FBDF()
+            elseif s.set.solver == "QNDF"
+                @warn "This solver is not tested."
+                QNDF()
+            else
+                error("Unavailable solver for SymbolicAWEModel: $(s.set.solver).")
+            end
         end
-    end
 
-    if isnothing(lin_outputs)
-        @variables begin
-            heading(t)[1]
-            angle_of_attack(t)[1]
-            tether_len(t)[1:3]
-            winch_force(t)[1:3]
+        if isnothing(lin_outputs)
+            @variables begin
+                heading(t)[1]
+                angle_of_attack(t)[1]
+                tether_len(t)[1:3]
+                winch_force(t)[1:3]
+            end
+            lin_outputs = Num[]
+            if length(s.sys_struct.wings) > 0
+                push!(lin_outputs, heading[1], angle_of_attack[1])
+            end
+            if length(s.sys_struct.winches) > 0
+                push!(lin_outputs, tether_len[1], winch_force[1])
+            end
         end
-        lin_outputs = Num[]
-        if length(s.sys_struct.wings) > 0
-            push!(lin_outputs, heading[1], angle_of_attack[1])
-        end
-        if length(s.sys_struct.winches) > 0
-            push!(lin_outputs, tether_len[1], winch_force[1])
-        end
-    end
 
-    reinit!(s.sys_struct, s.set)
-    model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set))
-    loaded = load_serialized_model!(s, model_path; remake)
-    if !loaded
-        s.inputs = create_sys!(s, s.sys_struct; prn)
-    end
-    changed = maybe_create_prob!(s, lin_outputs; create_prob, prn)
-    changed = changed | maybe_create_lin_prob!(s, lin_outputs; create_lin_prob, prn)
-    changed = changed | maybe_create_control_functions!(s; create_control_func, prn)
-    if changed
-        serialize(model_path, s.serialized_model)
-    end
+        reinit!(s.sys_struct, s.set)
+        model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set))
+        loaded = load_serialized_model!(s, model_path; remake)
+        if !loaded
+            s.inputs = create_sys!(s, s.sys_struct; prn)
+        end
+        changed = maybe_create_prob!(s, lin_outputs; create_prob, prn)
+        changed = changed | maybe_create_lin_prob!(s, lin_outputs; create_lin_prob, prn)
+        changed = changed | maybe_create_control_functions!(s, lin_outputs; create_control_func, prn)
+        if changed
+            prn && @info "Serializing model."
+            serialize(model_path, s.serialized_model)
+        end
 
-    reinit!(s, solver; adaptive, reload)
+        reinit!(s, solver; adaptive, reload)
+    end
+    prn && @info "$(s.sys_struct.name) model initialized in $time seconds."
     return s.integrator
 end
 
