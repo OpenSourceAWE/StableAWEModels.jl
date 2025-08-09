@@ -28,6 +28,7 @@ using ControlSystemsBase
 using RecipesBase
 using StaticArrays
 using SymbolicIndexingInterface
+using SymbolicIndexingInterface: AbstractIndexer
 
 # --- Solvers (Nonlinear, Differential Equations) ---
 using NonlinearSolve
