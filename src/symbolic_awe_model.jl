@@ -273,6 +273,9 @@ Try to load and validate a serialized model.
 function load_serialized_model!(s, model_path; remake=false)
     if ispath(model_path) && !remake
         try
+            if !isnothing(s.full_sys)
+                return true
+            end
             serialized = deserialize(model_path)
             if get_set_hash(s.set) == serialized.set_hash &&
                get_sys_struct_hash(s.sys_struct) == serialized.sys_struct_hash
