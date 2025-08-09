@@ -93,8 +93,6 @@ $(TYPEDFIELDS)
     am::AtmosphericModel = AtmosphericModel(set)
     "The ODE integrator for the full nonlinear model"
     integrator::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
-    "The ODE integrator for the linearized model"
-    lin_integ::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
     "Relative start time of the current time interval"
     t_0::SimFloat = 0.0
     "Number of next_step! calls"
@@ -391,7 +389,8 @@ function init!(s::SymbolicAWEModel;
     lin_outputs=nothing,
     create_prob::Bool=true,
     create_lin_prob::Bool=true,
-    create_control_func::Bool=false
+    create_control_func::Bool=false,
+    lin_vsm::Bool=true
 )
     prn && @info "Initializing $(s.sys_struct.name) model..."
     time = @elapsed begin
@@ -422,7 +421,6 @@ function init!(s::SymbolicAWEModel;
             end
         end
 
-        reinit!(s.sys_struct, s.set)
         model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set))
         loaded = load_serialized_model!(s, model_path; remake, reload)
         changed = false # wether or not any changes were made to the serialized model
@@ -439,10 +437,19 @@ function init!(s::SymbolicAWEModel;
             serialize(model_path, s.serialized_model)
         end
 
-        reinit!(s, solver; adaptive, reload)
+        reinit!(s.sys_struct, s.set)
+        create_prob && reinit!(s, s.prob, solver; adaptive, reload, lin_vsm)
+        create_lin_prob && reinit!(s, s.lin_prob)
+        create_control_func && reinit!(s, s.control_functions)
     end
     prn && @info "$(s.sys_struct.name) model initialized in $time seconds."
     return s.integrator
+end
+
+function reinit!(sam::SymbolicAWEModel, lin_prob::ModelingToolkit.LinearizationProblem)
+    sam.set_psys(lin_prob, sam.sys_struct)
+    sam.set_set(lin_prob, sam.set)
+    nothing
 end
 
 """
@@ -463,57 +470,22 @@ Reinitialize an existing kite power system model with new state values from `s.s
 """
 function reinit!(
     s::SymbolicAWEModel,
+    prob::ODEProblem,
     solver;
     adaptive=true,
     reload=true, 
+    lin_vsm=true
 )
-    # isnothing(s.sys_struct) && error("SystemStructure not defined")
-
-    # if isnothing(s.prob) || reload
-    #     model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set; precompile))
-    #     if !ispath(model_path)
-    #         error("$model_path not found. Run init!(s::SymbolicAWEModel) first.")
-    #     end
-    #     prn && @info "Loading model from $model_path"
-    #     try
-    #         s.serialized_model = deserialize(model_path)
-    #     catch e
-    #         @warn "Failure to deserialize $model_path !"
-    #         return s.integrator, false
-    #     end
-
-    #     if isnothing(lin_outputs)
-    #         lin_outputs = s.serialized_model.lin_outputs
-    #     end
-
-    #     if length(lin_outputs) != length(s.serialized_model.lin_outputs) ||
-    #             !all(string.(lin_outputs) .== string.(s.serialized_model.lin_outputs)) 
-    #         @warn "The linear model outputs have changed."
-    #         return s.integrator, false
-    #     elseif (get_set_hash(s.set) != s.serialized_model.set_hash)
-    #         @warn "The Settings have changed."
-    #         return s.integrator, false
-    #     elseif (get_sys_struct_hash(s.sys_struct) != s.serialized_model.sys_struct_hash)
-    #         @warn "The SystemStructure has changed."
-    #         return s.integrator, false
-    #     end
-    # end
-
     if isnothing(s.integrator) || !successful_retcode(s.integrator.sol) || reload
         dt = SimFloat(1/s.set.sample_freq)
-        s.integrator = OrdinaryDiffEqCore.init(s.prob, solver; 
-            adaptive, dt, tspan=(0.0, dt), abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
-            save_on=false, save_everystep=false)
-        s.lin_integ = OrdinaryDiffEqCore.init(s.prob, solver; 
+        s.integrator = OrdinaryDiffEqCore.init(prob, solver; 
             adaptive, dt, tspan=(0.0, dt), abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
             save_on=false, save_everystep=false)
     end
-
-    reinit!(s.sys_struct, s.set)
     s.set_psys(s.integrator, s.sys_struct)
     s.set_set(s.integrator, s.set)
     OrdinaryDiffEqCore.reinit!(s.integrator; reinit_dae=true)
-    linearize_vsm!(s)
+    lin_vsm && linearize_vsm!(s)
     update_sys_struct!(s, s.sys_struct)
     return s.integrator, true
 end
