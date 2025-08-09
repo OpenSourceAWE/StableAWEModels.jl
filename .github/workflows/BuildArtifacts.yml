@@ -136,7 +136,7 @@ jobs:
         with:
           name: model-archives-${{ needs.version_check.outputs.version }}
           path: |
-            *.tar.gz
+            data/*.tar.gz
           if-no-files-found: error
           retention-days: 90
 
