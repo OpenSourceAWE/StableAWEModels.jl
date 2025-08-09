@@ -270,10 +270,10 @@ end
     load_serialized_model!(s, model_path; remake=false)
 Try to load and validate a serialized model.
 """
-function load_serialized_model!(s, model_path; remake=false)
+function load_serialized_model!(s, model_path; remake=false, reload=false)
     if ispath(model_path) && !remake
         try
-            if !isnothing(s.full_sys)
+            if !isnothing(s.full_sys) && !reload
                 return true
             end
             serialized = deserialize(model_path)
@@ -424,13 +424,16 @@ function init!(s::SymbolicAWEModel;
 
         reinit!(s.sys_struct, s.set)
         model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set))
-        loaded = load_serialized_model!(s, model_path; remake)
+        loaded = load_serialized_model!(s, model_path; remake, reload)
+        changed = false # wether or not any changes were made to the serialized model
         if !loaded
             s.inputs = create_sys!(s, s.sys_struct; prn)
+            changed = true
         end
-        changed = maybe_create_prob!(s, lin_outputs; create_prob, prn)
+        changed = changed | maybe_create_prob!(s, lin_outputs; create_prob, prn)
         changed = changed | maybe_create_lin_prob!(s, lin_outputs; create_lin_prob, prn)
-        changed = changed | maybe_create_control_functions!(s, lin_outputs; create_control_func, prn)
+        changed = changed | maybe_create_control_functions!(s, lin_outputs;
+                                                            create_control_func, prn)
         if changed
             prn && @info "Serializing model."
             serialize(model_path, s.serialized_model)
