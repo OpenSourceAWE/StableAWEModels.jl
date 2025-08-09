@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: MPL-2.0
 
 using Pkg
 if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
@@ -7,11 +7,10 @@ if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
 end
 using Test, ControlSystemsBase, Printf
 using SymbolicAWEModels, ControlPlots
-using Statistics, LinearAlgebra
+using Statistics, LinearAlgebra, Serialization
 
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
-init!(sam)
 
 tether_set = Settings("system.yaml")
 tether_sam = SymbolicAWEModel(tether_set, "tether")
@@ -73,6 +72,9 @@ end
         @test tether_sam isa SymbolicAWEModel
         @test tether_sam isa AbstractKiteModel
         
+        init_time = @elapsed init!(sam; prn=true)
+        @show init_time
+        @test init_time < 700
         init!(sam; prn=true)
         init_time = @elapsed init!(sam; prn=true)
         @test init_time < 0.3
@@ -236,7 +238,7 @@ end
         println(res.y[:,2])
         @test isapprox(res.y[:,2], 
             [-0.0008037289321365251, 0.0004562826732837309, -0.020711457720341487, 
-                       -0.0017333135190197818], rtol=0.1)
+                        -0.0017333135190197818], rtol=0.1)
 
         find_steady_state!(sam; dt=3.0, t=10.0)
         (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(sam; tstab=1.0)
@@ -245,7 +247,7 @@ end
         println(res.y[:,2])
         @test isapprox(res.y[:,2],
             [0.015575316961016356, -0.0001989661253600774, -0.017933805715950355, 
-                       6.679990358160092], rtol=0.1)
+                        6.679990358160092], rtol=0.1)
 
         # test that linearization is state-dependent
         next_step!(simple_sam; dt=1.0)
@@ -289,6 +291,60 @@ end
         @test sam.integrator[sam.sys.pos[1, end]] > 0.8set.l_tether
         @test isapprox(sam.integrator[sam.sys.pos[2, end]], 0.0, atol=1.0)
         test_plot(sam)
+    end
+    
+    @testset "Serialization and Deserialization" begin
+        points = [
+            Point(1, zeros(3), DYNAMIC; wing_idx=0, transform_idx=1)
+            Point(2, ones(3), DYNAMIC; wing_idx=0, transform_idx=1)
+        ]
+        segments = [
+            Segment(1, set, (1,2), BRIDLE)
+        ]
+        transforms = [Transform(1, zeros(3)...; 
+            base_pos=zeros(3), base_point_idx=1, rot_point_idx=1)]
+        sys_struct = SystemStructure("one_point", set; points, segments, transforms)
+        sam = SymbolicAWEModel(set, sys_struct)
+        model_path = joinpath(get_data_path(), SymbolicAWEModels.get_model_name(set))
+
+        function test_init_with_reset(create_prob, create_lin_prob, create_control_func)
+            println("Create prob: $create_prob \t"*
+                    "lin_prob: $create_lin_prob \t"*
+                    "control_func: $create_control_func")
+            rm(model_path; force=true)
+            sam = SymbolicAWEModel(set, sys_struct)
+            init!(sam; create_prob, create_lin_prob, create_control_func, prn=false)
+            @test isnothing(sam.prob) == !create_prob
+            @test isnothing(sam.lin_prob) == !create_lin_prob
+            @test isnothing(sam.control_functions) == !create_control_func
+        end
+        test_init_with_reset(false, false, false)
+        test_init_with_reset(true, false, false)
+        test_init_with_reset(false, true, false)
+        test_init_with_reset(false, false, true)
+
+        init!(sam; create_prob=true, create_lin_prob=true, create_control_func=true, prn=false)
+        # check if not removed
+        init!(sam; create_prob=false, create_lin_prob=false, create_control_func=false, prn=false)
+        @test !isnothing(sam.prob)
+        @test !isnothing(sam.lin_prob)
+        @test !isnothing(sam.control_functions)
+
+        # same name, check if hash works
+        push!(points, Point(3, [0, 0, 2], DYNAMIC; wing_idx=0, transform_idx=1))        
+        sys_struct2 = SystemStructure("one_point", set; points, segments, transforms)
+        sam.sys_struct = sys_struct2
+        model_path2 = joinpath(get_data_path(), SymbolicAWEModels.get_model_name(set))
+        @test model_path == model_path2
+        # should create nothing because hashes are broken
+        init!(sam; create_prob=false, create_lin_prob=false, create_control_func=false, prn=false)
+        @test isnothing(sam.prob)
+        @test isnothing(sam.lin_prob)
+        @test isnothing(sam.control_functions)
+        init!(sam; create_prob=true, create_lin_prob=true, create_control_func=true, prn=false)
+        @test !isnothing(sam.prob)
+        @test !isnothing(sam.lin_prob)
+        @test !isnothing(sam.control_functions)
     end
 end
 nothing

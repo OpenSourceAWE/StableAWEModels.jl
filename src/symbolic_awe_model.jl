@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{SimFloat}, D::Matrix{SimFloat}}
+const GetSetNothing = Union{AbstractIndexer, Nothing}
 
 """
     @with_kw mutable struct SerializedModel{...}
@@ -10,19 +11,13 @@ A type-stable container for the compiled and serialized components of a `Symboli
 
 This struct holds the products of the `ModelingToolkit.jl` compilation process,
 such as the simplified system, the ODE problem, and various generated functions.
-
-Storing these components allows for fast reloading of a pre-compiled model, avoiding the
-time-consuming symbolic processing step on subsequent runs with the same configuration.
+Caching these components allows for fast reloading of a pre-compiled model,
+avoiding the time-consuming symbolic processing step on subsequent runs with the
+same configuration.
 
 $(TYPEDFIELDS)
 """
-@with_kw mutable struct SerializedModel{
-    F_set_psys, F_set_set_values, F_set_set, F_set_lin_set_values,
-    F_get_set_values, F_get_wing_state, F_get_vsm_y, F_get_segment_state,
-    F_get_winch_state, F_get_tether_state, F_get_struct_state, F_get_point_state,
-    F_get_pulley_state, F_get_group_state, F_get_lin_x,
-    F_get_lin_dx, F_get_lin_y
-}
+@with_kw mutable struct SerializedModel
     set_hash::Vector{UInt8}
     sys_struct_hash::Vector{UInt8}
     "Simplified system of the mtk model"
@@ -34,28 +29,32 @@ $(TYPEDFIELDS)
     lin_outputs::Union{Vector{Union{Symbolics.Arr, Symbolics.Num}}, Nothing} = nothing
     "ODE function of the mtk model"
     prob::Union{OrdinaryDiffEqCore.ODEProblem, Nothing} = nothing
+    control_functions::Union{NamedTuple, Nothing} = nothing
+    inputs::Union{Symbolics.Arr, Vector{Num}, Nothing} = nothing
 
     defaults::Vector{Pair} = Pair[]
     guesses::Vector{Pair} = Pair[]
 
-    set_psys::F_set_psys = nothing
-    set_set_values::F_set_set_values = nothing
-    set_set::F_set_set = nothing
-    set_lin_set_values::F_set_lin_set_values = nothing
+    set_sys::GetSetNothing = nothing
+    set_set_values::GetSetNothing = nothing
+    set_set::GetSetNothing = nothing
+    set_lin_set_values::GetSetNothing = nothing
+    set_lin_sys::GetSetNothing = nothing
+    set_lin_set::GetSetNothing = nothing
     
-    get_set_values::F_get_set_values = nothing
-    get_wing_state::F_get_wing_state = nothing
-    get_vsm_y::F_get_vsm_y = nothing
-    get_segment_state::F_get_segment_state = nothing
-    get_winch_state::F_get_winch_state = nothing
-    get_tether_state::F_get_tether_state = nothing
-    get_struct_state::F_get_struct_state = nothing
-    get_point_state::F_get_point_state = nothing
-    get_pulley_state::F_get_pulley_state = nothing
-    get_group_state::F_get_group_state = nothing
-    get_lin_x::F_get_lin_x = nothing
-    get_lin_dx::F_get_lin_dx = nothing
-    get_lin_y::F_get_lin_y = nothing
+    get_set_values::GetSetNothing = nothing
+    get_wing_state::GetSetNothing = nothing
+    get_vsm_y::GetSetNothing = nothing
+    get_segment_state::GetSetNothing = nothing
+    get_winch_state::GetSetNothing = nothing
+    get_tether_state::GetSetNothing = nothing
+    get_struct_state::GetSetNothing = nothing
+    get_point_state::GetSetNothing = nothing
+    get_pulley_state::GetSetNothing = nothing
+    get_group_state::GetSetNothing = nothing
+    get_lin_x::GetSetNothing = nothing
+    get_lin_dx::GetSetNothing = nothing
+    get_lin_y::GetSetNothing = nothing
 
     lin_model::Union{LinType, Nothing} = nothing
     simple_lin_model::Union{LinType, Nothing} = nothing
@@ -91,8 +90,6 @@ $(TYPEDFIELDS)
     am::AtmosphericModel = AtmosphericModel(set)
     "The ODE integrator for the full nonlinear model"
     integrator::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
-    "The ODE integrator for the linearized model"
-    lin_integ::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
     "Relative start time of the current time interval"
     t_0::SimFloat = 0.0
     "Number of next_step! calls"
@@ -108,7 +105,9 @@ end
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
 
-Overload `getproperty` to allow direct access to fields within the nested `serialized_model`.
+Overloads `getproperty` to allow direct access to fields within the nested `serialized_model`.
+This provides a convenient way to access compiled functions and other model
+components without explicitly referencing `sam.serialized_model`.
 """
 function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
     if hasfield(SymbolicAWEModel, sym)
@@ -121,7 +120,9 @@ end
 """
     Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
 
-Overload `setproperty!` to allow direct setting of fields within the nested `serialized_model`.
+Overloads `setproperty!` to allow direct setting of fields within the nested `serialized_model`.
+This allows you to change properties of the compiled model as if they were
+fields of the `SymbolicAWEModel` itself.
 """
 function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
     if hasfield(SymbolicAWEModel, sym)
@@ -135,7 +136,7 @@ end
 """
     SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; kwargs...)
 
-Constructs a `SymbolicAWEModel` from a `SystemStructure`.
+Constructs a `SymbolicAWEModel` from an existing `SystemStructure`.
 
 This is the primary inner constructor. It takes a `SystemStructure` that defines the
 physical layout of the kite system and prepares it for symbolic model generation.
@@ -157,9 +158,7 @@ function SymbolicAWEModel(
     sys_struct_hash = get_sys_struct_hash(sys_struct)
     # Initialize with an untyped, empty SerializedModel. It will be replaced by a 
     # fully typed one during init!
-    serialized_model = SerializedModel{
-        (repeat([Nothing], 17))...
-    }(; set_hash, sys_struct_hash)
+    serialized_model = SerializedModel(; set_hash, sys_struct_hash)
     return SymbolicAWEModel(; set, sys_struct, serialized_model, kwargs...)
 end
 
@@ -168,9 +167,9 @@ end
 
 Constructs a default `SymbolicAWEModel` with automatically generated components.
 
-This convenience constructor creates a complete AWE model using default configurations:
-- Builds a `SystemStructure` based on the wing geometry and settings.
-- Assembles everything into a ready-to-use symbolic model.
+This convenience constructor automatically creates a complete AWE model:
+- It first builds a `SystemStructure` based on the wing geometry and settings.
+- Then, it assembles everything into a ready-to-use symbolic model.
 
 # Arguments
 - `set::Settings`: Configuration parameters.
@@ -188,6 +187,9 @@ end
     SymbolicAWEModel(set::Settings, name::String; kwargs...)
 
 Constructs a `SymbolicAWEModel` for a specific named physical model.
+
+This convenience constructor sets the `physical_model` field of the `Settings`
+struct and then proceeds to create the model.
 """
 function SymbolicAWEModel(set::Settings, name::String; kwargs...)
     set.physical_model = name
@@ -195,9 +197,23 @@ function SymbolicAWEModel(set::Settings, name::String; kwargs...)
     return SymbolicAWEModel(set, sys_struct)
 end
 
-function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
-    ss.time = isnothing(s.integrator) ? 0.0 : s.integrator.t # Use integrator time
-    @unpack points, groups, segments, pulleys, winches, wings = s.sys_struct
+"""
+    update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
+
+Updates a `SysState` object with the current state values from the `SymbolicAWEModel`.
+
+This function takes the raw data from the model's internal integrator and populates
+the fields of the user-friendly `SysState` struct, converting units (e.g., radians
+to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
+
+# Arguments
+- `ss::SysState`: The state struct to be updated.
+- `s::SymbolicAWEModel`: The source model.
+- `zoom::SimFloat=1.0`: A scaling factor for the position coordinates.
+"""
+function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
+    ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
+    @unpack points, groups, segments, pulleys, winches, wings = sam.sys_struct
 
     # Get the state vectors from the integrator
     if length(winches) > 0
@@ -254,10 +270,25 @@ function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
         ss.Y[point.idx] = point.pos_w[2] * zoom
         ss.Z[point.idx] = point.pos_w[3] * zoom
     end
-    ss.v_wind_gnd .= s.sys_struct.wind_vec_gnd
+    ss.v_wind_gnd .= sam.sys_struct.wind_vec_gnd
     nothing
 end
 
+"""
+    SysState(s::SymbolicAWEModel, zoom=1.0)
+
+Constructs a `SysState` object from a `SymbolicAWEModel`.
+
+This is a convenience constructor that creates a new `SysState` object and populates it
+with the current state of the provided model.
+
+# Arguments
+- `s::SymbolicAWEModel`: The source model.
+- `zoom::SimFloat=1.0`: A scaling factor for the position coordinates.
+
+# Returns
+- `SysState`: A new state struct representing the current model state.
+"""
 function SysState(s::SymbolicAWEModel, zoom=1.0)
     ss = SysState{length(s.sys_struct.points)}()
     update_sys_state!(ss, s, zoom)
@@ -265,197 +296,318 @@ function SysState(s::SymbolicAWEModel, zoom=1.0)
 end
 
 """
-    init!(s::SymbolicAWEModel; solver, adaptive, prn, precompile, remake, reload, lin_outputs) -> ODEIntegrator
+    load_serialized_model!(s, model_path; remake=false, reload=false)
 
-Initialize a kite power system model, creating or loading a compiled version.
+Attempts to load a serialized model from a file and validate it.
 
-If a serialized model exists for the current configuration, it will load that model
-(fast path). Otherwise, it will create a new model from scratch (slow path).
+The function checks if the model exists at `model_path` and if its hashes
+match the current settings and system structure. If a match is found and
+`remake` is false, it loads the model.
 
 # Arguments
-- `s::SymbolicAWEModel`: The kite system state object.
-
-# Keyword Arguments
-- `solver`: Solver algorithm to use. If `nothing`, defaults based on `s.set.solver`.
-- `adaptive::Bool=true`: Use adaptive time stepping.
-- `prn::Bool=false`: Print progress information.
-- `precompile::Bool=false`: Build a generic problem for precompilation.
-- `remake::Bool=false`: Force the system to be rebuilt, even if a serialized model exists.
-- `reload::Bool=false`: Force the system to reload the serialized model from disk.
-- `lin_outputs::Vector{Num}=nothing`: List of symbolic variables for linearization.
+- `s`: The `SymbolicAWEModel` to load into.
+- `model_path`: The path to the serialized model file.
+- `remake::Bool=false`: If true, forces the model to be re-created even if a file exists.
+- `reload::Bool=false`: If true, forces a reload from disk even if a model is already loaded.
 
 # Returns
-- `OrdinaryDiffEqCore.ODEIntegrator`: The initialized ODE integrator.
+- `Bool`: `true` if the model was successfully loaded, `false` otherwise.
 """
-function init!(s::SymbolicAWEModel; 
-    solver=nothing, adaptive=true, prn=true, 
-    precompile=false, remake=false, reload=false, 
-    delta=nothing, stiffness_factor=nothing,
-    lin_outputs=nothing
-)
-    if isnothing(solver)
-        solver = if s.set.solver == "FBDF"
-            s.set.quasi_static ? FBDF(nlsolve=OrdinaryDiffEqNonlinearSolve.NLNewton(relax=s.set.relaxation)) : FBDF()
-        elseif s.set.solver == "QNDF"
-            @warn "This solver is not tested."
-            QNDF()
-        else
-            error("Unavailable solver for SymbolicAWEModel: $(s.set.solver).")
+function load_serialized_model!(sam, model_path; remake=false, reload=false)
+    set_hash = get_set_hash(sam.set)
+    sys_struct_hash = get_sys_struct_hash(sam.sys_struct)
+    
+    # Check if we have a serialized model file and don't want to remake it
+    if ispath(model_path) && !remake
+        # If the current hashes do not match the stored ones, reset the serialized model
+        if set_hash != sam.set_hash || sys_struct_hash != sam.sys_struct_hash
+            sam.serialized_model = SerializedModel(; set_hash, sys_struct_hash)
+            return false
+        end
+
+        # If the full system is already loaded and reload not requested, keep it as is
+        if !isnothing(sam.full_sys) && !reload
+            return true
+        end
+
+        # Attempt to deserialize the stored serialized model
+        try
+            serialized_model = deserialize(model_path)
+            # If hashes do not match after deserialization, reset serialized model
+            if set_hash != serialized_model.set_hash || sys_struct_hash != serialized_model.sys_struct_hash
+                sam.serialized_model = SerializedModel(; set_hash, sys_struct_hash)
+                return false
+            end
+            # Success: assign deserialized model
+            sam.serialized_model = serialized_model
+            return true
+        catch e
+            @warn "Failure to deserialize $model_path: $e"
+            # Fall through to recreate serialized model below
         end
     end
+    # If no file or remake requested, initialize a new SerializedModel
+    sam.serialized_model = SerializedModel(; set_hash, sys_struct_hash)
+    return false
+end
 
-    function build_and_serialize_model(s, model_path, lin_outputs)
-        reinit!(s.sys_struct, s.set)
-        
-        inputs = create_sys!(s, s.sys_struct; prn)
+
+"""
+    maybe_create_prob!(s, lin_outputs; create_prob=true, prn=true)
+
+Conditionally creates and stores the `ODEProblem` and generated getter/setter functions.
+
+This function simplifies the full symbolic system and creates the `ODEProblem` needed
+for simulation. It also generates and stores optimized functions for accessing
+and updating model state, which is a key performance optimization.
+"""
+function maybe_create_prob!(sam, lin_outputs; create_prob=true, prn=true)
+    if create_prob && isnothing(sam.prob)
         prn && @info "Simplifying the System..."
         time = @elapsed @suppress_err begin
-            s.sys = mtkcompile(s.full_sys; inputs, additional_passes = [ModelingToolkit.IfLifting])
+            sam.sys = mtkcompile(sam.full_sys; inputs = sam.inputs,
+                                 additional_passes = [ModelingToolkit.IfLifting])
         end
-        prn && @info "Simplified the System in $time seconds"
+        prn && @info "Simplified the System in $time seconds."
 
         prn && @info "Creating the ODEProblem..."
-        dt = SimFloat(1/s.set.sample_freq)
-        time = @elapsed s.prob = ODEProblem(s.sys, s.defaults, (0.0, dt); s.guesses)
-        prn && @info "Created the ODEProblem in $time seconds"
+        dt = SimFloat(1/sam.set.sample_freq)
+        time = @elapsed sam.prob = ODEProblem(sam.sys, sam.defaults, (0.0, dt); sam.guesses)
+        prn && @info "Created the ODEProblem in $time seconds."
 
-        if isnothing(lin_outputs)
-            lin_outputs = Num[]
-            if length(s.sys_struct.wings) > 0
-                push!(lin_outputs, s.sys.heading[1], s.sys.angle_of_attack[1])
-            end
-            if length(s.sys_struct.winches) > 0
-                push!(lin_outputs, s.sys.tether_len[1], s.sys.winch_force[1])
-            end
-        end
-
-        prn && @info "Creating the LinearizationProblem..."
-        time = @elapsed @suppress_err begin
-            lin_fun, _ = linearization_function(s.full_sys, [inputs...], lin_outputs; op=s.defaults, guesses=s.guesses)
-            s.lin_prob = LinearizationProblem(lin_fun, 0.0)
-        end
-        prn && @info "Created the LinearizationProblem in $time seconds"
-
-        funcs, simple_lin_model = generate_getters(s.sys, s.sys_struct, s.lin_prob, lin_outputs)
-        
-        # Create the new, fully typed SerializedModel
-        s.serialized_model = SerializedModel(
-            set_hash = get_set_hash(s.set),
-            sys_struct_hash = get_sys_struct_hash(s.sys_struct),
-            sys = s.sys,
-            full_sys = s.full_sys,
-            lin_prob = s.lin_prob,
-            lin_outputs = lin_outputs,
-            prob = s.prob,
-            defaults = s.defaults,
-            guesses = s.guesses,
-            simple_lin_model = simple_lin_model;
-            funcs... # Splat the named tuple of functions
-        )
-
-        serialize(model_path, s.serialized_model)
-        s.integrator = nothing
-        return nothing
+        prn && @info "Creating getter functions..."
+        generate_getters!(sam, sam.sys, lin_outputs)
+        prn && @info "Created the getter functions in $time seconds."
+        return true
     end
-
-    model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set; precompile))
-    if !ispath(model_path) || remake
-        build_and_serialize_model(s, model_path, lin_outputs)
-    end
-
-    _, success = reinit!(s, solver; adaptive, precompile, reload, lin_outputs, prn)
-    if !success
-        rm(model_path)
-        @info "Rebuilding the system. This can take some minutes..."
-        build_and_serialize_model(s, model_path, lin_outputs)
-        reinit!(s, solver; adaptive, precompile, lin_outputs, prn, reload=true)
-    end
-    return s.integrator
+    return false
 end
 
 """
-    reinit!(s::SymbolicAWEModel, solver; prn, precompile, reload, lin_outputs) -> (ODEIntegrator, Bool)
+    maybe_create_lin_prob!(s, lin_outputs; create_lin_prob=true, prn=true)
 
-Reinitialize an existing kite power system model with new state values from `s.set`.
+Conditionally creates and stores a `LinearizationProblem` for the model.
+
+This function is called if a linearization problem is needed and not already present.
+It sets up the symbolic functions necessary to linearize the system around an operating point.
+"""
+function maybe_create_lin_prob!(sam, lin_outputs; create_lin_prob=true, prn=true)
+    if create_lin_prob
+        if isnothing(sam.lin_prob) ||
+           isnothing(sam.lin_outputs) ||
+           length(lin_outputs) != length(sam.serialized_model.lin_outputs) ||
+           !all(string.(lin_outputs) .== string.(sam.serialized_model.lin_outputs)) 
+
+            prn && @info "Creating the LinearizationProblem..."
+            time = @elapsed @suppress_err begin
+                lin_fun, lin_sys = linearization_function(sam.full_sys, [sam.inputs...], lin_outputs;
+                                                      op=sam.defaults, guesses=sam.guesses)
+                sam.lin_prob = LinearizationProblem(lin_fun, 0.0)
+                generate_lin_getters!(sam, lin_sys)
+            end
+            prn && @info "Created the LinearizationProblem in $time seconds."
+            return true
+        end
+    end
+    return false
+end
+
+"""
+    maybe_create_control_functions!(s, lin_outputs; create_control_func=false, prn=true)
+
+Conditionally generates control functions if requested and not yet present.
+
+This function creates the functions required for advanced control, such as state and
+output mapping from inputs, by using `ModelingToolkit.jl`'s control function
+generation capabilities.
+"""
+function maybe_create_control_functions!(sam, lin_outputs; create_control_func=false, prn=true)
+    if create_control_func
+        if isnothing(sam.control_functions) ||
+           length(lin_outputs) != length(sam.serialized_model.lin_outputs) ||
+           !all(string.(lin_outputs) .== string.(sam.serialized_model.lin_outputs)) 
+
+            function generate_f_h(model, inputs, outputs)
+                (f_ip, f_oop), dvs, psym, io_sys = @suppress_err ModelingToolkit.generate_control_function(
+                    model, inputs; simplify=false
+                )
+                nu, nx, ny = length(inputs), length(dvs), length(outputs)
+                (h_oop, h_ip) = ModelingToolkit.build_explicit_observed_function(
+                    io_sys, outputs; inputs, return_inplace = true
+                )
+                return (f_oop=f_oop, f_ip=f_ip, h_oop=h_oop, h_ip=h_ip, nu=nu, nx=nx, ny=ny,
+                          dvs=dvs, psym=psym, io_sys=io_sys)
+            end
+            prn && @info "Creating the control functions..."
+            inputs = [sam.inputs...]
+            time = @elapsed sam.serialized_model.control_functions = generate_f_h(sam.full_sys, inputs, lin_outputs)
+            prn && @info "Created the control functions in $time seconds."
+            return true
+        end
+    end
+    return false
+end
+
+"""
+    init!(s::SymbolicAWEModel; kwargs...)
+
+Orchestrates the entire model loading, building, and integrator creation process.
+
+This is the main initialization function. It first checks for a cached model file,
+creates the symbolic model if necessary, and then initializes the ODE integrator.
+It also handles the creation of linearization and control functions if requested.
+
+# Keyword Arguments
+- `solver`: The ODE solver to use (e.g., `FBDF`). Defaults to the solver specified in `s.set`.
+- `adaptive::Bool=true`: Whether to use an adaptive time-stepping algorithm.
+- `prn::Bool=true`: Whether to print progress information to the console.
+- `remake::Bool=false`: Forces the model to be re-created from scratch, ignoring cached files.
+- `reload::Bool=false`: Forces a reload from a cached file, even if the model is already in memory.
+- `lin_outputs::Vector{Num}=nothing`: Specifies the outputs for the linearized model.
+- `create_prob::Bool=true`: If `true`, creates the `ODEProblem`.
+- `create_lin_prob::Bool=true`: If `true`, creates the `LinearizationProblem`.
+- `create_control_func::Bool=false`: If `true`, generates control functions.
+- `lin_vsm::Bool=true`: If `true`, linearizes the VSM model during reinitialization.
+
+# Returns
+- `ODEIntegrator`: The initialized ODE integrator.
+"""
+function init!(sam::SymbolicAWEModel;
+    solver=nothing, adaptive=true, prn=true,
+    remake=false, reload=false,
+    lin_outputs=nothing,
+    create_prob::Bool=true,
+    create_lin_prob::Bool=true,
+    create_control_func::Bool=false,
+    lin_vsm::Bool=true
+)
+    prn && @info "Initializing $(sam.sys_struct.name) model..."
+    time = @elapsed begin
+        if isnothing(solver)
+            solver = if sam.set.solver == "FBDF"
+                sam.set.quasi_static ? FBDF(nlsolve=OrdinaryDiffEqNonlinearSolve.NLNewton(relax=sam.set.relaxation)) : FBDF()
+            elseif sam.set.solver == "QNDF"
+                @warn "This solver is not tested."
+                QNDF()
+            else
+                error("Unavailable solver for SymbolicAWEModel: $(sam.set.solver).")
+            end
+        end
+
+        if isnothing(lin_outputs)
+            @variables begin
+                heading(t)[1]
+                angle_of_attack(t)[1]
+                tether_len(t)[1:3]
+                winch_force(t)[1:3]
+            end
+            lin_outputs = Num[]
+            if length(sam.sys_struct.wings) > 0
+                push!(lin_outputs, heading[1], angle_of_attack[1])
+            end
+            if length(sam.sys_struct.winches) > 0
+                push!(lin_outputs, tether_len[1], winch_force[1])
+            end
+        end
+
+        model_path = joinpath(KiteUtils.get_data_path(), get_model_name(sam.set))
+        loaded = load_serialized_model!(sam, model_path; remake, reload)
+        changed = false # wether or not any changes were made to the serialized model
+        if !loaded
+            sam.inputs = create_sys!(sam, sam.sys_struct; prn)
+            changed = true
+        end
+        changed = changed | maybe_create_prob!(sam, lin_outputs; create_prob, prn)
+        changed = changed | maybe_create_lin_prob!(sam, lin_outputs; create_lin_prob, prn)
+        changed = changed | maybe_create_control_functions!(sam, lin_outputs;
+                                                           create_control_func, prn)
+        if changed
+            prn && @info "Serializing model."
+            sam.lin_outputs = lin_outputs
+            serialize(model_path, sam.serialized_model)
+        end
+
+        reinit!(sam.sys_struct, sam.set)
+        create_prob && reinit!(sam, sam.prob, solver; adaptive, reload, lin_vsm)
+        create_lin_prob && reinit!(sam, sam.lin_prob)
+        # create_control_func && reinit!(s, sam.control_functions)
+    end
+    prn && @info "$(sam.sys_struct.name) model initialized in $time seconds."
+    return sam.integrator
+end
+
+"""
+    reinit!(sam::SymbolicAWEModel, lin_prob::ModelingToolkit.LinearizationProblem)
+
+Reinitializes a `LinearizationProblem` with the current system and settings parameters.
+
+This function updates the internal parameter vectors of the linearization problem
+with the latest values from the `SymbolicAWEModel`'s `sys_struct` and `set` fields.
+"""
+function reinit!(sam::SymbolicAWEModel, lin_prob::ModelingToolkit.LinearizationProblem)
+    sam.set_lin_sys(lin_prob, sam.sys_struct)
+    sam.set_lin_set(lin_prob, sam.set)
+    nothing
+end
+
+"""
+    reinit!(s::SymbolicAWEModel, prob::ODEProblem, solver; prn, precompile, reload, lin_outputs) -> (ODEIntegrator, Bool)
+
+Reinitializes an existing kite power system model's ODE integrator.
+
+This function resets the integrator's state with new values from `s.set`,
+allowing for the simulation to be restarted from a new initial condition
+without needing to rebuild the entire symbolic model.
 
 # Arguments
 - `s::SymbolicAWEModel`: The kite power system state object.
+- `prob::ODEProblem`: The ODE problem to be solved.
 - `solver`: The solver to be used.
-- `prn::Bool=false`: Whether to print progress information.
-- `precompile::Bool=false`: Load the precompiled version of the model.
+
+# Keyword Arguments
+- `adaptive::Bool=true`: Whether to use adaptive time-stepping.
 - `reload::Bool=true`: Force reloading the model from disk.
-- `lin_outputs::Vector{Num}=Num[]`: Outputs for the linearized model.
+- `lin_vsm::Bool=true`: If `true`, linearizes the VSM model after reinitialization.
 
 # Returns
 - `(ODEIntegrator, Bool)`: A tuple containing the reinitialized integrator and a success flag.
 """
 function reinit!(
-    s::SymbolicAWEModel,
+    sam::SymbolicAWEModel,
+    prob::ODEProblem,
     solver;
     adaptive=true,
-    prn=false, 
     reload=true, 
-    precompile=false,
-    lin_outputs=Num[]
+    lin_vsm=true
 )
-    isnothing(s.sys_struct) && error("SystemStructure not defined")
-
-    if isnothing(s.prob) || reload
-        model_path = joinpath(KiteUtils.get_data_path(), get_model_name(s.set; precompile))
-        if !ispath(model_path)
-            error("$model_path not found. Run init!(s::SymbolicAWEModel) first.")
-        end
-        prn && @info "Loading model from $model_path"
-        try
-            s.serialized_model = deserialize(model_path)
-        catch e
-            @warn "Failure to deserialize $model_path !"
-            return s.integrator, false
-        end
-
-        if isnothing(lin_outputs)
-            lin_outputs = s.serialized_model.lin_outputs
-        end
-
-        if length(lin_outputs) != length(s.serialized_model.lin_outputs) ||
-                !all(string.(lin_outputs) .== string.(s.serialized_model.lin_outputs)) 
-            @warn "The linear model outputs have changed."
-            return s.integrator, false
-        elseif (get_set_hash(s.set) != s.serialized_model.set_hash)
-            @warn "The Settings have changed."
-            return s.integrator, false
-        elseif (get_sys_struct_hash(s.sys_struct) != s.serialized_model.sys_struct_hash)
-            @warn "The SystemStructure has changed."
-            return s.integrator, false
-        end
+    if isnothing(sam.integrator) || !successful_retcode(sam.integrator.sol) || reload
+        dt = SimFloat(1/sam.set.sample_freq)
+        sam.integrator = OrdinaryDiffEqCore.init(prob, solver; 
+            adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol, 
+            save_on=false, save_everystep=false)
     end
+    sam.set_sys(sam.integrator, sam.sys_struct)
+    sam.set_set(sam.integrator, sam.set)
+    OrdinaryDiffEqCore.reinit!(sam.integrator; reinit_dae=true)
+    lin_vsm && linearize_vsm!(sam)
+    update_sys_struct!(sam, sam.sys_struct)
+    return sam.integrator, true
+end
 
-    if isnothing(s.integrator) || !successful_retcode(s.integrator.sol) || reload
-        t = @elapsed begin
-            dt = SimFloat(1/s.set.sample_freq)
-            s.integrator = OrdinaryDiffEqCore.init(s.prob, solver; 
-                adaptive, dt, tspan=(0.0, dt), abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
-                save_on=false, save_everystep=false)
-            s.lin_integ = OrdinaryDiffEqCore.init(s.prob, solver; 
-                adaptive, dt, tspan=(0.0, dt), abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
-                save_on=false, save_everystep=false)
-        end
-        prn && @info "Initialized integrator in $t seconds"
+function generate_lin_getters!(sam, sys)
+    sam.set_lin_set_values = nothing
+    if length(sam.sys_struct.winches) > 0
+        sam.set_lin_set_values = setp(sys, sys.set_values)
     end
-
-    reinit!(s.sys_struct, s.set)
-    s.set_psys(s.integrator, s.sys_struct)
-    s.set_set(s.integrator, s.set)
-    OrdinaryDiffEqCore.reinit!(s.integrator; reinit_dae=true)
-    linearize_vsm!(s)
-    update_sys_struct!(s, s.sys_struct)
-    return s.integrator, true
+    sam.set_lin_sys=setp(sys, sys.psys)
+    sam.set_lin_set=setp(sys, sys.pset)
+    nothing
 end
 
 """
     generate_getters(sys, sys_struct, lin_prob, lin_y_vec) -> NamedTuple
 
-Generate and compile optimized getter and setter functions for the model.
+Generates and compiles optimized getter and setter functions for the model.
 
 This internal function uses the symbolic system definition from `ModelingToolkit.jl`
 to create fast, non-allocating functions for accessing and modifying the system's
@@ -463,19 +615,20 @@ state and parameters directly within the ODE integrator's data structures. This 
 a key optimization that avoids symbolic lookups during the simulation loop.
 
 # Returns
-- `NamedTuple`: A named tuple containing all the generated functions.
+- `NamedTuple`: A named tuple containing all the generated functions and a simplified
+                linear model representation.
 """
-function generate_getters(sys, sys_struct, lin_prob, lin_y_vec)
+function generate_getters!(sam, sys, lin_y_vec)
     c = collect
-    @unpack wings, groups, pulleys, winches, tethers, segments = sys_struct
+    @unpack wings, groups, pulleys, winches, tethers, segments = sam.sys_struct
 
     # Initialize all potential functions to nothing
-    get_lin_x, get_lin_dx, get_lin_y = nothing, nothing, nothing
-    get_wing_state, get_vsm_y = nothing, nothing
-    get_segment_state, get_group_state, get_pulley_state = nothing, nothing, nothing
-    get_winch_state, get_tether_state = nothing, nothing
-    set_lin_set_values, set_set_values, get_set_values = nothing, nothing, nothing
-    simple_lin_model = nothing
+    sam.get_lin_x, sam.get_lin_dx, sam.get_lin_y = nothing, nothing, nothing
+    sam.get_wing_state, sam.get_vsm_y = nothing, nothing
+    sam.get_segment_state, sam.get_group_state, sam.get_pulley_state = nothing, nothing, nothing
+    sam.get_winch_state, sam.get_tether_state = nothing, nothing
+    sam.set_set_values, sam.get_set_values = nothing, nothing
+    sam.simple_lin_model = nothing
 
     if length(wings) == 1
         lin_x_vec = [
@@ -488,14 +641,14 @@ function generate_getters(sys, sys_struct, lin_prob, lin_y_vec)
             sys.tether_vel[1], sys.tether_vel[2], sys.tether_vel[3],
             sys.tether_acc[1], sys.tether_acc[2], sys.tether_acc[3]
         ]
-        get_lin_x = getu(sys, lin_x_vec)
-        get_lin_dx = getu(sys, lin_dx_vec)
-        get_lin_y = getu(sys, lin_y_vec)
+        sam.get_lin_x = getu(sys, lin_x_vec)
+        sam.get_lin_dx = getu(sys, lin_dx_vec)
+        sam.get_lin_y = getu(sys, lin_y_vec)
 
         nx = length(lin_x_vec)
         ny = length(lin_y_vec)
         nu = length(winches)
-        simple_lin_model = (
+        sam.simple_lin_model = (
             A = zeros(nx, nx),
             B = zeros(nx, nu),
             C = zeros(ny, nx),
@@ -512,12 +665,12 @@ function generate_getters(sys, sys_struct, lin_prob, lin_y_vec)
             sys.heading, sys.turn_rate, sys.turn_acc,
             sys.course, sys.angle_of_attack,
         ])
-        get_wing_state = getu(sys, wing_state_vars)
-        get_vsm_y = getu(sys, sys.y)
+        sam.get_wing_state = getu(sys, wing_state_vars)
+        sam.get_vsm_y = getu(sys, sys.y)
     end
 
     if length(segments) > 0
-        get_segment_state = getu(sys, c.([sys.spring_force, sys.len]))
+        sam.get_segment_state = getu(sys, c.([sys.spring_force, sys.len]))
     end
 
     if length(groups) > 0
@@ -525,54 +678,39 @@ function generate_getters(sys, sys_struct, lin_prob, lin_y_vec)
             sys.twist_angle, sys.twist_ω, sys.group_tether_force,
             sys.group_tether_moment, sys.group_aero_moment,
         ])
-        get_group_state = getu(sys, group_state_vars)
+        sam.get_group_state = getu(sys, group_state_vars)
     end
     
     if length(pulleys) > 0
-        get_pulley_state = getu(sys, c.([sys.pulley_len, sys.pulley_vel]))
+        sam.get_pulley_state = getu(sys, c.([sys.pulley_len, sys.pulley_vel]))
     end
 
     if length(winches) > 0
         winch_state_vars = c.([
              sys.tether_len, sys.tether_vel, sys.set_values, sys.winch_force_vec,
         ])
-        get_winch_state = getu(sys, winch_state_vars)
-        set_set_values = setp(sys, sys.set_values)
-        get_set_values = getp(sys, sys.set_values)
-        if !isnothing(lin_prob)
-            set_lin_set_values = setp(lin_prob, sys.set_values)
-        end
+        sam.get_winch_state = getu(sys, winch_state_vars)
+        sam.set_set_values = setp(sys, sys.set_values)
+        sam.get_set_values = getp(sys, sys.set_values)
     end
 
     if length(tethers) > 0
-        get_tether_state = getu(sys, c(sys.stretched_len))
+        sam.get_tether_state = getu(sys, c(sys.stretched_len))
     end
 
-    return (
-        set_psys = setp(sys, sys.psys),
-        set_set_values = set_set_values,
-        set_set = setp(sys, sys.pset),
-        set_lin_set_values = set_lin_set_values,
-        get_set_values = get_set_values,
-        get_wing_state = get_wing_state,
-        get_vsm_y = get_vsm_y,
-        get_segment_state = get_segment_state,
-        get_winch_state = get_winch_state,
-        get_tether_state = get_tether_state,
-        get_struct_state = getu(sys, sys.wind_vec_gnd),
-        get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force])),
-        get_pulley_state = get_pulley_state,
-        get_group_state = get_group_state,
-        get_lin_x = get_lin_x,
-        get_lin_dx = get_lin_dx,
-        get_lin_y = get_lin_y,
-    ), simple_lin_model
+    sam.set_sys = setp(sys, sys.psys)
+    sam.set_set = setp(sys, sys.pset)
+    sam.get_struct_state = getu(sys, sys.wind_vec_gnd)
+    sam.get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force]))
+    nothing
 end
 
 """
     next_step!(s::SymbolicAWEModel, integrator::ODEIntegrator; set_values, dt, vsm_interval)
 
 Take a simulation step, using the provided integrator.
+
+This is a convenience method that calls the main `next_step!` function.
 """
 function next_step!(s::SymbolicAWEModel, integrator::OrdinaryDiffEqCore.ODEIntegrator; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
     !(s.integrator === integrator) && error("The ODEIntegrator doesn't belong to the SymbolicAWEModel")
@@ -584,65 +722,70 @@ end
 
 Take a simulation step forward in time.
 
+This function advances the simulation by one time step, optionally updating control
+inputs and re-linearizing the VSM model. It then updates the `SystemStructure`
+with the new state from the ODE integrator.
+
 # Arguments
 - `s::SymbolicAWEModel`: The kite power system state object.
 
 # Keyword Arguments
 - `set_values=nothing`: New values for the control inputs. If `nothing`, the current values are used.
 - `dt=1/s.set.sample_freq`: Time step size [s].
-- `vsm_interval=1`: Interval (in steps) to re-linearize the VSM model. If 0, it is not re-linearized.
+- `vsm_interval=1`: The interval (in steps) to re-linearize the VSM model. If 0, it is not re-linearized.
 """
-function next_step!(s::SymbolicAWEModel; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
+function next_step!(sam::SymbolicAWEModel; set_values=nothing, dt=1/sam.set.sample_freq, vsm_interval=1)
     if (!isnothing(set_values)) 
-        s.set_set_values(s.integrator, set_values)
+        sam.set_set_values(sam.integrator, set_values)
     end
-    if vsm_interval != 0 && s.iter % vsm_interval == 0
-        s.t_vsm = @elapsed linearize_vsm!(s)
+    if vsm_interval != 0 && sam.iter % vsm_interval == 0
+        sam.t_vsm = @elapsed linearize_vsm!(sam)
     end
     
-    s.t_0 = s.integrator.t
-    s.t_step = @elapsed OrdinaryDiffEqCore.step!(s.integrator, dt, true)
-    if !successful_retcode(s.integrator.sol)
-        @warn "Return code for solution: $(s.integrator.sol.retcode)"
+    sam.t_0 = sam.integrator.t
+    sam.t_step = @elapsed OrdinaryDiffEqCore.step!(sam.integrator, dt, true)
+    if !successful_retcode(sam.integrator.sol)
+        @warn "Return code for solution: $(sam.integrator.sol.retcode)"
     end
-    @assert successful_retcode(s.integrator.sol)
-    s.iter += 1
-    update_sys_struct!(s, s.sys_struct)
+    @assert successful_retcode(sam.integrator.sol)
+    sam.iter += 1
+    update_sys_struct!(sam, sam.sys_struct)
     return nothing
 end
 
 """
     update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, integ=s.integrator)
 
-Update the high-level `SystemStructure` from the low-level integrator state vector.
+Updates the high-level `SystemStructure` from the low-level integrator state vector.
 
 This function reads the raw state vector from the ODE integrator and uses the generated
-getter functions to populate the human-readable fields in the `SystemStructure`.
+getter functions to populate the human-readable fields in the `SystemStructure`. This
+synchronization step is crucial for making the simulation results accessible.
 """
-function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, integ=s.integrator)
+function update_sys_struct!(sam::SymbolicAWEModel, sys_struct::SystemStructure, integ=sam.integrator)
     @unpack points, groups, segments, pulleys, winches, tethers, wings = sys_struct
-    pos, vel, force = s.get_point_state(integ)
+    pos, vel, force = sam.get_point_state(integ)
     for point in points
         point.pos_w .= pos[:, point.idx]
         point.vel_w .= vel[:, point.idx]
         point.force .= force[:, point.idx]
     end
     if length(pulleys) > 0
-        len, vel = s.get_pulley_state(integ)
+        len, vel = sam.get_pulley_state(integ)
         for pulley in pulleys
             pulley.len = len[pulley.idx]
             pulley.vel = vel[pulley.idx]
         end
     end
     if length(segments) > 0
-        spring_force, len = s.get_segment_state(integ)
+        spring_force, len = sam.get_segment_state(integ)
         for segment in segments
             segment.force = spring_force[segment.idx]
             segment.len = len[segment.idx]
         end
     end
     if length(groups) > 0
-        twist, twist_ω, tether_force, tether_moment, aero_moment = s.get_group_state(integ)
+        twist, twist_ω, tether_force, tether_moment, aero_moment = sam.get_group_state(integ)
         for group in groups
             group.twist = twist[group.idx]
             group.twist_ω = twist_ω[group.idx]
@@ -652,7 +795,7 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, in
         end
     end
     if length(winches) > 0
-        tether_len, tether_vel, set_value, winch_force_vec = s.get_winch_state(integ)
+        tether_len, tether_vel, set_value, winch_force_vec = sam.get_winch_state(integ)
         for winch in winches
             winch.tether_len = tether_len[winch.idx]
             winch.tether_vel = tether_vel[winch.idx]
@@ -661,13 +804,13 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, in
         end
     end
     if length(tethers) > 0
-        stretched_len = s.get_tether_state(integ)
+        stretched_len = sam.get_tether_state(integ)
         for tether in tethers
             tether.stretched_len = stretched_len[tether.idx]
         end
     end
     if length(wings) > 0
-        wing_state = s.get_wing_state(integ)
+        wing_state = sam.get_wing_state(integ)
         Q_b_w, ω_b, pos_w, vel_w, acc_w, va_b, v_wind, 
             aero_force_b, aero_moment_b, elevation, elevation_vel,
             elevation_acc, azimuth, azimuth_vel, azimuth_acc,
@@ -695,14 +838,16 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, in
             wing.aoa = aoa[wing.idx]
         end
     end
-    s.sys_struct.wind_vec_gnd .= s.get_struct_state(integ)
+    sam.sys_struct.wind_vec_gnd .= sam.get_struct_state(integ)
     return nothing
 end
 
 """
     get_model_name(set::Settings; precompile=false)
 
-Construct a unique filename for the serialized model based on its configuration.
+Constructs a unique filename for the serialized model based on its configuration.
+The filename includes the Julia version, physical model, dynamics type, and number of
+segments to ensure that the correct cached model is loaded.
 """
 function get_model_name(set::Settings; precompile=false)
     suffix = ""
@@ -717,40 +862,64 @@ end
 """
     calc_aoa(s::SymbolicAWEModel)
 
-Calculate the mean angle of attack [rad] over the wingspan from the VSM solver.
+Calculates the mean angle of attack [rad] over the wingspan from the VSM solver.
 """
-function calc_aoa(s::SymbolicAWEModel)
-    alpha_array = s.sys_struct.wings[1].vsm_solver.sol.alpha_array
+function calc_aoa(sam::SymbolicAWEModel)
+    alpha_array = sam.sys_struct.wings[1].vsm_solver.sol.alpha_array
     middle = length(alpha_array) ÷ 2
     return iseven(length(alpha_array)) ? (0.5 * (alpha_array[middle] + alpha_array[middle+1])) : alpha_array[middle+1]
 end
 
-"""Returns the unstretched tether length [m] for each winch."""
-unstretched_length(s::SymbolicAWEModel) = [winch.tether_len for winch in s.sys_struct.winches]
+"""
+    unstretched_length(s::SymbolicAWEModel)
 
-"""Returns the current stretched tether length [m] for each tether."""
-tether_length(s::SymbolicAWEModel) = [tether.stretched_len for tether in s.sys_struct.tethers]
+Returns the unstretched tether length [m] for each winch.
+"""
+unstretched_length(sam::SymbolicAWEModel) = [winch.tether_len for winch in sam.sys_struct.winches]
 
-"""Returns the height (z-position) [m] of the wing."""
-calc_height(s::SymbolicAWEModel) = s.sys_struct.wings[1].pos_w[3]
+"""
+    tether_length(s::SymbolicAWEModel)
 
-"""Returns the winch force [N] for each winch."""
-winch_force(s::SymbolicAWEModel) = [norm(winch.force) for winch in s.sys_struct.winches]
+Returns the current stretched tether length [m] for each tether.
+"""
+tether_length(sam::SymbolicAWEModel) = [tether.stretched_len for tether in sam.sys_struct.tethers]
 
-"""Returns the spring force [N] for each segment."""
-spring_forces(s::SymbolicAWEModel) = [segment.force for segment in s.sys_struct.segments]
+"""
+    calc_height(s::SymbolicAWEModel)
 
-"""Returns the position vector [m] for each point."""
-pos(s::SymbolicAWEModel) = [point.pos_w for point in s.sys_struct.points]
+Returns the height (z-position) [m] of the wing.
+"""
+calc_height(sam::SymbolicAWEModel) = sam.sys_struct.wings[1].pos_w[3]
+
+"""
+    winch_force(s::SymbolicAWEModel)
+
+Returns the winch force [N] for each winch.
+"""
+winch_force(sam::SymbolicAWEModel) = [norm(winch.force) for winch in sam.sys_struct.winches]
+
+"""
+    spring_forces(s::SymbolicAWEModel)
+
+Returns the spring force [N] for each tether segment.
+"""
+spring_forces(sam::SymbolicAWEModel) = [segment.force for segment in sam.sys_struct.segments]
+
+"""
+    pos(s::SymbolicAWEModel)
+
+Returns a vector of the position vectors [m] for each point in the system.
+"""
+pos(sam::SymbolicAWEModel) = [point.pos_w for point in sam.sys_struct.points]
 
 """
     min_chord_len(s::SymbolicAWEModel)
 
-Calculate the minimum chord length of the wing at the tip.
+Calculates the minimum chord length of the wing at the tip.
 """
-function min_chord_len(s::SymbolicAWEModel)
+function min_chord_len(sam::SymbolicAWEModel)
     min_len = Inf
-    for wing in s.sys_struct.wings
+    for wing in sam.sys_struct.wings
         vsm_wing = wing.vsm_wing
         le_pos = [vsm_wing.le_interp[i](vsm_wing.gamma_tip) for i in 1:3]
         te_pos = [vsm_wing.te_interp[i](vsm_wing.gamma_tip) for i in 1:3]
@@ -762,13 +931,13 @@ end
 """
     set_depower_steering!(s::SymbolicAWEModel, depower, steering)
 
-Set the kite's depower and steering by adjusting the tether length set-points.
+Sets the kite's depower and steering by adjusting the tether length set-points.
 """
-function set_depower_steering!(s::SymbolicAWEModel, depower, steering)
-    len = s.set_tether_len
-    len .= [winch.tether_len for winch in s.sys_struct.winches]
-    depower *= min_chord_len(s)
-    steering *= min_chord_len(s)
+function set_depower_steering!(sam::SymbolicAWEModel, depower, steering)
+    len = sam.set_tether_len
+    len .= [winch.tether_len for winch in sam.sys_struct.winches]
+    depower *= min_chord_len(sam)
+    steering *= min_chord_len(sam)
     len[2] = 0.5 * (2*depower + 2*len[1] + steering)
     len[3] = 0.5 * (2*depower + 2*len[1] - steering)
     return nothing
@@ -777,19 +946,20 @@ end
 """
     set_v_wind_ground!(s::SymbolicAWEModel, v_wind_gnd=s.set.v_wind, upwind_dir=-π/2)
 
-Set the ground wind speed [m/s] and upwind direction [rad].
+Sets the ground wind speed [m/s] and upwind direction [rad] in the model.
 """
-function set_v_wind_ground!(s::SymbolicAWEModel, v_wind_gnd=s.set.v_wind, upwind_dir=-pi/2)
-    s.set.v_wind = v_wind_gnd
-    s.set.upwind_dir = rad2deg(upwind_dir)
-    s.set_set(s.integrator, s.set)
+function set_v_wind_ground!(sam::SymbolicAWEModel, v_wind_gnd=sam.set.v_wind, upwind_dir=-pi/2)
+    sam.set.v_wind = v_wind_gnd
+    sam.set.upwind_dir = rad2deg(upwind_dir)
+    sam.set_set(sam.integrator, sam.set)
     return nothing
 end
 
 """
     get_set_hash(set::Settings; fields)
 
-Calculate a SHA1 hash for a subset of fields in the `Settings` object.
+Calculates a SHA1 hash for a subset of fields in the `Settings` object.
+This is used to check if a cached model is still valid.
 """
 function get_set_hash(set::Settings; 
         fields=[:segments, :model, :foil_file, :physical_model, :quasi_static, :winch_model]
@@ -805,7 +975,8 @@ end
 """
     get_sys_struct_hash(sys_struct::SystemStructure)
 
-Calculate a SHA1 hash for the topology of a `SystemStructure`.
+Calculates a SHA1 hash for the topology of a `SystemStructure`.
+This is used to check if a cached model is still valid.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
@@ -834,7 +1005,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     end
     for transform in transforms
         push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx, 
-                transform.base_point_idx, transform.base_transform_idx))
+                 transform.base_point_idx, transform.base_transform_idx))
     end
     content = string(data_parts)
     return sha1(content)

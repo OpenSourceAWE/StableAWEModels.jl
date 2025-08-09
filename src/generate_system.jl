@@ -270,7 +270,6 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 F .+= 0.5drag_force[:, segment.idx]
             end
         end
-        @assert !iszero(mass)
 
         eqs = [
             eqs
@@ -362,7 +361,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                                                 acc[:, point.idx] ⋅ axis * axis,
                                                 acc[:, point.idx]
                                         )
-                acc[:, point.idx]    ~ point_force[:, point.idx] / mass - bridle_damp_vec
+                acc[:, point.idx]    ~ point_force[:, point.idx] ./ mass - bridle_damp_vec
             ]
             defaults = [
                 defaults
