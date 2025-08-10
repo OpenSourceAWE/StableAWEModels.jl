@@ -64,10 +64,11 @@ jobs:
             exit 1
           fi
 
-      - name: Upload files to this release
+      - name: Upload files to this release (overwrites assets with same name)
         uses: softprops/action-gh-release@v2
         with:
           files: |
             data/*.tar.gz
+          tag_name: ${{ steps.version.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
