@@ -45,11 +45,24 @@ jobs:
           branch: ${{ github.event.repository.default_branch }}
           workflow_conclusion: success
           repo: ${{ github.repository }}
-          path: .
+          path: data
           if_no_artifact_found: fail
 
       - name: List downloaded files
-        run: ls -lR
+        run: ls -lR data/*.tar.gz
+
+      - name: Ensure release exists for tag
+        id: ensure_release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "No release found for tag '$tag'."
+            exit 1
+          fi
 
       - name: Upload files to this release
         uses: softprops/action-gh-release@v2
