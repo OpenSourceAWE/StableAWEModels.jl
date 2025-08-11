@@ -183,6 +183,18 @@ function copy_examples()
 end
 
 """
+    copy_bin()
+
+Copy all example scripts to the folder "bin"
+(it will be created if it doesn't exist).
+"""
+function copy_examples()
+    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "bin")
+    dst_data_path = abspath(joinpath(pwd(), "bin"))
+    copy_dir_no_overwrite(src_data_path, dst_data_path)
+end
+
+"""
     copy_data()
 
 Copy all data scripts to the folder "data"
@@ -242,35 +254,6 @@ function init_module()
     end
 
     println("Initialization complete! Data, examples, and binaries are prepared in the current directory.")
-end
-
-"""
-    copy_bin()
-
-Copy the scripts create_sys_image and run_julia to the folder "bin"
-(it will be created if it doesn't exist).
-"""
-function copy_bin()
-    PATH = "bin"
-    if ! isdir(PATH) 
-        mkdir(PATH)
-    end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", PATH)
-    cp(joinpath(src_path, "create_sys_image2"), joinpath(PATH, "create_sys_image"), force=true)
-    cp(joinpath(src_path, "run_julia"), joinpath(PATH, "run_julia"), force=true)
-    chmod(joinpath(PATH, "create_sys_image"), 0o774)
-    chmod(joinpath(PATH, "run_julia"), 0o774)
-    PATH = "test"
-    if ! isdir(PATH) 
-        mkdir(PATH)
-    end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", PATH)
-    cp(joinpath(src_path, "create_sys_image2.jl"), joinpath(PATH, "create_sys_image.jl"), force=true)
-    cp(joinpath(src_path, "test_for_precompile.jl"), joinpath(PATH, "test_for_precompile.jl"), force=true)
-    cp(joinpath(src_path, "update_packages.jl"), joinpath(PATH, "update_packages.jl"), force=true)
-    chmod(joinpath(PATH, "create_sys_image.jl"), 0o664)
-    chmod(joinpath(PATH, "test_for_precompile.jl"), 0o664)
-    chmod(joinpath(PATH, "update_packages.jl"), 0o664)
 end
 
 include("precompile.jl")
