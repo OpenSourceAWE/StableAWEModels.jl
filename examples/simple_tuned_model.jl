@@ -7,7 +7,7 @@ if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
 
-using SymbolicAWEModels, VortexStepMethod, KiteUtils, ControlPlots, Statistics
+using SymbolicAWEModels, ControlPlots
 
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")

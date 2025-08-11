@@ -4,7 +4,7 @@
 using Timers
 tic()
 @info "Loading packages "
-using SymbolicAWEModels, LinearAlgebra, Statistics
+using SymbolicAWEModels
 
 PLOT = false
 using Pkg

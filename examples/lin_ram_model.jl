@@ -11,17 +11,16 @@
 using Timers
 tic()
 @info "Loading packages "
+using SymbolicAWEModels
+using ModelingToolkit
+using ModelingToolkit: t_nounits
 
 PLOT = true
 using Pkg
 if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
-using ControlPlots, LaTeXStrings, ControlSystemsBase
-
-using SymbolicAWEModels, KiteUtils, LinearAlgebra, Statistics
-using ModelingToolkit
-using ModelingToolkit: t_nounits
+using ControlPlots, ControlSystemsBase
 toc()
 
 # Initialize model

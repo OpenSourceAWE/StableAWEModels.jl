@@ -4,14 +4,14 @@
 using Timers
 tic()
 @info "Loading packages "
+using SymbolicAWEModels
 
 PLOT = false
 using Pkg
 if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
-using ControlPlots, LaTeXStrings
-using SymbolicAWEModels, KiteUtils, LinearAlgebra, Statistics
+using ControlPlots
 using ControlSystemsBase
 
 if ! @isdefined SIMPLE
