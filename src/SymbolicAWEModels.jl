@@ -176,10 +176,10 @@ end
 Copy all example scripts to the folder "examples"
 (it will be created if it doesn't exist).
 """
-function copy_examples()
+function copy_examples(; force=false)
     src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "examples")
     dst_data_path = abspath(joinpath(pwd(), "examples"))
-    copy_dir_no_overwrite(src_data_path, dst_data_path)
+    copy_dir(src_data_path, dst_data_path; force)
 end
 
 """
@@ -188,10 +188,10 @@ end
 Copy all example scripts to the folder "bin"
 (it will be created if it doesn't exist).
 """
-function copy_bin()
+function copy_bin(; force=false)
     src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "bin")
     dst_data_path = abspath(joinpath(pwd(), "bin"))
-    copy_dir_no_overwrite(src_data_path, dst_data_path)
+    copy_dir(src_data_path, dst_data_path; force)
 end
 
 """
@@ -200,10 +200,10 @@ end
 Copy all data scripts to the folder "data"
 (it will be created if it doesn't exist).
 """
-function copy_data()
+function copy_data(; force=false)
     src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "data")
     dst_data_path = abspath(joinpath(pwd(), "data"))
-    copy_dir_no_overwrite(src_data_path, dst_data_path)
+    copy_dir(src_data_path, dst_data_path; force)
 end
 
 """
@@ -239,10 +239,10 @@ Initializes the module in the current working directory.
 - Copies the `bin` directory from the module to `pwd()/bin`, creating the folder if it does not exist, and does not overwrite existing files.
 - Installs all required packages if they are not already installed.
 """
-function init_module()
-    copy_data()
-    copy_examples()
-    copy_bin()
+function init_module(; force=false)
+    copy_data(; force)
+    copy_examples(; force)
+    copy_bin(; force)
 
     # Install required packages if not already present
     pkgs = ["KiteUtils", "ControlPlots", 
