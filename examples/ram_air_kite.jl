@@ -4,6 +4,7 @@
 using Timers
 tic()
 @info "Loading packages "
+using SymbolicAWEModels, LinearAlgebra, Statistics
 
 PLOT = false
 using Pkg
@@ -11,7 +12,6 @@ if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
 using ControlPlots, LaTeXStrings
-using SymbolicAWEModels, KiteUtils, LinearAlgebra, Statistics
 toc()
 
 # Simulation parameters

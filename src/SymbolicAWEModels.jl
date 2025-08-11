@@ -253,7 +253,7 @@ function init_module(; force=false)
         end
     end
 
-    println("Initialization complete! Data, examples, and binaries are prepared in the current directory.")
+    println("Initialization complete! Scripts, examples, and binaries are prepared in the current directory.")
 end
 
 include("precompile.jl")
