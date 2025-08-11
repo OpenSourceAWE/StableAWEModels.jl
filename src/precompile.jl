@@ -123,8 +123,8 @@ end
     local will_precompile
     will_precompile = get(ENV, "SAM_PRECOMPILE", "true") != "false"
     try
-        data_path = get_data_path()
-        path = dirname(data_path)
+        path = dirname(dirname(pathof(@__MODULE__)))
+        data_path = joinpath(path, "data")
 
         # Copy .default files to expected files
         cp(joinpath(path, "Artifacts.toml.default"), joinpath(path, "Artifacts.toml"); force=true)
