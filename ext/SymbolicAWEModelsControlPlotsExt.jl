@@ -43,6 +43,7 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
                            plot_twist=plot_all,
                            plot_aoa=plot_all,
                            plot_heading=plot_all,
+                           plot_force=plot_all,
                            suffix=" - " * sys.name)
     sl = lg.syslog
 
@@ -94,6 +95,13 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
         push!(plot_data, [heading_deg])
         push!(plot_labels, ["heading"*suffix])
         push!(plot_ylabels, "heading [°]")
+    end
+
+    if plot_force
+        winch_force = [[sl.force[i][j] for i in eachindex(sl.force)] for j in 1:3]
+        push!(plot_data, winch_force)
+        push!(plot_labels, [L"F_{winch,1}"*suffix, L"F_{winch,2}"*suffix, L"F_{winch,3}"*suffix])
+        push!(plot_ylabels, "Winch force [N]")
     end
 
     # Only create a plot if there is data to show

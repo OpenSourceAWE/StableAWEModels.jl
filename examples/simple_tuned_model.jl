@@ -20,7 +20,7 @@ init!(tether_sam)
 
 simple_set = Settings("system.yaml")
 simple_sam = SymbolicAWEModel(simple_set, "simple_ram")
-init!(simple_sam; create_control_func=true)
+init!(simple_sam)
 
 sim_oscillate!(sam; total_time=1.0)
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
