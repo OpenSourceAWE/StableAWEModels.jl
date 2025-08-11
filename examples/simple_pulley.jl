@@ -8,6 +8,7 @@ set = load_settings("base")  # Loads from data/base/settings.yaml
 set.v_wind = 0
 set.l_tether = 5.0 # set l_tether as it affects the plot size
 dynamics_type = DYNAMIC
+set.sample_freq = 5  # Increase to 100 Hz for better visualization (dt = 0.01s)
 
 # pulley point was placed in the middle, as the side-to-sideo movement convergences very slowly
 points = Point[]
@@ -26,6 +27,14 @@ transforms = [Transform(1, -deg2rad(0.0), 0.0, 0.0; base_pos=[0.0, 0.0, 5.0], ba
 sys_struct = SymbolicAWEModels.SystemStructure("pulley", set; points, segments, pulleys, transforms)
 plot(sys_struct, 0.0; zoom=false, l_tether=set.l_tether)
 
+
+# Analyze the system, to find optimal damping
+include("damping_analysis.jl")
+freq, zeta, recommended_damping = analyze_damping_response(sys_struct, set; verbose=true)
+println("\n Setting recommended damping to: ", recommended_damping)
+set.damping = recommended_damping  # Update settings with recommended damping
+
+# Create the symbolic model
 sam = SymbolicAWEModel(set, sys_struct)
 
 init!(sam; remake=false)

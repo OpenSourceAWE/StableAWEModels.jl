@@ -4,16 +4,20 @@
 
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 
+println("\n\nHanging Mass Example\n", "="^40)
 ### Loading Settings
 # Use load_settings() to temporarily create system.yaml pointing to the desired subdirectory
 set = load_settings("base")  # Loads from data/base/settings.yaml
 set.v_wind = 0  # No wind
+set.sample_freq = 1  # Increase to 100 Hz for better visualization (dt = 0.01s)
+set.abs_tol = 1e-6     # Higher precision for better dynamics resolution
+set.rel_tol = 1e-6     # Higher precision for better dynamics resolution
 
 
 # Create two points: anchor point (static) and hanging mass (dynamic)
 points = Point[]
 push!(points, Point(1, [2.0, 0.0, 5.0], STATIC))          # Anchor point at height 5m
-push!(points, Point(2, [2.0, 0.0, 0.8], DYNAMIC; mass=1.0)) # Hanging mass at height 2m, 1kg
+push!(points, Point(2, [2.0, 0.0, 2], DYNAMIC; mass=1.0)) # Hanging mass at height 2m, 1kg
 
 ### Create single segment connecting the points
 # l0 is the rest length a bit shorter than the distances between the initial points
@@ -46,6 +50,12 @@ transforms = [Transform(1, -deg2rad(90.0), 0.0, 0.0; base_pos=[2.0, 0.0, 5.0], b
 
 sys_struct = SymbolicAWEModels.SystemStructure("hanging_mass", set; points, segments, transforms)
 
+### Analyze damping response
+include("damping_analysis.jl")
+freq, zeta, recommended_damping = analyze_damping_response(sys_struct, set; verbose=true)
+println("\n Setting recommended damping to: ", recommended_damping)
+set.damping = recommended_damping  # Update settings with recommended damping
+
 ### Plot initial state
 # even though the tether is not used here, it defines the size of the plot
 # and therefore we must set it to a reasonable length
@@ -56,8 +66,8 @@ plot(sys_struct, 0.0; zoom=false)
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=false)
 
-# Run simulation for 100 steps
-for i in 1:125
+# Run simulation for longer time with smaller steps for better convergence visualization
+for i in 1:30
     plot(sam, i/set.sample_freq; zoom=false)
     next_step!(sam)
 end
