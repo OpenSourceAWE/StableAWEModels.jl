@@ -45,10 +45,10 @@ velocity, twist angles), linearizes the VSM aerodynamics around this operating p
 and updates the Jacobian (`vsm_jac`) and the steady-state forces (`vsm_x`) in the
 `SystemStructure`. This is typically called periodically during a simulation.
 """
-function linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
-    wings = s.sys_struct.wings
+function linearize_vsm!(sam::SymbolicAWEModel, integ=sam.integrator)
+    wings = sam.sys_struct.wings
     if length(wings) > 0
-        vsm_y = s.get_vsm_y(integ)
+        vsm_y = sam.get_vsm_y(integ)
         for wing in wings
             wing.vsm_y .= vsm_y[wing.idx,:]
             res = VortexStepMethod.linearize(
@@ -57,13 +57,13 @@ function linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
                 wing.vsm_y;
                 va_idxs=1:3, 
                 omega_idxs=4:6,
-                theta_idxs=7:6+length(s.sys_struct.groups),
-                moment_frac=s.sys_struct.groups[1].moment_frac
+                theta_idxs=7:6+length(sam.sys_struct.groups),
+                moment_frac=sam.sys_struct.groups[1].moment_frac
             )
             wing.vsm_jac .= res[1]
             wing.vsm_x .= res[2]
         end
-        s.set_psys(integ, s.sys_struct)
+        sam.set_sys(integ, sam.sys_struct)
     end
     nothing
 end
@@ -85,13 +85,13 @@ calculate the A, B, C, and D matrices for the complete, high-order system.
 # Returns
 - `LinType`: A NamedTuple `(A, B, C, D)` containing the state-space matrices.
 """
-function linearize!(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator))
-    isnothing(s.lin_prob) && error("Run init! with remake=true and lin_outputs=...")
-    s.set_lin_set_values(s.lin_prob, set_values)
-    s.set_psys(s.lin_prob, s.sys_struct)
-    s.set_set(s.lin_prob, s.set)
-    s.lin_model = solve(s.lin_prob)[1]
-    return s.lin_model
+function linearize!(sam::SymbolicAWEModel; set_values=sam.get_set_values(sam.integrator))
+    isnothing(sam.lin_prob) && error("Run init! with remake=true and lin_outputs=...")
+    sam.set_lin_set_values(sam.lin_prob, set_values)
+    sam.set_lin_sys(sam.lin_prob, sam.sys_struct)
+    sam.set_lin_set(sam.lin_prob, sam.set)
+    sam.lin_model = solve(sam.lin_prob)[1]
+    return sam.lin_model
 end
 
 """

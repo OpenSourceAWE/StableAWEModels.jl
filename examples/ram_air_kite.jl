@@ -24,14 +24,11 @@ steering_freq = 1/2  # Hz - full left-right cycle frequency
 steering_magnitude = 10.0      # Magnitude of steering input [Nm]
 
 # Initialize model
-set = Settings("ram_air_kite/system.yaml")
+set = load_settings("ram_air_kite")
 
 @info "Creating SymbolicAWEModel:"
 sam = SymbolicAWEModel(set)
-toc()
 SymbolicAWEModels.init!(sam)
-@info "System initialized at:"
-toc()
 
 find_steady_state!(sam)
 bias = 0.15
@@ -40,8 +37,4 @@ if set.physical_model == "4_attach_ram"
 end
 sl, _ = sim_oscillate!(sam; dt, total_time, vsm_interval, steering_freq, steering_magnitude, 
                          bias, prn=true)
-@info "Simulated at:"
-toc()
-display(plot(sam.sys_struct, sl))
-@info "Plotted at:"
-toc()
+nothing

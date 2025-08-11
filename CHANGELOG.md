@@ -3,6 +3,10 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.3.3 07-08-2025
+## Fixed
+- Fix non-persistent state bug with `calc_tether_props`
+
 # v0.3.2 07-08-2025
 ## Fixed
 - Fix documentation for sim_oscillate!

@@ -69,6 +69,7 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
         spoint_idx = ssys.segments[stether.segment_idxs[1]].point_idxs[2]
         ssys.points[spoint_idx].pos_w .= sys.points[point_idx].pos_w
         ssys.points[spoint_idx].vel_w .= sys.points[point_idx].vel_w
+        ssys.points[spoint_idx].disturb .= sys.points[point_idx].disturb
     end
 
     # copy wing state
