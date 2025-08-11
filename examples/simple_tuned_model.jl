@@ -8,7 +8,6 @@ if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
 end
 
 using SymbolicAWEModels, VortexStepMethod, KiteUtils, ControlPlots, Statistics
-using OrdinaryDiffEqCore
 
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")

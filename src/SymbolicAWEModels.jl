@@ -177,44 +177,83 @@ Copy all example scripts to the folder "examples"
 (it will be created if it doesn't exist).
 """
 function copy_examples()
-    PATH = "examples"
-    if ! isdir(PATH) 
-        mkdir(PATH)
-    end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", PATH)
-    copy_files("examples", readdir(src_path))
+    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "examples")
+    dst_data_path = abspath(joinpath(pwd(), "examples"))
+    copy_dir_no_overwrite(src_data_path, dst_data_path)
 end
 
-function copy_model_settings()
-    files = ["settings.yaml", "ram_air_kite_body.obj", "ram_air_kite_foil.dat", "system.yaml", "settings.yaml", 
-             "system.yaml", "ram_air_kite_foil_cd_polar.csv", "ram_air_kite_foil_cl_polar.csv", "ram_air_kite_foil_cm_polar.csv"]
-    dst_path = abspath(joinpath(pwd(), "data"))
-    copy_files("data", files)
-    set_data_path(joinpath(pwd(), "data"))
-    println("Copied $(length(files)) files to $(dst_path) !")
-end
-
-function install_examples(add_packages=true)
-    copy_examples()
-    copy_settings()
+"""
     copy_bin()
-    copy_model_settings()
-    if add_packages
-        Pkg.add(["KiteUtils", "KitePodModels", "WinchModels", "ControlPlots", 
-                 "LaTeXStrings", "StatsBase", "Timers", "Rotations"])
+
+Copy all bin scripts to the folder "bin"
+(it will be created if it doesn't exist).
+"""
+function copy_bin()
+    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "bin")
+    dst_data_path = abspath(joinpath(pwd(), "bin"))
+    copy_dir_no_overwrite(src_data_path, dst_data_path)
+end
+
+"""
+    copy_data()
+
+Copy all data scripts to the folder "data"
+(it will be created if it doesn't exist).
+"""
+function copy_data()
+    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "data")
+    dst_data_path = abspath(joinpath(pwd(), "data"))
+    copy_dir_no_overwrite(src_data_path, dst_data_path)
+end
+
+"""
+    copy_dir_no_overwrite(src_dir, dst_dir)
+
+Copies all files from `src_dir` to `dst_dir`.
+Overwrites existing files if force=true.
+Creates `dst_dir` if it does not exist.
+"""
+function copy_dir(src_dir::AbstractString, dst_dir::AbstractString; force=false)
+    if !isdir(dst_dir)
+        mkdir(dst_dir)
+    end
+    for file in readdir(src_dir)
+        src_file = joinpath(src_dir, file)
+        dst_file = joinpath(dst_dir, file)
+        if force || (isfile(src_file) && !isfile(dst_file))
+            cp(src_file, dst_file; force=true)
+            chmod(dst_file, 0o774)
+        elseif isdir(src_file)
+            copy_dir(src_file, dst_file; force)
+        end
     end
 end
 
-function copy_files(relpath, files)
-    if ! isdir(relpath) 
-        mkdir(relpath)
+"""
+    init_module()
+
+Initializes the module in the current working directory.
+
+- Copies all files from the module's `data` directory to `pwd()/data`, but does NOT overwrite files that already exist in `pwd()/data`.
+- Copies all example scripts to `pwd()/examples`, creating the folder if it does not exist, and does not overwrite existing files.
+- Copies the `bin` directory from the module to `pwd()/bin`, creating the folder if it does not exist, and does not overwrite existing files.
+- Installs all required packages if they are not already installed.
+"""
+function init_module()
+    copy_data()
+    copy_examples()
+    copy_bin()
+
+    # Install required packages if not already present
+    pkgs = ["KiteUtils", "ControlPlots", 
+            "LaTeXStrings", "Timers"]
+    for pkg in pkgs
+        if !(pkg in keys(Pkg.project().dependencies))
+            Pkg.add(pkg)
+        end
     end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", relpath)
-    for file in files
-        cp(joinpath(src_path, file), joinpath(relpath, file), force=true)
-        chmod(joinpath(relpath, file), 0o774)
-    end
-    files
+
+    println("Initialization complete! Data, examples, and binaries are prepared in the current directory.")
 end
 
 """
