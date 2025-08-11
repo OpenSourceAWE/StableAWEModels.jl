@@ -1,5 +1,5 @@
-# Copyright (c) 2024, 2025 Bart van de Lint and Uwe Fechner
-# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Bart van de Lint and Uwe Fechner
+# SPDX-License-Identifier: MPL-2.0
 
 const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{SimFloat}, D::Matrix{SimFloat}}
 const GetSetNothing = Union{AbstractIndexer, Nothing}
@@ -333,14 +333,13 @@ function load_serialized_model!(sam, model_path; remake=false, reload=false)
         # Attempt to deserialize the stored serialized model
         try
             serialized_model = deserialize(model_path)
-            # If hashes do not match after deserialization, reset serialized model
-            if set_hash != serialized_model.set_hash || sys_struct_hash != serialized_model.sys_struct_hash
-                sam.serialized_model = SerializedModel(; set_hash, sys_struct_hash)
-                return false
+            if set_hash == serialized_model.set_hash &&
+               sys_struct_hash == serialized_model.sys_struct_hash
+                # Success: assign deserialized model
+                sam.serialized_model = serialized_model
+                return true
             end
-            # Success: assign deserialized model
-            sam.serialized_model = serialized_model
-            return true
+            # Fall through to recreate serialized model below
         catch e
             @warn "Failure to deserialize $model_path: $(typeof(e))"
             # Fall through to recreate serialized model below

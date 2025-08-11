@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint, Uwe Fechner
 #
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: MPL-2.0
 
 module SymbolicAWEModelsControlPlotsExt
 using ControlPlots, LaTeXStrings, KiteUtils, SymbolicAWEModels
