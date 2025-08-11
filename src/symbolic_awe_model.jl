@@ -342,7 +342,7 @@ function load_serialized_model!(sam, model_path; remake=false, reload=false)
             sam.serialized_model = serialized_model
             return true
         catch e
-            @warn "Failure to deserialize $model_path: $e"
+            @warn "Failure to deserialize $model_path: $(typeof(e))"
             # Fall through to recreate serialized model below
         end
     end
