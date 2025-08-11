@@ -1,4 +1,2 @@
 system:
-    sim_settings: "base/settings.yaml"  # simulator settings
-
-##TODO: resolve unconvenience of having to changes system.yaml for every example 
+    sim_settings: "base/settings.yaml"

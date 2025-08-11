@@ -3,6 +3,7 @@
 using REPL.TerminalMenus
 
 options = [
+        "catenary_line = include(\"catenary_line.jl\")",
         "hanging_mass = include(\"hanging_mass.jl\")",
         "simple_pulley = include(\"simple_pulley.jl\")",
         "lin_ram_model = include(\"lin_ram_model.jl\")",
