@@ -188,7 +188,7 @@ end
 Copy all example scripts to the folder "bin"
 (it will be created if it doesn't exist).
 """
-function copy_examples()
+function copy_bin()
     src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "bin")
     dst_data_path = abspath(joinpath(pwd(), "bin"))
     copy_dir_no_overwrite(src_data_path, dst_data_path)
