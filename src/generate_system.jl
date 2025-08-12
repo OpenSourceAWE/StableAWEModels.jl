@@ -175,8 +175,10 @@ get_axial_stiffness(sys::SystemStructure, idx::Int16) = sys.segments[idx].axial_
 @register_symbolic get_axial_stiffness(sys::SystemStructure, idx::Int16)
 get_axial_damping(sys::SystemStructure, idx::Int16) = sys.segments[idx].axial_damping
 @register_symbolic get_axial_damping(sys::SystemStructure, idx::Int16)
-get_bridle_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].bridle_damping
-@register_symbolic get_bridle_damping(sys::SystemStructure, idx::Int16)
+get_body_frame_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].body_frame_damping
+@register_symbolic get_body_frame_damping(sys::SystemStructure, idx::Int16)
+get_world_frame_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].world_frame_damping
+@register_symbolic get_world_frame_damping(sys::SystemStructure, idx::Int16)
 get_brake(sys::SystemStructure, idx::Int16) = sys.winches[idx].brake
 @register_symbolic get_brake(sys::SystemStructure, idx::Int16)
 get_fix_point_sphere(sys::SystemStructure, idx::Int16) = sys.points[idx].fix_sphere
@@ -345,7 +347,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             # n = n * (p ⋅ n)
             # r = (p - n) # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Vector_formulation
             if length(wings) > 0
-                bridle_damp_vec = get_bridle_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
+                bridle_damp_vec = get_body_frame_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
             else
                 bridle_damp_vec = zeros(3)
             end

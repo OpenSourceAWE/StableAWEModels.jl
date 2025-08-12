@@ -88,21 +88,21 @@ function create_4_attach_ram_sys_struct(set::Settings)
         ]
 
         # ==================== CREATE PULLEY BRIDLE SYSTEM ==================== #
-        bridle_damping = 1.0
+        body_frame_damping = 1.0
         points = [
             points
-            Point(9+i_pnt, bridle_top[1], dynamics_type; bridle_damping)
-            Point(10+i_pnt, bridle_top[2], dynamics_type; bridle_damping)
-            Point(11+i_pnt, bridle_top[3], dynamics_type; bridle_damping)
-            Point(12+i_pnt, bridle_top[4], dynamics_type; bridle_damping)
+            Point(9+i_pnt, bridle_top[1], dynamics_type; body_frame_damping, world_frame_damping=0.0)
+            Point(10+i_pnt, bridle_top[2], dynamics_type; body_frame_damping, world_frame_damping=0.0)
+            Point(11+i_pnt, bridle_top[3], dynamics_type; body_frame_damping, world_frame_damping=0.0)
+            Point(12+i_pnt, bridle_top[4], dynamics_type; body_frame_damping, world_frame_damping=0.0)
 
-            Point(13+i_pnt, bridle_top[2] - 1z, dynamics_type; bridle_damping)
+            Point(13+i_pnt, bridle_top[2] - 1z, dynamics_type; body_frame_damping, world_frame_damping=0.0)
 
-            Point(14+i_pnt, bridle_top[1] - 2z, dynamics_type; bridle_damping)
-            Point(15+i_pnt, bridle_top[3] - 2z, dynamics_type; bridle_damping)
+            Point(14+i_pnt, bridle_top[1] - 2z, dynamics_type; body_frame_damping, world_frame_damping=0.0)
+            Point(15+i_pnt, bridle_top[3] - 2z, dynamics_type; body_frame_damping, world_frame_damping=0.0)
 
-            Point(16+i_pnt, bridle_top[1] - 4z, dynamics_type; bridle_damping)
-            Point(17+i_pnt, bridle_top[3] - 4z, dynamics_type; bridle_damping)
+            Point(16+i_pnt, bridle_top[1] - 4z, dynamics_type; body_frame_damping, world_frame_damping=0.0)
+            Point(17+i_pnt, bridle_top[3] - 4z, dynamics_type; body_frame_damping, world_frame_damping=0.0)
         ]
         segments = [
             segments
@@ -233,21 +233,21 @@ function create_ram_sys_struct(set::Settings)
         ]
 
         # ==================== CREATE PULLEY BRIDLE SYSTEM ==================== #
-        bridle_damping = 1.0
+        body_frame_damping = 1.0
         points = [
             points
-            Point(7+i_pnt, bridle_top[1], dynamics_type; bridle_damping)
+            Point(7+i_pnt, bridle_top[1], dynamics_type; body_frame_damping, world_frame_damping=0.0)
             Point(8+i_pnt, bridle_top[2], WING)
-            Point(9+i_pnt, bridle_top[3], dynamics_type; bridle_damping)
-            Point(10+i_pnt, bridle_top[4], dynamics_type; bridle_damping)
+            Point(9+i_pnt, bridle_top[3], dynamics_type; body_frame_damping, world_frame_damping=0.0)
+            Point(10+i_pnt, bridle_top[4], dynamics_type; body_frame_damping, world_frame_damping=0.0)
 
-            Point(11+i_pnt, bridle_top[2] - 1z, dynamics_type; bridle_damping)
+            Point(11+i_pnt, bridle_top[2] - 1z, dynamics_type; body_frame_damping, world_frame_damping=0.0)
 
-            Point(12+i_pnt, bridle_top[1] - 2z, dynamics_type; bridle_damping)
-            Point(13+i_pnt, bridle_top[3] - 2z, dynamics_type; bridle_damping)
+            Point(12+i_pnt, bridle_top[1] - 2z, dynamics_type; body_frame_damping, world_frame_damping=0.0)
+            Point(13+i_pnt, bridle_top[3] - 2z, dynamics_type; body_frame_damping, world_frame_damping=0.0)
 
-            Point(14+i_pnt, bridle_top[1] - 4z, dynamics_type; bridle_damping)
-            Point(15+i_pnt, bridle_top[3] - 4z, dynamics_type; bridle_damping)
+            Point(14+i_pnt, bridle_top[1] - 4z, dynamics_type; body_frame_damping, world_frame_damping=0.0)
+            Point(15+i_pnt, bridle_top[3] - 4z, dynamics_type; body_frame_damping, world_frame_damping=0.0)
         ]
         segments = [
             segments

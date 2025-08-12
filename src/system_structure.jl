@@ -151,7 +151,8 @@ mutable struct Point
     const force::KVec3
     const type::DynamicsType
     mass::SimFloat
-    bridle_damping::SimFloat
+    body_frame_damping::SimFloat
+    world_frame_damping::SimFloat
     fix_sphere::Bool
 end
 
@@ -183,7 +184,8 @@ where:
 - `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
 - `transform_idx::Int16=1`: Index of the transform used for initial positioning.
 - `mass::Float64=0.0`: Mass of the point [kg].
-- `bridle_damping::Float64=0.0`: Damping coefficient for bridle points.
+- `body_frame_damping::Float64=0.0`: Damping coefficient for bridle points.
+- `world_frame_damping::Float64=0.0`: Damping coefficient for world frame damping.
 - `fix_sphere::Bool=false`: If true, constrains the point to a sphere.
 
 # Returns
@@ -191,10 +193,10 @@ where:
 """
 function Point(idx, pos_cad, type;
     wing_idx=1, vel_w=zeros(KVec3), transform_idx=1, 
-    mass=0.0, bridle_damping=0.0, fix_sphere=false
+    mass=0.0, body_frame_damping=0.0, world_frame_damping=0.0, fix_sphere=false
 )
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
-        vel_w, zeros(KVec3), zeros(KVec3), type, mass, bridle_damping, fix_sphere)
+        vel_w, zeros(KVec3), zeros(KVec3), type, mass, body_frame_damping, world_frame_damping, fix_sphere)
 end
 
 """
