@@ -3,7 +3,7 @@
 using REPL.TerminalMenus
 
 options = [
-        "damping_analysis = include(\"damping_analysis.jl\")",
+        "tether_deflection_by_wind = include(\"tether_deflection_by_wind.jl\")",
         "catenary_line = include(\"catenary_line.jl\")",
         "hanging_mass = include(\"hanging_mass.jl\")",
         "simple_pulley = include(\"simple_pulley.jl\")",

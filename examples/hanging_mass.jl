@@ -4,6 +4,33 @@
 
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 
+# --- Analytical solution functions for hanging mass ---
+"""
+    hanging_mass_equilibrium(l0, mass, g, k)
+
+Analytical equilibrium position for a hanging mass on a spring.
+Returns the extension from rest length: Δl = mg/k
+"""
+function hanging_mass_equilibrium(point_mass, rest_length,line_diameter_mm, set)
+    cross_section_area = π * ((1e-3)*line_diameter_mm/2)^2
+    k_spring = set.e_tether * cross_section_area  # N/m
+    mass_line = set.rho_tether * cross_section_area * rest_length  # kg/m (mass per unit length of the line)
+    mass_system = point_mass + mass_line  # Total mass of the system
+    println("Hanging Mass Parameters:")
+    println("   Point mass: ", point_mass, " kg")
+    println("   Rest length: ", rest_length, " m")
+    println("   Line diameter: ", line_diameter_mm, " mm")
+    println("   E modulus: ", set.e_tether, " Pa")
+    println("   Density: ", set.rho_tether, " kg/m^3")
+    println("   Gravity: ", set.g_earth, " m/s^2")
+    println("   Cross section area: ", round(cross_section_area, digits=6), " m^2")
+    println("   Spring constant: ", round(k_spring, digits=2), " N/m")
+    println("   Mass system: ", round(mass_system, digits=4), " kg")
+    # Calculate extension based on mass and spring constant
+    extension = mass_system * set.g_earth / k_spring
+    return rest_length + extension
+end
+
 println("\n\nHanging Mass Example\n", "="^40)
 ### Loading Settings
 # Use load_settings() to temporarily create system.yaml pointing to the desired subdirectory
@@ -12,12 +39,15 @@ set.v_wind = 0  # No wind
 set.sample_freq = 1  # Increase to 100 Hz for better visualization (dt = 0.01s)
 set.abs_tol = 1e-6     # Higher precision for better dynamics resolution
 set.rel_tol = 1e-6     # Higher precision for better dynamics resolution
+point_mass = 1.0  # Mass of the hanging point in kg
+rest_length = 4.0  # Rest length of the segment in meters
+line_diameter_mm = 5.0  # Diameter of the segment in mm
 
 
 # Create two points: anchor point (static) and hanging mass (dynamic)
 points = Point[]
 push!(points, Point(1, [2.0, 0.0, 5.0], STATIC))          # Anchor point at height 5m
-push!(points, Point(2, [2.0, 0.0, 2], DYNAMIC; mass=1.0)) # Hanging mass at height 2m, 1kg
+push!(points, Point(2, [2.0, 0.0, 2], DYNAMIC; mass=point_mass)) # Hanging mass at height 2m, 1kg
 
 ### Create single segment connecting the points
 # l0 is the rest length a bit shorter than the distances between the initial points
@@ -29,7 +59,7 @@ push!(points, Point(2, [2.0, 0.0, 2], DYNAMIC; mass=1.0)) # Hanging mass at heig
 #     axial_damping = (set.damping / set.c_spring) * axial_stiffness
 # where the set. refers to defined values in settings.yaml
 segments = Segment[]
-push!(segments, Segment(1, set, (1, 2), BRIDLE; l0=4, compression_frac=0.001, diameter_mm=5))  # 5mm diameter, 4m rest length
+push!(segments, Segment(1, set, (1, 2), BRIDLE; l0=rest_length, compression_frac=0.001, diameter_mm=line_diameter_mm))  # 5mm diameter, 4m rest length
 
 ### Transform to position the system
 # The base position is set to [2.0, 0.0, 5.0], which is the anchor point position.
@@ -68,6 +98,24 @@ init!(sam; remake=false)
 
 # Run simulation for longer time with smaller steps for better convergence visualization
 for i in 1:30
-    plot(sam, i/set.sample_freq; zoom=false)
+    current_time = i/set.sample_freq
+    plot(sam, current_time; zoom=false)
     next_step!(sam)
 end
+
+# --- Final comparison with analytical solution ---
+println("\n\nSimulation vs Analytical Comparison\n", "="^45)
+
+### Calculate analytical solution
+equilibrium_length = hanging_mass_equilibrium(point_mass, rest_length, line_diameter_mm, set)
+equilibrium_z = points[1].pos_w[3] - equilibrium_length  # anchor_z - total_length
+final_z = sam.sys_struct.points[2].pos_w[3]
+println("Final Results:")
+println("  Simulation final z-position: $(round(final_z, digits=4)) m")
+println("  Analytical equilibrium z:    $(round(equilibrium_z, digits=4)) m")
+println("  Position error (Δz):         $(round(final_z - equilibrium_z, digits=4)) m")
+
+# Calculate relative error
+pos_error_percent = abs(final_z - equilibrium_z) / abs(equilibrium_z) * 100
+
+println("  Relative error:              $(round(pos_error_percent, digits=2))%")
