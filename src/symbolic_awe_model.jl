@@ -10,17 +10,17 @@ const GetSetNothing = Union{AbstractIndexer, Nothing}
 A container for the simplified linear model (derived from the full ODE state)
 and its associated getter functions.
 """
-@with_kw struct SimpleLinModelWithAttributes{GetLinX, GetLinDx, GetLinY}
+@with_kw struct SimpleLinModelWithAttributes{GetX, GetDx, GetY}
     "The simplified linearized model (A,B,C,D matrices)."
     simple_lin_model::LinType
 
     # Getters for the simplified linear model state from the integrator
     "Getter for the state vector x of the simplified linear model."
-    get_lin_x::GetLinX
+    get_x::GetX
     "Getter for the state derivative vector dx of the simplified linear model."
-    get_lin_dx::GetLinDx
+    get_dx::GetDx
     "Getter for the output vector y of the simplified linear model."
-    get_lin_y::GetLinY
+    get_y::GetY
 end
 
 
@@ -81,18 +81,16 @@ linearized model (A,B,C,D matrices).
 
 $(TYPEDFIELDS)
 """
-@with_kw struct LinProbWithAttributes{SetLinSetValues, SetLinSys, SetLinSet, LinOut}
+@with_kw struct LinProbWithAttributes{SetSetValues, SetSys, SetSet, LinOut}
     "Linearization problem of the mtk model."
-    lin_prob::ModelingToolkit.LinearizationProblem
+    prob::ModelingToolkit.LinearizationProblem
     "Outputs of the linearization."
     lin_outputs::Vector{LinOut}
-    "The full linearized model (A, B, C, D matrices)."
-    lin_model::LinType
 
     # Setters for the linearization
-    set_lin_set_values::SetLinSetValues
-    set_lin_sys::SetLinSys
-    set_lin_set::SetLinSet
+    set_set_values::SetSetValues
+    set_sys::SetSys
+    set_set::SetSet
 end
 
 """
@@ -420,11 +418,12 @@ with the new state from the ODE integrator.
 - `vsm_interval=1`: The interval (in steps) to re-linearize the VSM model. If 0, it is not re-linearized.
 """
 function next_step!(sam::SymbolicAWEModel; set_values=nothing, dt=1/sam.set.sample_freq, vsm_interval=1)
+    prob = sam.prob
     if (!isnothing(set_values)) 
-        sam.set_set_values(sam.integrator, set_values)
+        prob.set_set_values(sam.integrator, set_values)
     end
     if vsm_interval != 0 && sam.iter % vsm_interval == 0
-        sam.t_vsm = @elapsed linearize_vsm!(sam)
+        sam.t_vsm = @elapsed linearize_vsm!(sam, sam.prob)
     end
     
     sam.t_0 = sam.integrator.t
@@ -434,7 +433,7 @@ function next_step!(sam::SymbolicAWEModel; set_values=nothing, dt=1/sam.set.samp
     end
     @assert successful_retcode(sam.integrator.sol)
     sam.iter += 1
-    update_sys_struct!(sam, sam.sys_struct)
+    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
     return nothing
 end
 
@@ -447,30 +446,32 @@ This function reads the raw state vector from the ODE integrator and uses the ge
 getter functions to populate the human-readable fields in the `SystemStructure`. This
 synchronization step is crucial for making the simulation results accessible.
 """
-function update_sys_struct!(sam::SymbolicAWEModel, sys_struct::SystemStructure, integ=sam.integrator)
+function update_sys_struct!(prob::ProbWithAttributes,
+                            integ::OrdinaryDiffEqCore.ODEIntegrator,
+                            sys_struct::SystemStructure)
     @unpack points, groups, segments, pulleys, winches, tethers, wings = sys_struct
-    pos, vel, force = sam.get_point_state(integ)
+    pos, vel, force = prob.get_point_state(integ)
     for point in points
         point.pos_w .= pos[:, point.idx]
         point.vel_w .= vel[:, point.idx]
         point.force .= force[:, point.idx]
     end
     if length(pulleys) > 0
-        len, vel = sam.get_pulley_state(integ)
+        len, vel = prob.get_pulley_state(integ)
         for pulley in pulleys
             pulley.len = len[pulley.idx]
             pulley.vel = vel[pulley.idx]
         end
     end
     if length(segments) > 0
-        spring_force, len = sam.get_segment_state(integ)
+        spring_force, len = prob.get_segment_state(integ)
         for segment in segments
             segment.force = spring_force[segment.idx]
             segment.len = len[segment.idx]
         end
     end
     if length(groups) > 0
-        twist, twist_ω, tether_force, tether_moment, aero_moment = sam.get_group_state(integ)
+        twist, twist_ω, tether_force, tether_moment, aero_moment = prob.get_group_state(integ)
         for group in groups
             group.twist = twist[group.idx]
             group.twist_ω = twist_ω[group.idx]
@@ -480,7 +481,7 @@ function update_sys_struct!(sam::SymbolicAWEModel, sys_struct::SystemStructure, 
         end
     end
     if length(winches) > 0
-        tether_len, tether_vel, set_value, winch_force_vec = sam.get_winch_state(integ)
+        tether_len, tether_vel, set_value, winch_force_vec = prob.get_winch_state(integ)
         for winch in winches
             winch.tether_len = tether_len[winch.idx]
             winch.tether_vel = tether_vel[winch.idx]
@@ -489,13 +490,13 @@ function update_sys_struct!(sam::SymbolicAWEModel, sys_struct::SystemStructure, 
         end
     end
     if length(tethers) > 0
-        stretched_len = sam.get_tether_state(integ)
+        stretched_len = prob.get_tether_state(integ)
         for tether in tethers
             tether.stretched_len = stretched_len[tether.idx]
         end
     end
     if length(wings) > 0
-        wing_state = sam.get_wing_state(integ)
+        wing_state = prob.get_wing_state(integ)
         Q_b_w, ω_b, pos_w, vel_w, acc_w, va_b, v_wind, 
             aero_force_b, aero_moment_b, elevation, elevation_vel,
             elevation_acc, azimuth, azimuth_vel, azimuth_acc,
@@ -523,7 +524,7 @@ function update_sys_struct!(sam::SymbolicAWEModel, sys_struct::SystemStructure, 
             wing.aoa = aoa[wing.idx]
         end
     end
-    sam.sys_struct.wind_vec_gnd .= sam.get_struct_state(integ)
+    sys_struct.wind_vec_gnd .= prob.get_struct_state(integ)
     return nothing
 end
 

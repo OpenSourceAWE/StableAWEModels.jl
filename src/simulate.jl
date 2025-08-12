@@ -53,7 +53,7 @@ function sim!(
     vsm_time = 0.0
     integ_time = 0.0
     set_torques = similar(set_values)
-    y_op = sam.get_lin_y(sam.integrator)
+    y_op = sam.simple_lin_model.get_y(sam.integrator)
 
     # --- Nonlinear Simulation Loop ---
     elapsed = @elapsed for step in 1:steps
