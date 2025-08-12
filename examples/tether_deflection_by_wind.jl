@@ -42,9 +42,14 @@ function wind_deflection_analytical_solution(vertical_span, total_length, wind_s
     mass_line = set.rho_tether * cross_section_area * total_length
     
     # Wind drag parameters (horizontal wind on vertical cable)
-    air_density = 1.225  # kg/m³ (standard air density)
-    drag_coefficient = 1.2  # Typical for cylindrical tether
-    wind_force_per_length = 0.5 * air_density * wind_speed^2 * (1e-3)*line_diameter_mm * drag_coefficient
+    air_density = set.rho_0  # Use air density from settings (same as simulation)
+    drag_coefficient = set.cd_tether  # Use same drag coefficient as simulation
+    
+    # Area calculation: length × diameter (not cross-sectional area)
+    # This matches the simulation: area[segment.idx] ~ len[segment.idx] * get_diameter(psys, segment.idx)
+    cable_diameter = (1e-3) * line_diameter_mm  # Convert mm to m
+    area_per_length = cable_diameter  # area = length × diameter, so area_per_length = diameter
+    wind_force_per_length = 0.5 * air_density * wind_speed^2 * area_per_length * drag_coefficient
     
     println("Pure Wind Drag System Parameters:")
     println("   Vertical span: ", vertical_span, " m")
@@ -53,7 +58,9 @@ function wind_deflection_analytical_solution(vertical_span, total_length, wind_s
     println("   Wind speed (horizontal): ", wind_speed, " m/s")
     println("   E modulus: ", set.e_tether, " Pa")
     println("   Density: ", set.rho_tether, " kg/m^3")
-    println("   Gravity: ", set.g_earth, " m/s^2 (should be 0)")
+    println("   Drag coefficient: ", drag_coefficient, " (from set.cd_tether)")
+    println("   Air density: ", air_density, " kg/m³ (from set.rho_0)")
+    println("   Gravity: ", set.g_earth, " m/s^2 (should be 0, to isolate drag effects)")
     println("   Cross section area: ", round(cross_section_area, digits=6), " m^2")
     println("   Total cable mass: ", round(mass_line, digits=4), " kg")
     println("   Wind force per length: ", round(wind_force_per_length, digits=4), " N/m")
@@ -65,6 +72,12 @@ function wind_deflection_analytical_solution(vertical_span, total_length, wind_s
     # Estimate tension from elastic effects (cable stretched by small amount)
     stretch_ratio = (total_length - vertical_span) / vertical_span  # Small stretch
     elastic_tension = set.e_tether * cross_section_area * stretch_ratio
+    
+    # Ensure minimum tension for stability
+    if elastic_tension < 1.0
+        elastic_tension = 1.0  # Minimum 1N tension
+        println("   Warning: Using minimum tension of 1 N for stability")
+    end
     
     # For small deflections of a cable under lateral load:
     # Deflection y(z) = (q*z/(2*T)) * (L*z - z²) where q is lateral load per length
@@ -105,18 +118,19 @@ wind_speed = 5.0               # Wind speed [m/s]
 
 # Set horizontal wind
 set.v_wind = wind_speed
-set.upwind_dir = 0.0           # Wind in +Y direction (perpendicular to vertical tether)
+# set.upwind_dir = 0.0         # Wind direction (commented out to use default)
 
-# --- Points (nodes) - Vertical configuration
+# --- Points (nodes) - Set up HORIZONTALLY first, transform will make them vertical
+# Note: First point at vertical_span will become top, last point at 0 will become bottom
 points = Point[]
-push!(points, Point(1, [0.0, 0.0, 0.0], STATIC))                               # Bottom anchor
+push!(points, Point(1, [vertical_span, 0.0, 0.0], STATIC))                     # Will become top anchor after transform
 
-# Add dynamic points along vertical line
+# Add dynamic points along horizontal line (will become vertical after transform)
 for i in 1:n_segments-1
-    z = i * vertical_span / n_segments
-    push!(points, Point(i+1, [0.0, 0.0, z], DYNAMIC; world_frame_damping=world_frame_damping))    # Points 2,3,4,...
+    x = vertical_span - i * vertical_span / n_segments  # Reverse horizontal spacing
+    push!(points, Point(i+1, [x, 0.0, 0.0], DYNAMIC; world_frame_damping=world_frame_damping))    # Points 2,3,4,...
 end
-push!(points, Point(n_segments+1, [0.0, 0.0, vertical_span], STATIC))          # Top anchor
+push!(points, Point(n_segments+1, [0.0, 0.0, 0.0], STATIC))                    # Will become bottom anchor after transform
 
 # --- Segments (springs/dampers)
 segments = Segment[]
@@ -129,7 +143,11 @@ for i in 1:n_segments
 end
 
 # --- Transforms
-transforms = [Transform(1, 0.0, 0.0, 0.0; base_pos=[0.0, 0.0, 0.0], base_point_idx=1, rot_point_idx=2)]
+# Transform: Rotate horizontal setup to vertical
+# Key: -90° elevation rotates horizontal (X-axis) tether to vertical (Z-axis)
+# base_pos sets where the base point (point 1, currently at x=vertical_span) should be positioned
+# After transform: point 1 (at vertical_span) becomes top, point n_segments+1 (at 0) becomes bottom
+transforms = [Transform(1, -deg2rad(90.0), 0.0, 0.0; base_pos=[0.0, 0.0, vertical_span], base_point_idx=1, rot_point_idx=n_segments+1)]
 
 # --- System structure
 sys_struct = SymbolicAWEModels.SystemStructure("wind_drag", set; points, segments, transforms)
@@ -206,12 +224,12 @@ for i in 1:length(points)
     
     # Find corresponding analytical point
     if i == 1
-        anal_y, anal_z = 0.0, 0.0  # Bottom anchor (fixed)
+        anal_y, anal_z = y_analytical[end], vertical_span  # Top anchor (first point after transform)
     elseif i == length(points)
-        anal_y, anal_z = y_analytical[end], vertical_span  # Top anchor
+        anal_y, anal_z = 0.0, 0.0  # Bottom anchor (last point after transform)
     else
         # Interpolate analytical solution at simulation point z-coordinate
-        z_pos = (i-1) * vertical_span / n_segments  # Position along vertical span
+        z_pos = vertical_span - (i-1) * vertical_span / n_segments  # Reverse mapping due to transform
         anal_idx = argmin(abs.(z_analytical .- z_pos))
         anal_y = y_analytical[anal_idx]
         anal_z = z_analytical[anal_idx]
@@ -233,7 +251,7 @@ for i in 2:(length(points)-1)  # Only dynamic points
     sim_y, sim_z = pos[2], pos[3]
     
     # Interpolate analytical solution
-    z_pos = (i-1) * vertical_span / n_segments
+    z_pos = vertical_span - (i-1) * vertical_span / n_segments  # Reverse mapping due to transform
     anal_idx = argmin(abs.(z_analytical .- z_pos))
     anal_y = y_analytical[anal_idx]
     anal_z = z_analytical[anal_idx]
@@ -250,22 +268,3 @@ println("\nRMS Error (dynamic points only):")
 println("  Y-direction: $(round(rms_error_y, digits=6)) m")
 println("  Z-direction: $(round(rms_error_z, digits=6)) m")
 println("  Total RMS:   $(round(sqrt(rms_error_y^2 + rms_error_z^2), digits=6)) m")
-
-# --- Additional wind drag analysis ---
-println("\nWind Drag Analysis:")
-sim_y_values = [sam.sys_struct.points[i].pos_w[2] for i in 1:length(points)]
-sim_x_values = [sam.sys_struct.points[i].pos_w[1] for i in 1:length(points)]
-max_deflection = maximum(abs.(sim_y_values))
-max_x_drift = maximum(abs.(sim_x_values))  # Should be minimal
-
-println("  Maximum wind deflection: $(round(max_deflection, digits=4)) m")
-println("  Maximum X drift: $(round(max_x_drift, digits=6)) m")
-println("  Analytical max deflection: $(round(max_analytical_deflection, digits=4)) m")
-
-# Compare simulation vs analytical
-deflection_ratio = max_deflection / max_analytical_deflection
-println("  Deflection ratio (sim/analytical): $(round(deflection_ratio, digits=2))")
-
-# Wind loading analysis
-println("  Elastic tension: $(round(elastic_tension, digits=2)) N")
-println("  Pure drag validation: gravity = $(set.g_earth) m/s² (should be 0)")
