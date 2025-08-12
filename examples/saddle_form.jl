@@ -12,12 +12,17 @@ Saddle Form Benchmark (compact)
 
 using SymbolicAWEModels, ControlPlots
 using LinearAlgebra
+using KiteUtils
+using YAML
 
 # ------------------------ Settings ------------------------
 
 function build_settings(; sample_freq=100, abs_tol=1e-6, rel_tol=1e-6,
                        damping=nothing, e_tether=1.0e9, rho_tether=1.0, g_earth=0.0)
-    set = load_settings("base")
+    # Use the data/system.yaml file to avoid permission issues (like build_saddle_form_shape.jl)
+    data_dir = joinpath(dirname(@__DIR__), "data")
+    system_yaml = joinpath(data_dir, "system.yaml")
+    set = Settings(system_yaml)
     set.v_wind     = 0.0
     set.g_earth    = g_earth
     set.sample_freq = sample_freq
@@ -35,124 +40,111 @@ function build_settings(; sample_freq=100, abs_tol=1e-6, rel_tol=1e-6,
     return set
 end
 
-# ------------------- Mesh + Connectivity -------------------
+# ------------------- Transform Helpers -------------------
 
 """
-    build_saddle_points_segments(grid_size, grid_length, grid_height, set;
-                                 prestretch_frac=0.98, diameter_mm=3.0)
-
-Returns (points, segments, fixed_nodes::Vector{Int}, dx).
+Create a neutral transform (pure translation; no rotation applied).
+- Moves `base_point_idx` to `base_pos`
+- Keeps the current orientation (no net rotation) by matching target angles to current angles
 """
-function build_saddle_points_segments(N::Int, L::Real, H::Real, set;
-                                      prestretch_frac=0.98, diameter_mm=3.0)
-    N < 3 && error("grid_size must be ≥ 3")
-    !(0.9 ≤ prestretch_frac < 1.0) && error("prestretch_frac must be in [0.9, 1.0)")
+function neutral_transform(idx::Int; points::Vector{Point}, base_point_idx::Int=1,
+                           rot_point_idx::Int=2, base_pos::Vector{Float64}=[0.0,0.0,0.0])
+    # direction in CAD frame used by reinit! after translation
+    dir0 = points[rot_point_idx].pos_cad .- points[base_point_idx].pos_cad
+    # guard: if degenerate, bump the rot point
+    if norm(dir0) < 1e-12
+        error("neutral_transform: base_point_idx and rot_point_idx coincide; pick different indices")
+    end
+    curr_elev   = KiteUtils.calc_elevation(dir0)
+    curr_azim   = -KiteUtils.azimuth_east(dir0)
+    # target = current  => no net rotation
+    return Transform(idx, curr_elev, curr_azim, 0.0;
+                     base_pos=base_pos, base_point_idx=base_point_idx,
+                     rot_point_idx=rot_point_idx)
+end
 
-    dx = L / (N - 1)
-    n_total = N^2 + (N - 1)^2
-    positions = Vector{Vector{Float64}}(undef, 0)
-    node_map = Dict{Tuple{Int,Int}, Int}()       # (row, col) -> idx
-    idx_to_rc = Vector{Tuple{Int,Int}}(undef, n_total)
+# ------------------- YAML Data Loading -------------------
 
-    # Build rows: even rows (full N), odd rows (N-1) offset by dx/2; y advances by dx/2
-    idx = 1
-    for row in 0:(2N - 2)
-        y = (row * dx) / 2
-        if iseven(row)
-            for col in 0:(N - 1)
-                x = col * dx
-                push!(positions, [x, y, H/2])
-                node_map[(row, col)] = idx
-                idx_to_rc[idx] = (row, col)
-                idx += 1
-            end
-        else
-            for col in 0:(N - 2)
-                x = (col + 0.5) * dx
-                push!(positions, [x, y, H/2])
-                node_map[(row, col)] = idx
-                idx_to_rc[idx] = (row, col)
-                idx += 1
-            end
+"""
+    load_saddle_yaml(path::String)
+
+Read a saddle dataset from YAML.
+Returns (positions, connections, fixed_indices, params, masses)
+"""
+function load_saddle_yaml(path::String)
+    data = YAML.load_file(path)
+
+    haskey(data, "nodes") || error("YAML missing 'nodes'")
+    haskey(data, "connections") || error("YAML missing 'connections'")
+
+    one_based = get(data, "one_based", true)
+
+    # positions & fixed & masses
+    nodes = data["nodes"]
+    N = length(nodes)
+    positions = Vector{Vector{Float64}}(undef, N)
+    fixed = Int[]
+    masses = fill(0.1, N)  # default dynamic mass
+
+    for (i, n) in enumerate(nodes)
+        x = Float64(n["x"]); y = Float64(n["y"]); z = Float64(n["z"])
+        positions[i] = [x,y,z]
+        if get(n, "fixed", false)
+            push!(fixed, i)
         end
-    end
-    @assert length(positions) == n_total "Position count mismatch"
-
-    # Fixed nodes (boundary): top row, bottom row, left/right edges (non-corner odd rows only)
-    top    = [node_map[(0, c)]     for c in 0:(N-1)]
-    bottom = [node_map[(2N-2, c)]  for c in 0:(N-1)]
-    
-    # Left/right edges: only middle odd rows (not adjacent to top/bottom)
-    # For diamond mesh, odd rows that connect to interior
-    middle_odd_rows = [r for r in 1:2:(2N-3) if r < 2N-3]  # exclude row 2N-3 which connects to bottom
-    left   = [node_map[(r, 0)]     for r in middle_odd_rows]
-    right  = [node_map[(r, N-2)]   for r in middle_odd_rows]
-    
-    fixed_nodes = vcat(top, bottom, left, right)
-    expected_count = 2*N + 2*(N-2)  # top + bottom + left + right
-    @assert length(fixed_nodes) == expected_count "Fixed-node count mismatch: got $(length(fixed_nodes)), expected $expected_count"
-    fixed_set = Set(fixed_nodes)
-
-    # Boundary z profile (saddle)
-    dl = H / L * dx
-    zline = [i*dl for i in 0:(N-1)]
-    boundary_z = vcat(zline, reverse(zline), zline[2:end-1], reverse(zline[2:end-1]))
-    @assert length(boundary_z) == length(fixed_nodes)
-
-    for (k, idxn) in enumerate(fixed_nodes)
-        positions[idxn][3] = boundary_z[k]
+        if haskey(n, "mass"); masses[i] = Float64(n["mass"]); end
     end
 
-    # Points (STATIC boundary, DYNAMIC interior)
+    # connections
+    conns = Tuple{Int,Int}[]
+    for c in data["connections"]
+        i = Int(c["i"]); j = Int(c["j"])
+        if !one_based
+            i += 1; j += 1
+        end
+        push!(conns, (i,j))
+    end
+
+    # params (optional)
+    params = Dict{String,Any}()
+    if haskey(data, "params")
+        for (k,v) in data["params"]; params[string(k)] = v; end
+    end
+
+    return positions, conns, fixed, params, masses
+end
+
+"""
+    build_saddle_from_yaml(yaml_file::String, set; prestretch_frac=0.98, diameter_mm=3.0)
+
+Build saddle form points and segments from YAML file.
+Returns (points, segments, fixed_nodes::Vector{Int}, positions).
+"""
+function build_saddle_from_yaml(yaml_file::String, set; prestretch_frac=0.98, diameter_mm=3.0)
+    !(0.9 ≤ prestretch_frac < 1.0) && error("prestretch_frac ∈ [0.9,1.0)")
+    positions, connections, fixed_idx, params, masses = load_saddle_yaml(yaml_file)
+    haskey(params, "n") && (length(positions) == params["n"] || error("nodes ≠ params.n"))
+
+    fixed = Set(fixed_idx)
     points = Point[]
-    for i in 1:n_total
+    for i in eachindex(positions)
         pos = positions[i]
-        if i ∈ fixed_set
+        if i ∈ fixed
             push!(points, Point(i, pos, STATIC; transform_idx=1))
         else
-            push!(points, Point(i, pos, DYNAMIC; mass=0.1, transform_idx=1))
+            push!(points, Point(i, pos, DYNAMIC; transform_idx=1, mass=masses[i]))
         end
     end
 
-    # Connectivity (neighbors between adjacent parity rows), unique pairs
-    pairs = Set{Tuple{Int,Int}}()
-    for i in 1:n_total
-        row, col = idx_to_rc[i]
-        neigh = Int[]
-        if iseven(row)
-            # link to odd rows above/below
-            if row > 0
-                (col > 0)         && haskey(node_map, (row-1, col-1)) && push!(neigh, node_map[(row-1, col-1)])
-                (col < N-1)       && haskey(node_map, (row-1, col))   && push!(neigh, node_map[(row-1, col)])
-            end
-            if row < 2N - 2
-                (col > 0)         && haskey(node_map, (row+1, col-1)) && push!(neigh, node_map[(row+1, col-1)])
-                (col < N-1)       && haskey(node_map, (row+1, col))   && push!(neigh, node_map[(row+1, col)])
-            end
-        else
-            # link to even rows above/below
-            haskey(node_map, (row-1, col))     && push!(neigh, node_map[(row-1, col)])
-            haskey(node_map, (row-1, col+1))   && push!(neigh, node_map[(row-1, col+1)])
-            (row < 2N - 2) && haskey(node_map, (row+1, col))   && push!(neigh, node_map[(row+1, col)])
-            (row < 2N - 2) && haskey(node_map, (row+1, col+1)) && push!(neigh, node_map[(row+1, col+1)])
-        end
-        for j in neigh
-            i == j && continue
-            a,b = i<j ? (i,j) : (j,i)
-            push!(pairs, (a,b))
-        end
-    end
-
-    # Segments (prestretch)
     segments = Segment[]
-    for (sid, (i,j)) in enumerate(sort!(collect(pairs)))
-        ℓ = norm(positions[i] .- positions[j])
+    for (sid, (i,j)) in enumerate(connections)
+        ℓ  = norm(positions[i] .- positions[j])
         l0 = prestretch_frac * ℓ
         push!(segments, Segment(sid, set, (i,j), BRIDLE; l0, compression_frac=0.001, diameter_mm=diameter_mm))
     end
-
-    println("Mesh: N=$N, nodes=$(length(points)), segments=$(length(segments)), dx=$(round(dx,digits=3)) m")
-    return points, segments, fixed_nodes, dx
+    
+    println("YAML Mesh: nodes=$(length(points)), segments=$(length(segments)), fixed=$(length(fixed_idx))")
+    return points, segments, fixed_idx, positions
 end
 
 # ------------------------ Solver --------------------------
@@ -194,33 +186,36 @@ end
 # -------------------------- Main --------------------------
 
 """
-    main(; grid_size=5, grid_length=10.0, grid_height=5.0,
-          prestretch_frac=0.98, diameter_mm=3.0,
+    main(; yaml_file="saddle.yaml", prestretch_frac=0.98, diameter_mm=3.0,
           sample_freq=100, abs_tol=1e-6, rel_tol=1e-6,
-          damping=nothing, max_steps=10_000, vtol=1e-4)
+          damping=nothing, max_steps=10, vtol=1e-4)
 
+Run saddle form simulation using YAML geometry.
 Returns (sam, XYZ_initial, XYZ_final).
 """
-function main(; grid_size=5, grid_length=10.0, grid_height=5.0,
-               prestretch_frac=0.98, diameter_mm=3.0,
+function main(; yaml_file="saddle.yaml", prestretch_frac=0.98, diameter_mm=3.0,
                sample_freq=100, abs_tol=1e-6, rel_tol=1e-6,
-               damping=nothing, max_steps=10_000, vtol=1e-4)
+               damping=nothing, max_steps=10, vtol=1e-4)
 
-    println("SADDLE FORM - SymbolicAWEModels")
+    println("SADDLE FORM (YAML-based) - SymbolicAWEModels")
     set = build_settings(; sample_freq, abs_tol, rel_tol, damping, e_tether=1e9, rho_tether=1.0, g_earth=0.0)
 
-    points, segments, fixed_nodes, dx = build_saddle_points_segments(
-        grid_size, grid_length, grid_height, set; prestretch_frac, diameter_mm)
+    # Load geometry from YAML file (same as build_saddle_form_shape.jl)
+    yaml_path = joinpath(@__DIR__, yaml_file)
+    isfile(yaml_path) || error("Missing YAML file: $yaml_path")
+    
+    points, segments, fixed_nodes, positions = build_saddle_from_yaml(
+        yaml_path, set; prestretch_frac, diameter_mm)
 
-    # Create a simple transform (no rotation, fixed in place)
-    transforms = [Transform(1, 0.0, 0.0, 0.0; base_pos=[0.0, 0.0, 0.0], base_point_idx=1, rot_point_idx=1)]
+    # Preserve absolute positions (no rotation, no translation) - neutral transform
+    transforms = [neutral_transform(1; points, base_point_idx=1, rot_point_idx=2, base_pos=Vector(points[1].pos_cad))]
 
     sys = SymbolicAWEModels.SystemStructure("saddle_form", set; points, segments, transforms)
     sam = SymbolicAWEModel(set, sys)
     init!(sam; remake=false)
 
     XYZ0 = [copy(p.pos_w) for p in sys.points]
-    fig0 = plot_state("Initial (N=$grid_size, prestretch=$(prestretch_frac), dx=$(round(dx,digits=3)) m)",
+    fig0 = plot_state("Initial YAML Saddle ($(length(points)) nodes, $(length(segments)) segments)",
                       sys, 0.0)
 
     steps, runtime, maxv = relax!(sam; max_steps, vtol)
