@@ -3,7 +3,7 @@
 using REPL.TerminalMenus
 
 options = [
-        "simple_vertical_tether = include(\"simple_vertical_tether.jl\")",
+        "saddle_form = include(\"saddle_form.jl\")",
         "tether_deflection_by_wind = include(\"tether_deflection_by_wind.jl\")",
         "catenary_line = include(\"catenary_line.jl\")",
         "hanging_mass = include(\"hanging_mass.jl\")",
