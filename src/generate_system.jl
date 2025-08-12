@@ -347,10 +347,12 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             # n = n * (p ⋅ n)
             # r = (p - n) # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Vector_formulation
             if length(wings) > 0
-                bridle_damp_vec = get_body_frame_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
+                body_frame_damp_vec = get_body_frame_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
             else
-                bridle_damp_vec = zeros(3)
+                body_frame_damp_vec = zeros(3)
             end
+            world_frame_damp_vec = get_world_frame_damping(psys, point.idx) * vel[:, point.idx]
+
             axis = sym_normalize(pos[:, point.idx])
             eqs = [
                 eqs
@@ -363,7 +365,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                                                 acc[:, point.idx] ⋅ axis * axis,
                                                 acc[:, point.idx]
                                         )
-                acc[:, point.idx]    ~ point_force[:, point.idx] ./ mass - bridle_damp_vec
+                acc[:, point.idx]    ~ point_force[:, point.idx] ./ mass - body_frame_damp_vec - world_frame_damp_vec
             ]
             defaults = [
                 defaults
