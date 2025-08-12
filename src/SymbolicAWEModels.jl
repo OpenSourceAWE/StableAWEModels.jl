@@ -88,8 +88,7 @@ export unstretched_length
 export tether_length
 
 # --- Helper Functions ---
-export copy_examples
-export copy_bin
+export init_module
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -207,7 +206,7 @@ function copy_data(; force=false)
 end
 
 """
-    copy_dir_no_overwrite(src_dir, dst_dir)
+    copy_dir(src_dir, dst_dir)
 
 Copies all files from `src_dir` to `dst_dir`.
 Overwrites existing files if force=true.
@@ -230,26 +229,34 @@ function copy_dir(src_dir::AbstractString, dst_dir::AbstractString; force=false)
 end
 
 """
-    init_module()
+    init_module(; force=false, add_pkg=true)
 
-Initializes the module in the current working directory.
+Initialize the module in the current working directory.
 
-- Copies all files from the module's `data` directory to `pwd()/data`, but does NOT overwrite files that already exist in `pwd()/data`.
-- Copies all example scripts to `pwd()/examples`, creating the folder if it does not exist, and does not overwrite existing files.
-- Copies the `bin` directory from the module to `pwd()/bin`, creating the folder if it does not exist, and does not overwrite existing files.
-- Installs all required packages if they are not already installed.
+This function performs the following actions:
+
+- Copies all files from the module's `data` directory to the current working directory's `data` folder (`pwd()/data`). Existing files in the destination are NOT overwritten unless `force=true`.
+- Copies all example scripts from the module to the current working directory's `examples` folder (`pwd()/examples`). The folder is created if it does not exist. Existing files are NOT overwritten unless `force=true`.
+- Copies the `bin` directory from the module to the current working directory's `bin` folder (`pwd()/bin`). The folder is created if it does not exist. Existing files are NOT overwritten unless `force=true`.
+- Installs all required packages if they are not already installed. This occurs only if `add_pkg=true` (default). The packages installed are: `KiteUtils`, `ControlPlots`, `LaTeXStrings`, and `Timers`.
+
+# Keyword Arguments
+- `force::Bool=false`: If `true`, existing files in the destination directories will be overwritten. If `false` (default), existing files will be preserved.
+- `add_pkg::Bool=true`: If `true` (default), installs required packages if they are not already present. If `false`, package installation is skipped.
 """
-function init_module(; force=false)
+function init_module(; force=false, add_pkg=true)
     copy_data(; force)
     copy_examples(; force)
     copy_bin(; force)
 
-    # Install required packages if not already present
-    pkgs = ["KiteUtils", "ControlPlots", 
-            "LaTeXStrings", "Timers"]
-    for pkg in pkgs
-        if !(pkg in keys(Pkg.project().dependencies))
-            Pkg.add(pkg)
+    if add_pkg
+        # Install required packages if not already present
+        pkgs = ["KiteUtils", "ControlPlots", 
+                "LaTeXStrings", "Timers"]
+        for pkg in pkgs
+            if !(pkg in keys(Pkg.project().dependencies))
+                Pkg.add(pkg)
+            end
         end
     end
 

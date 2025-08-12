@@ -89,6 +89,10 @@ SymbolicAWEModels.create_model_archive
 SymbolicAWEModels.filecmp
 SymbolicAWEModels.extract_model_archive
 SymbolicAWEModels.create_default_models
+SymbolicAWEModels.copy_bin
+SymbolicAWEModels.copy_examples
+SymbolicAWEModels.copy_data
+SymbolicAWEModels.copy_dir
 ```
 
 ## Base Overloads (Internal Use)
