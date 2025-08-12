@@ -3,6 +3,11 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# unreleased
+## Changed
+- Improved serialization by making structs with attributes
+##
+
 # v0.3.3 07-08-2025
 ## Fixed
 - Fix non-persistent state bug with `calc_tether_props`

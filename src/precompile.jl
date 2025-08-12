@@ -122,38 +122,40 @@ end
 
     local will_precompile
     will_precompile = get(ENV, "SAM_PRECOMPILE", "true") != "false"
-    try
-        path = dirname(dirname(pathof(@__MODULE__)))
-        data_path = joinpath(path, "data")
-        set_data_path(data_path)
+    if will_precompile
+        try
+            path = dirname(dirname(pathof(@__MODULE__)))
+            data_path = joinpath(path, "data")
+            set_data_path(data_path)
 
-        # Copy .default files to expected files
-        cp(joinpath(path, "Artifacts.toml.default"), joinpath(path, "Artifacts.toml"); force=true)
+            # Copy .default files to expected files
+            cp(joinpath(path, "Artifacts.toml.default"), joinpath(path, "Artifacts.toml"); force=true)
 
-        version_minor = VERSION.minor
-        manifest_default = joinpath(path, "Manifest-v1.$version_minor.toml.default")
-        manifest_actual = joinpath(path, "Manifest-v1.$version_minor.toml")
-        cp(manifest_default, manifest_actual; force=true)
+            version_minor = VERSION.minor
+            manifest_default = joinpath(path, "Manifest-v1.$version_minor.toml.default")
+            manifest_actual = joinpath(path, "Manifest-v1.$version_minor.toml")
+            cp(manifest_default, manifest_actual; force=true)
 
-        # Use explicit Artifacts API to get the artifact and extract it
-        artifact_toml = joinpath(path, "Artifacts.toml")
-        artifact_name = "models_v1_$version_minor"
-        model_hash = artifact_hash(artifact_name, artifact_toml)
+            # Use explicit Artifacts API to get the artifact and extract it
+            artifact_toml = joinpath(path, "Artifacts.toml")
+            artifact_name = "models_v1_$version_minor"
+            model_hash = artifact_hash(artifact_name, artifact_toml)
 
-        if !isnothing(model_hash) && artifact_exists(model_hash)
-            model_dir = artifact_path(model_hash)
-            mkpath(data_path)
-            for f in readdir(model_dir)
-                cp(joinpath(model_dir, f), joinpath(data_path, f); force=true)
+            if !isnothing(model_hash) && artifact_exists(model_hash)
+                model_dir = artifact_path(model_hash)
+                mkpath(data_path)
+                for f in readdir(model_dir)
+                    cp(joinpath(model_dir, f), joinpath(data_path, f); force=true)
+                end
+                @info "Downloaded and extracted $artifact_name to $data_path"
+            else
+                @warn "Artifact $artifact_name not found in Artifacts.toml or does not exist!"
+                will_precompile = false
             end
-            @info "Downloaded and extracted $artifact_name to $data_path"
-        else
-            @warn "Artifact $artifact_name not found in Artifacts.toml or does not exist!"
+        catch e
             will_precompile = false
+            @info "Not precompiling because of error: $e"
         end
-    catch e
-        will_precompile = false
-        @info "Not precompiling because of error: $e"
     end
 
     @compile_workload begin

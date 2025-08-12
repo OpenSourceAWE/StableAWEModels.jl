@@ -9,6 +9,12 @@ using Test, ControlSystemsBase, Printf
 using SymbolicAWEModels, ControlPlots
 using Statistics, LinearAlgebra, Serialization
 
+tmpdir=mktempdir()
+mkpath(joinpath(tmpdir, "data"))
+old_data_path = get_data_path()
+set_data_path(joinpath(tmpdir, "data"))
+cp(old_data_path, get_data_path(); force=true)
+
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
 
@@ -347,4 +353,6 @@ end
         @test !isnothing(sam.control_functions)
     end
 end
+set_data_path(old_data_path)
 nothing
+

@@ -127,6 +127,7 @@ end
 
 include("system_structure.jl")
 include("symbolic_awe_model.jl")
+include("model_management.jl")
 include("predefined_structures.jl")
 include("tether_properties.jl")
 include("linearize.jl")
