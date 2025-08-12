@@ -1,37 +1,23 @@
-# SPDX-FileCopyrightText: 2025 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
-
 """
-Saddle Form Benchmark (compact)
+Build Saddle Form Shape
 
-- Diamond/rhombic mesh with alternating full/offset rows
-- Boundary nodes fixed with a saddle z-profile
-- Self-stress via prestretch (l0 = prestretch_frac * current_length)
-- Damped dynamic relaxation to equilibrium
+Creates the saddle form geometry with diamond/rhombic mesh and plots the initial shape.
+No simulation - just geometry creation and visualization.
 """
 
-using SymbolicAWEModels, ControlPlots
+using SymbolicAWEModels
 using LinearAlgebra
+using Plots
+plotlyjs()  # Use PlotlyJS backend for interactive 3D plots
 
 # ------------------------ Settings ------------------------
 
-function build_settings(; sample_freq=100, abs_tol=1e-6, rel_tol=1e-6,
-                       damping=nothing, e_tether=1.0e9, rho_tether=1.0, g_earth=0.0)
+function build_settings()
     set = load_settings("base")
     set.v_wind     = 0.0
-    set.g_earth    = g_earth
-    set.sample_freq = sample_freq
-    set.abs_tol     = abs_tol
-    set.rel_tol     = rel_tol
-    set.e_tether    = e_tether
-    set.rho_tether  = rho_tether
-    if damping !== nothing
-        set.damping = damping
-        println("Using manual damping: ", damping)
-    else
-        println("Using base damping: ", set.damping)
-    end
-    g_earth ≠ 0 && println("Warning: gravity ≠ 0; shape not purely prestress-driven.")
+    set.g_earth    = 0.0
+    set.e_tether   = 1.0e9
+    set.rho_tether = 1.0
     return set
 end
 
@@ -155,59 +141,60 @@ function build_saddle_points_segments(N::Int, L::Real, H::Real, set;
     return points, segments, fixed_nodes, dx
 end
 
-# ------------------------ Solver --------------------------
+# ------------------------- 3D Plotting -------------------------
 
-"""
-    relax!(sam; max_steps=10_000, vtol=1e-4, report_every=1000)
-
-Velocity-based convergence (robust across SymbolicAWEModels versions).
-Returns (steps, runtime, max_speed).
-"""
-function relax!(sam; max_steps=10_000, vtol=1e-4, report_every=1000)
-    t0 = time(); maxv = Inf; steps = 0
-    for k in 1:max_steps
-        next_step!(sam)
-        steps = k
-        maxv = 0.0
-        @inbounds for p in sam.sys_struct.points
-            p.type === DYNAMIC || continue
-            v = norm(p.vel_w)
-            v > maxv && (maxv = v)
-        end
-        (k % report_every == 0) && println(" step $k: max|v|=$(round(maxv,digits=6))")
-        if maxv < vtol
-            println("Converged at step $k with max|v|=$(round(maxv,digits=6))")
-            break
-        end
+function plot3d_saddle_shape(points, segments, fixed_nodes; title="Saddle Form Shape")
+    # Extract coordinates
+    x = [p.pos_w[1] for p in points]
+    y = [p.pos_w[2] for p in points]
+    z = [p.pos_w[3] for p in points]
+    
+    # Create base plot with all points
+    p = scatter3d(x, y, z, 
+                  markersize=3, 
+                  markercolor=:blue,
+                  markerstrokewidth=0,
+                  title=title,
+                  xlabel="X (m)", 
+                  ylabel="Y (m)", 
+                  zlabel="Z (m)",
+                  legend=false)
+    
+    # Add segments as lines
+    for seg in segments
+        i, j = seg.point_idxs
+        plot3d!([x[i], x[j]], [y[i], y[j]], [z[i], z[j]], 
+                color=:gray, alpha=0.6, linewidth=1)
     end
-    return steps, (time()-t0), maxv
-end
-
-# ------------------------- Plots --------------------------
-
-function plot_state(title_str, sam_or_sys, time_or_zero=0.0)
-    println(title_str)
-    plot(sam_or_sys, time_or_zero; zoom=false)
-    return nothing
+    
+    # Highlight fixed nodes in red
+    if !isempty(fixed_nodes)
+        x_fixed = x[fixed_nodes]
+        y_fixed = y[fixed_nodes]
+        z_fixed = z[fixed_nodes]
+        scatter3d!(x_fixed, y_fixed, z_fixed, 
+                   markersize=5, 
+                   markercolor=:red,
+                   markerstrokewidth=0)
+    end
+    
+    return p
 end
 
 # -------------------------- Main --------------------------
 
 """
-    main(; grid_size=5, grid_length=10.0, grid_height=5.0,
-          prestretch_frac=0.98, diameter_mm=3.0,
-          sample_freq=100, abs_tol=1e-6, rel_tol=1e-6,
-          damping=nothing, max_steps=10_000, vtol=1e-4)
+    build_and_plot_saddle_shape(; grid_size=5, grid_length=10.0, grid_height=5.0,
+                                prestretch_frac=0.98, diameter_mm=3.0)
 
-Returns (sam, XYZ_initial, XYZ_final).
+Creates the saddle form geometry and plots the initial shape.
+Returns the system structure for further analysis if needed.
 """
-function main(; grid_size=5, grid_length=10.0, grid_height=5.0,
-               prestretch_frac=0.98, diameter_mm=3.0,
-               sample_freq=100, abs_tol=1e-6, rel_tol=1e-6,
-               damping=nothing, max_steps=10_000, vtol=1e-4)
+function build_and_plot_saddle_shape(; grid_size=5, grid_length=10.0, grid_height=5.0,
+                                     prestretch_frac=0.98, diameter_mm=3.0, use_3d=true)
 
-    println("SADDLE FORM - SymbolicAWEModels")
-    set = build_settings(; sample_freq, abs_tol, rel_tol, damping, e_tether=1e9, rho_tether=1.0, g_earth=0.0)
+    println("SADDLE FORM SHAPE - SymbolicAWEModels")
+    set = build_settings()
 
     points, segments, fixed_nodes, dx = build_saddle_points_segments(
         grid_size, grid_length, grid_height, set; prestretch_frac, diameter_mm)
@@ -216,29 +203,26 @@ function main(; grid_size=5, grid_length=10.0, grid_height=5.0,
     transforms = [Transform(1, 0.0, 0.0, 0.0; base_pos=[0.0, 0.0, 0.0], base_point_idx=1, rot_point_idx=1)]
 
     sys = SymbolicAWEModels.SystemStructure("saddle_form", set; points, segments, transforms)
-    sam = SymbolicAWEModel(set, sys)
-    init!(sam; remake=false)
 
-    XYZ0 = [copy(p.pos_w) for p in sys.points]
-    fig0 = plot_state("Initial (N=$grid_size, prestretch=$(prestretch_frac), dx=$(round(dx,digits=3)) m)",
-                      sys, 0.0)
+    println("Saddle Form Shape (N=$grid_size, prestretch=$(prestretch_frac), dx=$(round(dx,digits=3)) m)")
+    
+    # Standard SymbolicAWEModels plot
+    plot(sys, 0.0; zoom=false)
+    
+    # Optional 3D plot
+    if use_3d
+        title_str = "Saddle Form (N=$grid_size, dx=$(round(dx,digits=3))m)"
+        fig3d = plot3d_saddle_shape(points, segments, fixed_nodes; title=title_str)
+        display(fig3d)
+    end
 
-    steps, runtime, maxv = relax!(sam; max_steps, vtol)
-
-    XYZf = [copy(p.pos_w) for p in sam.sys_struct.points]
-    figf = plot_state("Final (steps=$steps, runtime=$(round(runtime,digits=3)) s, max|v|=$(round(maxv,digits=6)))",
-                      sam, 0.0)
-
-    # quick stats
-    disp = [norm(XYZf[i] .- XYZ0[i]) for i in eachindex(XYZ0) if i ∉ Set(fixed_nodes)]
-    println("Max disp=$(round(maximum(disp),digits=4)) m, Avg disp=$(round(sum(disp)/length(disp),digits=4)) m")
-
-    return sam, XYZ0, XYZf
+    return sys
 end
 
+# Run when file is executed directly or included
 if abspath(PROGRAM_FILE) == @__FILE__
-    main()
+    build_and_plot_saddle_shape()
 end
 
-# When included from menu.jl, run main() automatically
-main()
+# When included from menu.jl, run automatically
+build_and_plot_saddle_shape()

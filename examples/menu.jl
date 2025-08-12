@@ -3,6 +3,7 @@
 using REPL.TerminalMenus
 
 options = [
+        "build_saddle_form_shape = include(\"build_saddle_form_shape.jl\")",
         "saddle_form = include(\"saddle_form.jl\")",
         "tether_deflection_by_wind = include(\"tether_deflection_by_wind.jl\")",
         "catenary_line = include(\"catenary_line.jl\")",
