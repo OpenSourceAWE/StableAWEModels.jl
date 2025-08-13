@@ -1,6 +1,6 @@
 # saddle.yaml
 one_based: true        # keep true so i/j match Julia directly
-name: "saddle_form_v1" # optional metadata
+name: "saddle_form_gridsize5" # optional metadata
 units: "SI"            # optional
 
 params:                # optional, anything you want to carry along

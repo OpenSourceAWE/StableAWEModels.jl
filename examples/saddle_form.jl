@@ -17,7 +17,7 @@ using YAML
 
 # ------------------------ Settings ------------------------
 
-function build_settings(; sample_freq=100, abs_tol=1e-6, rel_tol=1e-6,
+function build_settings(; sample_freq, abs_tol=1e-6, rel_tol=1e-6,
                        damping=nothing, e_tether=1.0e9, rho_tether=1.0, g_earth=0.0)
     # Use the data/system.yaml file to avoid permission issues (like build_saddle_form_shape.jl)
     data_dir = joinpath(dirname(@__DIR__), "data")
@@ -30,6 +30,7 @@ function build_settings(; sample_freq=100, abs_tol=1e-6, rel_tol=1e-6,
     set.rel_tol     = rel_tol
     set.e_tether    = e_tether
     set.rho_tether  = rho_tether
+    set.l_tether = 10  # Default length for tether segments in meters   
     if damping !== nothing
         set.damping = damping
         println("Using manual damping: ", damping)
@@ -120,7 +121,7 @@ end
 Build saddle form points and segments from YAML file.
 Returns (points, segments, fixed_nodes::Vector{Int}, positions).
 """
-function build_saddle_from_yaml(yaml_file::String, set; prestretch_frac=0.98, diameter_mm=3.0)
+function build_saddle_from_yaml(yaml_file::String, set; prestretch_frac=0.98, diameter_mm=3.0,world_frame_damping=0.1)
     !(0.9 ≤ prestretch_frac < 1.0) && error("prestretch_frac ∈ [0.9,1.0)")
     positions, connections, fixed_idx, params, masses = load_saddle_yaml(yaml_file)
     haskey(params, "n") && (length(positions) == params["n"] || error("nodes ≠ params.n"))
@@ -132,7 +133,7 @@ function build_saddle_from_yaml(yaml_file::String, set; prestretch_frac=0.98, di
         if i ∈ fixed
             push!(points, Point(i, pos, STATIC; transform_idx=1))
         else
-            push!(points, Point(i, pos, DYNAMIC; transform_idx=1, mass=masses[i]))
+            push!(points, Point(i, pos, DYNAMIC; transform_idx=1, mass=masses[i], world_frame_damping=world_frame_damping))
         end
     end
 
@@ -155,7 +156,7 @@ end
 Velocity-based convergence (robust across SymbolicAWEModels versions).
 Returns (steps, runtime, max_speed).
 """
-function relax!(sam; max_steps=10_000, vtol=1e-4, report_every=1000)
+function relax!(sam; max_steps=100, vtol=1e-4, report_every=1000)
     t0 = time(); maxv = Inf; steps = 0
     for k in 1:max_steps
         next_step!(sam)
@@ -175,12 +176,18 @@ function relax!(sam; max_steps=10_000, vtol=1e-4, report_every=1000)
     return steps, (time()-t0), maxv
 end
 
-# ------------------------- Plots --------------------------
+# ------------------------- 3D Plotting -------------------------
 
-function plot_state(title_str, sam_or_sys, time_or_zero=0.0)
-    println(title_str)
-    plot(sam_or_sys, time_or_zero; zoom=false)
-    return nothing
+function plot3d_saddle(points, segments; title="Saddle Form")
+    x = [p.pos_w[1] for p in points]; y = [p.pos_w[2] for p in points]; z = [p.pos_w[3] for p in points]
+    p = Plots.scatter3d(x, y, z; markersize=2, markerstrokewidth=0, title, xlabel="X (m)", ylabel="Y (m)", zlabel="Z (m)", legend=false)
+    for s in segments
+        i,j = s.point_idxs
+        Plots.plot3d!([x[i],x[j]],[y[i],y[j]],[z[i],z[j]]; alpha=1, linewidth=1,color=:black)
+    end
+    fixed_idx = [i for (i,p) in enumerate(points) if p.type == STATIC]
+    !isempty(fixed_idx) && Plots.scatter3d!(x[fixed_idx], y[fixed_idx], z[fixed_idx]; markersize=2, markercolor=:red, markerstrokewidth=0)
+    return p
 end
 
 # -------------------------- Main --------------------------
@@ -193,8 +200,8 @@ end
 Run saddle form simulation using YAML geometry.
 Returns (sam, XYZ_initial, XYZ_final).
 """
-function main(; yaml_file="saddle.yaml", prestretch_frac=0.98, diameter_mm=3.0,
-               sample_freq=100, abs_tol=1e-6, rel_tol=1e-6,
+function main(; yaml_file="saddle_gridsize5.yaml", prestretch_frac=0.98, diameter_mm=3.0,
+               sample_freq=10, abs_tol=1e-6, rel_tol=1e-6,
                damping=nothing, max_steps=10, vtol=1e-4)
 
     println("SADDLE FORM (YAML-based) - SymbolicAWEModels")
@@ -215,14 +222,29 @@ function main(; yaml_file="saddle.yaml", prestretch_frac=0.98, diameter_mm=3.0,
     init!(sam; remake=false)
 
     XYZ0 = [copy(p.pos_w) for p in sys.points]
-    fig0 = plot_state("Initial YAML Saddle ($(length(points)) nodes, $(length(segments)) segments)",
-                      sys, 0.0)
+    fig0 = plot3d_saddle(sam.sys_struct.points, sam.sys_struct.segments; title="Initial State")
+    display(fig0)
 
-    steps, runtime, maxv = relax!(sam; max_steps, vtol)
 
+    # running the simulation
+    n_steps = 200
+    runtime = n_steps / set.sample_freq
+    maxv = 0
+    ControlPlots.plot(sam.sys_struct, 0.0; zoom=false)
+    for i in 1:n_steps
+        current_time = i/set.sample_freq
+        ControlPlots.plot(sam, current_time; zoom=false)
+        next_step!(sam)
+    end
+
+
+    # steps, runtime, maxv = relax!(sam; max_steps, vtol)
     XYZf = [copy(p.pos_w) for p in sam.sys_struct.points]
-    figf = plot_state("Final (steps=$steps, runtime=$(round(runtime,digits=3)) s, max|v|=$(round(maxv,digits=6)))",
-                      sam, 0.0)
+
+
+    figf = plot3d_saddle(sam.sys_struct.points, sam.sys_struct.segments; title="Final State")
+    display(figf)
+
 
     # quick stats
     disp = [norm(XYZf[i] .- XYZ0[i]) for i in eachindex(XYZ0) if i ∉ Set(fixed_nodes)]
@@ -236,4 +258,4 @@ if abspath(PROGRAM_FILE) == @__FILE__
 end
 
 # When included from menu.jl, run main() automatically
-main()
+main(yaml_file="saddle_gridsize5.yaml")

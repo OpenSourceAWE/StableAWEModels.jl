@@ -136,13 +136,13 @@ end
 
 function plot3d_saddle(points, segments; title="Saddle Form")
     x = [p.pos_w[1] for p in points]; y = [p.pos_w[2] for p in points]; z = [p.pos_w[3] for p in points]
-    p = scatter3d(x, y, z; markersize=3, markerstrokewidth=0, title, xlabel="X (m)", ylabel="Y (m)", zlabel="Z (m)", legend=false)
+    p = Plots.scatter3d(x, y, z; markersize=3, markerstrokewidth=0, title, xlabel="X (m)", ylabel="Y (m)", zlabel="Z (m)", legend=false)
     for s in segments
         i,j = s.point_idxs
-        plot3d!([x[i],x[j]],[y[i],y[j]],[z[i],z[j]]; alpha=0.6, linewidth=1)
+        Plots.plot3d!([x[i],x[j]],[y[i],y[j]],[z[i],z[j]]; alpha=0.6, linewidth=1)
     end
     fixed_idx = [i for (i,p) in enumerate(points) if p.type == STATIC]
-    !isempty(fixed_idx) && scatter3d!(x[fixed_idx], y[fixed_idx], z[fixed_idx]; markersize=5, markercolor=:red, markerstrokewidth=0)
+    !isempty(fixed_idx) && Plots.scatter3d!(x[fixed_idx], y[fixed_idx], z[fixed_idx]; markersize=5, markercolor=:red, markerstrokewidth=0)
     return p
 end
 
@@ -183,4 +183,4 @@ end
 # end
 
 # When included from menu.jl, run automatically
-build_and_plot_saddle_shape(yaml_file="saddle.yaml")
+build_and_plot_saddle_shape(yaml_file="saddle_gridsize3.yaml")
