@@ -134,9 +134,9 @@ function maybe_create_simple_lin_model!(sam, outputs; create_simple_lin_model=tr
         time = @elapsed slm_attrs = generate_simple_lin_model(sam.sys_struct, sys, outputs)
         if !isnothing(slm_attrs.model)
             sam.simple_lin_model = SimpleLinModelWithAttributes(; slm_attrs...)
+            prn && println("\tCreated simplified linear model in $time seconds.")
+            return true
         end
-        prn && println("\tCreated simplified linear model in $time seconds.")
-        return true
     end
     return false
 end
@@ -220,6 +220,7 @@ function init!(sam::SymbolicAWEModel;
         outputs_changed = isnothing(sam.outputs) ||
                           length(outputs) != length(sam.outputs) ||
                           !all(string.(outputs) .== string.(sam.outputs))
+        sam.outputs = outputs
         
         changed |= maybe_create_prob!(sam; create_prob, prn)
         changed |= maybe_create_simple_lin_model!(sam, outputs;
@@ -231,7 +232,7 @@ function init!(sam::SymbolicAWEModel;
                                                    outputs_changed, prn)
 
         if changed
-            prn && @info "Serializing model to $model_path..."
+            prn && @info "Serializing model to: \n\t$model_path"
             serialize(model_path, sam.serialized_model)
         end
 
