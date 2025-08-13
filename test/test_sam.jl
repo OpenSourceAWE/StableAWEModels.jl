@@ -8,7 +8,7 @@ end
 using Test, ControlSystemsBase, Printf
 using SymbolicAWEModels, ControlPlots
 using Statistics, LinearAlgebra, Serialization
-using ModelingToolkit
+using ModelingToolkit: @variables
 using ModelingToolkit: t_nounits
 
 tmpdir=mktempdir()
