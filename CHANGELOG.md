@@ -3,6 +3,10 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.4.1 13-08-2025
+## Fixed
+- Update Artifacts.toml.default
+
 # v0.4.0 13-08-2025
 ## Added
 - Structs with attributes for better serialization and code structure (`SimpleLinModelWithAttributes`, `ProbWithAttributes`, `LinProbWithAttributes`, `ControlFuncWithAttributes`).
