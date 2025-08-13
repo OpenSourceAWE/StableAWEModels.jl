@@ -1,6 +1,21 @@
 # Copyright (c) 2025 Bart van de Lint and Uwe Fechner
 # SPDX-License-Identifier: MPL-2.0
 
+"""
+    generate_prob_getters(sys_struct, sys)
+
+Generate getter and setter functions for the state variables of the full system model.
+
+These functions provide a convenient way to access and modify the state and parameters
+of the compiled `ODESystem` (`sys`).
+
+# Arguments
+- `sys_struct::SystemStructure`: The structure defining the system topology.
+- `sys::ODESystem`: The compiled ModelingToolkit system.
+
+# Returns
+- A `NamedTuple` containing various getter and setter functions for different parts of the system state.
+"""
 function generate_prob_getters(sys_struct, sys)
     c = collect
     @unpack wings, groups, pulleys, winches, tethers, segments = sys_struct
@@ -32,10 +47,28 @@ function generate_prob_getters(sys_struct, sys)
     get_struct_state = getu(sys, sys.wind_vec_gnd)
     get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force]))
     return (; get_wing_state, get_vsm_y, get_segment_state, get_group_state,
-              get_pulley_state, get_winch_state, get_tether_state, set_set_values,
-              get_set_values, set_sys, set_set, get_struct_state, get_point_state)
+            get_pulley_state, get_winch_state, get_tether_state, set_set_values,
+            get_set_values, set_sys, set_set, get_struct_state, get_point_state)
 end
 
+"""
+    generate_simple_lin_model(sys_struct, sys, y_vec)
+
+Generate a simplified linear state-space model for a single-wing system.
+
+This model is a minimal representation suitable for simple controllers, focusing on
+heading, turn rate, and tether dynamics.
+
+# Arguments
+- `sys_struct::SystemStructure`: The structure defining the system topology.
+- `sys::ODESystem`: The compiled ModelingToolkit system.
+- `y_vec`: A vector of output variables for the linear model.
+
+# Returns
+- A `NamedTuple` containing the state-space matrices (`model`), and getters for the state (`get_x`),
+  state derivatives (`get_dx`), and outputs (`get_y`). Returns `nothing` for all fields if the
+  system does not have exactly one wing.
+"""
 function generate_simple_lin_model(sys_struct, sys, y_vec)
     @unpack wings, winches = sys_struct
     if length(wings) == 1
@@ -59,6 +92,18 @@ function generate_simple_lin_model(sys_struct, sys, y_vec)
     return (model=nothing, get_x=nothing, get_dx=nothing, get_y=nothing)
 end
 
+"""
+    generate_lin_getters(sys)
+
+Generate setter functions for the parameters of a linearized system.
+
+# Arguments
+- `sys`: The linearized ModelingToolkit system.
+
+# Returns
+- A `NamedTuple` containing setter functions for the winch set-points (`set_set_values`),
+  the system structure parameters (`set_sys`), and the settings parameters (`set_set`).
+"""
 function generate_lin_getters(sys)
     set_set_values = nothing
     if hasproperty(sys, :set_values)
@@ -69,6 +114,24 @@ function generate_lin_getters(sys)
     return (; set_set_values, set_sys, set_set)
 end
 
+"""
+    generate_control_funcs(model, inputs, outputs)
+
+Generate in-place and out-of-place control functions from a ModelingToolkit system.
+
+This function wraps `ModelingToolkit.generate_control_function` and
+`ModelingToolkit.build_explicit_observed_function` to create the necessary functions
+for simulation and analysis.
+
+# Arguments
+- `model`: The full `ODESystem`.
+- `inputs`: A vector of input variables.
+- `outputs`: A vector of output variables.
+
+# Returns
+- A `NamedTuple` containing the generated functions (`f_oop`, `f_ip`, `h_oop`, `h_ip`),
+  system dimensions (`nu`, `nx`, `ny`), and symbolic variables (`dvs`, `psym`, `io_sys`).
+"""
 function generate_control_funcs(model, inputs, outputs)
     (f_ip, f_oop), dvs, psym, io_sys = @suppress_err ModelingToolkit.generate_control_function(
         model, inputs; simplify=false
@@ -81,6 +144,23 @@ function generate_control_funcs(model, inputs, outputs)
             dvs=dvs, psym=psym, io_sys=io_sys)
 end
 
+"""
+    load_serialized_model!(sam, model_path; remake=false, reload=false)
+
+Load a serialized model from disk if it is valid.
+
+A model is considered valid if its settings and system structure hashes match the
+current ones in the `SymbolicAWEModel` object (`sam`).
+
+# Arguments
+- `sam::SymbolicAWEModel`: The main model object.
+- `model_path::String`: The path to the serialized model file.
+- `remake::Bool`: If true, forces the model to be considered invalid, triggering a rebuild.
+- `reload::Bool`: If true, forces reloading from disk even if the model is already in memory.
+
+# Returns
+- `true` if a valid model was successfully loaded into `sam.serialized_model`, `false` otherwise.
+"""
 function load_serialized_model!(sam, model_path; remake=false, reload=false)
     set_hash = get_set_hash(sam.set)
     sys_struct_hash = get_sys_struct_hash(sam.sys_struct)
@@ -107,6 +187,22 @@ function load_serialized_model!(sam, model_path; remake=false, reload=false)
     return false
 end
 
+"""
+    maybe_create_prob!(sam; create_prob=true, prn=true)
+
+Create and cache the `ODEProblem` if it does not already exist.
+
+This function compiles the full system, creates the `ODEProblem`, and generates
+the necessary getter/setter functions.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The main model object.
+- `create_prob::Bool`: A flag to enable or disable the creation of the problem.
+- `prn::Bool`: A flag to enable or disable printing of progress messages.
+
+# Returns
+- `true` if a new problem was created, `false` otherwise.
+"""
 function maybe_create_prob!(sam; create_prob=true, prn=true)
     if create_prob && isnothing(sam.prob)
         local sys
@@ -126,10 +222,25 @@ function maybe_create_prob!(sam; create_prob=true, prn=true)
     return false
 end
 
+"""
+    maybe_create_simple_lin_model!(sam, outputs; ...)
+
+Create and cache a simplified linear model if it does not exist or if the outputs have changed.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The main model object.
+- `outputs`: A vector of output variables for the linear model.
+- `create_simple_lin_model::Bool`: Flag to enable/disable creation.
+- `outputs_changed::Bool`: Flag indicating if the output vector has changed.
+- `prn::Bool`: Flag to enable/disable printing of progress messages.
+
+# Returns
+- `true` if a new model was created, `false` otherwise.
+"""
 function maybe_create_simple_lin_model!(sam, outputs; create_simple_lin_model=true,
                                         outputs_changed=false, prn=true)
     if create_simple_lin_model &&
-           (isnothing(sam.simple_lin_model) || outputs_changed)
+            (isnothing(sam.simple_lin_model) || outputs_changed)
         sys = sam.prob.sys
         time = @elapsed slm_attrs = generate_simple_lin_model(sam.sys_struct, sys, outputs)
         if !isnothing(slm_attrs.model)
@@ -141,17 +252,32 @@ function maybe_create_simple_lin_model!(sam, outputs; create_simple_lin_model=tr
     return false
 end
 
+"""
+    maybe_create_lin_prob!(sam, outputs; ...)
+
+Create and cache the `LinearizationProblem` if it does not exist or if the outputs have changed.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The main model object.
+- `outputs`: A vector of output variables for the linearization.
+- `create_lin_prob::Bool`: Flag to enable/disable creation.
+- `outputs_changed::Bool`: Flag indicating if the output vector has changed.
+- `prn::Bool`: Flag to enable/disable printing of progress messages.
+
+# Returns
+- `true` if a new problem was created, `false` otherwise.
+"""
 function maybe_create_lin_prob!(sam, outputs; create_lin_prob=true,
-                                         outputs_changed=false, prn=true)
+                                    outputs_changed=false, prn=true)
     if create_lin_prob &&
-           (isnothing(sam.lin_prob) || outputs_changed)
+            (isnothing(sam.lin_prob) || outputs_changed)
         time = @elapsed @suppress_err begin
             lin_fun, lin_sys = linearization_function(sam.full_sys, [sam.inputs...], outputs;
-                                                      op=sam.defaults, guesses=sam.guesses)
+                                                    op=sam.defaults, guesses=sam.guesses)
             prob = LinearizationProblem(lin_fun, 0.0)
             getters = generate_lin_getters(lin_sys)
             sam.lin_prob = LinProbWithAttributes(; prob,
-                                                 getters...)
+                                                getters...)
         end
         prn && println("\tCreated the LinearizationProblem in $time seconds.")
         return true
@@ -159,8 +285,23 @@ function maybe_create_lin_prob!(sam, outputs; create_lin_prob=true,
     return false
 end
 
+"""
+    maybe_create_control_functions!(sam, outputs; ...)
+
+Create and cache the control functions if they do not exist or if the outputs have changed.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The main model object.
+- `outputs`: A vector of output variables for the control functions.
+- `create_control_func::Bool`: Flag to enable/disable creation.
+- `outputs_changed::Bool`: Flag indicating if the output vector has changed.
+- `prn::Bool`: Flag to enable/disable printing of progress messages.
+
+# Returns
+- `true` if new functions were created, `false` otherwise.
+"""
 function maybe_create_control_functions!(sam, outputs; create_control_func=false,
-                                         outputs_changed=false, prn=true)
+                                        outputs_changed=false, prn=true)
     if create_control_func &&
             (isnothing(sam.control_funcs) || outputs_changed)
         inputs = [sam.inputs...]
@@ -172,6 +313,33 @@ function maybe_create_control_functions!(sam, outputs; create_control_func=false
     return false
 end
 
+"""
+    init!(sam::SymbolicAWEModel; ...)
+
+Initialize the `SymbolicAWEModel`.
+
+This is the main entry point for setting up the model. It handles:
+- Loading or building the symbolic model (`full_sys`).
+- Creating the `ODEProblem`, `LinearizationProblem`, and control functions as needed.
+- Serializing the model to disk if it was newly built.
+- Initializing the ODE integrator.
+
+# Keyword Arguments
+- `solver`: The ODE solver to use. If `nothing`, a default is chosen based on settings.
+- `adaptive::Bool`: Enable adaptive time-stepping for the solver.
+- `prn::Bool`: Enable printing of progress messages.
+- `remake::Bool`: Force a full rebuild of the symbolic model, ignoring any cached versions.
+- `reload::Bool`: Force reloading of the serialized model from disk.
+- `outputs`: A vector of variables to be treated as system outputs.
+- `create_prob::Bool`: Whether to create the `ODEProblem`.
+- `create_lin_prob::Bool`: Whether to create the `LinearizationProblem`.
+- `create_control_func::Bool`: Whether to generate the control functions.
+- `lin_vsm::Bool`: Whether to linearize the aerodynamics using the
+                   Vortex Step Method (VSM) after initialization.
+
+# Returns
+- The initialized `ODEIntegrator`.
+"""
 function init!(sam::SymbolicAWEModel;
     solver=nothing, adaptive=true, prn=true,
     remake=false, reload=false,
@@ -218,18 +386,18 @@ function init!(sam::SymbolicAWEModel;
             changed = true
         end
         outputs_changed = isnothing(sam.outputs) ||
-                          length(outputs) != length(sam.outputs) ||
-                          !all(string.(outputs) .== string.(sam.outputs))
+                            length(outputs) != length(sam.outputs) ||
+                            !all(string.(outputs) .== string.(sam.outputs))
         sam.outputs = outputs
         
         changed |= maybe_create_prob!(sam; create_prob, prn)
         changed |= maybe_create_simple_lin_model!(sam, outputs;
-                                                  create_simple_lin_model=create_prob,
-                                                  outputs_changed, prn)
+                                                create_simple_lin_model=create_prob,
+                                                outputs_changed, prn)
         changed |= maybe_create_lin_prob!(sam, outputs; create_lin_prob,
-                                          outputs_changed, prn)
+                                        outputs_changed, prn)
         changed |= maybe_create_control_functions!(sam, outputs; create_control_func,
-                                                   outputs_changed, prn)
+                                                    outputs_changed, prn)
 
         if changed
             prn && @info "Serializing model to: \n\t$model_path"
@@ -352,7 +520,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     end
     for transform in transforms
         push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx, 
-                 transform.base_point_idx, transform.base_transform_idx))
+                        transform.base_point_idx, transform.base_transform_idx))
     end
     content = string(data_parts)
     return sha1(content)
