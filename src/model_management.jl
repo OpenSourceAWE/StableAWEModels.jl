@@ -36,37 +36,37 @@ function generate_prob_getters(sys_struct, sys)
               get_set_values, set_sys, set_set, get_struct_state, get_point_state)
 end
 
-function generate_simple_lin_model(sys_struct, sys, lin_y_vec)
+function generate_simple_lin_model(sys_struct, sys, y_vec)
     @unpack wings, winches = sys_struct
     if length(wings) == 1
-        lin_x_vec = [
+        x_vec = [
             sys.heading[1], sys.turn_rate[1,3],
             sys.tether_len[1], sys.tether_len[2], sys.tether_len[3],
             sys.tether_vel[1], sys.tether_vel[2], sys.tether_vel[3]
         ]
-        lin_dx_vec = [
+        dx_vec = [
             sys.turn_rate[1,3], sys.turn_acc[1,3],
             sys.tether_vel[1], sys.tether_vel[2], sys.tether_vel[3],
             sys.tether_acc[1], sys.tether_acc[2], sys.tether_acc[3]
         ]
-        get_lin_x = getu(sys, lin_x_vec)
-        get_lin_dx = getu(sys, lin_dx_vec)
-        get_lin_y = getu(sys, lin_y_vec)
-        nx, ny, nu = length(lin_x_vec), length(lin_y_vec), length(winches)
-        simple_lin_model = (; A=zeros(nx,nx), B=zeros(nx,nu), C=zeros(ny,nx), D=zeros(ny,nu))
-        return (; simple_lin_model, get_lin_x, get_lin_dx, get_lin_y)
+        get_x = getu(sys, x_vec)
+        get_dx = getu(sys, dx_vec)
+        get_y = getu(sys, y_vec)
+        nx, ny, nu = length(x_vec), length(y_vec), length(winches)
+        model = (; A=zeros(nx,nx), B=zeros(nx,nu), C=zeros(ny,nx), D=zeros(ny,nu))
+        return (; model, get_x, get_dx, get_y)
     end
-    return (simple_lin_model=nothing, get_lin_x=nothing, get_lin_dx=nothing, get_lin_y=nothing)
+    return (model=nothing, get_x=nothing, get_dx=nothing, get_y=nothing)
 end
 
 function generate_lin_getters(sys)
-    set_lin_set_values = nothing
+    set_set_values = nothing
     if hasproperty(sys, :set_values)
-        set_lin_set_values = setp(sys, sys.set_values)
+        set_set_values = setp(sys, sys.set_values)
     end
-    set_lin_sys = setp(sys, sys.psys)
-    set_lin_set = setp(sys, sys.pset)
-    return (set_lin_set_values=set_lin_set_values, set_lin_sys=set_lin_sys, set_lin_set=set_lin_set)
+    set_sys = setp(sys, sys.psys)
+    set_set = setp(sys, sys.pset)
+    return (; set_set_values, set_sys, set_set)
 end
 
 function generate_control_funcs(model, inputs, outputs)
@@ -126,11 +126,13 @@ function maybe_create_prob!(sam; create_prob=true, prn=true)
     return false
 end
 
-function maybe_create_simple_lin_model!(sam, lin_outputs; create_simple_lin_model=true, prn=true)
-    if create_simple_lin_model && isnothing(sam.simple_lin_model)
+function maybe_create_simple_lin_model!(sam, outputs; create_simple_lin_model=true,
+                                        outputs_changed=false, prn=true)
+    if create_simple_lin_model &&
+           (isnothing(sam.simple_lin_model) || outputs_changed)
         sys = sam.prob.sys
-        time = @elapsed slm_attrs = generate_simple_lin_model(sam.sys_struct, sys, lin_outputs)
-        if !isnothing(slm_attrs.simple_lin_model)
+        time = @elapsed slm_attrs = generate_simple_lin_model(sam.sys_struct, sys, outputs)
+        if !isnothing(slm_attrs.model)
             sam.simple_lin_model = SimpleLinModelWithAttributes(; slm_attrs...)
         end
         prn && println("\tCreated simplified linear model in $time seconds.")
@@ -139,17 +141,16 @@ function maybe_create_simple_lin_model!(sam, lin_outputs; create_simple_lin_mode
     return false
 end
 
-function maybe_create_lin_prob!(sam, lin_outputs; create_lin_prob=true, prn=true)
-    if create_lin_prob && (isnothing(sam.lin_prob) ||
-           length(lin_outputs) != length(sam.lin_prob.lin_outputs) ||
-           !all(string.(lin_outputs) .== string.(sam.lin_prob.lin_outputs)))
+function maybe_create_lin_prob!(sam, outputs; create_lin_prob=true,
+                                         outputs_changed=false, prn=true)
+    if create_lin_prob &&
+           (isnothing(sam.lin_prob) || outputs_changed)
         time = @elapsed @suppress_err begin
-            lin_fun, lin_sys = linearization_function(sam.full_sys, [sam.inputs...], lin_outputs;
+            lin_fun, lin_sys = linearization_function(sam.full_sys, [sam.inputs...], outputs;
                                                       op=sam.defaults, guesses=sam.guesses)
-            lin_prob = LinearizationProblem(lin_fun, 0.0)
+            prob = LinearizationProblem(lin_fun, 0.0)
             getters = generate_lin_getters(lin_sys)
-            sam.lin_prob = LinProbWithAttributes(; lin_prob,
-                                                 lin_outputs,
+            sam.lin_prob = LinProbWithAttributes(; prob,
                                                  getters...)
         end
         prn && println("\tCreated the LinearizationProblem in $time seconds.")
@@ -158,12 +159,12 @@ function maybe_create_lin_prob!(sam, lin_outputs; create_lin_prob=true, prn=true
     return false
 end
 
-function maybe_create_control_functions!(sam, lin_outputs; create_control_func=false, prn=true)
-    if create_control_func && (isnothing(sam.control_funcs) ||
-           length(lin_outputs) != length(sam.lin_prob.lin_outputs) ||
-           !all(string.(lin_outputs) .== string.(sam.lin_prob.lin_outputs)))
+function maybe_create_control_functions!(sam, outputs; create_control_func=false,
+                                         outputs_changed=false, prn=true)
+    if create_control_func &&
+            (isnothing(sam.control_funcs) || outputs_changed)
         inputs = [sam.inputs...]
-        time = @elapsed result = generate_control_funcs(sam.full_sys, inputs, lin_outputs)
+        time = @elapsed result = generate_control_funcs(sam.full_sys, inputs, outputs)
         sam.control_funcs = ControlFuncWithAttributes(; result...)
         prn && println("\tCreated the control functions in $time seconds.")
         return true
@@ -174,9 +175,8 @@ end
 function init!(sam::SymbolicAWEModel;
     solver=nothing, adaptive=true, prn=true,
     remake=false, reload=false,
-    lin_outputs=nothing,
+    outputs=nothing,
     create_prob::Bool=true,
-    create_simple_lin_model::Bool=true,
     create_lin_prob::Bool=true,
     create_control_func::Bool=false,
     lin_vsm::Bool=true
@@ -194,19 +194,19 @@ function init!(sam::SymbolicAWEModel;
             end
         end
 
-        if isnothing(lin_outputs)
+        if isnothing(outputs)
             @variables begin
                 heading(t)[1]
                 angle_of_attack(t)[1]
                 tether_len(t)[1:3]
                 winch_force(t)[1:3]
             end
-            lin_outputs = Num[]
+            outputs = Num[]
             if length(sam.sys_struct.wings) > 0
-                push!(lin_outputs, heading[1], angle_of_attack[1])
+                push!(outputs, heading[1], angle_of_attack[1])
             end
             if length(sam.sys_struct.winches) > 0
-                push!(lin_outputs, tether_len[1], winch_force[1])
+                push!(outputs, tether_len[1], winch_force[1])
             end
         end
 
@@ -217,11 +217,18 @@ function init!(sam::SymbolicAWEModel;
             sam.inputs = create_sys!(sam, sam.sys_struct; prn)
             changed = true
         end
+        outputs_changed = isnothing(sam.outputs) ||
+                          length(outputs) != length(sam.outputs) ||
+                          !all(string.(outputs) .== string.(sam.outputs))
         
         changed |= maybe_create_prob!(sam; create_prob, prn)
-        changed |= maybe_create_simple_lin_model!(sam, lin_outputs; create_simple_lin_model, prn)
-        changed |= maybe_create_lin_prob!(sam, lin_outputs; create_lin_prob, prn)
-        changed |= maybe_create_control_functions!(sam, lin_outputs; create_control_func, prn)
+        changed |= maybe_create_simple_lin_model!(sam, outputs;
+                                                  create_simple_lin_model=create_prob,
+                                                  outputs_changed, prn)
+        changed |= maybe_create_lin_prob!(sam, outputs; create_lin_prob,
+                                          outputs_changed, prn)
+        changed |= maybe_create_control_functions!(sam, outputs; create_control_func,
+                                                   outputs_changed, prn)
 
         if changed
             prn && @info "Serializing model to $model_path..."
@@ -251,7 +258,7 @@ function reinit!(sam::SymbolicAWEModel, prob::LinProbWithAttributes)
 end
 
 """
-    reinit!(s::SymbolicAWEModel, prob::ODEProblem, solver; prn, precompile, reload, lin_outputs) -> (ODEIntegrator, Bool)
+    reinit!(s::SymbolicAWEModel, prob::ODEProblem, solver; prn, precompile, reload, outputs) -> (ODEIntegrator, Bool)
 
 Reinitializes an existing kite power system model's ODE integrator.
 

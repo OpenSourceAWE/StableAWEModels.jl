@@ -288,14 +288,14 @@ end
         sys_struct = SymbolicAWEModels.SystemStructure("tether", set; points, segments, transforms)
 
         sam = SymbolicAWEModel(set, sys_struct)
-        sys = sam.sys
         init!(sam; remake=false)
-        @test isapprox(sam.integrator[sam.sys.pos[:, end]], [8.682408883346524, 0.0, 0.7596123493895988], atol=1e-2)
+        sys = sam.prob.prob.sys
+        @test isapprox(sam.integrator[sys.pos[:, end]], [8.682408883346524, 0.0, 0.7596123493895988], atol=1e-2)
         for i in 1:100
             next_step!(sam)
         end
-        @test sam.integrator[sam.sys.pos[1, end]] > 0.8set.l_tether
-        @test isapprox(sam.integrator[sam.sys.pos[2, end]], 0.0, atol=1.0)
+        @test sam.integrator[sys.pos[1, end]] > 0.8set.l_tether
+        @test isapprox(sam.integrator[sys.pos[2, end]], 0.0, atol=1.0)
         test_plot(sam)
     end
     
@@ -351,6 +351,9 @@ end
         @test !isnothing(sam.prob)
         @test !isnothing(sam.lin_prob)
         @test !isnothing(sam.control_functions)
+
+        # check if changing outputs works
+
     end
 end
 set_data_path(old_data_path)

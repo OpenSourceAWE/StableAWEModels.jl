@@ -105,8 +105,7 @@ function create_default_models(; prn=true)
         set.segments = segments
         set.physical_model = name
         s = SymbolicAWEModel(set)
-        time = @elapsed init!(s; prn=false)
-        prn && @info "Loaded $name model in $time seconds"
+        init!(s; prn)
         return s
     end
     sam = create_model("ram")

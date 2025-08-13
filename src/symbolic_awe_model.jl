@@ -12,7 +12,7 @@ and its associated getter functions.
 """
 @with_kw struct SimpleLinModelWithAttributes{GetX, GetDx, GetY}
     "The simplified linearized model (A,B,C,D matrices)."
-    simple_lin_model::LinType
+    model::LinType
 
     # Getters for the simplified linear model state from the integrator
     "Getter for the state vector x of the simplified linear model."
@@ -81,11 +81,9 @@ linearized model (A,B,C,D matrices).
 
 $(TYPEDFIELDS)
 """
-@with_kw struct LinProbWithAttributes{SetSetValues, SetSys, SetSet, LinOut}
+@with_kw struct LinProbWithAttributes{SetSetValues, SetSys, SetSet}
     "Linearization problem of the mtk model."
     prob::ModelingToolkit.LinearizationProblem
-    "Outputs of the linearization."
-    lin_outputs::Vector{LinOut}
 
     # Setters for the linearization
     set_set_values::SetSetValues
@@ -144,6 +142,8 @@ $(TYPEDFIELDS)
     guesses::Vector{Pair} = Pair[]
     "Symbolic representation of the control inputs."
     inputs::Union{Symbolics.Arr, Vector{Num}} = Num[]
+    "Outputs of the linearization and control function."
+    outputs::Union{Symbolics.Arr, Vector{Num}} = Num[]
 
     "Container for the ODE problem and its getters/setters."
     prob::Union{ProbWithAttributes, Nothing} = nothing

@@ -38,11 +38,11 @@ toc()
     tether_len(t_nounits)[1:3]
     winch_force(t_nounits)[1:3]
 end
-lin_outputs = [heading[1], angle_of_attack[1], tether_len[1], winch_force[1]]
-@info "Linear outputs: $lin_outputs"
+outputs = [heading[1], angle_of_attack[1], tether_len[1], winch_force[1]]
+@info "Linear outputs: $outputs"
 
 # Initialize at elevation with linearization outputs
-SymbolicAWEModels.init!(s; lin_outputs)
+SymbolicAWEModels.init!(s; outputs)
 sys = s.sys
 
 @info "System initialized at:"

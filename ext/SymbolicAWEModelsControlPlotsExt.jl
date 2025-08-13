@@ -122,7 +122,8 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
         fig="Oscillating Steering Input Response")
 end
 
-function ControlPlots.plot(sys::SystemStructure, reltime::Real; l_tether=50.0, wing_pos=nothing, e_z=zeros(3), zoom=false, front=false, xy=nothing)
+function ControlPlots.plot(sys::SystemStructure, reltime::Real;
+                           l_tether=50.0, wing_pos=nothing, zoom=false, front=false, xy=nothing)
     pos = [sys.points[i].pos_w for i in eachindex(sys.points)]
     !isnothing(wing_pos) && (pos = [pos..., wing_pos...])
     seg = [[sys.segments[i].point_idxs[1], sys.segments[i].point_idxs[2]] for i in eachindex(sys.segments)]
@@ -142,21 +143,14 @@ function ControlPlots.plot(sys::SystemStructure, reltime::Real; l_tether=50.0, w
     ControlPlots.plot2d(pos, seg, reltime; zoom, front, xlim, ylim, dz_zoom=0.6, xy)
 end
 
-function ControlPlots.plot(s::SymbolicAWEModel, reltime::Real; kwargs...)
-    wings = s.sys_struct.wings
-    pos = s.integrator[s.sys.pos]
+function ControlPlots.plot(sam::SymbolicAWEModel, reltime::Real; kwargs...)
+    wings = sam.sys_struct.wings
     if length(wings) > 0
-        wing_pos = [s.integrator[s.sys.wing_pos[i, :]] for i in eachindex(wings)]
-        e_z = [s.integrator[s.sys.e_z[i, :]] for i in eachindex(wings)]
+        wing_pos = [wing.pos_w for wing in wings]
     else
         wing_pos = nothing
-        e_z = zeros(3)
     end
-        
-    for (i, point) in enumerate(s.sys_struct.points)
-        point.pos_w .= pos[:, i]
-    end
-    plot(s.sys_struct, reltime; s.set.l_tether, wing_pos, e_z, kwargs...)
+    plot(sam.sys_struct, reltime; sam.set.l_tether, wing_pos, kwargs...)
 end
 
 end

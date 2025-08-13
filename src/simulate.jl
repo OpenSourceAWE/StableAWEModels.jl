@@ -229,7 +229,7 @@ end
     SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
 
 Construct a SysState for logging linear state-space simulation output y (ordered as
-sam.lin_outputs).
+sam.outputs).
 """
 function SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
     P = length(sam.sys_struct.points)
@@ -247,8 +247,8 @@ Update a SysState for a linear state-space simulation, using output y and model 
 function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
                            zoom=1.0)
     sys = sam.sys
-    lin_outputs = sam.lin_outputs
-    for (i, sym) in enumerate(lin_outputs)
+    outputs = sam.outputs
+    for (i, sym) in enumerate(outputs)
         if isequal(sym, sys.heading[1])
             ss.heading = y[i]
         elseif isequal(sym, sys.turn_rate[1,3])
