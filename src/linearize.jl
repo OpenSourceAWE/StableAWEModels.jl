@@ -85,13 +85,24 @@ calculate the A, B, C, and D matrices for the complete, high-order system.
 # Returns
 - `LinType`: A NamedTuple `(A, B, C, D)` containing the state-space matrices.
 """
-function linearize!(sam::SymbolicAWEModel; set_values=sam.prob.get_set_values(sam.integrator))
+function linearize!(sam::SymbolicAWEModel; set_values=nothing)
     isnothing(sam.lin_prob) && error("Run init! with create_lin_prob=true")
-    prob = sam.lin_prob
-    prob.set_set_values(prob.prob, set_values)
-    prob.set_sys(prob.prob, sam.sys_struct)
-    prob.set_set(prob.prob, sam.set)
-    lin_model = solve(prob.prob)[1]
+    lin_prob = sam.lin_prob
+    prob = sam.prob
+
+    # copy set values from prob to lin prob
+    if !isnothing(prob) && !isnothing(prob.get_set_values)
+        if isnothing(set_values)
+            set_values = prob.get_set_values(sam.integrator)
+        end
+        lin_prob.set_set_values(lin_prob.prob, set_values)
+    end
+
+    # copy state and settings to lin prob
+    lin_prob.set_sys(lin_prob.prob, sam.sys_struct)
+    lin_prob.set_set(lin_prob.prob, sam.set)
+
+    lin_model = solve(lin_prob.prob)[1]
     return lin_model
 end
 

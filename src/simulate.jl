@@ -151,7 +151,7 @@ function sim_oscillate!(
     steering_freq=0.5,
     steering_magnitude=10.0,
     vsm_interval=3,
-    bias = 0.13,
+    bias = 0.0,
     prn=false,
     lin_model=nothing
 )
