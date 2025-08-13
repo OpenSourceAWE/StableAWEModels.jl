@@ -1,8 +1,9 @@
 name: Attach archives to release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - '*'
   workflow_dispatch:
     inputs:
       tag:
