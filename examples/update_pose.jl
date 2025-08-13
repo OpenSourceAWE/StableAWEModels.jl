@@ -5,7 +5,10 @@ using Pkg
 if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
-using SymbolicAWEModels, LinearAlgebra, ControlPlots
+using SymbolicAWEModels, LinearAlgebra, ControlPlots, OrdinaryDiffEqBDF
+
+set = Settings("system.yaml")
+sam = SymbolicAWEModel(set)
 
 """
     run_pose_update_example()
@@ -16,8 +19,6 @@ during a simulation.
 function run_pose_update_example()
     # 1. --- Initialize the Model ---
     # Load default settings and create a symbolic AWE model.
-    set = Settings("system.yaml")
-    sam = SymbolicAWEModel(set)
     init!(sam)
     find_steady_state!(sam)
     sys_struct = sam.sys_struct
@@ -56,15 +57,16 @@ function run_pose_update_example()
     SymbolicAWEModels.update_pose!(sys_struct.transforms, sys_struct)
     
     # To verify, we can check the wing's derived elevation property after one more step.
+
+    SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
     next_step!(sam; dt=dt, set_values=set_values[Int(round(5.0 / dt)) + 1, :])
     updated_elevation_deg = rad2deg(sys_struct.wings[1].elevation)
     println(">>> Pose updated. New Elevation at t=5.0s is now: $(round(updated_elevation_deg, digits=2)) degrees.\n")
 
-
     # 4. --- Continue the simulation ---
     # Run the simulation for the remaining time from the new pose.
     println("--- Resuming Simulation ---")
-    start_step = Int(round(5.0 / dt)) + 2
+    start_step = Int(round(1.0 / dt)) + 2
     for step in start_step:steps
          set_values[step, :] = -sam.set.drum_radius .* [norm(winch.force) for winch in sys_struct.winches]
          next_step!(sam; dt=dt, set_values=set_values[step, :])
