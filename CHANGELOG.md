@@ -3,6 +3,23 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.3.4 13-08-2025
+## Added
+- `init_module` function to simplify project setup, replacing `install_examples`, `copy_examples`, `copy_bin` and `copy_model_settings`.
+- Structs with attributes for better serialization and code structure (`SimpleLinModelWithAttributes`, `ProbWithAttributes`, `LinProbWithAttributes`, `ControlFuncWithAttributes`).
+- `plot_force` option to the plot recipe.
+- `model_management.jl` file to better organize the code.
+## Changed
+- Major refactoring of the `SymbolicAWEModel` and its initialization process. The `SerializedModel` struct is now much simpler and more robust.
+- The `run_julia` script is now much more powerful, with argument parsing for `--copy-manifest` and `--precompile`.
+- The precompilation process now uses artifacts instead of downloading files directly.
+## Fixed
+- URLs in `Artifacts.toml.default`.
+- Cross-correlation analysis in tests.
+## Removed
+- `data/kite.obj` file.
+- `copy_examples`, `copy_bin`, `copy_model_settings`, `install_examples` functions.
+
 # v0.3.3 07-08-2025
 ## Fixed
 - Fix non-persistent state bug with `calc_tether_props`

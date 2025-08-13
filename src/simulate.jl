@@ -53,7 +53,7 @@ function sim!(
     vsm_time = 0.0
     integ_time = 0.0
     set_torques = similar(set_values)
-    y_op = sam.get_lin_y(sam.integrator)
+    y_op = sam.simple_lin_model.get_y(sam.integrator)
 
     # --- Nonlinear Simulation Loop ---
     elapsed = @elapsed for step in 1:steps
@@ -151,7 +151,7 @@ function sim_oscillate!(
     steering_freq=0.5,
     steering_magnitude=10.0,
     vsm_interval=3,
-    bias = 0.13,
+    bias = 0.0,
     prn=false,
     lin_model=nothing
 )
@@ -229,7 +229,7 @@ end
     SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
 
 Construct a SysState for logging linear state-space simulation output y (ordered as
-sam.lin_outputs).
+sam.outputs).
 """
 function SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
     P = length(sam.sys_struct.points)
@@ -247,8 +247,8 @@ Update a SysState for a linear state-space simulation, using output y and model 
 function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
                            zoom=1.0)
     sys = sam.sys
-    lin_outputs = sam.lin_outputs
-    for (i, sym) in enumerate(lin_outputs)
+    outputs = sam.outputs
+    for (i, sym) in enumerate(outputs)
         if isequal(sym, sys.heading[1])
             ss.heading = y[i]
         elseif isequal(sym, sys.turn_rate[1,3])

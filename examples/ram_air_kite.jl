@@ -1,9 +1,10 @@
 # Copyright (c) 2024, 2025 Bart van de Lint, Uwe Fechner
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: MPL-2.0
 
 using Timers
 tic()
 @info "Loading packages "
+using SymbolicAWEModels
 
 PLOT = false
 using Pkg
@@ -11,7 +12,6 @@ if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
 using ControlPlots, LaTeXStrings
-using SymbolicAWEModels, KiteUtils, LinearAlgebra, Statistics
 toc()
 
 # Simulation parameters

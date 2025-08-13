@@ -43,10 +43,10 @@ at the Julia prompt. You can run the unit tests with the command (careful, can t
 ```julia
 pkg"test SymbolicAWEModels"
 ```
-You can copy the examples to your project with:
+Copy the examples, data and scripts to your project, and install dependencies:
 ```julia
 using SymbolicAWEModels
-SymbolicAWEModels.install_examples()
+SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
 ```
 This also adds the extra packages, needed for the examples to the project. Furthermore, it creates a folder `data`
 with some example input files. You can now run the examples with the command:
