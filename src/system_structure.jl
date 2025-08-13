@@ -875,13 +875,10 @@ This function adjusts the orientation of all components in the `SystemStructure`
 altering their dynamic state. Unlike `reinit!`, it uses the current world positions (`pos_w`)
 as the starting point for rotations, rather than resetting from the CAD coordinates.
 
-The process for each `Transform` object is as follows:
-1.  **Identify Current Pose**: It determines the current elevation and azimuth of the rotating object (`rot_point_idx` or `wing_idx`) relative to its base.
-2.  **Calculate Rotation**: It computes the rotation required to move the object from its current orientation to the target `elevation`, `azimuth`, and `heading` specified in the `Transform` object.
-3.  **Apply Rotation**: This rotation is applied to all components associated with the transform.
-
 This function is useful for making real-time adjustments to the system's pose during a simulation.
 Crucially, it **preserves the existing velocities (`vel_w`) of all points and wings**.
+
+NOTE: the transform.heading is applied relative to the current heading of the system.
 
 # Arguments
 - `sys_struct::SystemStructure`: The system model to update.
