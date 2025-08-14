@@ -15,9 +15,9 @@ using Plots
 using LinearAlgebra
 using KiteUtils
 using YAML
-# using PlotlyJS
-# plotlyjs()  # Use PlotlyJS backend for interactive 3D plots
-gr()
+using PlotlyJS
+plotlyjs()  # Use PlotlyJS backend for interactive 3D plots
+# gr()
 # ------------------- Transform Helpers -------------------
 
 """
@@ -176,7 +176,7 @@ end
 Run saddle form simulation using YAML geometry.
 Returns (sam, XYZ_initial, XYZ_final).
 """
-function main(; yaml_file="saddle_gridsize5.yaml")
+function main(; yaml_file)
     # --------------- Settings -----------------------
     set = SymbolicAWEModels.load_settings("saddle_form")
     set.v_wind = 0.0
@@ -187,13 +187,23 @@ function main(; yaml_file="saddle_gridsize5.yaml")
     time_step = 0.1
     set.sample_freq = Int(1 / time_step)
 
-    axial_stiffness = 1.0
-    axial_damping = 1.0
+    if occursin("5", yaml_file)
+        n_nodes = 41. # 5x5 saddle
+    elseif occursin("4", yaml_file)
+        n_nodes = 25. # 4x4 saddle
+    elseif occursin("3", yaml_file)
+        n_nodes = 9.  # 3x3 saddle
+    else
+        error("Could not determine n_nodes from yaml_file name: $yaml_file")
+    end
+    axial_stiffness = n_nodes-1
+    axial_damping = 1
     diameter_mm = 2.0
-    rest_length = 0.0
+    rest_length = 0.01
     segment_mass = 1.0
-    world_frame_damping = 0.1
+    world_frame_damping = 1
     compression_frac = 1
+    is_with_3d_plot = true
 
     # --------------- Load YAML -----------------------
     yaml_path = joinpath(@__DIR__, yaml_file)
@@ -209,8 +219,10 @@ function main(; yaml_file="saddle_gridsize5.yaml")
     # --------------- Simulating & Plotting -----------------------
     init!(sam; remake=false)
     XYZ0 = [copy(p.pos_w) for p in sys.points]
-    fig0 = plot3d_saddle(sam.sys_struct.points, sam.sys_struct.segments; title="Initial State")
-    display(fig0)
+    if is_with_3d_plot
+        fig0 = plot3d_saddle(sys.points, sys.segments; title="Initial State")
+        display(fig0)
+    end
     ControlPlots.plot(sam.sys_struct, 0.0; zoom=false)
     for i in 1:n_iteration_steps
         current_time = i/set.sample_freq
@@ -218,8 +230,10 @@ function main(; yaml_file="saddle_gridsize5.yaml")
         next_step!(sam)
     end
     XYZf = [copy(p.pos_w) for p in sam.sys_struct.points]
-    figf = plot3d_saddle(sam.sys_struct.points, sam.sys_struct.segments; title="Final State")
-    display(figf)
+    if is_with_3d_plot
+        figf = plot3d_saddle(sam.sys_struct.points, sam.sys_struct.segments; title="Final State")
+        display(figf)
+    end
     disp = [norm(XYZf[i] .- XYZ0[i]) for i in eachindex(XYZ0) if i ∉ Set(fixed_nodes)]
     println("Max disp=$(round(maximum(disp),digits=4)) m, Avg disp=$(round(sum(disp)/length(disp),digits=4)) m")
     return sam, XYZ0, XYZf
@@ -231,4 +245,4 @@ end
 
 # When included from menu.jl, run main() automatically
 project_dir = dirname(@__DIR__)
-main(yaml_file=joinpath(project_dir, "data", "saddle_form", "saddle_gridsize4.yaml"))
+main(yaml_file=joinpath(project_dir, "data", "saddle_form", "saddle_gridsize5.yaml"))

@@ -4,6 +4,11 @@ SPDX-License-Identifier: MPL-2.0
 -->
 
 # v0.3.3 07-08-2025
+## Added
+- new example files, testing the workings of the structural solver: `catenary_line.jl`, `hanging_mass.jl`, `simple_pulley.jl`, `saddle_form.jl`
+-  
+
+# v0.3.3 07-08-2025
 ## Fixed
 - Fix non-persistent state bug with `calc_tether_props`
 
