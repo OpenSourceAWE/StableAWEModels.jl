@@ -89,8 +89,7 @@ export unstretched_length
 export tether_length
 
 # --- Helper Functions ---
-export copy_examples
-export copy_bin
+export init_module
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -130,6 +129,7 @@ end
 
 include("system_structure.jl")
 include("symbolic_awe_model.jl")
+include("model_management.jl")
 include("predefined_structures.jl")
 include("tether_properties.jl")
 include("linearize.jl")
@@ -178,105 +178,92 @@ end
 Copy all example scripts to the folder "examples"
 (it will be created if it doesn't exist).
 """
-function copy_examples()
-    PATH = "examples"
-    if ! isdir(PATH) 
-        mkdir(PATH)
-    end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", PATH)
-    copy_files("examples", readdir(src_path))
+function copy_examples(; force=false)
+    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "examples")
+    dst_data_path = abspath(joinpath(pwd(), "examples"))
+    copy_dir(src_data_path, dst_data_path; force)
 end
 
-function copy_model_settings()
+"""
+    copy_bin()
+
+Copy all example scripts to the folder "bin"
+(it will be created if it doesn't exist).
+"""
+function copy_bin(; force=false)
+    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "bin")
+    dst_data_path = abspath(joinpath(pwd(), "bin"))
+    copy_dir(src_data_path, dst_data_path; force)
+end
+
+"""
+    copy_data()
+
+Copy all data scripts to the folder "data"
+(it will be created if it doesn't exist).
+"""
+function copy_data(; force=false)
     src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "data")
     dst_data_path = abspath(joinpath(pwd(), "data"))
-    
-    if !isdir(src_data_path)
-        @warn "Source data directory not found: $src_data_path"
-        return
+    copy_dir(src_data_path, dst_data_path; force)
+end
+
+"""
+    copy_dir(src_dir, dst_dir)
+
+Copies all files from `src_dir` to `dst_dir`.
+Overwrites existing files if force=true.
+Creates `dst_dir` if it does not exist.
+"""
+function copy_dir(src_dir::AbstractString, dst_dir::AbstractString; force=false)
+    if !isdir(dst_dir)
+        mkdir(dst_dir)
     end
-    
-    # Create destination data directory if it doesn't exist
-    if !isdir(dst_data_path)
-        mkdir(dst_data_path)
+    for file in readdir(src_dir)
+        src_file = joinpath(src_dir, file)
+        dst_file = joinpath(dst_dir, file)
+        if force || (isfile(src_file) && !isfile(dst_file))
+            cp(src_file, dst_file; force=true)
+            chmod(dst_file, 0o774)
+        elseif isdir(src_file)
+            copy_dir(src_file, dst_file; force)
+        end
     end
-    
-    # Copy all files and subdirectories recursively
-    for item in readdir(src_data_path)
-        src_item = joinpath(src_data_path, item)
-        dst_item = joinpath(dst_data_path, item)
-        
-        if isfile(src_item)
-            cp(src_item, dst_item, force=true)
-            chmod(dst_item, 0o664)
-        elseif isdir(src_item)
-            cp(src_item, dst_item, force=true)
-            # Set permissions recursively for directory contents
-            for (root, dirs, files) in walkdir(dst_item)
-                for file in files
-                    chmod(joinpath(root, file), 0o664)
-                end
-                for dir in dirs
-                    chmod(joinpath(root, dir), 0o755)
-                end
+end
+
+"""
+    init_module(; force=false, add_pkg=true)
+
+Initialize the module in the current working directory.
+
+This function performs the following actions:
+
+- Copies all files from the module's `data` directory to the current working directory's `data` folder (`pwd()/data`). Existing files in the destination are NOT overwritten unless `force=true`.
+- Copies all example scripts from the module to the current working directory's `examples` folder (`pwd()/examples`). The folder is created if it does not exist. Existing files are NOT overwritten unless `force=true`.
+- Copies the `bin` directory from the module to the current working directory's `bin` folder (`pwd()/bin`). The folder is created if it does not exist. Existing files are NOT overwritten unless `force=true`.
+- Installs all required packages if they are not already installed. This occurs only if `add_pkg=true` (default). The packages installed are: `KiteUtils`, `ControlPlots`, `LaTeXStrings`, and `Timers`.
+
+# Keyword Arguments
+- `force::Bool=false`: If `true`, existing files in the destination directories will be overwritten. If `false` (default), existing files will be preserved.
+- `add_pkg::Bool=true`: If `true` (default), installs required packages if they are not already present. If `false`, package installation is skipped.
+"""
+function init_module(; force=false, add_pkg=true)
+    copy_data(; force)
+    copy_examples(; force)
+    copy_bin(; force)
+
+    if add_pkg
+        # Install required packages if not already present
+        pkgs = ["KiteUtils", "ControlPlots", 
+                "LaTeXStrings", "Timers"]
+        for pkg in pkgs
+            if !(pkg in keys(Pkg.project().dependencies))
+                Pkg.add(pkg)
             end
         end
     end
-    
-    set_data_path(dst_data_path)
-    println("Copied data directory structure to $(dst_data_path)")
-end
 
-function install_examples(add_packages=true)
-    copy_examples()
-    copy_settings()
-    copy_bin()
-    copy_model_settings()
-    if add_packages
-        Pkg.add(["KiteUtils", "KitePodModels", "WinchModels", "ControlPlots", 
-                 "LaTeXStrings", "StatsBase", "Timers", "Rotations"])
-    end
-end
-
-function copy_files(relpath, files)
-    if ! isdir(relpath) 
-        mkdir(relpath)
-    end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", relpath)
-    for file in files
-        cp(joinpath(src_path, file), joinpath(relpath, file), force=true)
-        chmod(joinpath(relpath, file), 0o774)
-    end
-    files
-end
-
-"""
-    copy_bin()
-
-Copy the scripts create_sys_image and run_julia to the folder "bin"
-(it will be created if it doesn't exist).
-"""
-function copy_bin()
-    PATH = "bin"
-    if ! isdir(PATH) 
-        mkdir(PATH)
-    end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", PATH)
-    cp(joinpath(src_path, "create_sys_image2"), joinpath(PATH, "create_sys_image"), force=true)
-    cp(joinpath(src_path, "run_julia"), joinpath(PATH, "run_julia"), force=true)
-    chmod(joinpath(PATH, "create_sys_image"), 0o774)
-    chmod(joinpath(PATH, "run_julia"), 0o774)
-    PATH = "test"
-    if ! isdir(PATH) 
-        mkdir(PATH)
-    end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", PATH)
-    cp(joinpath(src_path, "create_sys_image2.jl"), joinpath(PATH, "create_sys_image.jl"), force=true)
-    cp(joinpath(src_path, "test_for_precompile.jl"), joinpath(PATH, "test_for_precompile.jl"), force=true)
-    cp(joinpath(src_path, "update_packages.jl"), joinpath(PATH, "update_packages.jl"), force=true)
-    chmod(joinpath(PATH, "create_sys_image.jl"), 0o664)
-    chmod(joinpath(PATH, "test_for_precompile.jl"), 0o664)
-    chmod(joinpath(PATH, "update_packages.jl"), 0o664)
+    println("Initialization complete! Scripts, examples, and binaries are prepared in the current directory.")
 end
 
 include("precompile.jl")

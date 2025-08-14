@@ -8,6 +8,14 @@ end
 using Test, ControlSystemsBase, Printf
 using SymbolicAWEModels, ControlPlots
 using Statistics, LinearAlgebra, Serialization
+using ModelingToolkit: @variables
+using ModelingToolkit: t_nounits
+
+tmpdir=mktempdir()
+mkpath(joinpath(tmpdir, "data"))
+old_data_path = get_data_path()
+set_data_path(joinpath(tmpdir, "data"))
+cp(old_data_path, get_data_path(); force=true)
 
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
@@ -140,29 +148,24 @@ end
                 get_data_path(), "oscillate_$(sam.sys_struct.name)_$steering_freq.png"
             ))
 
-            # --- Cross-Correlation Analysis ---
-            # 1. Extract the detrended signal and time vector
+            # --- Cross-Correlation Analysis with Linear Offset Removal (first/last only) ---
             heading_signal = sl.syslog.heading
-            signal_detrended = heading_signal .- mean(heading_signal)
             t = sl.syslog.time
 
-            # 2. Generate a perfect reference sine and cosine wave at the steering frequency
+            # Compute linear trend using endpoints
+            trend = range(heading_signal[1], heading_signal[end], length=length(t))
+            signal_detrended = heading_signal .- trend
+
+            # Reference sine and cosine at steering frequency
             ref_sin = sin.(2 * π * steering_freq .* t)
             ref_cos = cos.(2 * π * steering_freq .* t)
 
-            # 3. Calculate the correlation of your signal with the reference waves
-            # This is equivalent to finding the magnitude of the Fourier series coefficient
-            # for this specific frequency.
+            # Correlation at steering frequency
             corr_sin = dot(signal_detrended, ref_sin)
             corr_cos = dot(signal_detrended, ref_cos)
-
-            # The magnitude of the correlation is proportional to the amplitude of the
-            # oscillation at the steering frequency.
             magnitude_at_freq = sqrt(corr_sin^2 + corr_cos^2)
 
-            # 4. To test, we can compare this magnitude to the magnitude at other
-            #    nearby frequencies to ensure it's a local peak.
-            #    Let's check against a frequency 20% lower and 20% higher.
+            # Compare to frequencies 50% lower and 50% higher
             freq_lower = steering_freq * 0.5
             ref_sin_lower = sin.(2 * π * freq_lower .* t)
             ref_cos_lower = cos.(2 * π * freq_lower .* t)
@@ -282,14 +285,14 @@ end
         sys_struct = SymbolicAWEModels.SystemStructure("tether", set; points, segments, transforms)
 
         sam = SymbolicAWEModel(set, sys_struct)
-        sys = sam.sys
         init!(sam; remake=false)
-        @test isapprox(sam.integrator[sam.sys.pos[:, end]], [8.682408883346524, 0.0, 0.7596123493895988], atol=1e-2)
+        sys = sam.prob.sys
+        @test isapprox(sam.integrator[sys.pos[:, end]], [8.682408883346524, 0.0, 0.7596123493895988], atol=1e-2)
         for i in 1:100
             next_step!(sam)
         end
-        @test sam.integrator[sam.sys.pos[1, end]] > 0.8set.l_tether
-        @test isapprox(sam.integrator[sam.sys.pos[2, end]], 0.0, atol=1.0)
+        @test sam.integrator[sys.pos[1, end]] > 0.8set.l_tether
+        @test isapprox(sam.integrator[sys.pos[2, end]], 0.0, atol=1.0)
         test_plot(sam)
     end
     
@@ -316,7 +319,7 @@ end
             init!(sam; create_prob, create_lin_prob, create_control_func, prn=false)
             @test isnothing(sam.prob) == !create_prob
             @test isnothing(sam.lin_prob) == !create_lin_prob
-            @test isnothing(sam.control_functions) == !create_control_func
+            @test isnothing(sam.control_funcs) == !create_control_func
         end
         test_init_with_reset(false, false, false)
         test_init_with_reset(true, false, false)
@@ -328,7 +331,7 @@ end
         init!(sam; create_prob=false, create_lin_prob=false, create_control_func=false, prn=false)
         @test !isnothing(sam.prob)
         @test !isnothing(sam.lin_prob)
-        @test !isnothing(sam.control_functions)
+        @test !isnothing(sam.control_funcs)
 
         # same name, check if hash works
         push!(points, Point(3, [0, 0, 2], DYNAMIC; wing_idx=0, transform_idx=1))        
@@ -340,11 +343,31 @@ end
         init!(sam; create_prob=false, create_lin_prob=false, create_control_func=false, prn=false)
         @test isnothing(sam.prob)
         @test isnothing(sam.lin_prob)
-        @test isnothing(sam.control_functions)
+        @test isnothing(sam.control_funcs)
         init!(sam; create_prob=true, create_lin_prob=true, create_control_func=true, prn=false)
         @test !isnothing(sam.prob)
         @test !isnothing(sam.lin_prob)
-        @test !isnothing(sam.control_functions)
+        @test !isnothing(sam.control_funcs)
+
+        # changing from 0 to 1 output
+        old_ny = length(sam.outputs)
+        outputs = [sam.prob.sys.pos[1,1]]
+        init!(sam; outputs)
+        @test old_ny == 0
+        @test length(sam.outputs) == 1
+        lin_model = linearize!(sam)
+        @test size(lin_model.C)[1] == 1
+
+        # changing from 1 to 2 outputs
+        old_ny = length(sam.outputs)
+        outputs = [sam.prob.sys.pos[1,1], sam.prob.sys.pos[2,1]]
+        init!(sam; outputs)
+        @test old_ny == 1
+        @test length(sam.outputs) == 2
+        lin_model = linearize!(sam)
+        @test size(lin_model.C)[1] == 2
     end
 end
+set_data_path(old_data_path)
 nothing
+

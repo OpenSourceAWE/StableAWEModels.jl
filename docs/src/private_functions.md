@@ -66,10 +66,18 @@ SymbolicAWEModels.force_eqs!
 SymbolicAWEModels.linearize_vsm!
 SymbolicAWEModels.jacobian
 SymbolicAWEModels.load_serialized_model!
-SymbolicAWEModels.generate_getters!
 SymbolicAWEModels.maybe_create_lin_prob!
 SymbolicAWEModels.maybe_create_control_functions!
 SymbolicAWEModels.maybe_create_prob!
+SymbolicAWEModels.maybe_create_simple_lin_model!
+SymbolicAWEModels.generate_control_funcs
+SymbolicAWEModels.generate_simple_lin_model
+SymbolicAWEModels.generate_lin_getters
+SymbolicAWEModels.generate_prob_getters
+SymbolicAWEModels.LinProbWithAttributes
+SymbolicAWEModels.ProbWithAttributes
+SymbolicAWEModels.SimpleLinModelWithAttributes
+SymbolicAWEModels.ControlFuncWithAttributes
 ```
 
 ## Utility and Internal Functions
@@ -89,6 +97,10 @@ SymbolicAWEModels.create_model_archive
 SymbolicAWEModels.filecmp
 SymbolicAWEModels.extract_model_archive
 SymbolicAWEModels.create_default_models
+SymbolicAWEModels.copy_bin
+SymbolicAWEModels.copy_examples
+SymbolicAWEModels.copy_data
+SymbolicAWEModels.copy_dir
 ```
 
 ## Base Overloads (Internal Use)

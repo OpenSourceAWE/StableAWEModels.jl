@@ -1110,10 +1110,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
     #         ]
     #     ]
 
-    prn && @info "Creating System..."
     # @named sys = System(eqs, t; discrete_events)
     time = @elapsed @named sys = System(eqs, t)
-    prn && @info "Created System in $time seconds"
+    prn && println("\tCreated System in $time seconds.")
 
     defaults = [
         defaults

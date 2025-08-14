@@ -64,11 +64,11 @@ Run the unit tests (can take about 60 minutes):
 pkg"test SymbolicAWEModels"
 ```
 
-Copy the examples to your project:
+Copy the examples, data and scripts to your project, and install dependencies:
 
 ```julia
 using SymbolicAWEModels
-SymbolicAWEModels.install_examples()
+SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
 ```
 
 This adds extra packages needed for the examples and creates a `data` folder with example input files.

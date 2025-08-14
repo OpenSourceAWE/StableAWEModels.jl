@@ -1,8 +1,9 @@
 name: Attach archives to release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - '*'
   workflow_dispatch:
     inputs:
       tag:
@@ -18,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (not strictly required)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
@@ -35,7 +36,7 @@ jobs:
           echo "Using version: $ver"
 
       - name: Download archives artifact from CI
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v11
         with:
           # Must match the artifact name used in the build workflow
           name: model-archives-${{ steps.version.outputs.version }}

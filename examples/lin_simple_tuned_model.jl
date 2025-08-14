@@ -2,14 +2,12 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
+using SymbolicAWEModels
 using Pkg
 if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
-
-using SymbolicAWEModels, VortexStepMethod, KiteUtils, ControlPlots, Statistics
-using OrdinaryDiffEqCore
-using ControlSystemsBase
+using ControlPlots
 
 set = Settings("ram_air_kite/system.yaml")
 sam = SymbolicAWEModel(set, "ram")
