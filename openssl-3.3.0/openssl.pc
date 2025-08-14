@@ -1,0 +1,7 @@
+libdir=/home/jellepoland/ownCloud/phd/code/OpenSourceAWE/SymbolicAWEModels.jl/openssl-3.3.0
+includedir=/home/jellepoland/ownCloud/phd/code/OpenSourceAWE/SymbolicAWEModels.jl/openssl-3.3.0/include
+
+Name: OpenSSL
+Description: Secure Sockets Layer and cryptography libraries and tools
+Version: 3.3.0
+Requires: libssl libcrypto
