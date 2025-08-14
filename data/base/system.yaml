@@ -1,2 +1,2 @@
 system:
-    sim_settings: "base/settings.yaml"
+    sim_settings: "settings.yaml"

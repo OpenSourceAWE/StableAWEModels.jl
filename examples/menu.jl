@@ -42,39 +42,38 @@
 # SPDX-License-Identifier: MIT
 
 using REPL.TerminalMenus
-using OrderedCollections: OrderedDict   # <-- add this
-
+using OrderedCollections: OrderedDict
 
 """
     run_examples_menu()
 
-Top-level menu to choose a category (Structural, Aerodynamic, etc.), then a
+Top-level menu to choose a category (by subdirectory), then a
 specific example to run. Use `q` to exit any menu.
 """
 function run_examples_menu()
     categories = OrderedDict(
-        "Aerodynamic" => OrderedDict(
-            "pyramid_model_aerodynamic" => """include("pyramid_model_aerodynamic.jl")""",
-            "TUDELFT_V3_KITE_aerodynamic" => """include("TUDELFT_V3_KITE_aerodynamic.jl")""",
-            "ram_air_kite" => """include("ram_air_kite.jl")""",
-            "lin_ram_model" => """include("lin_ram_model.jl")""",
+        "aerodynamic/" => OrderedDict(
+            "pyramid_model_aerodynamic" => """include(joinpath(@__DIR__, "examples", "aerodynamic", "pyramid_model_aerodynamic.jl"))""",
+            "TUDELFT_V3_KITE_aerodynamic" => """include(joinpath(@__DIR__, "examples", "aerodynamic", "TUDELFT_V3_KITE_aerodynamic.jl"))""",
         ),
-        "Structural" => OrderedDict(
-            "saddle_form" => """include("saddle_form.jl")""",
-            "tether_deflection_by_wind" => """include("tether_deflection_by_wind.jl")""",
-            "catenary_line" => """include("catenary_line.jl")""",
-            "hanging_mass" => """include("hanging_mass.jl")""",
-            "simple_pulley" => """include("simple_pulley.jl")""",
-            "pulley" => """include("pulley.jl")""",
-            "tether_props" => """include("tether_props.jl")""",
+        "structural/" => OrderedDict(
+            "hanging_mass" => """include(joinpath(@__DIR__, "examples", "structural", "hanging_mass.jl"))""",
+            "simple_pulley" => """include(joinpath(@__DIR__, "examples", "structural", "simple_pulley.jl"))""",
+            "pulley" => """include(joinpath(@__DIR__, "examples", "structural", "pulley.jl"))""",
+            "catenary_line" => """include(joinpath(@__DIR__, "examples", "structural", "catenary_line.jl"))""",
+            "saddle_form" => """include(joinpath(@__DIR__, "examples", "structural", "saddle_form.jl"))""",
+            "tether_props" => """include(joinpath(@__DIR__, "examples", "structural", "tether_props.jl"))""",
         ),
-        "Linear models" => OrderedDict(
-            "lin_simple_tuned_model" => """include("lin_simple_tuned_model.jl")""",
-            "simple_lin_model" => """include("simple_lin_model.jl")""",
-            "simple_tuned_model" => """include("simple_tuned_model.jl")""",
+        "coupled/" => OrderedDict(
+            "tether_deflection_by_wind" => """include(joinpath(@__DIR__, "examples", "coupled", "tether_deflection_by_wind.jl"))""",
+            "ram_air_kite" => """include(joinpath(@__DIR__, "examples", "coupled", "ram_air_kite.jl"))""",
+            "lin_ram_model" => """include(joinpath(@__DIR__, "examples", "coupled", "lin_ram_model.jl"))""",
+            "lin_simple_tuned_model" => """include(joinpath(@__DIR__, "examples", "coupled", "lin_simple_tuned_model.jl"))""",
+            "simple_lin_model" => """include(joinpath(@__DIR__, "examples", "coupled", "simple_lin_model.jl"))""",
+            "simple_tuned_model" => """include(joinpath(@__DIR__, "examples", "coupled", "simple_tuned_model.jl"))""",
         ),
-        "Tutorials" => OrderedDict(
-            "sam_tutorial" => """include("sam_tutorial.jl")""",
+        "tutorials/" => OrderedDict(
+            "sam_tutorial" => """include(joinpath(@__DIR__, "examples", "tutorials", "sam_tutorial.jl"))""",
         ),
     )
 
@@ -143,4 +142,8 @@ function pick(prompt::AbstractString, options::Vector{String}; pagesize::Int=8)
 end
 
 # entry point
+run_examples_menu()
+run_examples_menu()
+run_examples_menu()
+run_examples_menu()
 run_examples_menu()

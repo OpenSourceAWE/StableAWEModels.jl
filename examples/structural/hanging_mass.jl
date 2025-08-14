@@ -30,12 +30,8 @@ end
 
 println("\n\nHanging Mass Example\n", "="^40)
 ### Loading Settings
-include("load_settings.jl")
-set = local_load_settings(joinpath(@__DIR__, "..", "data", "base", "settings.yaml"))  # Loads as Dict
+set = SymbolicAWEModels.load_settings("base")  # Loads as Dict
 # Example usage: settings.v_wind = 10  # Set wind speed to 10 m/s
-
-println("settings: $set")
-
 set.v_wind = 0  # No wind
 set.sample_freq = 1  # Increase to 100 Hz for better visualization (dt = 0.01s)
 set.abs_tol = 1e-6     # Higher precision for better dynamics resolution
@@ -120,3 +116,4 @@ println("  Position error (Δz):         $(round(final_z - equilibrium_z, digits
 pos_error_percent = abs(final_z - equilibrium_z) / abs(equilibrium_z) * 100
 
 println("  Relative error:              $(round(pos_error_percent, digits=2))%")
+

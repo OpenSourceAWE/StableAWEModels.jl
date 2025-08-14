@@ -178,7 +178,7 @@ Returns (sam, XYZ_initial, XYZ_final).
 """
 function main(; yaml_file)
     # --------------- Settings -----------------------
-    set = Setttings("saddle_form/system.yaml")
+    set = SymbolicAWEModels.load_settings("saddle_form")
     set.v_wind = 0.0
     set.g_earth = 0.0 # no gravity for saddle form
     set.rho_0 = 1.225 # sea level air density
@@ -244,5 +244,5 @@ if abspath(PROGRAM_FILE) == @__FILE__
 end
 
 # When included from menu.jl, run main() automatically
-project_dir = dirname(@__DIR__)
+project_dir = dirname(dirname(@__DIR__))
 main(yaml_file=joinpath(project_dir, "data", "saddle_form", "saddle_gridsize4.yaml"))
