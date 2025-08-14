@@ -24,7 +24,7 @@ using ControlPlots, ControlSystemsBase
 toc()
 
 # Initialize model
-set = Settings("system.yaml")
+set = Settings("ram_air_kite/system.yaml")
 set_values = [-50.0, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 
 @info "Creating SymbolicAWEModel..."

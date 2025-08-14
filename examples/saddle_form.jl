@@ -178,7 +178,7 @@ Returns (sam, XYZ_initial, XYZ_final).
 """
 function main(; yaml_file)
     # --------------- Settings -----------------------
-    set = SymbolicAWEModels.load_settings("saddle_form")
+    set = Setttings("saddle_form/system.yaml")
     set.v_wind = 0.0
     set.g_earth = 0.0 # no gravity for saddle form
     set.rho_0 = 1.225 # sea level air density

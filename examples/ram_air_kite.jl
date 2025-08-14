@@ -24,7 +24,7 @@ steering_freq = 1/2  # Hz - full left-right cycle frequency
 steering_magnitude = 10.0      # Magnitude of steering input [Nm]
 
 # Initialize model
-set = load_settings("ram_air_kite")
+set = Setttings("base/system.yaml")
 
 @info "Creating SymbolicAWEModel:"
 sam = SymbolicAWEModel(set)

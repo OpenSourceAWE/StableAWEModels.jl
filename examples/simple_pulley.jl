@@ -1,4 +1,6 @@
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using YAML
+include("load_settings.jl")
 
 # --- Analytical solution functions for simple pulley ---
 """
@@ -94,7 +96,7 @@ function pulley_equilibrium_position(anchor1, anchor2, point_mass, rest_length_p
 end
 
 println("\n\nSimple Pulley Example\n", "="^40)
-set = load_settings("base")  # Loads from data/base/settings.yaml
+set = load_settings(joinpath(@__DIR__, "..", "data", "base", "settings.yaml"))  # Loads as Dict
 set.v_wind = 0
 set.l_tether = 5.0 # set l_tether as it affects the plot size
 dynamics_type = DYNAMIC

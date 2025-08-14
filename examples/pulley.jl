@@ -4,7 +4,7 @@
 
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 
-set = Settings("system.yaml")
+set = Setttings("base/system.yaml")
 set.v_wind = 10.0
 set.l_tether = 5.0
 set.abs_tol = 1e-3

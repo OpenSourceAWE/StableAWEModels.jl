@@ -3,6 +3,13 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.4.2 ???
+## Added
+- new example files, testing the workings of the structural solver: #file:hanging_mass.jl , #file:simple_pulley.jl #file:catenary_line.jl #file:tether_deflection_by_wind.jl #file:catenary_line.jl
+cmd:
+JULIA_PKG_PRECOMPILE_AUTO=0 ./bin/run_julia --precompile false --copy-manifest false -e 'include("examples/menu.jl")'
+
+
 # v0.4.1 13-08-2025
 ## Fixed
 - Update Artifacts.toml.default
@@ -23,11 +30,6 @@ SPDX-License-Identifier: MPL-2.0
 ## Removed
 - `data/kite.obj` file.
 - `copy_examples`, `copy_bin`, `copy_model_settings`, `install_examples` functions.
-
-# v0.3.3 07-08-2025
-## Added
-- new example files, testing the workings of the structural solver: `catenary_line.jl`, `hanging_mass.jl`, `simple_pulley.jl`, `saddle_form.jl`
--  
 
 # v0.3.3 07-08-2025
 ## Fixed

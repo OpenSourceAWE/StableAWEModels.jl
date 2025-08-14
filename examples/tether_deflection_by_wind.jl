@@ -18,6 +18,8 @@ Requirements:
 """
 
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using YAML
+include("load_settings.jl")
 
 # --- Analytical wind deflection solution functions ---
 
@@ -95,7 +97,8 @@ end
 println("\n\nVertical Tether: Pure Wind Drag Example\n", "="^50)
 
 # --- Settings
-set = load_settings("base")  # Loads from data/base/settings.yaml
+set = load_settings(joinpath(@__DIR__, "..", "data", "base", "settings.yaml"))  # Loads as Dict
+# set = Setttings("base/system.yaml")  # Loads from data/base/settings.yaml
 set.abs_tol = 1e-8
 set.rel_tol = 1e-8
 set.l_tether = 8        # Set tether length for plot size

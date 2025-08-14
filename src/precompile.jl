@@ -101,74 +101,76 @@ Create and initialize a set of default `SymbolicAWEModel` instances for precompi
 """
 function create_default_models(; prn=true)
     function create_model(name; segments=3)
-        set = Settings("system.yaml")
+        set = Settings(joinpath("ram_air_kite", "system.yaml"))
         set.segments = segments
         set.physical_model = name
         s = SymbolicAWEModel(set)
         init!(s; prn)
         return s
     end
-    sam = create_model("ram")
+    data_path = joinpath(@__DIR__, "..", "data", "ram_air_kite")
+    have_dat = isdir(data_path) && any(endswith(f, ".dat") for f in readdir(data_path))
+    sam = have_dat ? create_model("ram") : create_model("tether")
     tether_sam = create_model("tether")
-    simple_sam = create_model("simple_ram")
-    one_seg_sam = create_model("ram"; segments=1)
+    simple_sam = have_dat ? create_model("simple_ram") : create_model("tether")
+    one_seg_sam = have_dat ? create_model("ram"; segments=1) : create_model("tether"; segments=1)
     one_seg_tether_sam = create_model("tether"; segments=1)
     return sam, tether_sam, simple_sam, one_seg_sam, one_seg_tether_sam
 end
 
-@setup_workload begin
-    using Pkg.Artifacts
+# @setup_workload begin
+#     using Pkg.Artifacts
 
-    local will_precompile
-    will_precompile = get(ENV, "SAM_PRECOMPILE", "true") != "false"
-    if will_precompile
-        try
-            path = dirname(dirname(pathof(@__MODULE__)))
-            data_path = joinpath(path, "data")
-            set_data_path(data_path)
+#     local will_precompile
+#     will_precompile = get(ENV, "SAM_PRECOMPILE", "true") != "false"
+#     if will_precompile
+#         try
+#             path = dirname(dirname(pathof(@__MODULE__)))
+#             data_path = joinpath(path, "data","ram_air_kite")
+#             data_path = joinpath(path, "data", "ram_air_kite")
 
-            # Copy .default files to expected files
-            cp(joinpath(path, "Artifacts.toml.default"), joinpath(path, "Artifacts.toml"); force=true)
+#             # Copy .default files to expected files
+#             cp(joinpath(path, "Artifacts.toml.default"), joinpath(path, "Artifacts.toml"); force=true)
 
-            version_minor = VERSION.minor
-            manifest_default = joinpath(path, "Manifest-v1.$version_minor.toml.default")
-            manifest_actual = joinpath(path, "Manifest-v1.$version_minor.toml")
-            cp(manifest_default, manifest_actual; force=true)
+#             version_minor = VERSION.minor
+#             manifest_default = joinpath(path, "Manifest-v1.$version_minor.toml.default")
+#             manifest_actual = joinpath(path, "Manifest-v1.$version_minor.toml")
+#             cp(manifest_default, manifest_actual; force=true)
 
-            # Use explicit Artifacts API to get the artifact and extract it
-            artifact_toml = joinpath(path, "Artifacts.toml")
-            artifact_name = "models_v1_$version_minor"
-            model_hash = artifact_hash(artifact_name, artifact_toml)
+#             # Use explicit Artifacts API to get the artifact and extract it
+#             artifact_toml = joinpath(path, "Artifacts.toml")
+#             artifact_name = "models_v1_$version_minor"
+#             model_hash = artifact_hash(artifact_name, artifact_toml)
 
-            if !isnothing(model_hash) && artifact_exists(model_hash)
-                model_dir = artifact_path(model_hash)
-                mkpath(data_path)
-                for f in readdir(model_dir)
-                    cp(joinpath(model_dir, f), joinpath(data_path, f); force=true)
-                end
-                @info "Downloaded and extracted $artifact_name to $data_path"
-            else
-                @warn "Artifact $artifact_name not found in Artifacts.toml or does not exist!"
-                will_precompile = false
-            end
-        catch e
-            will_precompile = false
-            @info "Not precompiling because of error: $e"
-        end
-    end
+#             if !isnothing(model_hash) && artifact_exists(model_hash)
+#                 model_dir = artifact_path(model_hash)
+#                 mkpath(data_path)
+#                 for f in readdir(model_dir)
+#                     cp(joinpath(model_dir, f), joinpath(data_path, f); force=true)
+#                 end
+#                 @info "Downloaded and extracted $artifact_name to $data_path"
+#             else
+#                 @warn "Artifact $artifact_name not found in Artifacts.toml or does not exist!"
+#                 will_precompile = false
+#             end
+#         catch e
+#             will_precompile = false
+#             @info "Not precompiling because of error: $e"
+#         end
+#     end
 
-    @compile_workload begin
-        if will_precompile
-            prn=true
-            sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
-            init!(sam; prn=false, reload=true)
-            init!(sam; prn=false, reload=false)
-            sim_oscillate!(sam; total_time=1.0)
-            copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
-            find_steady_state!(sam)
-            ss = SysState(sam)
-            next_step!(sam)
-            update_sys_state!(ss, sam)
-        end
-    end
-end
+#     @compile_workload begin
+#         if will_precompile
+#             prn=true
+#             sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
+#             init!(sam; prn=false, reload=true)
+#             init!(sam; prn=false, reload=false)
+#             sim_oscillate!(sam; total_time=1.0)
+#             copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
+#             find_steady_state!(sam)
+#             ss = SysState(sam)
+#             next_step!(sam)
+#             update_sys_state!(ss, sam)
+#         end
+#     end
+# end

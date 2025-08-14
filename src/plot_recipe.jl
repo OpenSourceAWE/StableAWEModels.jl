@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 #
 # SPDX-License-Identifier: MPL-2.0
-
+import Plots
 """
     @recipe function f(sys::SystemStructure; zoom=false, front=false, kite_pos=nothing, reltime=nothing)
 
@@ -167,4 +167,34 @@ These can be passed as keyword arguments to the `plot` call:
     # --- Finalize Recipe ---
     # seriestype := :none
     return ()
+end
+
+"""
+    plot3d_system(points, segments; title="3D System", fixed_markercolor=:red, point_markercolor=:blue)
+
+Plot a 3D system given points and segments.
+- `points`: vector of point structs (must have `pos_w` and `type` fields)
+- `segments`: vector of segment structs (must have `point_idxs` field)
+- `title`: plot title
+- `fixed_markercolor`: color for fixed points
+- `point_markercolor`: color for dynamic points
+Returns a Plots.jl 3D plot object.
+"""
+function plot3d_system(points, segments; title="3D System", fixed_markercolor=:red, point_markercolor=:blue)
+    x = [p.pos_w[1] for p in points]
+    y = [p.pos_w[2] for p in points]
+    z = [p.pos_w[3] for p in points]
+    p = Plots.scatter3d(x, y, z; markersize=2, markerstrokewidth=0, markercolor=point_markercolor, title, xlabel="X (m)", ylabel="Y (m)", zlabel="Z (m)", legend=false)
+    for s in segments
+        i, j = s.point_idxs
+        Plots.plot3d!([x[i], x[j]], [y[i], y[j]], [z[i], z[j]]; alpha=1, linewidth=1, color=:black)
+    end
+    # Highlight fixed points if type field exists
+    if hasfield(typeof(points[1]), :type)
+        fixed_idx = [i for (i, p) in enumerate(points) if p.type == SymbolicAWEModels.STATIC]
+        if !isempty(fixed_idx)
+            Plots.scatter3d!(x[fixed_idx], y[fixed_idx], z[fixed_idx]; markersize=2, markercolor=fixed_markercolor, markerstrokewidth=0)
+        end
+    end
+    return p
 end

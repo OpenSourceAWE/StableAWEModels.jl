@@ -1,4 +1,5 @@
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using SymbolicAWEModels, VortexStepMethod, ControlPlots, KiteUtils
+using YAML
 
 # --- Analytical solution functions for hanging mass ---
 """
@@ -29,8 +30,12 @@ end
 
 println("\n\nHanging Mass Example\n", "="^40)
 ### Loading Settings
-# Use load_settings() to temporarily create system.yaml pointing to the desired subdirectory
-set = load_settings("base")  # Loads from data/base/settings.yaml
+include("load_settings.jl")
+set = local_load_settings(joinpath(@__DIR__, "..", "data", "base", "settings.yaml"))  # Loads as Dict
+# Example usage: settings.v_wind = 10  # Set wind speed to 10 m/s
+
+println("settings: $set")
+
 set.v_wind = 0  # No wind
 set.sample_freq = 1  # Increase to 100 Hz for better visualization (dt = 0.01s)
 set.abs_tol = 1e-6     # Higher precision for better dynamics resolution

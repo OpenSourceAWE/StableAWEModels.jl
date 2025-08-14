@@ -12,6 +12,8 @@ Requirements:
 """
 
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using YAML
+include("load_settings.jl")
 
 # --- Analytical catenary solution functions ---
 
@@ -97,11 +99,12 @@ end
 
 println("\n\nCatenary Line Example\n", "="^40)
 # --- Settings
-set = load_settings("base")  # Loads from data/base/settings.yaml
-set.v_wind = 0.0               # No wind for pure catenary
-set.abs_tol = 1e-8
-set.rel_tol = 1e-8
-set.l_tether = 8        # Set tether length for plot size
+set = load_settings(joinpath(@__DIR__, "..", "data", "base", "settings.yaml"))  # Loads as Dict
+# Example usage of set as Dict:
+# set["v_wind"] = 0.0               # No wind for pure catenary
+# set["abs_tol"] = 1e-8
+# set["rel_tol"] = 1e-8
+# set["l_tether"] = 8        # Set tether length for plot size
 
 # Catenary parameters
 horizontal_span = 8          # Horizontal distance between anchors [m]
