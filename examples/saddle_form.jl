@@ -245,4 +245,4 @@ end
 
 # When included from menu.jl, run main() automatically
 project_dir = dirname(@__DIR__)
-main(yaml_file=joinpath(project_dir, "data", "saddle_form", "saddle_gridsize5.yaml"))
+main(yaml_file=joinpath(project_dir, "data", "saddle_form", "saddle_gridsize4.yaml"))
