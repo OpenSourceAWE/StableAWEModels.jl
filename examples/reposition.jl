@@ -14,7 +14,7 @@ using SymbolicAWEModels, KiteUtils, LinearAlgebra, ControlPlots, OrdinaryDiffEqB
 Run a simulation that periodically resets the kite's elevation and azimuth.
 
 This function simulates the AWE model and, at a specified time interval, calls
-`update_pose!` to reposition the kite to a target elevation and azimuth. It logs
+`reposition!` to reposition the kite to a target elevation and azimuth. It logs
 the entire simulation and returns a `SysLog`.
 
 # Arguments
@@ -75,7 +75,7 @@ function sim_reposition!(
             sys_struct.transforms[1].heading   = deg2rad(10) - sys_struct.wings[1].heading
             
             # Apply the transformation without changing velocities
-            SymbolicAWEModels.update_pose!(sys_struct.transforms, sys_struct)
+            SymbolicAWEModels.reposition!(sys_struct.transforms, sys_struct)
             
             # Reinitialize the solver to handle the state discontinuity
             SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())

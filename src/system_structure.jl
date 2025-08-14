@@ -867,7 +867,7 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
 end
 
 """
-    update_pose!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+    reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
 
 Update the system's spatial orientation based on its current position, preserving velocities.
 
@@ -883,7 +883,7 @@ NOTE: the transform.heading is applied relative to the current heading of the sy
 # Arguments
 - `sys_struct::SystemStructure`: The system model to update.
 """
-function update_pose!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+function reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
     @unpack points, wings = sys_struct
     for transform in transforms
         # Get the current positions of the base and the rotating object
