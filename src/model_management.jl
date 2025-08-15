@@ -237,10 +237,8 @@ Create and cache a simplified linear model if it does not exist or if the output
 # Returns
 - `true` if a new model was created, `false` otherwise.
 """
-function maybe_create_simple_lin_model!(sam, outputs; create_simple_lin_model=true,
-                                        outputs_changed=false, prn=true)
-    if create_simple_lin_model &&
-            (isnothing(sam.simple_lin_model) || outputs_changed)
+function maybe_create_simple_lin_model!(sam, outputs; create_simple_lin_model=true, prn=true)
+    if create_simple_lin_model && isnothing(sam.simple_lin_model)
         sys = sam.prob.sys
         time = @elapsed slm_attrs = generate_simple_lin_model(sam.sys_struct, sys, outputs)
         if !isnothing(slm_attrs.model)
@@ -267,10 +265,8 @@ Create and cache the `LinearizationProblem` if it does not exist or if the outpu
 # Returns
 - `true` if a new problem was created, `false` otherwise.
 """
-function maybe_create_lin_prob!(sam, outputs; create_lin_prob=true,
-                                    outputs_changed=false, prn=true)
-    if create_lin_prob &&
-            (isnothing(sam.lin_prob) || outputs_changed)
+function maybe_create_lin_prob!(sam, outputs; create_lin_prob=true, prn=true)
+    if create_lin_prob && isnothing(sam.lin_prob)
         time = @elapsed @suppress_err begin
             lin_fun, lin_sys = linearization_function(sam.full_sys, [sam.inputs...], outputs;
                                                     op=sam.defaults, guesses=sam.guesses)
@@ -300,10 +296,8 @@ Create and cache the control functions if they do not exist or if the outputs ha
 # Returns
 - `true` if new functions were created, `false` otherwise.
 """
-function maybe_create_control_functions!(sam, outputs; create_control_func=false,
-                                        outputs_changed=false, prn=true)
-    if create_control_func &&
-            (isnothing(sam.control_funcs) || outputs_changed)
+function maybe_create_control_functions!(sam, outputs; create_control_func=false, prn=true)
+    if create_control_func && isnothing(sam.control_funcs)
         inputs = [sam.inputs...]
         time = @elapsed result = generate_control_funcs(sam.full_sys, inputs, outputs)
         sam.control_funcs = ControlFuncWithAttributes(; result...)
@@ -398,12 +392,9 @@ function init!(sam::SymbolicAWEModel;
         changed |= outputs_changed
         changed |= maybe_create_prob!(sam; create_prob, prn)
         changed |= maybe_create_simple_lin_model!(sam, outputs;
-                                                create_simple_lin_model=create_prob,
-                                                outputs_changed, prn)
-        changed |= maybe_create_lin_prob!(sam, outputs; create_lin_prob,
-                                        outputs_changed, prn)
-        changed |= maybe_create_control_functions!(sam, outputs; create_control_func,
-                                                    outputs_changed, prn)
+                                                  create_simple_lin_model=create_prob, prn)
+        changed |= maybe_create_lin_prob!(sam, outputs; create_lin_prob, prn)
+        changed |= maybe_create_control_functions!(sam, outputs; create_control_func, prn)
 
         if changed
             prn && @info "Serializing model to: \n\t$model_path"
