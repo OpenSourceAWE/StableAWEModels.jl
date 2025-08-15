@@ -388,8 +388,14 @@ function init!(sam::SymbolicAWEModel;
         outputs_changed = isnothing(sam.outputs) ||
                             length(outputs) != length(sam.outputs) ||
                             !all(string.(outputs) .== string.(sam.outputs))
+        if outputs_changed
+            sam.simple_lin_model = nothing
+            sam.lin_prob = nothing
+            sam.control_funcs = nothing
+        end
         sam.outputs = outputs
         
+        changed |= outputs_changed
         changed |= maybe_create_prob!(sam; create_prob, prn)
         changed |= maybe_create_simple_lin_model!(sam, outputs;
                                                 create_simple_lin_model=create_prob,
