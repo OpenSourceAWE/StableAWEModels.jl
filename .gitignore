@@ -1,4 +1,5 @@
 /LocalPreferences*
+.helix
 *.arrow
 *.bin
 *.bin.xz

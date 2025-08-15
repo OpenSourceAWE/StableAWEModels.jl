@@ -867,6 +867,66 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
 end
 
 """
+    reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+
+Update the system's spatial orientation based on its current position, preserving velocities.
+
+This function adjusts the orientation of all components in the `SystemStructure` without
+altering their dynamic state. Unlike `reinit!`, it uses the current world positions (`pos_w`)
+as the starting point for rotations, rather than resetting from the CAD coordinates.
+
+This function is useful for making real-time adjustments to the system's pose during a simulation.
+Crucially, it **preserves the existing velocities (`vel_w`) of all points and wings**.
+
+NOTE: the transform.heading is applied relative to the current heading of the system.
+
+# Arguments
+- `sys_struct::SystemStructure`: The system model to update.
+"""
+function reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+    @unpack points, wings = sys_struct
+    for transform in transforms
+        # Get the current positions of the base and the rotating object
+        base_pos = points[transform.base_point_idx].pos_w
+        rot_pos = get_rot_pos(transform, wings, points)
+
+        # Calculate the current orientation in spherical coordinates
+        current_rel_pos = rot_pos - base_pos
+        curr_elevation = KiteUtils.calc_elevation(current_rel_pos)
+        curr_azimuth = -KiteUtils.azimuth_east(current_rel_pos)
+
+        # Get the rotation matrices for the current and target orientations
+        curr_R_t_w = calc_R_t_w(curr_elevation, curr_azimuth)
+        R_t_w = calc_R_t_w(transform.elevation, transform.azimuth)
+
+        # Apply the rotation to all relevant points
+        for point in points
+            if point.transform_idx == transform.idx
+                vec = point.pos_w - base_pos
+                point.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
+            end
+        end
+
+        # Apply the rotation to all relevant wings
+        for wing in wings
+            if wing.transform_idx == transform.idx
+                # Rotate the wing's position
+                vec = wing.pos_w - base_pos
+                wing.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
+
+                # Rotate the wing's orientation matrix
+                R_b_w = zeros(3,3)
+                current_R_b_w = wing.R_b_w
+                for i in 1:3
+                    R_b_w[:, i] .= apply_heading(current_R_b_w[:, i], R_t_w, curr_R_t_w, transform.heading)
+                end
+                wing.R_b_w = R_b_w
+            end
+        end
+    end
+end
+
+"""
     calc_pos(wing::RamAirWing, gamma, frac)
 
 Calculate a position on the kite based on spanwise (`gamma`) and chordwise (`frac`) parameters.

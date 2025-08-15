@@ -127,13 +127,16 @@ end
             data_path = joinpath(path, "data")
             set_data_path(data_path)
 
-            # Copy .default files to expected files
-            cp(joinpath(path, "Artifacts.toml.default"), joinpath(path, "Artifacts.toml"); force=true)
+            # Copy .default files to expected files and make them writable
+            artifacts_toml_path = joinpath(path, "Artifacts.toml")
+            cp(joinpath(path, "Artifacts.toml.default"), artifacts_toml_path; force=true)
+            chmod(artifacts_toml_path, 0o644)
 
             version_minor = VERSION.minor
             manifest_default = joinpath(path, "Manifest-v1.$version_minor.toml.default")
             manifest_actual = joinpath(path, "Manifest-v1.$version_minor.toml")
             cp(manifest_default, manifest_actual; force=true)
+            chmod(manifest_actual, 0o644)
 
             # Use explicit Artifacts API to get the artifact and extract it
             artifact_toml = joinpath(path, "Artifacts.toml")
@@ -144,7 +147,10 @@ end
                 model_dir = artifact_path(model_hash)
                 mkpath(data_path)
                 for f in readdir(model_dir)
-                    cp(joinpath(model_dir, f), joinpath(data_path, f); force=true)
+                    src_path = joinpath(model_dir, f)
+                    dest_path = joinpath(data_path, f)
+                    cp(src_path, dest_path; force=true)
+                    chmod(dest_path, 0o644) # Ensure copied artifact file is writable
                 end
                 @info "Downloaded and extracted $artifact_name to $data_path"
             else
