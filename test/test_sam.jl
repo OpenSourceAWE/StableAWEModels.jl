@@ -226,6 +226,32 @@ end
         @show default_heading, short_steer_heading, soft_steer_heading
     end
 
+    @testset "Reposition simulation" begin
+        reset!(set)
+        init!(sam)
+        find_steady_state!(sam)
+        target_elevation = deg2rad(50)
+        target_azimuth = deg2rad(10)
+        target_heading = deg2rad(10)
+        # Run the simulation with repositioning
+        lg = SymbolicAWEModels.sim_reposition!(
+            sam;
+            total_time=5.0,
+            reposition_interval_s=1/set.sample_freq,
+            target_elevation,
+            target_azimuth,
+            target_heading,
+            prn=false
+        )
+        ControlPlots.plt.close_figs()
+        plt = plot(sam.sys_struct, lg)
+        display(plt)
+        @test plt isa ControlPlots.PlotX
+        @test lg.syslog.heading[end] ≈ target_heading atol=0.05
+        @test lg.syslog.elevation[end] ≈ target_elevation atol=0.05
+        @test lg.syslog.azimuth[end] ≈ target_azimuth atol=0.05
+    end
+
     @testset "Linearize" begin
         old_abs = set.abs_tol
         old_rel = set.rel_tol
