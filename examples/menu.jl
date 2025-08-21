@@ -53,8 +53,8 @@ specific example to run. Use `q` to exit any menu.
 function run_examples_menu()
     categories = OrderedDict(
         "aerodynamic/" => OrderedDict(
-            "pyramid_model_aerodynamic" => """include(joinpath(@__DIR__, "examples", "aerodynamic", "pyramid_model_aerodynamic.jl"))""",
-            "TUDELFT_V3_KITE_aerodynamic" => """include(joinpath(@__DIR__, "examples", "aerodynamic", "TUDELFT_V3_KITE_aerodynamic.jl"))""",
+            "pyramid_model" => """include(joinpath(@__DIR__, "examples", "aerodynamic", "pyramid_model.jl"))""",
+            "TUDELFT_V3_KITE" => """include(joinpath(@__DIR__, "examples", "aerodynamic", "TUDELFT_V3_KITE.jl"))""",
         ),
         "structural/" => OrderedDict(
             "hanging_mass" => """include(joinpath(@__DIR__, "examples", "structural", "hanging_mass.jl"))""",
