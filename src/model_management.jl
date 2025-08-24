@@ -37,7 +37,8 @@ function generate_prob_getters(sys_struct, sys)
     if length(groups) > 0; get_group_state = getu(sys, c.([sys.twist_angle, sys.twist_ω, sys.group_tether_force, sys.group_tether_moment, sys.group_aero_moment])); end
     if length(pulleys) > 0; get_pulley_state = getu(sys, c.([sys.pulley_len, sys.pulley_vel])); end
     if length(winches) > 0
-        get_winch_state = getu(sys, c.([sys.tether_len, sys.tether_vel, sys.set_values, sys.winch_force_vec]))
+        get_winch_state = getu(sys, c.([sys.tether_len, sys.tether_vel, sys.set_values,
+                                       sys.winch_force_vec, sys.tau_friction]))
         set_set_values = setp(sys, sys.set_values)
         get_set_values = getp(sys, sys.set_values)
     end
@@ -509,8 +510,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("tether", tether.idx, tether.segment_idxs))
     end
     for winch in winches
-        model_type = winch.model isa TorqueControlledMachine
-        push!(data_parts, ("winch", winch.idx, model_type, winch.tether_idxs))
+        push!(data_parts, ("winch", winch.idx, winch.tether_idxs))
     end
     for wing in wings
         push!(data_parts, ("wing", wing.idx, wing.group_idxs))

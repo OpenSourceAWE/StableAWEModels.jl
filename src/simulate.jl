@@ -59,7 +59,8 @@ function sim!(
     elapsed = @elapsed for step in 1:steps
         t = (step-1) * dt
 
-        set_torques[step, :] = -sam.set.drum_radius .* [norm(winch.force) for winch in sys_struct.winches]
+        set_torques[step, :] = -[winch.drum_radius / winch.gear_ratio * norm(winch.force)
+                                        for winch in sys_struct.winches]
         set_torques[step, :] .+= set_values[step, :]
 
         try

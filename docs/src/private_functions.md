@@ -37,8 +37,6 @@ SymbolicAWEModels.get_sys_struct_hash
 ## Physics and Geometry Helpers
 
 ```@docs
-SymbolicAWEModels.calc_speed_acc
-SymbolicAWEModels.calc_moment_acc
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
 SymbolicAWEModels.calc_R_t_w

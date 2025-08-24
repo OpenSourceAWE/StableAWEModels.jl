@@ -481,12 +481,13 @@ function update_sys_struct!(prob::ProbWithAttributes,
         end
     end
     if length(winches) > 0
-        tether_len, tether_vel, set_value, winch_force_vec = prob.get_winch_state(integ)
+        tether_len, tether_vel, set_value, winch_force_vec, friction = prob.get_winch_state(integ)
         for winch in winches
             winch.tether_len = tether_len[winch.idx]
             winch.tether_vel = tether_vel[winch.idx]
             winch.set_value = set_value[winch.idx]
             winch.force .= winch_force_vec[:, winch.idx]
+            winch.friction = friction[winch.idx]
         end
     end
     if length(tethers) > 0
@@ -543,6 +544,48 @@ function get_model_name(set::Settings; precompile=false)
     end
     dynamics_type = ifelse(set.quasi_static, "static", "dynamic")
     return "model_$(ver)_$(set.physical_model)_$(dynamics_type)_$(set.segments)_seg.bin$suffix"
+end
+
+"""
+    calc_steady_torque(sam::SymbolicAWEModel)
+
+Calculates the torque for each winch that results in zero acceleration (steady state),
+based on the formulas used in the `calc_acceleration` function.
+
+It uses the `tether_vel` property of each winch to calculate velocity-dependent friction forces.
+"""
+function calc_steady_torque(sam::SymbolicAWEModel)
+    torques = zeros(Float64, length(sam.sys_struct.winches))
+    for (i, winch) in enumerate(sam.sys_struct.winches)
+        # This function assumes that each `winch` object is a `TorqueControlledMachine`
+        # or has a compatible structure for friction calculations.
+        speed = winch.tether_vel
+        force = norm(winch.force) # Assuming winch.force is available and is a vector
+
+        # Calculate motor angular velocity from reel-out speed
+        omega = winch.set.gear_ratio / winch.set.drum_radius * speed
+
+        # --- Inlined friction calculations ---
+        # Directly calculate Coulomb friction torque component
+        τ_coulomb = sam.set.f_coulomb * sam.set.drum_radius / sam.set.gear_ratio
+        # Directly calculate viscous friction torque component
+        τ_viscous = winch.set.c_vf * omega * winch.set.drum_radius^2 / winch.set.gear_ratio^2
+       
+        # Calculate total friction torque (τ)
+        # NOTE: Assumes `smooth_sign` is available in the calling scope.
+        τ_friction = τ_coulomb * smooth_sign(omega) + τ_viscous
+        # --- End of inlined calculations ---
+
+        # Calculate torque due to tether force, referred to the motor shaft
+        τ_force = winch.set.drum_radius / winch.set.gear_ratio * force
+
+        # From `calc_acceleration`, the total torque accelerating the motor is:
+        # tau_total = motor_torque + τ_force - τ_friction
+        # For a steady state (zero acceleration), tau_total must be 0. 
+        # The required motor_torque is therefore:
+        torques[i] = τ_friction - τ_force
+    end
+    return torques
 end
 
 """

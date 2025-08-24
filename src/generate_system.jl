@@ -4,24 +4,6 @@
 # Implementation of the ram air wing model using ModelingToolkit.jl
 
 """
-    calc_speed_acc(winch::AsyncMachine, tether_vel, norm_, set_speed)
-
-Calculate winch acceleration for a speed-controlled asynchronous machine model.
-"""
-function calc_speed_acc(winch::AsyncMachine, tether_vel, norm_, set_speed)
-    calc_acceleration(winch, tether_vel, norm_; set_speed, set_torque=nothing, use_brake=false) # TODO: add brake setting
-end
-
-"""
-    calc_moment_acc(winch::TorqueControlledMachine, tether_vel, norm_, set_torque)
-
-Calculate winch acceleration for a torque-controlled machine model.
-"""
-function calc_moment_acc(winch::TorqueControlledMachine, tether_vel, norm_, set_torque)
-    calc_acceleration(winch, tether_vel, norm_; set_speed=nothing, set_torque, use_brake=false)
-end
-
-"""
     calc_angle_of_attack(va_wing_b)
 
 Calculate the angle of attack [rad] from the apparent wind vector in the body frame.
@@ -183,6 +165,17 @@ get_fix_point_sphere(sys::SystemStructure, idx::Int16) = sys.points[idx].fix_sph
 @register_symbolic get_fix_point_sphere(sys::SystemStructure, idx::Int16)
 get_fix_wing_sphere(sys::SystemStructure, idx::Int16) = sys.wings[idx].fix_sphere
 @register_symbolic get_fix_wing_sphere(sys::SystemStructure, idx::Int16)
+
+get_winch_gear_ratio(sys::SystemStructure, idx::Int16) = sys.winches[idx].gear_ratio
+@register_symbolic get_winch_gear_ratio(sys::SystemStructure, idx::Int16)
+get_winch_drum_radius(sys::SystemStructure, idx::Int16) = sys.winches[idx].drum_radius
+@register_symbolic get_winch_drum_radius(sys::SystemStructure, idx::Int16)
+get_winch_f_coulomb(sys::SystemStructure, idx::Int16) = sys.winches[idx].f_coulomb
+@register_symbolic get_winch_f_coulomb(sys::SystemStructure, idx::Int16)
+get_winch_c_vf(sys::SystemStructure, idx::Int16) = sys.winches[idx].c_vf
+@register_symbolic get_winch_c_vf(sys::SystemStructure, idx::Int16)
+get_winch_inertia_total(sys::SystemStructure, idx::Int16) = sys.winches[idx].inertia_total
+@register_symbolic get_winch_inertia_total(sys::SystemStructure, idx::Int16)
 
 get_set_mass(set::Settings) = set.mass
 @register_symbolic get_set_mass(set::Settings)
@@ -632,6 +625,12 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         winch_force(t)[eachindex(winches)]
         winch_force_vec(t)[1:3, eachindex(winches)]
         brake(t)[eachindex(winches)]
+        # New symbolic variables for winch dynamics
+        ω_motor(t)[eachindex(winches)]
+        tau_friction(t)[eachindex(winches)]
+        tau_motor(t)[eachindex(winches)]
+        tau_total(t)[eachindex(winches)]
+        α_motor(t)[eachindex(winches)]
     end
     for winch in winches
         F = zeros(Num, 3)
@@ -641,6 +640,18 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 error("Point number $winch_idx does not exist.")
             F .+= point_force[:, winch_idx]
         end
+        
+        gear_ratio    = get_winch_gear_ratio(psys, winch.idx)
+        drum_radius   = get_winch_drum_radius(psys, winch.idx)
+        f_coulomb     = get_winch_f_coulomb(psys, winch.idx)
+        c_vf          = get_winch_c_vf(psys, winch.idx)
+        inertia_total = get_winch_inertia_total(psys, winch.idx)
+
+        function smooth_sign(x)
+            EPSILON = 6
+            x / sqrt(x * x + EPSILON * EPSILON)
+        end
+
         eqs = [
             eqs
             brake[winch.idx] ~ get_brake(psys, winch.idx)
@@ -649,11 +660,18 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             D(tether_vel[winch.idx]) ~ ifelse(brake[winch.idx]==true,
                                               0, tether_acc[winch.idx])
 
-            tether_acc[winch.idx] ~ calc_moment_acc( # TODO: moment and speed control
-                winch.model, tether_vel[winch.idx], 
-                winch_force[winch.idx], 
-                set_values[winch.idx]
-            )
+            # Symbolic winch dynamics equations
+            ω_motor[winch.idx] ~ gear_ratio / drum_radius * tether_vel[winch.idx]
+            tau_friction[winch.idx] ~ smooth_sign(ω_motor[winch.idx]) *
+                                      f_coulomb * drum_radius / gear_ratio +
+                                      c_vf * ω_motor[winch.idx] * drum_radius^2 / gear_ratio^2
+            tau_motor[winch.idx] ~ set_values[winch.idx] # set_value is the motor torque
+            tau_total[winch.idx] ~ tau_motor[winch.idx] +
+                                   drum_radius / gear_ratio * winch_force[winch.idx] -
+                                   tau_friction[winch.idx]
+            α_motor[winch.idx] ~ tau_total[winch.idx] / inertia_total
+            tether_acc[winch.idx] ~ drum_radius / gear_ratio * α_motor[winch.idx]
+
             winch_force_vec[:, winch.idx] ~ F
             winch_force[winch.idx] ~ norm(winch_force_vec[:, winch.idx])
         ]
