@@ -1,7 +1,7 @@
 name = "SymbolicAWEModels"
 uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
 authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
-version = "0.4.1"
+version = "0.4.2"
 
 [deps]
 AtmosphericModels = "c59cac55-771d-4f45-b14d-1c681463a295"
