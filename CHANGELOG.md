@@ -3,6 +3,10 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.4.2 24-08-2024
+## Fixed
+- Don't write protect manifest
+
 # v0.4.1 13-08-2025
 ## Fixed
 - Update Artifacts.toml.default
