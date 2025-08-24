@@ -32,7 +32,8 @@ function sim!(
     total_time=10.0,
     vsm_interval=3,
     prn=true,
-    lin_model::Union{Nothing, <:NamedTuple, StateSpace}=nothing
+    lin_model::Union{Nothing, <:NamedTuple, StateSpace}=nothing,
+    torque_damp=0.9,
 )
     steps = Int(round(total_time / dt))
     sys_struct = sam.sys_struct
@@ -55,13 +56,14 @@ function sim!(
     set_torques = similar(set_values)
     y_op = sam.simple_lin_model.get_y(sam.integrator)
 
+    steady_torque = calc_steady_torque(sam)
+
     # --- Nonlinear Simulation Loop ---
     elapsed = @elapsed for step in 1:steps
         t = (step-1) * dt
 
-        set_torques[step, :] = -[winch.drum_radius / winch.gear_ratio * norm(winch.force)
-                                        for winch in sys_struct.winches]
-        set_torques[step, :] .+= set_values[step, :]
+        steady_torque = torque_damp * steady_torque + (1-torque_damp) * calc_steady_torque(sam)
+        set_torques[step, :] = steady_torque .+ set_values[step, :]
 
         try
             step_time += @elapsed next_step!(sam;
