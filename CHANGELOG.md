@@ -3,6 +3,12 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.5.0 25-08-2024
+## Removed
+- BREAKING: the Winch struct doesn't have a model field anymore. Instead, all equations are symbolic, and the WinchModels dependency is removed.
+## Added
+- The function `calc_steady_torque` calculates the torque that will result in zero acceleration.
+
 # v0.4.2 24-08-2024
 ## Fixed
 - Don't write protect manifest
