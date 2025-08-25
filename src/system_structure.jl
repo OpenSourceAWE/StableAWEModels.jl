@@ -410,17 +410,22 @@ $(TYPEDFIELDS)
 """
 mutable struct Winch
     const idx::Int16
-    const model::AbstractWinchModel
     const tether_idxs::Vector{Int16}
     tether_len::Union{SimFloat, Nothing}
     tether_vel::SimFloat
     set_value::SimFloat
     brake::Bool
     const force::KVec3
+    gear_ratio::SimFloat
+    drum_radius::SimFloat
+    f_coulomb::SimFloat
+    c_vf::SimFloat
+    inertia_total::SimFloat
+    friction::SimFloat
 end
 
 """
-    Winch(idx, model, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
+    Winch(idx, set, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
 
 Constructs a `Winch` object that controls tether length through torque or speed regulation.
 
@@ -433,7 +438,7 @@ see the [WinchModels.jl documentation](https://github.com/aenarete/WinchModels.j
 
 # Arguments
 - `idx::Int16`: Unique identifier for the winch.
-- `model::AbstractWinchModel`: The winch model (`TorqueControlledMachine`, etc.).
+- `set::Settings`: The main settings object, used to retrieve winch parameters.
 - `tether_idxs::Vector{Int16}`: Vector of indices of the tethers connected to this winch.
 
 # Keyword Arguments
@@ -444,8 +449,41 @@ see the [WinchModels.jl documentation](https://github.com/aenarete/WinchModels.j
 # Returns
 - `Winch`: A new `Winch` object.
 """
-function Winch(idx, model, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
-    return Winch(idx, model, tether_idxs, tether_len, tether_vel, 0.0, brake, zeros(KVec3))
+function Winch(idx, set::Settings, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
+    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, brake, zeros(KVec3),
+                 set.gear_ratio, set.drum_radius, set.f_coulomb, set.c_vf,
+                 set.inertia_total, zero(SimFloat))
+end
+
+"""
+    Winch(idx, tether_idxs, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; tether_len=0.0, tether_vel=0.0, brake=false)
+
+Constructs a `Winch` object by directly providing its physical parameters.
+
+This constructor is an alternative to creating a winch from a `Settings` object,
+allowing for more modular or programmatic creation of winch components.
+
+# Arguments
+- `idx::Int16`: Unique identifier for the winch.
+- `tether_idxs::Vector{Int16}`: Vector of indices of the tethers connected to this winch.
+- `gear_ratio::SimFloat`: The gear ratio of the winch.
+- `drum_radius::SimFloat`: The radius of the winch drum [m].
+- `f_coulomb::SimFloat`: Coulomb friction force [N].
+- `c_vf::SimFloat`: Viscous friction coefficient [Ns/m].
+- `inertia_total::SimFloat`: Total inertia of the motor, gearbox, and drum [kgm²].
+
+# Keyword Arguments
+- `tether_len::SimFloat=0.0`: Initial tether length [m].
+- `tether_vel::SimFloat=0.0`: Initial tether velocity (reel-out rate) [m/s].
+- `brake::Bool=false`: If true, the winch brake is engaged.
+
+# Returns
+- `Winch`: A new `Winch` object.
+"""
+function Winch(idx, tether_idxs, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total;
+               tether_len=0.0, tether_vel=0.0, brake=false)
+    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, brake, zeros(KVec3),
+                 gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total, zero(SimFloat))
 end
 
 """

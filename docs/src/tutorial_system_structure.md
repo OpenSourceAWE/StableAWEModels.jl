@@ -91,12 +91,12 @@ set.v_wind = 0.0
 tethers = [Tether(1,[segment.idx for segment in segments])]
 ```
 As you can see, we just add all of the segments from the simple tether to our [`Tether`](@ref) struct.
-The next step is to create a winch. Each winch can be connected to one or more tethers, so it is possible to connect multiple tethers to the same winch. We have to specify which kind of winch we want to use. For now, only the `TorqueControlledMachine` from `WinchModels.jl` is supported.
+The next step is to create a winch. Each winch can be connected to one or more tethers, so it is possible to connect multiple tethers to the same winch.
+The winch is a torque controlled winch.
 
 ```julia
 using WinchModels
-wm = TorqueControlledMachine(set)
-winches = [Winch(1, wm, [1])]
+winches = [Winch(1, set, [1])]
 ```
 
 The 2d plot of the [`SystemStructure`](@ref) should still look the same, so we don't have to plot that. We can just create the system, and simulate it. We just need to be sure that we call plot with `t=0.0` to reset the plot.

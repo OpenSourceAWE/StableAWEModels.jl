@@ -27,7 +27,7 @@ jobs:
         run: |
           docker run --rm --volume ${{ github.workspace }}:/data fsfe/reuse lint
 
-  test:
+  test-with-code-coverage:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
@@ -85,41 +85,6 @@ jobs:
           path: data/*.png
           if-no-files-found: ignore
           retention-days: 7
-
-  test-with-code-coverage:
-    name: Julia 1.11 - ubuntu-latest - x64 - with code coverage
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
-
-      - name: Copy default Manifest files
-        run: |
-          cp Manifest-v1.11.toml.default Manifest.toml || 
-                echo "No default available for Manifest-v1.11.toml"
-        shell: bash
-
-      - name: Install matplotlib
-        run: sudo apt-get install -y python3-matplotlib
-        shell: bash
-
-      - uses: julia-actions/setup-julia@v2
-        with:
-          version: '1.11'
-          arch: x64
-
-      - uses: julia-actions/cache@v2
-      
-      - uses: julia-actions/julia-buildpkg@v1
-
-      - name: Build PyCall
-        run: julia --project -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
-        shell: bash
-
-      - uses: julia-actions/julia-runtest@v1
 
       - uses: julia-actions/julia-processcoverage@v1
 

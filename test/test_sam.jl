@@ -217,12 +217,12 @@ end
             return sl.syslog.heading[end]
         end
         default_heading = calc_heading(1.0, 10.0)
-        @test default_heading ≈ 1035 atol=10.0
+        @test default_heading ≈ 884.8 atol=10.0
         short_steer_heading = calc_heading(0.5, 10.0)
         soft_steer_heading = calc_heading(1.0, 5.0)
         # make sure less steering results in less final heading
-        @test default_heading - short_steer_heading ≈ 93 atol=10.0
-        @test default_heading - soft_steer_heading ≈ 150 atol=10.0
+        @test default_heading - short_steer_heading ≈ 212 atol=10.0
+        @test default_heading - soft_steer_heading ≈ 256 atol=10.0
         @show default_heading, short_steer_heading, soft_steer_heading
     end
 

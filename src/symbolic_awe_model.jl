@@ -481,12 +481,13 @@ function update_sys_struct!(prob::ProbWithAttributes,
         end
     end
     if length(winches) > 0
-        tether_len, tether_vel, set_value, winch_force_vec = prob.get_winch_state(integ)
+        tether_len, tether_vel, set_value, winch_force_vec, friction = prob.get_winch_state(integ)
         for winch in winches
             winch.tether_len = tether_len[winch.idx]
             winch.tether_vel = tether_vel[winch.idx]
             winch.set_value = set_value[winch.idx]
             winch.force .= winch_force_vec[:, winch.idx]
+            winch.friction = friction[winch.idx]
         end
     end
     if length(tethers) > 0
@@ -543,6 +544,18 @@ function get_model_name(set::Settings; precompile=false)
     end
     dynamics_type = ifelse(set.quasi_static, "static", "dynamic")
     return "model_$(ver)_$(set.physical_model)_$(dynamics_type)_$(set.segments)_seg.bin$suffix"
+end
+
+"""
+    calc_steady_torque(sam::SymbolicAWEModel)
+
+Calculates the torque for each winch that results in zero acceleration (steady state).
+"""
+function calc_steady_torque(sam::SymbolicAWEModel)
+    sys_struct = sam.sys_struct
+    torques = -[winch.drum_radius / winch.gear_ratio * norm(winch.force) +
+                winch.friction for winch in sys_struct.winches]
+    return torques
 end
 
 """
