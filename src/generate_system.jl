@@ -183,10 +183,10 @@ get_rho_tether(set::Settings) = set.rho_tether
 @register_symbolic get_rho_tether(set::Settings)
 get_e_tether(set::Settings) = set.e_tether
 @register_symbolic get_e_tether(set::Settings)
-get_damping(set::Settings) = set.damping
-@register_symbolic get_damping(set::Settings)
-get_c_spring(set::Settings) = set.c_spring
-@register_symbolic get_c_spring(set::Settings)
+get_axial_damping(set::Settings) = set.axial_damping
+@register_symbolic get_axial_damping(set::Settings)
+get_axial_stiffness(set::Settings) = set.axial_stiffness
+@register_symbolic get_axial_stiffness(set::Settings)
 get_cd_tether(set::Settings) = set.cd_tether
 @register_symbolic get_cd_tether(set::Settings)
 get_v_wind(set::Settings) = set.v_wind
@@ -741,6 +741,8 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
 
         # rest: forces, moments, vectors and scalar values
         moment_b(t)[eachindex(wings), 1:3] # moment in principal frame
+        moment_tether_wing(t)[eachindex(wings), 1:3]
+        force_tether_wing(t)[eachindex(wings), 1:3]
         wing_mass(t)[eachindex(wings)]
         fix_wing_sphere(t)[eachindex(wings)]
     end
@@ -782,7 +784,10 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
             α_b[wing.idx, 1] ~ (moment_b[wing.idx, 1] + (I_b[2] - I_b[3]) * ω_b[wing.idx, 2] * ω_b[wing.idx, 3]) / I_b[1]
             α_b[wing.idx, 2] ~ (moment_b[wing.idx, 2] + (I_b[3] - I_b[1]) * ω_b[wing.idx, 3] * ω_b[wing.idx, 1]) / I_b[2]
             α_b[wing.idx, 3] ~ (moment_b[wing.idx, 3] + (I_b[1] - I_b[2]) * ω_b[wing.idx, 1] * ω_b[wing.idx, 2]) / I_b[3]
-            moment_b[wing.idx, :] ~ aero_moment_b[wing.idx, :] + R_b_w[wing.idx, :, :]' * tether_wing_moment[wing.idx, :]
+
+            moment_tether_wing[wing.idx, :] ~ tether_wing_moment[wing.idx, :]
+            moment_b[wing.idx, :] ~ aero_moment_b[wing.idx, :] +
+                                    R_b_w[wing.idx, :, :]' * moment_tether_wing[wing.idx, :]
             
             D(wing_pos[wing.idx, :]) ~ ifelse.(fix_wing==true,
                 zeros(3),
@@ -799,7 +804,8 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
                 )
             )
             wing_mass[wing.idx] ~ get_set_mass(pset)
-            wing_acc[wing.idx, :] ~ (tether_wing_force[wing.idx, :] + R_b_w[wing.idx, :, :] * aero_force_b[wing.idx, :]) / wing_mass[wing.idx]
+            force_tether_wing[wing.idx, :] ~ tether_wing_force[wing.idx, :]
+            wing_acc[wing.idx, :] ~ (force_tether_wing[wing.idx, :] + R_b_w[wing.idx, :, :] * aero_force_b[wing.idx, :]) / wing_mass[wing.idx]
         ]
         defaults = [
             defaults

@@ -22,7 +22,7 @@ init!(one_seg_tether_sam)
 # --- Calculate Properties and Get Step Response Data ---
 find_steady_state!(one_seg_sam; t=10.0, dt=3.0)
 axial_stiffness, axial_damping, tether_lens, dt = 
-    SymbolicAWEModels.calc_spring_props(one_seg_sam, one_seg_tether_sam; F_step=-0.1)
+    SymbolicAWEModels.calaxial_stiffness_props(one_seg_sam, one_seg_tether_sam; F_step=-0.1)
 
 # --- Print Comparison Table ---
 segments = one_seg_sam.sys_struct.segments
@@ -57,7 +57,7 @@ display(plotx(
 # --- Calculate Properties and Get Step Response Data ---
 find_steady_state!(one_seg_sam; t=10.0, dt=3.0)
 axial_stiffness, axial_damping, tether_lens, dt = 
-    SymbolicAWEModels.calc_spring_props(one_seg_sam, one_seg_tether_sam; F_step=-0.1)
+    SymbolicAWEModels.calaxial_stiffness_props(one_seg_sam, one_seg_tether_sam; F_step=-0.1)
 
 # --- Print Comparison Table ---
 segments = one_seg_sam.sys_struct.segments

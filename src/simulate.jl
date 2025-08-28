@@ -44,8 +44,10 @@ function sim!(
         lin_model = ss(lin_model...)
     end
 
-    logger = Logger(length(sys_struct.points), steps)
+    logger = Logger(length(sys_struct.points), steps+1)
     sys_state = SysState(sam)
+    sys_state.time = 0.0
+    log!(logger, sys_state)
 
     if prn
         @info "Starting nonlinear simulation..."
@@ -60,7 +62,7 @@ function sim!(
 
     # --- Nonlinear Simulation Loop ---
     elapsed = @elapsed for step in 1:steps
-        t = (step-1) * dt
+        t = step * dt
 
         steady_torque = torque_damp * steady_torque + (1-torque_damp) * calc_steady_torque(sam)
         set_torques[step, :] = steady_torque .+ set_values[step, :]
@@ -270,8 +272,10 @@ function sim_reposition!(
     set_values = zeros(Float64, steps, length(sys_struct.winches))
     vsm_interval = 1 ÷ dt
     
-    logger = Logger(length(sys_struct.points), steps)
+    logger = Logger(length(sys_struct.points), steps+1)
     sys_state = SysState(sam)
+    sys_state.time = 0.0
+    log!(logger, sys_state)
 
     if prn
         println("--- Starting simulation with periodic repositioning ---")
@@ -280,7 +284,7 @@ function sim_reposition!(
 
     # 2. --- Simulation Loop ---
     time = @elapsed for step in 1:steps
-        t = (step-1) * dt
+        t = step * dt
         
         # Hold the kite in place by countering the tether forces with winch torques
         set_values[step, :] = -sam.set.drum_radius .* [norm(winch.force) for winch in sys_struct.winches]
@@ -376,11 +380,11 @@ function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEMode
         elseif isequal(sym, sys.tether_vel[3])
             ss.v_reelout[3] = y[i]
         elseif isequal(sym, sys.winch_force[1])
-            ss.force[1] = y[i]
+            ss.winch_force[1] = y[i]
         elseif isequal(sym, sys.winch_force[2])
-            ss.force[2] = y[i]
+            ss.winch_force[2] = y[i]
         elseif isequal(sym, sys.winch_force[3])
-            ss.force[3] = y[i]
+            ss.winch_force[3] = y[i]
         elseif isequal(sym, sys.angle_of_attack[1])
             ss.AoA = y[i]
         elseif isequal(sym, sys.elevation[1])

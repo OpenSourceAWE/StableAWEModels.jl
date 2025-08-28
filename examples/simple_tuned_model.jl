@@ -21,13 +21,20 @@ simple_set = Settings("system.yaml")
 simple_sam = SymbolicAWEModel(simple_set, "simple_ram")
 init!(simple_sam)
 
-sim_oscillate!(sam; total_time=1.0)
+bias = 0.3
+find_steady_state!(sam; dt=3, t=10)
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
+@show sam.sys_struct.wings[1].tether_moment
+@show simple_sam.sys_struct.wings[1].tether_moment
 
-bias = 0.2
 sl, _ = sim_oscillate!(sam; total_time=5.0, prn=true, bias) # TODO: add first frac ram model
-display(plot(sam.sys_struct, sl))
+display(plot(sam.sys_struct, sl; plot_default=false, plot_elevation=true,
+             plot_aoa=true, plot_heading=true, plot_aero_moment=true))
 
-sl, _ = sim_oscillate!(simple_sam; total_time=5.0, prn=true, bias)
-display(plot(simple_sam.sys_struct, sl))
+simple_sl, _ = sim_oscillate!(simple_sam; total_time=5.0, prn=true, bias)
+display(plot(simple_sam.sys_struct, simple_sl; plot_default=false, plot_elevation=true,
+             plot_aoa=true, plot_heading=true, plot_aero_moment=true))
+
+# 2.5deg difference in aoa and elevation
+# should be solved by changing the attach point, twist is good
 

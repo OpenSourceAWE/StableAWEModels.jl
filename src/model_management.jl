@@ -25,7 +25,8 @@ function generate_prob_getters(sys_struct, sys)
     if length(wings) > 0
         wing_vars = c.([
             sys.Q_b_w, sys.ω_b, sys.wing_pos, sys.wing_vel, sys.wing_acc, sys.va_wing_b,
-            sys.wind_vel_wing, sys.aero_force_b, sys.aero_moment_b, sys.elevation,
+            sys.wind_vel_wing, sys.aero_force_b, sys.aero_moment_b,
+            sys.moment_tether_wing, sys.force_tether_wing, sys.elevation,
             sys.elevation_vel, sys.elevation_acc, sys.azimuth, sys.azimuth_vel,
             sys.azimuth_acc, sys.heading, sys.turn_rate, sys.turn_acc, sys.course,
             sys.angle_of_attack

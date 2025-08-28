@@ -293,7 +293,7 @@ function Segment(idx, set, point_idxs, type;
         end
         axial_stiffness = stiffness_frac * axial_stiffness
 
-        axial_damping = (set.damping / set.c_spring) * axial_stiffness
+        axial_damping = (set.axial_damping / set.axial_stiffness) * axial_stiffness
     end
 
     Segment(idx, point_idxs, axial_stiffness, axial_damping, l0, compression_frac, 
@@ -537,6 +537,8 @@ mutable struct Wing
     const v_wind::KVec3 # wind velocity in world frame at the wing
     const aero_force_b::KVec3 # aerodynamic force in body frame
     const aero_moment_b::KVec3 # aerodynamic moment in body frame
+    const tether_moment::KVec3 # tether moment in world frame
+    const tether_force::KVec3 # tether force in world frame
     elevation::SimFloat
     elevation_vel::SimFloat
     elevation_acc::SimFloat
@@ -616,6 +618,7 @@ function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad;
         # Derived variables and parameters, updated during simulation
         zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny),
         zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
         zeros(KVec3), zeros(KVec3), 0.0, 0.0, false)
 end

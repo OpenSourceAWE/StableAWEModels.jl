@@ -313,7 +313,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         for winch in winches
             ss.l_tether[winch.idx] = winch.tether_len
             ss.v_reelout[winch.idx] = winch.tether_vel
-            ss.force[winch.idx] = norm(winch.force)
+            ss.winch_force[winch.idx] = norm(winch.force)
             ss.set_torque[winch.idx] = winch.set_value
         end
     end
@@ -346,6 +346,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
         ss.aero_force_b .= wing.aero_force_b
         ss.aero_moment_b .= wing.aero_moment_b
+        ss.tether_induced_moment .= wing.tether_moment
         ss.vel_kite .= wing.vel_w
         # Calculate Roll, Pitch, Yaw from Quaternion
         q = wing.Q_b_w
@@ -499,7 +500,8 @@ function update_sys_struct!(prob::ProbWithAttributes,
     if length(wings) > 0
         wing_state = prob.get_wing_state(integ)
         Q_b_w, ω_b, pos_w, vel_w, acc_w, va_b, v_wind, 
-            aero_force_b, aero_moment_b, elevation, elevation_vel,
+            aero_force_b, aero_moment_b, tether_moment, tether_force,
+            elevation, elevation_vel,
             elevation_acc, azimuth, azimuth_vel, azimuth_acc,
             heading, turn_rate, turn_acc, course, aoa = wing_state
         for wing in wings
@@ -512,6 +514,8 @@ function update_sys_struct!(prob::ProbWithAttributes,
             wing.v_wind .= v_wind[wing.idx, :]
             wing.aero_force_b .= aero_force_b[wing.idx, :]
             wing.aero_moment_b .= aero_moment_b[wing.idx, :]
+            wing.tether_moment .= tether_moment[wing.idx, :]
+            wing.tether_force .= tether_force[wing.idx, :]
             wing.elevation = elevation[wing.idx]
             wing.elevation_vel = elevation_vel[wing.idx]
             wing.elevation_acc = elevation_acc[wing.idx]
