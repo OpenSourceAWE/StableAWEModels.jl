@@ -20,7 +20,7 @@ equilibrium before starting a maneuver or analysis.
 - `dt::Float64`: The time step [s] for the settling simulation.
 """
 function find_steady_state!(sam::SymbolicAWEModel; 
-                            t=1.0, dt=1/sam.set.sample_freq, vsm_interval=1)
+                            t=2.0, dt=t/10, vsm_interval=1)
     @unpack winches, wings = sam.sys_struct
     old_brakes = [winch.brake for winch in winches]
     old_fixes = [wing.fix_sphere for wing in wings]
@@ -58,7 +58,8 @@ function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=s
                 va_idxs=1:3, 
                 omega_idxs=4:6,
                 theta_idxs=7:6+length(sam.sys_struct.groups),
-                moment_frac=sam.sys_struct.groups[1].moment_frac
+                moment_frac=sam.sys_struct.groups[1].moment_frac,
+                aero_coeffs=true
             )
             wing.vsm_jac .= res[1]
             wing.vsm_x .= res[2]

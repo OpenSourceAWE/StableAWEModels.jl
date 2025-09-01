@@ -129,7 +129,7 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
     end
 
     if plot_force
-        winch_force = [[sl.force[i][j] for i in eachindex(sl.force)] for j in 1:3]
+        winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
         push!(plot_data, winch_force)
         push!(plot_labels, [L"F_{winch,1}"*suffix, L"F_{winch,2}"*suffix, L"F_{winch,3}"*suffix])
         push!(plot_ylabels, "Winch force [N]")

@@ -272,12 +272,8 @@ function calaxial_stiffness_props(sam::SymbolicAWEModel, tether_lens, F_step; p=
         ζ = X / (ω_n * T_s)
         c = 2 * ζ * sqrt(k * m)
         c_values[j] = c
-        prn && println("Tether $j: ω_n=$(round(ω_n,digits=3)) rad/s,
-                      T_s=$(round(T_s,digits=3)) s, 
-                      ζ=$(round(ζ,digits=4)), c=$(round(c,digits=4)) Ns/m")
     end
 
-    prn && println("Summary of Results:")
     prn && for j in eachindex(tethers)
         println("Tether $(j): k = $(k_values[j]) N/m, c = $(c_values[j]) Ns/m")
     end

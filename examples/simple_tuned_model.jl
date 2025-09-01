@@ -22,7 +22,7 @@ simple_sam = SymbolicAWEModel(simple_set, "simple_ram")
 init!(simple_sam)
 
 bias = 0.3
-find_steady_state!(sam; dt=3, t=10)
+find_steady_state!(sam)
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
 @show sam.sys_struct.wings[1].tether_moment
 @show simple_sam.sys_struct.wings[1].tether_moment

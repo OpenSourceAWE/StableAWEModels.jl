@@ -1008,7 +1008,8 @@ Jacobian of the aerodynamic forces with respect to the state variables (`va_wing
 # Returns
 - `(eqs, guesses)`: A tuple containing the updated equation and guess lists.
 """
-function linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, aero_moment_b, group_aero_moment, twist_angle, va_wing_b, ω_b)
+function linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, aero_moment_b, group_aero_moment,
+                         twist_angle, va_wing_b, wing_pos, ω_b)
     @unpack groups, wings = s.sys_struct
     if length(wings) == 0
         return eqs, guesses
@@ -1023,19 +1024,23 @@ function linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, aero_moment_b, gro
         last_y(t)[eachindex(wings), 1:ny] 
         last_x(t)[eachindex(wings), 1:nx]
         vsm_jac(t)[eachindex(wings), 1:nx, 1:ny]
+        q_inf(t)[eachindex(wings)]
     end
 
     for wing in wings
+        area = wing.vsm_aero.projected_area
         eqs = [
             eqs
+            q_inf[wing.idx] ~ 0.5 * calc_rho(s.am, wing_pos[wing.idx, 3]) * norm(va_wing_b[wing.idx, :])^2
             [last_y[wing.idx, iy] ~ get_vsm_y(psys, wing.idx, iy) for iy in 1:ny]
             [last_x[wing.idx, ix] ~ get_vsm_x(psys, wing.idx, ix) for ix in 1:nx]
             [vsm_jac[wing.idx, ix, iy] ~ get_vsm_jac(psys, wing.idx, ix, iy) for ix in 1:nx for iy in 1:ny]
             y[wing.idx, :] ~ [va_wing_b[wing.idx, :]; ω_b[wing.idx, :]; twist_angle[wing.group_idxs]]
             dy[wing.idx, :] ~ y[wing.idx, :] - last_y[wing.idx, :]
             [aero_force_b[wing.idx, :]; aero_moment_b[wing.idx, :]; group_aero_moment[wing.group_idxs]] ~ 
-                last_x[wing.idx, :] + vsm_jac[wing.idx, :, :] * dy[wing.idx, :]
+                q_inf[wing.idx] * area * (last_x[wing.idx, :] + vsm_jac[wing.idx, :, :] * dy[wing.idx, :])
         ]
+            # TODO: add drag through integrator to imrove simple model
     
         if s.set.quasi_static
             guesses = [guesses; [y[wing.idx, iy] => get_vsm_y(psys, wing.idx, iy) for iy in 1:ny]]
@@ -1101,7 +1106,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
             R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, 
             twist_angle, twist_ω, set_values, fix_wing)
     eqs, guesses = linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, 
-            aero_moment_b, group_aero_moment, twist_angle, va_wing_b, ω_b)
+            aero_moment_b, group_aero_moment, twist_angle, va_wing_b, wing_pos, ω_b)
     eqs, defaults = wing_eqs!(s, eqs, psys, pset, defaults; 
             tether_wing_force, tether_wing_moment, aero_force_b, aero_moment_b, 
             ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing)
