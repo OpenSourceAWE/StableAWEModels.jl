@@ -165,6 +165,8 @@ get_fix_point_sphere(sys::SystemStructure, idx::Int16) = sys.points[idx].fix_sph
 @register_symbolic get_fix_point_sphere(sys::SystemStructure, idx::Int16)
 get_fix_wing_sphere(sys::SystemStructure, idx::Int16) = sys.wings[idx].fix_sphere
 @register_symbolic get_fix_wing_sphere(sys::SystemStructure, idx::Int16)
+get_drag_frac(sys::SystemStructure, idx::Int16) = sys.wings[idx].drag_frac
+@register_symbolic get_drag_frac(sys::SystemStructure, idx::Int16)
 
 get_winch_gear_ratio(sys::SystemStructure, idx::Int16) = sys.winches[idx].gear_ratio
 @register_symbolic get_winch_gear_ratio(sys::SystemStructure, idx::Int16)
@@ -181,12 +183,6 @@ get_set_mass(set::Settings) = set.mass
 @register_symbolic get_set_mass(set::Settings)
 get_rho_tether(set::Settings) = set.rho_tether
 @register_symbolic get_rho_tether(set::Settings)
-get_e_tether(set::Settings) = set.e_tether
-@register_symbolic get_e_tether(set::Settings)
-get_axial_damping(set::Settings) = set.axial_damping
-@register_symbolic get_axial_damping(set::Settings)
-get_axial_stiffness(set::Settings) = set.axial_stiffness
-@register_symbolic get_axial_stiffness(set::Settings)
 get_cd_tether(set::Settings) = set.cd_tether
 @register_symbolic get_cd_tether(set::Settings)
 get_v_wind(set::Settings) = set.v_wind
@@ -889,7 +885,8 @@ along with their time derivatives.
 # Returns
 - `eqs`: The updated list of system equations.
 """
-function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, twist_angle, twist_ω, ω_b, α_b)
+function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos,
+                     wing_vel, wing_acc, twist_angle, ω_b, α_b, R_v_w)
     @unpack wings = s.sys_struct
     wind_scale_gnd = get_v_wind(pset)
     @variables begin
@@ -937,7 +934,6 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
         sphere_vel(t)[eachindex(wings), 1:2, 1:2]
         sphere_acc(t)[eachindex(wings), 1:2, 1:2]
         angle_of_attack(t)[eachindex(wings)]
-        R_v_w(t)[eachindex(wings), 1:3, 1:3]
         R_t_w(t)[eachindex(wings), 1:3, 1:3]
         distance(t)[eachindex(wings)]
         distance_vel(t)[eachindex(wings)]
@@ -1009,7 +1005,7 @@ Jacobian of the aerodynamic forces with respect to the state variables (`va_wing
 - `(eqs, guesses)`: A tuple containing the updated equation and guess lists.
 """
 function linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, aero_moment_b, group_aero_moment,
-                         twist_angle, va_wing_b, wing_pos, ω_b)
+                         twist_angle, va_wing_b, wing_pos, ω_b, R_v_w)
     @unpack groups, wings = s.sys_struct
     if length(wings) == 0
         return eqs, guesses
@@ -1025,10 +1021,14 @@ function linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, aero_moment_b, gro
         last_x(t)[eachindex(wings), 1:nx]
         vsm_jac(t)[eachindex(wings), 1:nx, 1:ny]
         q_inf(t)[eachindex(wings)]
+        no_scale_aero_force_b(t)[eachindex(wings), 1:3]
     end
 
     for wing in wings
         area = wing.vsm_aero.projected_area
+        force_b = no_scale_aero_force_b[wing.idx, :]
+        wind_direction_b = sym_normalize(va_wing_b[wing.idx, :])
+        drag_force_b = (force_b ⋅ wind_direction_b) * wind_direction_b
         eqs = [
             eqs
             q_inf[wing.idx] ~ 0.5 * calc_rho(s.am, wing_pos[wing.idx, 3]) * norm(va_wing_b[wing.idx, :])^2
@@ -1037,10 +1037,10 @@ function linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, aero_moment_b, gro
             [vsm_jac[wing.idx, ix, iy] ~ get_vsm_jac(psys, wing.idx, ix, iy) for ix in 1:nx for iy in 1:ny]
             y[wing.idx, :] ~ [va_wing_b[wing.idx, :]; ω_b[wing.idx, :]; twist_angle[wing.group_idxs]]
             dy[wing.idx, :] ~ y[wing.idx, :] - last_y[wing.idx, :]
-            [aero_force_b[wing.idx, :]; aero_moment_b[wing.idx, :]; group_aero_moment[wing.group_idxs]] ~ 
+            [force_b; aero_moment_b[wing.idx, :]; group_aero_moment[wing.group_idxs]] ~ 
                 q_inf[wing.idx] * area * (last_x[wing.idx, :] + vsm_jac[wing.idx, :, :] * dy[wing.idx, :])
+            aero_force_b[wing.idx, :] ~ force_b + drag_force_b * (get_drag_frac(psys, wing.idx) - 1)
         ]
-            # TODO: add drag through integrator to imrove simple model
     
         if s.set.quasi_static
             guesses = [guesses; [y[wing.idx, iy] => get_vsm_y(psys, wing.idx, iy) for iy in 1:ny]]
@@ -1090,6 +1090,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
 
         # rotations and frames
         R_b_w(t)[eachindex(wings), 1:3, 1:3] # rotation of the wing body frame relative to the world frame
+        R_v_w(t)[eachindex(wings), 1:3, 1:3]
 
         # rest: forces, moments, vectors and scalar values
         aero_force_b(t)[eachindex(wings), 1:3]
@@ -1105,14 +1106,14 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
         force_eqs!(s, system, psys, pset, eqs, defaults, guesses; 
             R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment, 
             twist_angle, twist_ω, set_values, fix_wing)
-    eqs, guesses = linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, 
+    eqs, guesses = linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, R_v_w, 
             aero_moment_b, group_aero_moment, twist_angle, va_wing_b, wing_pos, ω_b)
     eqs, defaults = wing_eqs!(s, eqs, psys, pset, defaults; 
             tether_wing_force, tether_wing_moment, aero_force_b, aero_moment_b, 
             ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing)
     eqs = scalar_eqs!(s, eqs, psys, pset; 
             R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, 
-            twist_angle, twist_ω, ω_b, α_b)
+            twist_angle, ω_b, α_b, R_v_w)
     
     # te_I = (1/3 * (get_set_mass(pset)/8) * te_len^2)
     # # -damping / I * ω = α_damping

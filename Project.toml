@@ -91,7 +91,7 @@ Tar = "1.10.0"
 Test = "1"
 Timers = "0.1.5"
 UnPack = "1.0.2"
-VortexStepMethod = "2.0.0"
+VortexStepMethod = "2.2.0"
 julia = "1"
 
 [extras]

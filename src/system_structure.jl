@@ -533,6 +533,7 @@ mutable struct Wing
     const vsm_x::Vector{SimFloat}
     const vsm_jac::Matrix{SimFloat}
     const wind_disturb::KVec3
+    drag_frac::SimFloat
     const va_b::KVec3 # apparent wind in body frame
     const v_wind::KVec3 # wind velocity in world frame at the wing
     const aero_force_b::KVec3 # aerodynamic force in body frame
@@ -617,7 +618,8 @@ function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad;
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
         # Derived variables and parameters, updated during simulation
         zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), one(SimFloat),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
         zeros(KVec3), zeros(KVec3), 0.0, 0.0, false)

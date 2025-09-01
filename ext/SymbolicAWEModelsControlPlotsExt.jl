@@ -47,7 +47,7 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
                            plot_elevation=false,
                            plot_azimuth=false,
                            plot_tether_moment=false,
-                           plot_force=plot_default,
+                           plot_winch_force=plot_default,
                            suffix=" - " * sys.name)
     sl = lg.syslog
 
@@ -128,7 +128,7 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
         push!(plot_ylabels, "azimuth [°]")
     end
 
-    if plot_force
+    if plot_winch_force
         winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
         push!(plot_data, winch_force)
         push!(plot_labels, [L"F_{winch,1}"*suffix, L"F_{winch,2}"*suffix, L"F_{winch,3}"*suffix])

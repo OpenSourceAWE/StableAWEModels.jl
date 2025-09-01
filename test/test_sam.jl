@@ -139,7 +139,7 @@ end
             @test sl.syslog.elevation[begin] ≈ deg2rad(set.elevation) atol=1e-2
             @test sl.syslog.azimuth[begin] ≈ deg2rad(set.azimuth) atol=1e-2
             @test sl.syslog.heading[begin] ≈ deg2rad(set.heading) atol=1e-2
-            @test isapprox(sl.syslog.time, collect(0.0:dt:5.0-dt))
+            @test isapprox(sl.syslog.time, collect(0.0:dt:5.0))
             ControlPlots.plt.close_figs()
             plt = plot(sam.sys_struct, sl)
             display(plt)
@@ -221,8 +221,8 @@ end
         short_steer_heading = calc_heading(0.5, 10.0)
         soft_steer_heading = calc_heading(1.0, 5.0)
         # make sure less steering results in less final heading
-        @test default_heading - short_steer_heading ≈ 212 atol=10.0
-        @test default_heading - soft_steer_heading ≈ 256 atol=10.0
+        @test default_heading - short_steer_heading ≈ 225 atol=10.0
+        @test default_heading - soft_steer_heading ≈ 270 atol=10.0
         @show default_heading, short_steer_heading, soft_steer_heading
     end
 
@@ -269,7 +269,7 @@ end
             [-0.0008037289321365251, 0.0004562826732837309, -0.020711457720341487, 
                         -0.0017333135190197818], rtol=0.1)
 
-        find_steady_state!(sam; dt=3.0, t=10.0)
+        find_steady_state!(sam)
         (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(sam; tstab=1.0)
         sys = ss(A,B,C,D)
         res = lsim(sys, repeat([-1.0 0.0 -1.0], 2)', [0.0, 0.5])
