@@ -34,7 +34,3 @@ find_steady_state!(simple_sam)
 simple_sl, _ = sim_oscillate!(simple_sam; total_time=5.0, prn=true, bias)
 display(plot(simple_sam.sys_struct, simple_sl; plot_default=false, plot_elevation=true,
              plot_aoa=true, plot_heading=true, plot_aero_force=true))
-
-# 2.5deg difference in aoa and elevation
-# should be solved by changing the attach point, twist is good
-
