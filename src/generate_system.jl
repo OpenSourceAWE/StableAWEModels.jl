@@ -849,8 +849,8 @@ Calculate the rotation matrix from the tether frame (`_t`) to the world frame (`
 The tether frame is a spherical coordinate system defined by elevation and azimuth angles.
 """
 function calc_R_t_w(elevation, azimuth)
-    x = rotate_around_z(rotate_around_y([0, 0, -1], -elevation), -azimuth)
-    z = rotate_around_z(rotate_around_y([1, 0, 0], -elevation), -azimuth)
+    x = rotate_around_z(rotate_around_y([1, 0, 0], π/2 - elevation), -azimuth)
+    z = rotate_around_z(rotate_around_y([0, 0, 1], π/2 - elevation), -azimuth)
     y = z × x
     return [x y z]
 end
