@@ -923,10 +923,8 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
         turn_acc(t)[eachindex(wings), 1:3]
         azimuth(t)[eachindex(wings)]
         azimuth_vel(t)[eachindex(wings)]
-        azimuth_acc(t)[eachindex(wings)]
         elevation(t)[eachindex(wings)]
         elevation_vel(t)[eachindex(wings)]
-        elevation_acc(t)[eachindex(wings)]
         course(t)[eachindex(wings)]
         x_acc(t)[eachindex(wings)]
         y_acc(t)[eachindex(wings)]
@@ -943,7 +941,6 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
     for wing in wings
         x, y, z = wing_pos[wing.idx, :]
         x´, y´, z´ = wing_vel[wing.idx, :]
-        x´´, y´´, z´´ = wing_acc[wing.idx, :]
 
         half_len = wing.group_idxs[1] + length(wing.group_idxs)÷2 - 1
 
@@ -959,13 +956,11 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
             distance_acc[wing.idx]    ~ wing_acc[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
 
             elevation[wing.idx]           ~ KiteUtils.calc_elevation(wing_pos[wing.idx, :])
-            elevation_vel[wing.idx]       ~ (x*z´ - z*x´) / 
-                                            (x^2 + z^2)
-            elevation_acc[wing.idx]       ~ ((x^2 + z^2)*(x*z´´ - z*x´´) + 2(z*x´ - x*z´)*(x*x´ + z*z´))/(x^2 + z^2)^2
-            azimuth[wing.idx]             ~ -KiteUtils.azimuth_east(wing_pos[wing.idx, :])
+            elevation_vel[wing.idx]       ~ (-x*z*x´ + x^2*z´ + y*(y*z´ - z*y´)) /
+                                            (sqrt(x^2 + y^2) * ((x^2 + y^2) + z^2))
+            azimuth[wing.idx]             ~ KiteUtils.azimuth_east(wing_pos[wing.idx, :])
             azimuth_vel[wing.idx]         ~ (-y*x´ + x*y´) / 
                                             (x^2 + y^2)
-            azimuth_acc[wing.idx]         ~ ((x^2 + y^2)*(-y*x´´ + x*y´´) + 2(y*x´ - x*y´)*(x*x´ + y*y´))/(x^2 + y^2)^2
             course[wing.idx]              ~ atan(-azimuth_vel[wing.idx], elevation_vel[wing.idx])
             x_acc[wing.idx]               ~ wing_acc ⋅ e_x
             y_acc[wing.idx]               ~ wing_acc ⋅ e_y

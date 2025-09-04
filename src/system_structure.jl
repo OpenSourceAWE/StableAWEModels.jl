@@ -542,10 +542,8 @@ mutable struct Wing
     const tether_force::KVec3 # tether force in world frame
     elevation::SimFloat
     elevation_vel::SimFloat
-    elevation_acc::SimFloat
     azimuth::SimFloat
     azimuth_vel::SimFloat
-    azimuth_acc::SimFloat
     heading::SimFloat
     const turn_rate::KVec3
     const turn_acc::KVec3
@@ -621,7 +619,7 @@ function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad;
         zeros(KVec3), one(SimFloat),
         zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         zeros(KVec3), zeros(KVec3),
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
+        0.0, 0.0, 0.0, 0.0, 0.0, 
         zeros(KVec3), zeros(KVec3), 0.0, 0.0, false)
 end
 
@@ -881,7 +879,7 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
         # ==================== ROTATE ==================== #
         curr_rot_pos = get_rot_pos(transform, wings, points)
         curr_elevation = KiteUtils.calc_elevation(curr_rot_pos - base_pos)
-        curr_azimuth = -KiteUtils.azimuth_east(curr_rot_pos - base_pos)
+        curr_azimuth = KiteUtils.azimuth_east(curr_rot_pos - base_pos)
         curr_R_t_w = calc_R_t_w(curr_elevation, curr_azimuth)
         R_t_w = calc_R_t_w(transform.elevation, transform.azimuth)
 
@@ -936,7 +934,7 @@ function reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
         # Calculate the current orientation in spherical coordinates
         current_rel_pos = rot_pos - base_pos
         curr_elevation = KiteUtils.calc_elevation(current_rel_pos)
-        curr_azimuth = -KiteUtils.azimuth_east(current_rel_pos)
+        curr_azimuth = KiteUtils.azimuth_east(current_rel_pos)
 
         # Get the rotation matrices for the current and target orientations
         curr_R_t_w = calc_R_t_w(curr_elevation, curr_azimuth)
