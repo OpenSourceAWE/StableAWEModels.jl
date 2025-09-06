@@ -191,7 +191,7 @@ The model features:
 # Returns
 - `SystemStructure`: A new `SystemStructure` object representing the "ram" model.
 """
-function create_ram_sys_struct(set::Settings)
+function create_ram_sys_struct(set::Settings; d_winch_pos=[zeros(3), zeros(3)])
     vsm_wing = RamAirWing(set; prn=false)
     points = Point[]
     groups = Group[]
@@ -293,10 +293,10 @@ function create_ram_sys_struct(set::Settings)
                       POWER_LINE, dynamics_type; z)
     points, segments, tethers, left_steering_idx =
         create_tether(3, set, points, segments, tethers, attach_points[2], 
-                      STEERING_LINE, dynamics_type; z)
+                      STEERING_LINE, dynamics_type; z, d_pos=d_winch_pos[1])
     points, segments, tethers, right_steering_idx =
         create_tether(4, set, points, segments, tethers, attach_points[4], 
-                      STEERING_LINE, dynamics_type; z)
+                      STEERING_LINE, dynamics_type; z, d_pos=d_winch_pos[2])
 
     winches = [
         Winch(1, set, [left_power_idx, right_power_idx])

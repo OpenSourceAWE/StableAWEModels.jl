@@ -989,8 +989,8 @@ This function builds a tether from a specified number of segments, connecting a 
 """
 function create_tether(tether_idx, set, points, segments, tethers, attach_point, 
                        type, dynamics_type; z=[0,0,1], axial_stiffness=NaN, 
-                       axial_damping=NaN)
-    winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z)
+                       axial_damping=NaN, d_pos=zeros(3))
+    winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z) .+ d_pos
     dir = winch_pos - attach_point.pos_cad
     segment_idxs = Int16[]
     winch_idx = 0
