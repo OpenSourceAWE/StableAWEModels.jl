@@ -312,8 +312,12 @@ function sim_reposition!(
                 # Verify the new pose after one step
                 next_step!(sam; dt=dt, set_values=set_values[step, :], vsm_interval)
                 updated_elevation_deg = rad2deg(sys_struct.wings[1].elevation)
-                println(">>> Pose updated. New Elevation is now: " *
-                        "$(round(updated_elevation_deg, digits=2)) degrees.\n")
+                updated_azimuth_deg = rad2deg(sys_struct.wings[1].azimuth)
+                updated_heading_deg = rad2deg(sys_struct.wings[1].heading)
+                println(">>> Pose updated." *
+                        " Elevation: $(round(updated_elevation_deg, digits=2))°, " *
+                        " Azimuth: $(round(updated_azimuth_deg, digits=2))°, " *
+                        " Heading: $(round(updated_heading_deg, digits=2))°.\n")
             end
         else
             # --- Normal simulation step ---

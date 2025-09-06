@@ -73,6 +73,15 @@ function rotation_matrix_to_quaternion(R)
     return [w, x, y, z]
 end
 
+function calc_wind_factor(am::AtmosphericModel, height, set::Settings)
+    if set.profile_law == 0
+        return 1.0
+    else
+        return AtmosphericModels.calc_wind_factor(am, height, set.profile_law)
+    end
+end
+@register_symbolic calc_wind_factor(am::AtmosphericModel, height, set::Settings)
+
 # The following functions are registered for use within ModelingToolkit.jl's symbolic context.
 # They act as symbolic placeholders for accessing fields from the SystemStructure (`psys`)
 # and Settings (`pset`) parameter objects during equation generation.
@@ -561,8 +570,8 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             height[segment.idx]          ~ max(0.0, 0.5(pos[:, p1][3] + pos[:, p2][3]))
             segment_vel[:, segment.idx]  ~ 0.5(vel[:, p1] + vel[:, p2])
             segment_rho[segment.idx]     ~ calc_rho(s.am, height[segment.idx])
-            wind_vel[:, segment.idx]     ~ AtmosphericModels.calc_wind_factor(s.am, 
-                                           max(height[segment.idx], 1.0), s.set.profile_law) * wind_vec_gnd
+            wind_vel[:, segment.idx]     ~ calc_wind_factor(s.am, 
+                                               max(height[segment.idx], 1.0), pset) * wind_vec_gnd
             va[:, segment.idx]           ~ wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
             area[segment.idx]            ~ len[segment.idx] * get_diameter(psys, segment.idx)
             app_perp_vel[:, segment.idx] ~ va[:, segment.idx] - 
@@ -888,7 +897,6 @@ along with their time derivatives.
 function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos,
                      wing_vel, wing_acc, twist_angle, ω_b, α_b, R_v_w)
     @unpack wings = s.sys_struct
-    wind_scale_gnd = get_v_wind(pset)
     @variables begin
         e_x(t)[eachindex(wings), 1:3]
         e_y(t)[eachindex(wings), 1:3]
@@ -897,10 +905,12 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
         wind_disturb(t)[eachindex(wings), 1:3]
         va_wing(t)[eachindex(wings), 1:3]
         upwind_dir(t)
+        wind_scale_gnd(t)
     end
     eqs = [
         eqs
         upwind_dir ~ deg2rad(get_upwind_dir(pset))
+        wind_scale_gnd ~ get_v_wind(pset)
         wind_vec_gnd ~ max(wind_scale_gnd, 1e-6) * rotate_around_z([0, -1, 0], -upwind_dir)
     ]
     for wing in wings
@@ -909,8 +919,8 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
             e_x[wing.idx, :]       ~ R_b_w[wing.idx, :,1]
             e_y[wing.idx, :]       ~ R_b_w[wing.idx, :,2]
             e_z[wing.idx, :]       ~ R_b_w[wing.idx, :,3]
-            wind_vel_wing[wing.idx, :] ~ AtmosphericModels.calc_wind_factor(s.am, 
-                    max(wing_pos[wing.idx, 3], 1.0), s.set.profile_law) * wind_vec_gnd
+            wind_vel_wing[wing.idx, :] ~ calc_wind_factor(s.am, 
+                    max(wing_pos[wing.idx, 3], 1.0), pset) * wind_vec_gnd
             wind_disturb[wing.idx, :] ~ get_wind_disturb(psys, wing.idx)
             va_wing[wing.idx, :] ~ wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :] + 
                                        wind_disturb[wing.idx, :]
@@ -926,8 +936,6 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
         elevation(t)[eachindex(wings)]
         elevation_vel(t)[eachindex(wings)]
         course(t)[eachindex(wings)]
-        x_acc(t)[eachindex(wings)]
-        y_acc(t)[eachindex(wings)]
         sphere_pos(t)[eachindex(wings), 1:2, 1:2]
         sphere_vel(t)[eachindex(wings), 1:2, 1:2]
         sphere_acc(t)[eachindex(wings), 1:2, 1:2]
@@ -962,8 +970,6 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
             azimuth_vel[wing.idx]         ~ (-y*x´ + x*y´) / 
                                             (x^2 + y^2)
             course[wing.idx]              ~ atan(-azimuth_vel[wing.idx], elevation_vel[wing.idx])
-            x_acc[wing.idx]               ~ wing_acc ⋅ e_x
-            y_acc[wing.idx]               ~ wing_acc ⋅ e_y
 
             angle_of_attack[wing.idx]     ~ calc_angle_of_attack(va_wing_b[wing.idx, :]) + 
                                             0.5twist_angle[half_len] + 0.5twist_angle[half_len+1]
