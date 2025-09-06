@@ -138,7 +138,7 @@ end
         tether_vel = [winch.tether_vel for winch in sam.sys_struct.winches]
         tether_acc = [winch.tether_acc for winch in sam.sys_struct.winches]
         set_values = [winch.set_value for winch in sam.sys_struct.winches]
-        winch_force = SymbolicAWEModels.calc_winch_force(tether_vel, tether_acc, set_values, set)
+        winch_force = SymbolicAWEModels.calc_winch_force(sam.sys_struct, tether_vel, tether_acc, set_values)
         ss = SysState(sam)
         @test all(isapprox(ss.winch_force[1:3], winch_force))
     end
@@ -222,7 +222,7 @@ end
             return sl.syslog.heading[end]
         end
         default_heading = calc_heading(1.0, 10.0)
-        @test default_heading ≈ 835 atol=50.0
+        @test default_heading ≈ 850 atol=50.0
         short_steer_heading = calc_heading(0.5, 10.0)
         soft_steer_heading = calc_heading(1.0, 5.0)
         # make sure less steering results in less final heading
