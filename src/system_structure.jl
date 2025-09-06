@@ -413,6 +413,7 @@ mutable struct Winch
     const tether_idxs::Vector{Int16}
     tether_len::Union{SimFloat, Nothing}
     tether_vel::SimFloat
+    tether_acc::SimFloat
     set_value::SimFloat
     brake::Bool
     const force::KVec3
@@ -450,7 +451,7 @@ see the [WinchModels.jl documentation](https://github.com/aenarete/WinchModels.j
 - `Winch`: A new `Winch` object.
 """
 function Winch(idx, set::Settings, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
-    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, brake, zeros(KVec3),
+    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, 0.0, brake, zeros(KVec3),
                  set.gear_ratio, set.drum_radius, set.f_coulomb, set.c_vf,
                  set.inertia_total, zero(SimFloat))
 end
@@ -482,7 +483,7 @@ allowing for more modular or programmatic creation of winch components.
 """
 function Winch(idx, tether_idxs, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total;
                tether_len=0.0, tether_vel=0.0, brake=false)
-    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, brake, zeros(KVec3),
+    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, 0.0, brake, zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total, zero(SimFloat))
 end
 

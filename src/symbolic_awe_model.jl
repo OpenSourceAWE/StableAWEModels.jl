@@ -482,10 +482,12 @@ function update_sys_struct!(prob::ProbWithAttributes,
         end
     end
     if length(winches) > 0
-        tether_len, tether_vel, set_value, winch_force_vec, friction = prob.get_winch_state(integ)
+        tether_len, tether_vel, tether_acc, set_value, winch_force_vec, friction =
+            prob.get_winch_state(integ)
         for winch in winches
             winch.tether_len = tether_len[winch.idx]
             winch.tether_vel = tether_vel[winch.idx]
+            winch.tether_acc = tether_acc[winch.idx]
             winch.set_value = set_value[winch.idx]
             winch.force .= winch_force_vec[:, winch.idx]
             winch.friction = friction[winch.idx]
@@ -558,6 +560,43 @@ function calc_steady_torque(sam::SymbolicAWEModel)
     torques = -[winch.drum_radius / winch.gear_ratio * norm(winch.force) +
                 winch.friction for winch in sys_struct.winches]
     return torques
+end
+
+"""
+    calc_winch_force(tether_vel, tether_acc, motor_torque, set)
+
+Calculate the tensile force on the winch tether based on its motion and motor torque.
+
+This function uses a settings object to define the physical parameters of the winch.
+
+# Arguments
+- `tether_vel`: The velocity of the tether [m/s].
+- `tether_acc`: The acceleration of the tether [m/s²].
+- `motor_torque`: The torque applied by the motor [Nm].
+- `set`: A settings struct.
+
+# Returns
+- The calculated force on the winch tether [N].
+"""
+function calc_winch_force(sys::SystemStructure, tether_vel, tether_acc, set_values)
+    winches = sys.winches
+    function smooth_sign(x)
+        EPSILON = 6
+        x / sqrt(x * x + EPSILON * EPSILON)
+    end
+    winch_force = zeros(length(winches))
+    for i in eachindex(winches)
+        @unpack gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total = winches[i]
+        ω_motor = gear_ratio / drum_radius * tether_vel[i]
+        tau_friction = smooth_sign(ω_motor) *
+                                  f_coulomb * drum_radius / gear_ratio +
+                                  c_vf * ω_motor * drum_radius^2 / gear_ratio^2
+        tau_motor = set_values[i] # set_value is the motor torque
+        α_motor = tether_acc[i] / drum_radius * gear_ratio
+        tau_total = α_motor * inertia_total
+        winch_force[i] = (-tau_motor + tau_total + tau_friction) / drum_radius * gear_ratio
+    end
+    return winch_force
 end
 
 """

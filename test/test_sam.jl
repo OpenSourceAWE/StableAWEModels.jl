@@ -132,6 +132,17 @@ end
         println()
     end
 
+    @testset "Test calc winch force" begin
+        reset!(set)
+        init!(sam)
+        tether_vel = [winch.tether_vel for winch in sam.sys_struct.winches]
+        tether_acc = [winch.tether_acc for winch in sam.sys_struct.winches]
+        set_values = [winch.set_value for winch in sam.sys_struct.winches]
+        winch_force = SymbolicAWEModels.calc_winch_force(tether_vel, tether_acc, set_values, set)
+        ss = SysState(sam)
+        @test all(isapprox(ss.winch_force[1:3], winch_force))
+    end
+
     @testset "Oscillating simulation" begin
         function test_for_peak_at_steering_freq(sam, steering_freq)
             dt = 0.01
@@ -151,31 +162,25 @@ end
             # --- Cross-Correlation Analysis with Linear Offset Removal (first/last only) ---
             heading_signal = sl.syslog.heading
             t = sl.syslog.time
-
             # Compute linear trend using endpoints
             trend = range(heading_signal[1], heading_signal[end], length=length(t))
             signal_detrended = heading_signal .- trend
-
             # Reference sine and cosine at steering frequency
             ref_sin = sin.(2 * π * steering_freq .* t)
             ref_cos = cos.(2 * π * steering_freq .* t)
-
             # Correlation at steering frequency
             corr_sin = dot(signal_detrended, ref_sin)
             corr_cos = dot(signal_detrended, ref_cos)
             magnitude_at_freq = sqrt(corr_sin^2 + corr_cos^2)
-
             # Compare to frequencies 50% lower and 50% higher
             freq_lower = steering_freq * 0.5
             ref_sin_lower = sin.(2 * π * freq_lower .* t)
             ref_cos_lower = cos.(2 * π * freq_lower .* t)
             mag_lower = sqrt(dot(signal_detrended, ref_sin_lower)^2 + dot(signal_detrended, ref_cos_lower)^2)
-
             freq_higher = steering_freq * 1.5
             ref_sin_higher = sin.(2 * π * freq_higher .* t)
             ref_cos_higher = cos.(2 * π * freq_higher .* t)
             mag_higher = sqrt(dot(signal_detrended, ref_sin_higher)^2 + dot(signal_detrended, ref_cos_higher)^2)
-
             @show magnitude_at_freq, mag_lower, mag_higher
             @test magnitude_at_freq > mag_lower && magnitude_at_freq > mag_higher
         end
