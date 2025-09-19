@@ -137,12 +137,12 @@ mutable struct Group
     const y_airf::KVec3 # spanwise vector in local panel frame which the group rotates around under wing deformation
     const type::DynamicsType
     moment_frac::SimFloat
+    damping::SimFloat
     twist::SimFloat
     twist_ω::SimFloat
     tether_force::SimFloat
     tether_moment::SimFloat
     aero_moment::SimFloat
-    damping::SimFloat
 end
 
 """
