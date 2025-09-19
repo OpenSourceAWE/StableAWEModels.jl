@@ -130,6 +130,11 @@ get_disturb(sys::SystemStructure, idx::Int16) = sys.points[idx].disturb
     size=(3,)
     eltype=SimFloat
 end
+get_le_pos(sys::SystemStructure, idx::Int16) = sys.groups[idx].le_pos
+@register_array_symbolic get_le_pos(sys::SystemStructure, idx::Int16) begin
+    size=(3,)
+    eltype=SimFloat
+end
 get_vsm_y(sys::SystemStructure, idx::Int16, iy::Int) = sys.wings[idx].vsm_y[iy]
 @register_symbolic get_vsm_y(sys::SystemStructure, idx::Int16, iy::Int)
 get_vsm_x(sys::SystemStructure, idx::Int16, ix::Int) = sys.wings[idx].vsm_x[ix]
@@ -146,8 +151,6 @@ get_twist(sys::SystemStructure, idx::Int16) = sys.groups[idx].twist
 @register_symbolic get_twist(sys::SystemStructure, idx::Int16)
 get_group_damping(sys::SystemStructure, idx::Int16) = sys.groups[idx].damping
 @register_symbolic get_group_damping(sys::SystemStructure, idx::Int16)
-get_le_pos(sys::SystemStructure, idx::Int16) = sys.groups[idx].le_pos
-@register_symbolic get_le_pos(sys::SystemStructure, idx::Int16)
 get_twist_ω(sys::SystemStructure, idx::Int16) = sys.groups[idx].twist_ω
 @register_symbolic get_twist_ω(sys::SystemStructure, idx::Int16)
 get_mass(sys::SystemStructure, idx::Int16) = sys.points[idx].mass
@@ -248,6 +251,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         tether_r(t)[1:3, eachindex(points)]
         point_mass(t)[eachindex(points)]
         chord_b(t)[1:3, eachindex(points)]
+        fixed_pos(t)[1:3, eachindex(points)]
         normal(t)[1:3, eachindex(points)]
         pos_b(t)[1:3, eachindex(points)]
         fix_point_sphere(t)[eachindex(points)]
@@ -305,12 +309,14 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 !(found == 1) && error("Kite group number $(group.idx) is part of $found wings, 
                       and should be part of exactly 1 wing.")
 
-                fixed_pos = get_le_pos(psys, group.idx)
                 eqs = [
                     eqs
-                    chord_b[:, point.idx]   ~ get_pos_b(psys, point.idx) .- fixed_pos
+                    fixed_pos[:, point.idx] ~ get_le_pos(psys, group.idx)
+                    chord_b[:, point.idx]   ~ get_pos_b(psys, point.idx) .- fixed_pos[:, point.idx]
                     normal[:, point.idx]   ~ chord_b[:, point.idx] × group.y_airf
-                    pos_b[:, point.idx]     ~ fixed_pos .+ cos(twist_angle[group.idx]) * chord_b[:, point.idx] - sin(twist_angle[group.idx]) * normal[:, point.idx]
+                    pos_b[:, point.idx]     ~ fixed_pos[:, point.idx] .+
+                                                cos(twist_angle[group.idx]) * chord_b[:, point.idx] -
+                                                sin(twist_angle[group.idx]) * normal[:, point.idx]
                 ]
             elseif found == 0
                 eqs = [
