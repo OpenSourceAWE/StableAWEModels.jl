@@ -47,7 +47,7 @@ function sim!(
     logger = Logger(length(sys_struct.points), steps+1)
     sys_state = SysState(sam)
     sys_state.time = 0.0
-    log!(logger, sys_state)
+    # log!(logger, sys_state)
 
     if prn
         @info "Starting nonlinear simulation..."
@@ -158,7 +158,8 @@ function sim_oscillate!(
     vsm_interval=3,
     bias = 0.0,
     prn=false,
-    lin_model=nothing
+    lin_model=nothing,
+    torque_damp=0.9,
 )
     sys_struct = sam.sys_struct
     steps = Int(round(total_time / dt))
@@ -178,8 +179,8 @@ function sim_oscillate!(
         set_values[step, :] = [0.0, steering, -steering]
     end
 
-    return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval,
-                prn=prn, lin_model=lin_model)
+    return sim!(sam, set_values; dt, total_time, vsm_interval,
+                prn, lin_model, torque_damp)
 end
 
 """
@@ -204,7 +205,8 @@ function sim_turn!(
     steering_magnitude=10.0,
     vsm_interval=3,
     prn=false,
-    lin_model=nothing
+    lin_model=nothing,
+    torque_damp=0.9
 )
     sys_struct = sam.sys_struct
     steps = Int(round(total_time / dt))
@@ -225,8 +227,8 @@ function sim_turn!(
         end
     end
 
-    return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval,
-                prn=prn, lin_model=lin_model)
+    return sim!(sam, set_values; dt, total_time, vsm_interval,
+                prn, lin_model, torque_damp)
 end
 
 
