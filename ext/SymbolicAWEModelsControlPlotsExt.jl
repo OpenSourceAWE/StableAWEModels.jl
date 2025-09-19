@@ -48,6 +48,7 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
                            plot_azimuth=false,
                            plot_tether_moment=false,
                            plot_winch_force=plot_default,
+                           plot_set_values=false,
                            suffix=" - " * sys.name)
     sl = lg.syslog
 
@@ -135,15 +136,18 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
         push!(plot_ylabels, "Winch force [N]")
     end
 
+    if plot_set_values
+        set_values = [[sl.set_torque[i][j] for i in eachindex(sl.set_torque)] for j in 1:3]
+        push!(plot_data, set_values)
+        push!(plot_labels, [L"Τ_{winch,1}"*suffix, L"Τ_{winch,2}"*suffix, L"Τ_{winch,3}"*suffix])
+        push!(plot_ylabels, "Set torque [Nm]")
+    end
+
     # Only create a plot if there is data to show
     if isempty(plot_data)
         @warn "No plot sections enabled. Nothing to display."
         return
     end
-
-    # Calculate a dynamic figure height based on the number of subplots
-    num_plots = length(plot_ylabels)
-    dynamic_ysize = max(5, num_plots * 2.5) # At least 5, plus 2.5 for each subplot
 
     # Call the plotx function with the dynamically built arguments
     ControlPlots.plotx(sl.time,

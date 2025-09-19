@@ -142,6 +142,7 @@ mutable struct Group
     tether_force::SimFloat
     tether_moment::SimFloat
     aero_moment::SimFloat
+    damping::SimFloat
 end
 
 """
@@ -185,11 +186,11 @@ The group can have two [`DynamicsType`](@ref)s:
 # Returns
 - `Group`: A new `Group` object with twist dynamics capability.
 """
-function Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac)
+function Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac; damping=50.0)
     le_pos = [vsm_wing.le_interp[i](gamma) for i in 1:3]
     chord = [vsm_wing.te_interp[i](gamma) for i in 1:3] .- le_pos
     y_airf = normalize([vsm_wing.le_interp[i](gamma-0.01) for i in 1:3] - le_pos)
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, 0.0, 0.0, 0.0, 0.0, 0.0)
+    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, damping, 0.0, 0.0, 0.0, 0.0, 0.0)
 end
 
 """
@@ -197,8 +198,8 @@ end
 
 Inner constructor for a `Group` object. See [`Group`](@ref) for details.
 """
-function Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac)
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, 0.0, 0.0)
+function Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac; damping=50.0)
+    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, damping, 0.0, 0.0, 0.0, 0.0, 0.0)
 end
 
 """

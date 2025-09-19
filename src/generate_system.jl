@@ -144,6 +144,10 @@ get_set_value(sys::SystemStructure, idx::Int16) = sys.winches[idx].set_value
 @register_symbolic get_set_value(sys::SystemStructure, idx::Int16)
 get_twist(sys::SystemStructure, idx::Int16) = sys.groups[idx].twist
 @register_symbolic get_twist(sys::SystemStructure, idx::Int16)
+get_group_damping(sys::SystemStructure, idx::Int16) = sys.groups[idx].damping
+@register_symbolic get_group_damping(sys::SystemStructure, idx::Int16)
+get_le_pos(sys::SystemStructure, idx::Int16) = sys.groups[idx].le_pos
+@register_symbolic get_le_pos(sys::SystemStructure, idx::Int16)
 get_twist_ω(sys::SystemStructure, idx::Int16) = sys.groups[idx].twist_ω
 @register_symbolic get_twist_ω(sys::SystemStructure, idx::Int16)
 get_mass(sys::SystemStructure, idx::Int16) = sys.points[idx].mass
@@ -301,7 +305,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 !(found == 1) && error("Kite group number $(group.idx) is part of $found wings, 
                       and should be part of exactly 1 wing.")
 
-                fixed_pos = group.le_pos
+                fixed_pos = get_le_pos(psys, group.idx)
                 eqs = [
                     eqs
                     chord_b[:, point.idx]   ~ get_pos_b(psys, point.idx) .- fixed_pos
@@ -430,7 +434,6 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         end
         
         inertia = 1/3 * (get_set_mass(pset)/length(groups)) * (norm(group.chord))^2 # plate inertia around leading edge
-        @parameters twist_damp = 50
         @parameters max_twist = deg2rad(90)
 
         eqs = [
@@ -444,7 +447,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             eqs = [
                 eqs
                 D(free_twist_angle[group.idx]) ~ ifelse(fix_wing==true, 0, twist_ω[group.idx])
-                D(twist_ω[group.idx]) ~ ifelse(fix_wing==true, 0, twist_α[group.idx] - twist_damp * twist_ω[group.idx])
+                D(twist_ω[group.idx]) ~ ifelse(fix_wing==true, 0, twist_α[group.idx] - get_group_damping(psys, group.idx) * twist_ω[group.idx])
             ]
             defaults = [
                 defaults
