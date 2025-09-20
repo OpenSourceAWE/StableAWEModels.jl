@@ -161,7 +161,7 @@ function set_measured!(sys_struct::SystemStructure,
 
     # get variables from integrator
     distance = norm(wing.pos_w)
-    R_t_w = calc_R_t_w(wing.elevation, wing.azimuth) # rotation of tether to world
+    R_t_w = calc_R_t_w(wing.pos_w) # rotation of tether to world
     R_v_w = calc_R_v_w(wing.pos_w, wing.R_b_w[:,1])
     
     # get wing_pos, rotate it by elevation and azimuth around the x and z axis

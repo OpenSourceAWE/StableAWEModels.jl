@@ -860,16 +860,21 @@ function calc_R_v_w(wing_pos, e_x)
 end
 
 """
-    calc_R_t_w(elevation, azimuth)
+    calc_R_t_w(wing_pos)
 
-Calculate the rotation matrix from the tether frame (`_t`) to the world frame (`_w`).
+Calculate the rotation matrix `R_t_w` that transforms coordinates from the local tether frame (`_t`) to the world frame (`_w`).
 
-The tether frame is a spherical coordinate system defined by elevation and azimuth angles.
+The tether frame is a local spherical coordinate system attached to the kite, defined by its position relative to the origin. Its axes are defined as follows:
+
+- **Z-axis (`z_t`)**: Aligned with the tether, pointing from the origin directly towards the `wing_pos`. This is the **radial** direction.
+- **Y-axis (`y_t`)**: Tangent to the sphere and parallel to the XY plane, pointing in the direction of increasing azimuth (counter-clockwise). This is the **azimuthal** direction.
+- **X-axis (`x_t`)**: Tangent to the sphere and perpendicular to the other two axes, completing the right-handed coordinate system (`x_t = y_t × z_t`). It points "downwards" along the sphere's surface, in the direction of decreasing elevation.
+
 """
-function calc_R_t_w(elevation, azimuth)
-    x = rotate_around_z(rotate_around_y([1, 0, 0], π/2 - elevation), -azimuth)
-    z = rotate_around_z(rotate_around_y([0, 0, 1], π/2 - elevation), -azimuth)
-    y = z × x
+function calc_R_t_w(wing_pos)
+    z = sym_normalize(wing_pos)
+    y = sym_normalize([-wing_pos[2], wing_pos[1], 0])
+    x = y × z
     return [x y z]
 end
 
@@ -942,8 +947,10 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
         turn_acc(t)[eachindex(wings), 1:3]
         azimuth(t)[eachindex(wings)]
         azimuth_vel(t)[eachindex(wings)]
+        azimuth_acc(t)[eachindex(wings)]
         elevation(t)[eachindex(wings)]
         elevation_vel(t)[eachindex(wings)]
+        elevation_acc(t)[eachindex(wings)]
         course(t)[eachindex(wings)]
         sphere_pos(t)[eachindex(wings), 1:2, 1:2]
         sphere_vel(t)[eachindex(wings), 1:2, 1:2]
@@ -964,7 +971,7 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
         eqs = [
             eqs
             vec(R_v_w[wing.idx, :, :])    .~ vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
-            vec(R_t_w[wing.idx, :, :])    .~ vec(calc_R_t_w(elevation[wing.idx], azimuth[wing.idx]))
+            vec(R_t_w[wing.idx, :, :])    .~ vec(calc_R_t_w(wing_pos[wing.idx, :]))
             heading[wing.idx]         ~ calc_heading(R_t_w[wing.idx, :, :], R_v_w[wing.idx, :, :])
             turn_rate[wing.idx, :]      ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * ω_b[wing.idx, :]) # Project angular velocity onto view frame
             turn_acc[wing.idx, :]       ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * α_b[wing.idx, :])
@@ -973,11 +980,11 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
             distance_acc[wing.idx]    ~ wing_acc[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
 
             elevation[wing.idx]           ~ KiteUtils.calc_elevation(wing_pos[wing.idx, :])
-            elevation_vel[wing.idx]       ~ (-x*z*x´ + x^2*z´ + y*(y*z´ - z*y´)) /
-                                            (sqrt(x^2 + y^2) * ((x^2 + y^2) + z^2))
+            elevation_vel[wing.idx]       ~ dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 1]) / distance[wing.idx]
+            elevation_acc[wing.idx]       ~ dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 1]) / distance[wing.idx]
             azimuth[wing.idx]             ~ KiteUtils.azimuth_east(wing_pos[wing.idx, :])
-            azimuth_vel[wing.idx]         ~ (-y*x´ + x*y´) / 
-                                            (x^2 + y^2)
+            azimuth_vel[wing.idx]         ~ dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x,y])
+            azimuth_acc[wing.idx]         ~ dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x,y])
             course[wing.idx]              ~ atan(-azimuth_vel[wing.idx], elevation_vel[wing.idx])
 
             angle_of_attack[wing.idx]     ~ calc_angle_of_attack(va_wing_b[wing.idx, :]) + 
