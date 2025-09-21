@@ -883,6 +883,13 @@ function calc_R_t_w(wing_pos)
     return [x y z]
 end
 
+function sym_calc_R_t_w(wing_pos)
+    z = sym_normalize(wing_pos)
+    y = sym_normalize([-wing_pos[2], wing_pos[1], 0])
+    x = y × z
+    return [x y z]
+end
+
 """
     calc_heading(R_t_w, R_v_w)
 
@@ -976,7 +983,7 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
         eqs = [
             eqs
             vec(R_v_w[wing.idx, :, :])    .~ vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
-            vec(R_t_w[wing.idx, :, :])    .~ vec(calc_R_t_w(wing_pos[wing.idx, :]))
+            vec(R_t_w[wing.idx, :, :])    .~ vec(sym_calc_R_t_w(wing_pos[wing.idx, :]))
             heading[wing.idx]         ~ calc_heading(R_t_w[wing.idx, :, :], R_v_w[wing.idx, :, :])
             turn_rate[wing.idx, :]      ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * ω_b[wing.idx, :]) # Project angular velocity onto view frame
             turn_acc[wing.idx, :]       ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * α_b[wing.idx, :])
