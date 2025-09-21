@@ -874,7 +874,11 @@ The tether frame is a local spherical coordinate system attached to the kite, de
 """
 function calc_R_t_w(wing_pos)
     z = sym_normalize(wing_pos)
-    y = sym_normalize([-wing_pos[2], wing_pos[1], 0])
+    if wing_pos[2] ≈ 0.0 && wing_pos[1] ≈ 0.0
+        y = [0, 1, 0]
+    else
+        y = sym_normalize([-wing_pos[2], wing_pos[1], 0])
+    end
     x = y × z
     return [x y z]
 end

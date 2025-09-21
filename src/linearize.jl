@@ -51,6 +51,10 @@ function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=s
         vsm_y = prob.get_vsm_y(integ)
         for wing in wings
             wing.vsm_y .= vsm_y[wing.idx,:]
+            if any(isnan.(wing.vsm_solver.sol.force))
+                wing.vsm_solver.prob = nothing
+                @warn "Resetting vsm solver."
+            end
             res = VortexStepMethod.linearize(
                 wing.vsm_solver, 
                 wing.vsm_aero, 
