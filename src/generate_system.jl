@@ -819,7 +819,8 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
             )
             wing_mass[wing.idx] ~ get_set_mass(pset)
             force_tether_wing[wing.idx, :] ~ tether_wing_force[wing.idx, :]
-            wing_acc[wing.idx, :] ~ (force_tether_wing[wing.idx, :] + R_b_w[wing.idx, :, :] * aero_force_b[wing.idx, :]) / wing_mass[wing.idx]
+            wing_acc[wing.idx, :] ~ (force_tether_wing[wing.idx, :] +
+                R_b_w[wing.idx, :, :] * aero_force_b[wing.idx, :]) / wing_mass[wing.idx]
         ]
         defaults = [
             defaults
@@ -1048,6 +1049,7 @@ function linear_vsm_eqs!(s, eqs, guesses, psys; aero_force_b, aero_moment_b, gro
         drag_force_b = (force_b ⋅ wind_direction_b) * wind_direction_b
         eqs = [
             eqs
+            # TODO: FIX VSM_X IS NAN
             q_inf[wing.idx] ~ 0.5 * calc_rho(s.am, wing_pos[wing.idx, 3]) * norm(va_wing_b[wing.idx, :])^2
             [last_y[wing.idx, iy] ~ get_vsm_y(psys, wing.idx, iy) for iy in 1:ny]
             [last_x[wing.idx, ix] ~ get_vsm_x(psys, wing.idx, ix) for ix in 1:nx]
