@@ -195,6 +195,8 @@ get_winch_c_vf(sys::SystemStructure, idx::Int16) = sys.winches[idx].c_vf
 get_winch_inertia_total(sys::SystemStructure, idx::Int16) = sys.winches[idx].inertia_total
 @register_symbolic get_winch_inertia_total(sys::SystemStructure, idx::Int16)
 
+@register_symbolic get_wind_elevation(sys::SystemStructure)
+get_wind_elevation(sys::SystemStructure) = sys.wind_elevation
 get_set_mass(set::Settings) = set.mass
 @register_symbolic get_set_mass(set::Settings)
 get_rho_tether(set::Settings) = set.rho_tether
@@ -931,13 +933,16 @@ function scalar_eqs!(s, eqs, psys, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_po
         wind_disturb(t)[eachindex(wings), 1:3]
         va_wing(t)[eachindex(wings), 1:3]
         upwind_dir(t)
+        wind_elevation(t)
         wind_scale_gnd(t)
     end
     eqs = [
         eqs
         upwind_dir ~ deg2rad(get_upwind_dir(pset))
+        wind_elevation ~ deg2rad(get_wind_elevation(psys))
         wind_scale_gnd ~ get_v_wind(pset)
-        wind_vec_gnd ~ max(wind_scale_gnd, 1e-6) * rotate_around_z([0, -1, 0], -upwind_dir)
+        wind_vec_gnd ~ max(wind_scale_gnd, 1e-6) *
+            rotate_around_z(rotate_around_x([0, -1, 0], wind_elevation), -upwind_dir)
     ]
     for wing in wings
         eqs = [

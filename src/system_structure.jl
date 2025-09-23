@@ -758,6 +758,7 @@ mutable struct SystemStructure
     const x::Array{Float64, 2}
     const jac::Array{Float64, 3}
     const wind_vec_gnd::KVec3
+    wind_elevation::SimFloat
     stabilize::Bool
     fix_wing::Bool
 end
@@ -837,7 +838,7 @@ function SystemStructure(name, set;
     jac = zeros(length(wings), nx, ny)
     set.physical_model = name
     sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
-        winches, wings, transforms, y, x, jac, zeros(KVec3), false, false)
+        winches, wings, transforms, y, x, jac, zeros(KVec3), 0.0, false, false)
     reinit!(sys_struct, set)
     return sys_struct
 end
