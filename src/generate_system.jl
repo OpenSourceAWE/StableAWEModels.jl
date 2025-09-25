@@ -179,10 +179,15 @@ get_brake(sys::SystemStructure, idx::Int16) = sys.winches[idx].brake
 @register_symbolic get_brake(sys::SystemStructure, idx::Int16)
 get_fix_point_sphere(sys::SystemStructure, idx::Int16) = sys.points[idx].fix_sphere
 @register_symbolic get_fix_point_sphere(sys::SystemStructure, idx::Int16)
+
 get_fix_wing_sphere(sys::SystemStructure, idx::Int16) = sys.wings[idx].fix_sphere
 @register_symbolic get_fix_wing_sphere(sys::SystemStructure, idx::Int16)
 get_drag_frac(sys::SystemStructure, idx::Int16) = sys.wings[idx].drag_frac
 @register_symbolic get_drag_frac(sys::SystemStructure, idx::Int16)
+get_y_damping(sys::SystemStructure, idx::Int16) = sys.wings[idx].y_damping
+@register_symbolic get_y_damping(sys::SystemStructure, idx::Int16)
+get_z_disturb(sys::SystemStructure, idx::Int16) = sys.wings[idx].z_disturb
+@register_symbolic get_z_disturb(sys::SystemStructure, idx::Int16)
 
 get_winch_gear_ratio(sys::SystemStructure, idx::Int16) = sys.winches[idx].gear_ratio
 @register_symbolic get_winch_gear_ratio(sys::SystemStructure, idx::Int16)
@@ -762,7 +767,6 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
         wing_mass(t)[eachindex(wings)]
         fix_wing_sphere(t)[eachindex(wings)]
     end
-    @parameters ω_damp = 150
 
     Ω(ω) = [0      -ω[1]  -ω[2]  -ω[3];
             ω[1]    0      ω[3]  -ω[2];
@@ -793,7 +797,9 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
                     α_b_damped[wing.idx, :]
                 )
             )
-            α_b_damped[wing.idx, :] ~ [α_b[wing.idx, 1], α_b[wing.idx, 2] - ω_damp*ω_b[wing.idx, 2], α_b[wing.idx, 3]]
+            α_b_damped[wing.idx, :] ~ [α_b[wing.idx, 1],
+                                       α_b[wing.idx, 2] - get_y_damping(psys, wing.idx) * ω_b[wing.idx, 2],
+                                       α_b[wing.idx, 3] + get_z_disturb(psys, wing.idx)]
     
             [R_b_w[wing.idx, :, i] ~ quaternion_to_rotation_matrix(Q_b_w[wing.idx, :])[:, i] for i in 1:3]
             

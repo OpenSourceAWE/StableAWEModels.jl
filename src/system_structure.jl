@@ -554,6 +554,8 @@ mutable struct Wing
     course::SimFloat
     aoa::SimFloat
     fix_sphere::Bool
+    y_damping::SimFloat
+    z_disturb::SimFloat
 end
 function Base.getproperty(wing::Wing, sym::Symbol)
     if sym == :R_b_w
@@ -607,8 +609,7 @@ Points attached to the wing transform as: ``\\mathbf{r}_w = \\mathbf{r}_{wing} +
 - `Wing`: A new `Wing` object providing a rigid body reference frame.
 """
 function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; 
-    transform_idx=1
-)
+              transform_idx=1, y_damping=150.0)
     ny = length(group_idxs)+3+3
     nx = length(group_idxs)+3+3
     return Wing(idx, 
@@ -624,7 +625,8 @@ function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad;
         zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
-        zeros(KVec3), zeros(KVec3), 0.0, 0.0, false)
+        zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
+        y_damping, 0.0)
 end
 
 """
