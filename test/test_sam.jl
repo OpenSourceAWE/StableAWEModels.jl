@@ -150,7 +150,7 @@ end
             @test sl.syslog.elevation[begin] ≈ deg2rad(set.elevation) atol=1e-2
             @test sl.syslog.azimuth[begin] ≈ deg2rad(set.azimuth) atol=1e-2
             @test sl.syslog.heading[begin] ≈ deg2rad(set.heading) atol=1e-2
-            @test isapprox(sl.syslog.time, collect(0.0:dt:5.0))
+            @test isapprox(sl.syslog.time, collect(dt:dt:5.0))
             ControlPlots.plt.close_figs()
             plt = plot(sam.sys_struct, sl)
             display(plt)
