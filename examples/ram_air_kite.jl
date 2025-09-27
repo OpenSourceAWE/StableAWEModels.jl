@@ -28,14 +28,13 @@ set = Settings("system.yaml")
 set.profile_law = 3
 sam = SymbolicAWEModel(set)
 SymbolicAWEModels.init!(sam)
-
-find_steady_state!(sam)
-bias = 0.2
-if set.physical_model == "4_attach_ram"
-    bias = 0.05
-end
-
 plot(sam.sys_struct)
+
+# find_steady_state!(sam)
+# bias = 0.2
+# if set.physical_model == "4_attach_ram"
+#     bias = 0.05
+# end
 
 # sl, _ = sim_oscillate!(sam; dt, total_time, vsm_interval, steering_freq, steering_magnitude, 
                          # bias, prn=true)
