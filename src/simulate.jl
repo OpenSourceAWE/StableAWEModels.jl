@@ -366,7 +366,7 @@ Update a SysState for a linear state-space simulation, using output y and model 
 """
 function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
                            zoom=1.0)
-    sys = sam.sys
+    sys = sam.prob.sys
     outputs = sam.outputs
     for (i, sym) in enumerate(outputs)
         if isequal(sym, sys.heading[1])
