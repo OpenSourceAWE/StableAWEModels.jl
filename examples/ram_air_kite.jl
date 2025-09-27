@@ -4,14 +4,14 @@
 using Timers
 tic()
 @info "Loading packages "
+using Makie
+using GLMakie
 using SymbolicAWEModels
 
-PLOT = false
-using Pkg
-if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
-    using TestEnv; TestEnv.activate()
-end
-using ControlPlots, LaTeXStrings
+# using Pkg
+# if ! ("GLMakie" ∈ keys(Pkg.project().dependencies))
+#     using TestEnv; TestEnv.activate()
+# end
 toc()
 
 # Simulation parameters
@@ -34,6 +34,9 @@ bias = 0.2
 if set.physical_model == "4_attach_ram"
     bias = 0.05
 end
-sl, _ = sim_oscillate!(sam; dt, total_time, vsm_interval, steering_freq, steering_magnitude, 
-                         bias, prn=true)
-display(plot(sam.sys_struct, sl))
+
+plot(sam.sys_struct)
+
+# sl, _ = sim_oscillate!(sam; dt, total_time, vsm_interval, steering_freq, steering_magnitude, 
+                         # bias, prn=true)
+# display(plot(sam.sys_struct, sl))

@@ -117,6 +117,8 @@ const SVec3    = SVector{3, SimFloat}
 
 # Defined in ext/SymbolicAWEModelsControlPlotsExt.jl
 function plot end
+# Defined in ext/SymbolicAWEModelsMakieExt.jl
+function plot! end
 
 function __init__()
     if isdir(joinpath(pwd(), "data")) && isfile(joinpath(pwd(), "data", "system.yaml"))
