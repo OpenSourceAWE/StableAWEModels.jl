@@ -28,7 +28,7 @@ This high-level function orchestrates the simplification process:
 """
 function copy_to_simple!(sam::SymbolicAWEModel, tether_sam::SymbolicAWEModel, 
                          simple_sam::SymbolicAWEModel; prn=true)
-    axial_stiffness, axial_damping, _, _ = calaxial_stiffness_props(sam, tether_sam; prn)
+    axial_stiffness, axial_damping, _, _ = calc_spring_props(sam, tether_sam; prn)
     
     for tether in simple_sam.sys_struct.tethers
         segment = simple_sam.sys_struct.segments[tether.segment_idxs[1]]
@@ -146,7 +146,7 @@ function in_percent_band(x, steady, delta_x, i, p)
 end
 
 """
-    calaxial_stiffness_props(sam, tether_sam; prn=false) -> (Vector, Vector, Matrix, Float64)
+    calc_spring_props(sam, tether_sam; prn=false) -> (Vector, Vector, Matrix, Float64)
 
 Calculate the equivalent axial stiffness and damping, and return the step response data.
 
@@ -167,7 +167,7 @@ This function orchestrates the process by performing a step response test on the
     3.  `tether_lens` (the step response data)
     4.  `dt` (the simulation time step)
 """
-function calaxial_stiffness_props(sam::SymbolicAWEModel, tether_sam::SymbolicAWEModel; 
+function calc_spring_props(sam::SymbolicAWEModel, tether_sam::SymbolicAWEModel; 
                            F_step=-0.1, prn=false)
     find_steady_state!(sam; t=10.0, dt=10.0, vsm_interval=0)
     copy!(sam.sys_struct, tether_sam.sys_struct)
@@ -177,14 +177,14 @@ function calaxial_stiffness_props(sam::SymbolicAWEModel, tether_sam::SymbolicAWE
     F_0 = [-tether_sam.sys_struct.points[i].force for i in 1:4]
     steps = 200
     tether_lens = step(tether_sam, steps, F_step, F_0)
-    k_values, c_values = calaxial_stiffness_props(sam, tether_lens, F_step; prn)
+    k_values, c_values = calc_spring_props(sam, tether_lens, F_step; prn)
     
     dt = 1/sam.set.sample_freq
     return k_values .* tether_lens[:,1], c_values .* tether_lens[:,1], tether_lens, dt
 end
 
 """
-    calaxial_stiffness_props(sam, tether_lens, F_step; p=5, prn=false) -> (Vector, Vector)
+    calc_spring_props(sam, tether_lens, F_step; p=5, prn=false) -> (Vector, Vector)
 
 Calculate spring constant `k` and damping coefficient `c` from a step response.
 
@@ -206,7 +206,7 @@ mass-spring-damper system.
     1.  `k_values` (spring constants [N/m])
     2.  `c_values` (damping coefficients [Ns/m])
 """
-function calaxial_stiffness_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=false)
+function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=false)
     @unpack tethers, segments = sam.sys_struct
     set = sam.set
     dt = 1/set.sample_freq
