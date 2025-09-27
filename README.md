@@ -170,6 +170,21 @@ This project is licensed under the [MPL-2.0 License](LICENSE).
 
 ---
 
+## Citing SymbolicAWEModels
+
+If you use SymbolicAWEModels in your research, please cite this repository:
+
+```bibtex
+@misc{SymbolicAWEModels,
+  author = {Bart van de Lint, Uwe Fechner, Jelle Poland},
+  title = {{SymbolicAWEModels}: Symbolic airborne wind energy system models},
+  year = {2025},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{[https://github.com/OpenSourceAWE/SymbolicAWEModels.jl]}},
+}
+```
+
 ## Copyright Notice
 
 Technische Universiteit Delft hereby disclaims all copyright interest in the package “SymbolicAWEModels.jl” (symbolic models for airborne wind energy systems) written by the Author(s).
