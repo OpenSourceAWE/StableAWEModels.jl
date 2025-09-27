@@ -9,8 +9,8 @@ using StaticArrays
 using SymbolicAWEModels
 
 # This is the core implementation. It plots a `SystemStructure` into a
-# pre-existing `Axis3`. This makes the plotting logic composable.
-function Makie.plot!(ax::Axis3, sys::SystemStructure;
+# pre-existing `Axis3` or `LScene`. This makes the plotting logic composable.
+function Makie.plot!(ax::Union{Axis3, LScene}, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 3.0,
                      show_points = true, show_segments = true, show_orient = true)
@@ -54,17 +54,13 @@ function Makie.plot!(ax::Axis3, sys::SystemStructure;
 end
 
 # This is the top-level function that gets called when a user types `plot(sys)`.
-# It creates a new Figure and Axis3, and then calls the `plot!` method above.
+# It creates a new Figure and LScene, and then calls the `plot!` method above.
 function Makie.plot(sys::SystemStructure; size = (1200, 800), kwargs...)
     fig = Figure(; size)
-    
-    # Create the Axis3, passing any user-provided keywords for the axis itself
-    ax = Axis3(fig[1, 1], title = "System Structure", aspect = :data)
-
-    # Plot into the axis by calling the `plot!` method we defined.
-    # The rest of the keywords are passed to the implementation.
+    Label(fig[0, 1], "System Structure", fontsize = 24)
+    ax = LScene(fig[1, 1])
     plot!(ax, sys; kwargs...)
-
+    update_cam!(ax.scene, Vec3f(-10, -10, 10), Vec3f(0, 0, 0))
     return fig
 end
 
