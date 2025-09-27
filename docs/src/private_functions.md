@@ -44,6 +44,7 @@ SymbolicAWEModels.calc_R_v_w
 SymbolicAWEModels.cad_to_body_frame
 SymbolicAWEModels.calc_pos
 SymbolicAWEModels.calc_steady_torque
+SymbolicAWEModels.calc_winch_force
 SymbolicAWEModels.find_axis_point
 SymbolicAWEModels.quaternion_to_rotation_matrix
 SymbolicAWEModels.rotation_matrix_to_quaternion

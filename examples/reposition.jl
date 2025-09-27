@@ -19,8 +19,9 @@ lg = SymbolicAWEModels.sim_reposition!(
     sam,
     total_time=10.0,
     reposition_interval_s=0.5,
-    target_elevation_deg=50.0,
-    target_azimuth_deg=10.0
+    target_elevation=deg2rad(50.0),
+    target_azimuth=deg2rad(10.0),
+    target_heading=deg2rad(10.0)
 )
 
 # Plot the results

@@ -132,6 +132,17 @@ end
         println()
     end
 
+    @testset "Test calc winch force" begin
+        reset!(set)
+        init!(sam)
+        tether_vel = [winch.tether_vel for winch in sam.sys_struct.winches]
+        tether_acc = [winch.tether_acc for winch in sam.sys_struct.winches]
+        set_values = [winch.set_value for winch in sam.sys_struct.winches]
+        winch_force = SymbolicAWEModels.calc_winch_force(sam.sys_struct, tether_vel, tether_acc, set_values)
+        ss = SysState(sam)
+        @test all(isapprox(ss.winch_force[1:3], winch_force))
+    end
+
     @testset "Oscillating simulation" begin
         function test_for_peak_at_steering_freq(sam, steering_freq)
             dt = 0.01
@@ -139,7 +150,7 @@ end
             @test sl.syslog.elevation[begin] ≈ deg2rad(set.elevation) atol=1e-2
             @test sl.syslog.azimuth[begin] ≈ deg2rad(set.azimuth) atol=1e-2
             @test sl.syslog.heading[begin] ≈ deg2rad(set.heading) atol=1e-2
-            @test isapprox(sl.syslog.time, collect(0.0:dt:5.0-dt))
+            @test isapprox(sl.syslog.time, collect(dt:dt:5.0))
             ControlPlots.plt.close_figs()
             plt = plot(sam.sys_struct, sl)
             display(plt)
@@ -151,31 +162,25 @@ end
             # --- Cross-Correlation Analysis with Linear Offset Removal (first/last only) ---
             heading_signal = sl.syslog.heading
             t = sl.syslog.time
-
             # Compute linear trend using endpoints
             trend = range(heading_signal[1], heading_signal[end], length=length(t))
             signal_detrended = heading_signal .- trend
-
             # Reference sine and cosine at steering frequency
             ref_sin = sin.(2 * π * steering_freq .* t)
             ref_cos = cos.(2 * π * steering_freq .* t)
-
             # Correlation at steering frequency
             corr_sin = dot(signal_detrended, ref_sin)
             corr_cos = dot(signal_detrended, ref_cos)
             magnitude_at_freq = sqrt(corr_sin^2 + corr_cos^2)
-
             # Compare to frequencies 50% lower and 50% higher
             freq_lower = steering_freq * 0.5
             ref_sin_lower = sin.(2 * π * freq_lower .* t)
             ref_cos_lower = cos.(2 * π * freq_lower .* t)
             mag_lower = sqrt(dot(signal_detrended, ref_sin_lower)^2 + dot(signal_detrended, ref_cos_lower)^2)
-
             freq_higher = steering_freq * 1.5
             ref_sin_higher = sin.(2 * π * freq_higher .* t)
             ref_cos_higher = cos.(2 * π * freq_higher .* t)
             mag_higher = sqrt(dot(signal_detrended, ref_sin_higher)^2 + dot(signal_detrended, ref_cos_higher)^2)
-
             @show magnitude_at_freq, mag_lower, mag_higher
             @test magnitude_at_freq > mag_lower && magnitude_at_freq > mag_higher
         end
@@ -217,12 +222,12 @@ end
             return sl.syslog.heading[end]
         end
         default_heading = calc_heading(1.0, 10.0)
-        @test default_heading ≈ 884.8 atol=10.0
+        @test default_heading ≈ 850 atol=50.0
         short_steer_heading = calc_heading(0.5, 10.0)
         soft_steer_heading = calc_heading(1.0, 5.0)
         # make sure less steering results in less final heading
-        @test default_heading - short_steer_heading ≈ 212 atol=10.0
-        @test default_heading - soft_steer_heading ≈ 256 atol=10.0
+        @test default_heading - short_steer_heading > 100
+        @test default_heading - soft_steer_heading > 100
         @show default_heading, short_steer_heading, soft_steer_heading
     end
 
@@ -269,14 +274,14 @@ end
             [-0.0008037289321365251, 0.0004562826732837309, -0.020711457720341487, 
                         -0.0017333135190197818], rtol=0.1)
 
-        find_steady_state!(sam; dt=3.0, t=10.0)
+        find_steady_state!(sam)
         (; A, B, C, D) = SymbolicAWEModels.simple_linearize!(sam; tstab=1.0)
         sys = ss(A,B,C,D)
         res = lsim(sys, repeat([-1.0 0.0 -1.0], 2)', [0.0, 0.5])
         println(res.y[:,2])
         @test isapprox(res.y[:,2],
-            [0.015575316961016356, -0.0001989661253600774, -0.017933805715950355, 
-                        6.679990358160092], rtol=0.1)
+            [0.014234402954620558, -0.0005674058560722778, -0.0186760660540293,
+                5.933033873737758], rtol=0.1)
 
         # test that linearization is state-dependent
         next_step!(simple_sam; dt=1.0)

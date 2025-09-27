@@ -25,6 +25,7 @@ steering_magnitude = 10.0      # Magnitude of steering input [Nm]
 
 # Initialize model
 set = Settings("system.yaml")
+set.profile_law = 3
 sam = SymbolicAWEModel(set)
 SymbolicAWEModels.init!(sam)
 

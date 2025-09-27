@@ -21,13 +21,16 @@ simple_set = Settings("system.yaml")
 simple_sam = SymbolicAWEModel(simple_set, "simple_ram")
 init!(simple_sam)
 
-sim_oscillate!(sam; total_time=1.0)
+bias = 0.0
+find_steady_state!(sam)
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
+simple_sam.sys_struct.wings[1].drag_frac = 1.2
 
-bias = 0.2
-sl, _ = sim_oscillate!(sam; total_time=5.0, prn=true, bias) # TODO: add first frac ram model
-display(plot(sam.sys_struct, sl))
+sl, _ = sim_oscillate!(sam; total_time=5.0, prn=true, bias)
+display(plot(sam.sys_struct, sl; plot_default=false, plot_set_values=true,
+             plot_heading=true, suffix=" - complex model"))
 
-sl, _ = sim_oscillate!(simple_sam; total_time=5.0, prn=true, bias)
-display(plot(simple_sam.sys_struct, sl))
-
+find_steady_state!(simple_sam)
+simple_sl, _ = sim_oscillate!(simple_sam; total_time=5.0, prn=true, bias)
+display(plot(simple_sam.sys_struct, simple_sl; plot_default=false, plot_set_values=true,
+             plot_heading=true, suffix=" - simple model"))

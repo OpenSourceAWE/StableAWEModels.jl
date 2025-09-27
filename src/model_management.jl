@@ -25,7 +25,8 @@ function generate_prob_getters(sys_struct, sys)
     if length(wings) > 0
         wing_vars = c.([
             sys.Q_b_w, sys.ω_b, sys.wing_pos, sys.wing_vel, sys.wing_acc, sys.va_wing_b,
-            sys.wind_vel_wing, sys.aero_force_b, sys.aero_moment_b, sys.elevation,
+            sys.wind_vel_wing, sys.aero_force_b, sys.aero_moment_b,
+            sys.moment_tether_wing, sys.force_tether_wing, sys.elevation,
             sys.elevation_vel, sys.elevation_acc, sys.azimuth, sys.azimuth_vel,
             sys.azimuth_acc, sys.heading, sys.turn_rate, sys.turn_acc, sys.course,
             sys.angle_of_attack
@@ -37,8 +38,8 @@ function generate_prob_getters(sys_struct, sys)
     if length(groups) > 0; get_group_state = getu(sys, c.([sys.twist_angle, sys.twist_ω, sys.group_tether_force, sys.group_tether_moment, sys.group_aero_moment])); end
     if length(pulleys) > 0; get_pulley_state = getu(sys, c.([sys.pulley_len, sys.pulley_vel])); end
     if length(winches) > 0
-        get_winch_state = getu(sys, c.([sys.tether_len, sys.tether_vel, sys.set_values,
-                                       sys.winch_force_vec, sys.tau_friction]))
+        get_winch_state = getu(sys, c.([sys.tether_len, sys.tether_vel, sys.tether_acc,
+                                       sys.set_values, sys.winch_force_vec, sys.tau_friction]))
         set_set_values = setp(sys, sys.set_values)
         get_set_values = getp(sys, sys.set_values)
     end

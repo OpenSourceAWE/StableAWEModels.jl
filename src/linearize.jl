@@ -20,7 +20,7 @@ equilibrium before starting a maneuver or analysis.
 - `dt::Float64`: The time step [s] for the settling simulation.
 """
 function find_steady_state!(sam::SymbolicAWEModel; 
-                            t=1.0, dt=1/sam.set.sample_freq, vsm_interval=1)
+                            t=2.0, dt=t/10, vsm_interval=1)
     @unpack winches, wings = sam.sys_struct
     old_brakes = [winch.brake for winch in winches]
     old_fixes = [wing.fix_sphere for wing in wings]
@@ -51,6 +51,10 @@ function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=s
         vsm_y = prob.get_vsm_y(integ)
         for wing in wings
             wing.vsm_y .= vsm_y[wing.idx,:]
+            if any(isnan.(wing.vsm_solver.sol.force))
+                wing.vsm_solver.prob = nothing
+                @warn "Resetting vsm solver."
+            end
             res = VortexStepMethod.linearize(
                 wing.vsm_solver, 
                 wing.vsm_aero, 
@@ -58,7 +62,8 @@ function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=s
                 va_idxs=1:3, 
                 omega_idxs=4:6,
                 theta_idxs=7:6+length(sam.sys_struct.groups),
-                moment_frac=sam.sys_struct.groups[1].moment_frac
+                moment_frac=sam.sys_struct.groups[1].moment_frac,
+                aero_coeffs=true
             )
             wing.vsm_jac .= res[1]
             wing.vsm_x .= res[2]
@@ -160,7 +165,7 @@ function set_measured!(sys_struct::SystemStructure,
 
     # get variables from integrator
     distance = norm(wing.pos_w)
-    R_t_w = calc_R_t_w(wing.elevation, wing.azimuth) # rotation of tether to world
+    R_t_w = calc_R_t_w(wing.pos_w) # rotation of tether to world
     R_v_w = calc_R_v_w(wing.pos_w, wing.R_b_w[:,1])
     
     # get wing_pos, rotate it by elevation and azimuth around the x and z axis

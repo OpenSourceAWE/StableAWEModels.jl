@@ -44,8 +44,10 @@ function sim!(
         lin_model = ss(lin_model...)
     end
 
-    logger = Logger(length(sys_struct.points), steps)
+    logger = Logger(length(sys_struct.points), steps+1)
     sys_state = SysState(sam)
+    sys_state.time = 0.0
+    # log!(logger, sys_state)
 
     if prn
         @info "Starting nonlinear simulation..."
@@ -60,7 +62,7 @@ function sim!(
 
     # --- Nonlinear Simulation Loop ---
     elapsed = @elapsed for step in 1:steps
-        t = (step-1) * dt
+        t = step * dt
 
         steady_torque = torque_damp * steady_torque + (1-torque_damp) * calc_steady_torque(sam)
         set_torques[step, :] = steady_torque .+ set_values[step, :]
@@ -156,7 +158,8 @@ function sim_oscillate!(
     vsm_interval=3,
     bias = 0.0,
     prn=false,
-    lin_model=nothing
+    lin_model=nothing,
+    torque_damp=0.9,
 )
     sys_struct = sam.sys_struct
     steps = Int(round(total_time / dt))
@@ -176,8 +179,8 @@ function sim_oscillate!(
         set_values[step, :] = [0.0, steering, -steering]
     end
 
-    return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval,
-                prn=prn, lin_model=lin_model)
+    return sim!(sam, set_values; dt, total_time, vsm_interval,
+                prn, lin_model, torque_damp)
 end
 
 """
@@ -202,7 +205,8 @@ function sim_turn!(
     steering_magnitude=10.0,
     vsm_interval=3,
     prn=false,
-    lin_model=nothing
+    lin_model=nothing,
+    torque_damp=0.9
 )
     sys_struct = sam.sys_struct
     steps = Int(round(total_time / dt))
@@ -223,8 +227,8 @@ function sim_turn!(
         end
     end
 
-    return sim!(sam, set_values; dt=dt, total_time=total_time, vsm_interval=vsm_interval,
-                prn=prn, lin_model=lin_model)
+    return sim!(sam, set_values; dt, total_time, vsm_interval,
+                prn, lin_model, torque_damp)
 end
 
 
@@ -270,8 +274,10 @@ function sim_reposition!(
     set_values = zeros(Float64, steps, length(sys_struct.winches))
     vsm_interval = 1 ÷ dt
     
-    logger = Logger(length(sys_struct.points), steps)
+    logger = Logger(length(sys_struct.points), steps+1)
     sys_state = SysState(sam)
+    sys_state.time = 0.0
+    log!(logger, sys_state)
 
     if prn
         println("--- Starting simulation with periodic repositioning ---")
@@ -280,7 +286,7 @@ function sim_reposition!(
 
     # 2. --- Simulation Loop ---
     time = @elapsed for step in 1:steps
-        t = (step-1) * dt
+        t = step * dt
         
         # Hold the kite in place by countering the tether forces with winch torques
         set_values[step, :] = -sam.set.drum_radius .* [norm(winch.force) for winch in sys_struct.winches]
@@ -308,8 +314,12 @@ function sim_reposition!(
                 # Verify the new pose after one step
                 next_step!(sam; dt=dt, set_values=set_values[step, :], vsm_interval)
                 updated_elevation_deg = rad2deg(sys_struct.wings[1].elevation)
-                println(">>> Pose updated. New Elevation is now: " *
-                        "$(round(updated_elevation_deg, digits=2)) degrees.\n")
+                updated_azimuth_deg = rad2deg(sys_struct.wings[1].azimuth)
+                updated_heading_deg = rad2deg(sys_struct.wings[1].heading)
+                println(">>> Pose updated." *
+                        " Elevation: $(round(updated_elevation_deg, digits=2))°, " *
+                        " Azimuth: $(round(updated_azimuth_deg, digits=2))°, " *
+                        " Heading: $(round(updated_heading_deg, digits=2))°.\n")
             end
         else
             # --- Normal simulation step ---
@@ -356,7 +366,7 @@ Update a SysState for a linear state-space simulation, using output y and model 
 """
 function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
                            zoom=1.0)
-    sys = sam.sys
+    sys = sam.prob.sys
     outputs = sam.outputs
     for (i, sym) in enumerate(outputs)
         if isequal(sym, sys.heading[1])
@@ -376,11 +386,11 @@ function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEMode
         elseif isequal(sym, sys.tether_vel[3])
             ss.v_reelout[3] = y[i]
         elseif isequal(sym, sys.winch_force[1])
-            ss.force[1] = y[i]
+            ss.winch_force[1] = y[i]
         elseif isequal(sym, sys.winch_force[2])
-            ss.force[2] = y[i]
+            ss.winch_force[2] = y[i]
         elseif isequal(sym, sys.winch_force[3])
-            ss.force[3] = y[i]
+            ss.winch_force[3] = y[i]
         elseif isequal(sym, sys.angle_of_attack[1])
             ss.AoA = y[i]
         elseif isequal(sym, sys.elevation[1])

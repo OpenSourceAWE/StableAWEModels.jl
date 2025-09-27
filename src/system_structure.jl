@@ -137,6 +137,7 @@ mutable struct Group
     const y_airf::KVec3 # spanwise vector in local panel frame which the group rotates around under wing deformation
     const type::DynamicsType
     moment_frac::SimFloat
+    damping::SimFloat
     twist::SimFloat
     twist_ω::SimFloat
     tether_force::SimFloat
@@ -185,11 +186,11 @@ The group can have two [`DynamicsType`](@ref)s:
 # Returns
 - `Group`: A new `Group` object with twist dynamics capability.
 """
-function Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac)
+function Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac; damping=50.0)
     le_pos = [vsm_wing.le_interp[i](gamma) for i in 1:3]
     chord = [vsm_wing.te_interp[i](gamma) for i in 1:3] .- le_pos
     y_airf = normalize([vsm_wing.le_interp[i](gamma-0.01) for i in 1:3] - le_pos)
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, 0.0, 0.0, 0.0, 0.0, 0.0)
+    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, damping, 0.0, 0.0, 0.0, 0.0, 0.0)
 end
 
 """
@@ -197,8 +198,8 @@ end
 
 Inner constructor for a `Group` object. See [`Group`](@ref) for details.
 """
-function Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac)
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, 0.0, 0.0)
+function Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac; damping=50.0)
+    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, damping, 0.0, 0.0, 0.0, 0.0, 0.0)
 end
 
 """
@@ -293,7 +294,7 @@ function Segment(idx, set, point_idxs, type;
         end
         axial_stiffness = stiffness_frac * axial_stiffness
 
-        axial_damping = (set.damping / set.c_spring) * axial_stiffness
+        axial_damping = (set.axial_damping / set.axial_stiffness) * axial_stiffness
     end
 
     Segment(idx, point_idxs, axial_stiffness, axial_damping, l0, compression_frac, 
@@ -413,6 +414,7 @@ mutable struct Winch
     const tether_idxs::Vector{Int16}
     tether_len::Union{SimFloat, Nothing}
     tether_vel::SimFloat
+    tether_acc::SimFloat
     set_value::SimFloat
     brake::Bool
     const force::KVec3
@@ -450,7 +452,7 @@ see the [WinchModels.jl documentation](https://github.com/aenarete/WinchModels.j
 - `Winch`: A new `Winch` object.
 """
 function Winch(idx, set::Settings, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
-    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, brake, zeros(KVec3),
+    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, 0.0, brake, zeros(KVec3),
                  set.gear_ratio, set.drum_radius, set.f_coulomb, set.c_vf,
                  set.inertia_total, zero(SimFloat))
 end
@@ -482,7 +484,7 @@ allowing for more modular or programmatic creation of winch components.
 """
 function Winch(idx, tether_idxs, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total;
                tether_len=0.0, tether_vel=0.0, brake=false)
-    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, brake, zeros(KVec3),
+    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, 0.0, brake, zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total, zero(SimFloat))
 end
 
@@ -533,10 +535,13 @@ mutable struct Wing
     const vsm_x::Vector{SimFloat}
     const vsm_jac::Matrix{SimFloat}
     const wind_disturb::KVec3
+    drag_frac::SimFloat
     const va_b::KVec3 # apparent wind in body frame
     const v_wind::KVec3 # wind velocity in world frame at the wing
     const aero_force_b::KVec3 # aerodynamic force in body frame
     const aero_moment_b::KVec3 # aerodynamic moment in body frame
+    const tether_moment::KVec3 # tether moment in world frame
+    const tether_force::KVec3 # tether force in world frame
     elevation::SimFloat
     elevation_vel::SimFloat
     elevation_acc::SimFloat
@@ -549,6 +554,8 @@ mutable struct Wing
     course::SimFloat
     aoa::SimFloat
     fix_sphere::Bool
+    y_damping::SimFloat
+    z_disturb::SimFloat
 end
 function Base.getproperty(wing::Wing, sym::Symbol)
     if sym == :R_b_w
@@ -602,8 +609,7 @@ Points attached to the wing transform as: ``\\mathbf{r}_w = \\mathbf{r}_{wing} +
 - `Wing`: A new `Wing` object providing a rigid body reference frame.
 """
 function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; 
-    transform_idx=1
-)
+              transform_idx=1, y_damping=150.0)
     ny = length(group_idxs)+3+3
     nx = length(group_idxs)+3+3
     return Wing(idx, 
@@ -615,9 +621,12 @@ function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad;
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
         # Derived variables and parameters, updated during simulation
         zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), one(SimFloat),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
-        zeros(KVec3), zeros(KVec3), 0.0, 0.0, false)
+        zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
+        y_damping, 0.0)
 end
 
 """
@@ -751,6 +760,7 @@ mutable struct SystemStructure
     const x::Array{Float64, 2}
     const jac::Array{Float64, 3}
     const wind_vec_gnd::KVec3
+    wind_elevation::SimFloat
     stabilize::Bool
     fix_wing::Bool
 end
@@ -830,7 +840,7 @@ function SystemStructure(name, set;
     jac = zeros(length(wings), nx, ny)
     set.physical_model = name
     sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
-        winches, wings, transforms, y, x, jac, zeros(KVec3), false, false)
+        winches, wings, transforms, y, x, jac, zeros(KVec3), 0.0, false, false)
     reinit!(sys_struct, set)
     return sys_struct
 end
@@ -875,10 +885,9 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
 
         # ==================== ROTATE ==================== #
         curr_rot_pos = get_rot_pos(transform, wings, points)
-        curr_elevation = KiteUtils.calc_elevation(curr_rot_pos - base_pos)
-        curr_azimuth = -KiteUtils.azimuth_east(curr_rot_pos - base_pos)
-        curr_R_t_w = calc_R_t_w(curr_elevation, curr_azimuth)
-        R_t_w = calc_R_t_w(transform.elevation, transform.azimuth)
+        curr_R_t_w = calc_R_t_w(curr_rot_pos - base_pos)
+        transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation), -transform.azimuth)
+        R_t_w = calc_R_t_w(transform_pos)
 
         for point in points
             if point.transform_idx == transform.idx
@@ -929,13 +938,10 @@ function reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
         rot_pos = get_rot_pos(transform, wings, points)
 
         # Calculate the current orientation in spherical coordinates
-        current_rel_pos = rot_pos - base_pos
-        curr_elevation = KiteUtils.calc_elevation(current_rel_pos)
-        curr_azimuth = -KiteUtils.azimuth_east(current_rel_pos)
-
-        # Get the rotation matrices for the current and target orientations
-        curr_R_t_w = calc_R_t_w(curr_elevation, curr_azimuth)
-        R_t_w = calc_R_t_w(transform.elevation, transform.azimuth)
+        curr_rel_pos = rot_pos - base_pos
+        curr_R_t_w = calc_R_t_w(curr_rel_pos)
+        transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation), -transform.azimuth)
+        R_t_w = calc_R_t_w(transform_pos)
 
         # Apply the rotation to all relevant points
         for point in points
@@ -986,8 +992,8 @@ This function builds a tether from a specified number of segments, connecting a 
 """
 function create_tether(tether_idx, set, points, segments, tethers, attach_point, 
                        type, dynamics_type; z=[0,0,1], axial_stiffness=NaN, 
-                       axial_damping=NaN)
-    winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z)
+                       axial_damping=NaN, d_pos=zeros(3))
+    winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z) .+ d_pos
     dir = winch_pos - attach_point.pos_cad
     segment_idxs = Int16[]
     winch_idx = 0
