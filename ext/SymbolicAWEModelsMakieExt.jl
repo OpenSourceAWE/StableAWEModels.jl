@@ -28,9 +28,10 @@ function Makie.plot!(ax, sys::SystemStructure;
         end
         
         num_segments = length(sys.segments)
-        seg_colors = Observable(fill(to_color(segment_color), 2 * num_segments))
+        seg_colors = Observable(fill(to_color(segment_color), num_segments))
 
-        plots[:segments] = linesegments!(ax, lineseg_points, color=seg_colors, linewidth=3, label="Segments")
+        plots[:segments] = linesegments!(ax, lineseg_points, color=seg_colors,
+                                         linewidth=3, label="Segments")
     end
 
     # === Plot Points ===
@@ -71,73 +72,85 @@ function Makie.plot!(ax, sys::SystemStructure;
     return plots
 end
 
+"""
+    point_line_segment_distance(p, a, b)
+
+Calculate the minimum 2D distance from a point `p` to a line segment defined
+by points `a` and `b`.
+"""
+function point_line_segment_distance(p, a, b)
+    # Vector from a to b
+    ab = b - a
+    # Vector from a to p
+    ap = p - a
+    # Length squared of the segment.
+    len_sq = dot(ab, ab)
+    # If the segment is just a point, return distance from p to a.
+    if len_sq ≈ 0.0
+        return norm(ap)
+    end
+    # Project ap onto ab to find the closest point on the infinite line.
+    # t is the normalized position of the projection.
+    t = dot(ap, ab) / len_sq
+    # Clamp t to the [0, 1] range to stay on the segment.
+    t_clamped = clamp(t, 0.0, 1.0)
+    # Calculate the closest point on the segment.
+    closest_point = a + t_clamped * ab
+    # Return the distance from p to that closest point.
+    return norm(p - closest_point)
+end
+
 function Makie.plot(sys::SystemStructure; 
                     size = (1200, 800), 
                     margin = 10.0, 
                     segment_color = :black, 
                     highlight_color = :red,
                     kwargs...)
-    fig = Figure(; size)
-    
     # Use LScene for advanced camera controls
-    ax = LScene(fig[1, 1]; show_axis=false)
-    plots = plot!(ax, sys; segment_color, kwargs...)
+    scene = Scene(; camera=cam3d!, show_axis=false, size, zoommode = :free)
+    plots = plot!(scene, sys; segment_color, kwargs...)
 
     # --- Event Handling for Segments ---
     if haskey(plots, :segments)
         lineseg_plot = plots[:segments]
         seg_colors_obs = lineseg_plot.color
-        
         last_hovered_idx = Ref(-1)
 
-        on(events(ax.scene).mouseposition, priority = 2) do mp
-            plot, idx = pick(ax.scene)
-            
-            if plot === lineseg_plot
-                seg_idx = ceil(Int, idx / 2)
-                if seg_idx != last_hovered_idx[]
-                    if last_hovered_idx[] != -1
-                        seg_colors_obs[][2 * last_hovered_idx[] - 1] = to_color(segment_color)
-                        seg_colors_obs[][2 * last_hovered_idx[]] = to_color(segment_color)
+        # --- Event Handler for Robust Hover Highlighting ---
+        on(events(scene).mouseposition, priority = 2) do mp
+            # This approach is more robust than `pick` for thin lines.
+            # It finds the closest segment in 2D screen space.
+            min_dist = Inf
+            closest_seg_idx = -1
+            mouse_pos_2d = Point2f(mp)
+            margin_px = 30.0 # pixel margin for hover detection
+            if haskey(plots, :segments)
+                seg_points_3d = plots[:segments][1][]
+                for i in 1:length(sys.segments)
+                    p1_3d = seg_points_3d[2 * i - 1]
+                    p2_3d = seg_points_3d[2 * i]
+                    p1_2d = Makie.project(scene, p1_3d)
+                    p2_2d = Makie.project(scene, p2_3d)
+
+                    dist = point_line_segment_distance(mouse_pos_2d, p1_2d, p2_2d)
+
+                    if dist < min_dist
+                        min_dist = dist
+                        closest_seg_idx = i
                     end
-                    
-                    seg_colors_obs[][2 * seg_idx - 1] = to_color(highlight_color)
-                    seg_colors_obs[][2 * seg_idx] = to_color(highlight_color)
-                    
-                    notify(seg_colors_obs)
-                    last_hovered_idx[] = seg_idx
-                end
-            else
-                if last_hovered_idx[] != -1
-                    seg_colors_obs[][2 * last_hovered_idx[] - 1] = to_color(segment_color)
-                    seg_colors_obs[][2 * last_hovered_idx[]] = to_color(segment_color)
-                    notify(seg_colors_obs)
-                    last_hovered_idx[] = -1
                 end
             end
-        end
 
-        on(events(fig).mousebutton) do event
-            if event.button == Mouse.left && event.action == Mouse.press
-                plot, idx = pick(ax.scene)
-                if plot === lineseg_plot
-                    seg_idx = ceil(Int, idx / 2)
-                    
-                    p1 = lineseg_plot[1][][2 * seg_idx - 1]
-                    p2 = lineseg_plot[1][][2 * seg_idx]
-                    
-                    center = (p1 + p2) / 2
-                    seg_length = norm(p2 - p1)
-                    
-                    cam_controls = ax.scene.camera_controls
-                    up_vec = cam_controls.upvector[]
-                    view_dir = normalize(cam_controls.lookat[] - cam_controls.eyeposition[])
-                    side_vec = cross(view_dir, up_vec)
-
-                    new_eyepos = center - view_dir * (seg_length * 2.5) + up_vec * (seg_length * 0.5) + side_vec * (seg_length * 0.5)
-                    
-                    update_cam!(ax.scene, new_eyepos, center)
+            hover_idx = (min_dist < margin_px) ? closest_seg_idx : -1
+            if hover_idx != last_hovered_idx[]
+                num_segments = length(sys.segments)
+                new_colors = fill(to_color(segment_color), num_segments)
+                if hover_idx != -1
+                    println("Highlighting segment: $hover_idx")
+                    new_colors[hover_idx] = to_color(highlight_color)
                 end
+                seg_colors_obs[] = new_colors
+                last_hovered_idx[] = hover_idx
             end
         end
     end
@@ -161,16 +174,16 @@ function Makie.plot(sys::SystemStructure;
     # Manually create background panes
     pane_color = RGBAf(0.95, 0.95, 0.95, 0.8)
     # XZ plane at y_max (since camera is at negative y)
-    mesh!(ax, Rect3(Vec3f(xlims[1], ylims[2], zlims[1]), Vec3f(xlims[2]-xlims[1], 0.01, zlims[2]-zlims[1])), color=pane_color)
+    mesh!(scene, Rect3(Vec3f(xlims[1], ylims[2], zlims[1]), Vec3f(xlims[2]-xlims[1], 0.01, zlims[2]-zlims[1])), color=pane_color)
     # YZ plane at x_max
-    mesh!(ax, Rect3(Vec3f(xlims[2], ylims[1], zlims[1]), Vec3f(0.01, ylims[2]-ylims[1], zlims[2]-zlims[1])), color=pane_color)
+    mesh!(scene, Rect3(Vec3f(xlims[2], ylims[1], zlims[1]), Vec3f(0.01, ylims[2]-ylims[1], zlims[2]-zlims[1])), color=pane_color)
     # XY plane at z_min
-    mesh!(ax, Rect3(Vec3f(xlims[1], ylims[1], zlims[1]), Vec3f(xlims[2]-xlims[1], ylims[2]-ylims[1], 0.01)), color=pane_color)
+    mesh!(scene, Rect3(Vec3f(xlims[1], ylims[1], zlims[1]), Vec3f(xlims[2]-xlims[1], ylims[2]-ylims[1], 0.01)), color=pane_color)
 
     # Set initial camera position
-    update_cam!(ax.scene, Vec3f(-10, -10, 10), Vec3f(0, 0, 0))
+    update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
 
-    return fig
+    return scene
 end
 
 end
