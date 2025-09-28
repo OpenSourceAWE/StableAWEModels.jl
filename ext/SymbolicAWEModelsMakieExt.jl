@@ -115,6 +115,7 @@ function Makie.plot(sys::SystemStructure;
         lineseg_plot = plots[:segments]
         seg_colors_obs = lineseg_plot.color
         last_hovered_idx = Ref(-1)
+        original_cam_state = Ref{Any}(nothing)
 
         # --- Event Handler for Robust Hover Highlighting ---
         on(events(scene).mouseposition, priority = 2) do mp
@@ -156,6 +157,55 @@ function Makie.plot(sys::SystemStructure;
                 last_hovered_idx[] = hover_idx
             end
         end
+
+        # --- Event Handler for Click-to-Zoom ---
+        on(events(scene).mousebutton, priority = 2) do event
+            if event.button == Mouse.left && event.action == Mouse.press
+                if original_cam_state[] === nothing
+                    # --- ZOOM IN ---
+                    original_cam_state[] = (copy(scene.camera.eyeposition[]),
+                                            copy(scene.camera.view_direction[]))
+                    hover_idx = last_hovered_idx[]
+                    
+                    if hover_idx != -1
+                        # Zoom to highlighted segment
+                        seg = sys.segments[hover_idx]
+                        p1_w = sys.points[seg.point_idxs[1]].pos_w
+                        p2_w = sys.points[seg.point_idxs[2]].pos_w
+                        center = (p1_w + p2_w) / 2.0f0
+                        
+                        segment_len = norm(p2_w - p1_w)
+                        dist_heuristic = segment_len * 1.5 + 2.0
+                        
+                        cam = scene.camera
+                        cam_dir_vec = normalize(cam.eyeposition[] - cam.view_direction[])
+                        new_eyepos = center + dist_heuristic * cam_dir_vec
+                        update_cam!(scene, new_eyepos, center)
+                    else
+                        # Zoom to kite (all wings)
+                        if !isempty(sys.wings)
+                            cam = scene.camera
+                            cam_dir_vec = normalize(cam.eyeposition[] - cam.view_direction[])
+                            wing = sys.wings[1]
+                            len = norm(wing.vsm_aero.panels[1].LE_point_1 -
+                                       wing.vsm_aero.panels[end].LE_point_2)
+                            dist_heuristic = len * 1.5 + 2.0
+                            new_eyepos = wing.pos_w + dist_heuristic * cam_dir_vec
+                            update_cam!(scene, new_eyepos, wing.pos_w)
+                        end
+                    end
+                else
+                    # --- ZOOM OUT ---
+                    eyepos, view_direction = original_cam_state[]
+                    update_cam!(scene, eyepos, view_direction)
+                    bounding_box = data_limits(scene)
+                    update_cam!(scene, bounding_box)
+                    original_cam_state[] = nothing
+                end
+                return Consume(true) # Consume the event to prevent other interactions
+            end
+            return Consume(false)
+        end
     end
 
     # --- Calculate limits and draw background panes ---
@@ -185,8 +235,8 @@ function Makie.plot(sys::SystemStructure;
 
     # Set initial camera position
     update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
-    bounding_box = data_limits(scene) # Get the AABB (Axis-Aligned Bounding Box)
-    update_cam!(scene, bounding_box)   # Update camera to fit the box    return scene
+    bounding_box = data_limits(scene)
+    update_cam!(scene, bounding_box)
     scene
 end
 
