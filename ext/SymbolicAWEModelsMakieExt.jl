@@ -44,12 +44,9 @@ function Makie.plot!(ax, sys::SystemStructure;
     # === Plot Wings ===
     if show_orient
         plots[:wings] = []
+        plots[:vsm] = []
         for (i, wing) in enumerate(sys.wings)
             wing_pos = Point3f(wing.pos_w)
-            color = wing_colors[mod1(i, length(wing_colors))]
-            p = scatter!(ax, wing_pos, color=color, markersize=4, strokewidth=1, strokecolor=:black, label="Wing $i")
-            push!(plots[:wings], p)
-
             R = wing.R_b_w
             scale = vector_scale
             origins = [wing_pos, wing_pos, wing_pos]
@@ -59,7 +56,7 @@ function Makie.plot!(ax, sys::SystemStructure;
             p = arrows3d!(ax, origins, directions, color=axis_colors, label="Wing $i Axes")
             push!(plots[:wings], p)
             p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w)
-            push!(plots[:wings], p)
+            push!(plots[:vsm], p)
         end
     end
 
@@ -103,15 +100,47 @@ function point_line_segment_distance(p, a, b)
     return norm(p - closest_point)
 end
 
+function zoom_out!(scene, cam, plots; relmargin=0.2)
+    # --- ROBUST ZOOM OUT ---
+    # 1. Get the current camera viewing direction vector
+    inv_view_matrix = inv(cam.view[])
+    cam_dir_vec = normalize(Vec3f(inv_view_matrix[1, 3],
+                                  inv_view_matrix[2, 3],
+                                  inv_view_matrix[3, 3]))
+    # 2. Get the scene's bounding box and its center (the new target)
+    bbox = data_limits(plots)
+    center = bbox.origin .+ bbox.widths ./ 2
+    # 3. Calculate the distance needed to see the whole box
+    radius = norm(bbox.widths) / 2.0
+    fov_rad = 2 * atan(1 / cam.projection[][2, 2])
+    distance = radius / tan(fov_rad / 2.0)
+    # 4. Calculate the new camera position
+    new_eyepos = center + cam_dir_vec * (distance * (1+relmargin))
+    # 5. Update the camera to the new "fit-all" view
+    update_cam!(scene, new_eyepos, center)
+end
+
 function Makie.plot(sys::SystemStructure; 
                     size = (1200, 800), 
-                    margin = 10.0, 
+                    margin = 10.0,
+                    relmargin = 0.2,
                     segment_color = :black, 
                     highlight_color = :red,
                     kwargs...)
     # Use LScene for advanced camera controls
     scene = Scene(; camera=cam3d!, show_axis=false, size, zoommode = :free)
     plots = plot!(scene, sys; segment_color, kwargs...)
+    
+    relevant_plots = AbstractPlot[]
+    if haskey(plots, :segments)
+        push!(relevant_plots, plots[:segments])
+    end
+    if haskey(plots, :points)
+        push!(relevant_plots, plots[:points])
+    end
+    if haskey(plots, :wings)
+        append!(relevant_plots, plots[:wings])
+    end
 
     # --- Event Handling for Segments ---
     if haskey(plots, :segments)
@@ -164,7 +193,7 @@ function Makie.plot(sys::SystemStructure;
         on(events(scene).mousebutton, priority = 2) do event
             if event.button == Mouse.left && event.action == Mouse.press
                 cam = scene.camera
-                if !zoomed_in[]
+                if !zoomed_in[] || last_hovered_idx[] != -1
                     # --- ZOOM IN --- (This part remains the same)
                     hover_idx = last_hovered_idx[]
                     if hover_idx != -1
@@ -184,23 +213,7 @@ function Makie.plot(sys::SystemStructure;
                         zoomed_in[] = true
                     end
                 else
-                    # --- ROBUST ZOOM OUT ---
-                    # 1. Get the current camera viewing direction vector
-                    inv_view_matrix = inv(cam.view[])
-                    cam_dir_vec = normalize(Vec3f(inv_view_matrix[1, 3], inv_view_matrix[2, 3], inv_view_matrix[3, 3]))
-
-                    # 2. Get the scene's bounding box and its center (the new target)
-                    bbox = data_limits(scene)
-                    center = bbox.origin .+ bbox.widths ./ 2
-
-                    # 3. Calculate the distance needed to see the whole box
-                    radius = norm(bbox.widths) / 2.0
-                    fov_rad = 2 * atan(1 / cam.projection[][2, 2])
-                    distance = radius / tan(fov_rad / 2.0)
-                    # 4. Calculate the new camera position
-                    new_eyepos = center + cam_dir_vec * (distance * 1.1)
-                    # 5. Update the camera to the new "fit-all" view
-                    update_cam!(scene, new_eyepos, center)
+                    zoom_out!(scene, cam, relevant_plots; relmargin)
                     zoomed_in[] = false
                 end
                 return Consume(true) # Consume the event
@@ -236,8 +249,7 @@ function Makie.plot(sys::SystemStructure;
 
     # Set initial camera position
     update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
-    bounding_box = data_limits(scene)
-    update_cam!(scene, bounding_box)
+    zoom_out!(scene, scene.camera, relevant_plots; relmargin)
     scene
 end
 
