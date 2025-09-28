@@ -9,10 +9,11 @@ using LinearAlgebra
 using StaticArrays
 using Statistics
 using SymbolicAWEModels
+using VortexStepMethod
 
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
-                     wing_colors = Makie.wong_colors(), vector_scale = 3.0,
+                     wing_colors = Makie.wong_colors(), vector_scale = 0.2,
                      show_points = true, show_segments = true, show_orient = true)
 
     plots = Dict{Symbol, Any}()
@@ -56,6 +57,8 @@ function Makie.plot!(ax, sys::SystemStructure;
 
             axis_colors = [:red, :green, :blue]
             p = arrows3d!(ax, origins, directions, color=axis_colors, label="Wing $i Axes")
+            push!(plots[:wings], p)
+            p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w)
             push!(plots[:wings], p)
         end
     end
