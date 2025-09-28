@@ -4,20 +4,20 @@
 module SymbolicAWEModelsMakieExt
 
 using Makie
+using UnPack
 using LinearAlgebra
 using StaticArrays
 using Statistics
 using SymbolicAWEModels
 
-# This is the core implementation. It plots a `SystemStructure` into a
-# pre-existing `Axis3` or `LScene`. This makes the plotting logic composable.
 function Makie.plot!(ax::Union{Axis3, LScene}, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
-                     show_points = true, show_segments = true, show_orient = true)
+                     plot_points = true, plot_segments = true, plot_orient = true,
+                     plot_vsm = true, kwargs...)
 
     # === Plot Segments ===
-    if show_segments
+    if plot_segments
         lineseg_points = Point3f[]
         for seg in sys.segments
             p1 = sys.points[seg.point_idxs[1]].pos_w
@@ -29,13 +29,13 @@ function Makie.plot!(ax::Union{Axis3, LScene}, sys::SystemStructure;
     end
 
     # === Plot Points ===
-    if show_points
+    if plot_points
         point_positions = [Point3f(p.pos_w) for p in sys.points]
         scatter!(ax, point_positions, color=point_color, label="Points")
     end
 
     # === Plot Wings ===
-    if show_orient
+    if plot_orient
         for (i, wing) in enumerate(sys.wings)
             wing_pos = Point3f(wing.pos_w)
             color = wing_colors[mod1(i, length(wing_colors))]
@@ -53,6 +53,10 @@ function Makie.plot!(ax::Union{Axis3, LScene}, sys::SystemStructure;
 
             axis_colors = [:red, :green, :blue]
             arrows3d!(ax, origins, directions, color=axis_colors, label="Wing $i Axes")
+
+            if plot_vsm
+                plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w, kwargs...)
+            end
         end
     end
 
@@ -62,25 +66,33 @@ end
 # This is the top-level function that gets called when a user types `plot(sys)`.
 # It creates a new Figure and Axis3, and then calls the `plot!` method above.
 function Makie.plot(sys::SystemStructure; size = (1200, 800), zoom=false,
-                    zoomsize=10, paddingsize=10, kwargs...)
+                    zoommargin=6, margin=[20, 20, 5], kwargs...)
     fig = Figure(; size)
 
-    wing_pos = sys.wings[1].pos_w
-    tether_len = mean([winch.tether_len for winch in sys.winches])
+    @unpack wings, winches, tethers, points = sys
+    wing_pos = wings[1].pos_w
     if zoom
-        limits = ((wing_pos[1]-zoomsize/2, wing_pos[1]+zoomsize/2),
-                  (wing_pos[2]-zoomsize/2, wing_pos[2]+zoomsize/2),
-                  (wing_pos[3]-zoomsize/2, wing_pos[3]+zoomsize/2))
+        limits = ((wing_pos[1]-zoommargin/2, wing_pos[1]+zoommargin/2),
+                  (wing_pos[2]-zoommargin/2, wing_pos[2]+zoommargin/2),
+                  (wing_pos[3]-zoommargin/2, wing_pos[3]+zoommargin/2))
     else
-        limits = (zeros(2), zeros(2), zeros(2))
-        for i in 1:3
-            limits[i][1] = ifelse(wing_pos[i] > 0, -paddingsize, -tether_len-paddingsize)
-            limits[i][2] = ifelse(wing_pos[i] > 0, tether_len+paddingsize, paddingsize)
+        limits = ([Inf, -Inf], [Inf, -Inf], [Inf, -Inf])
+        for point in points
+            for i in 1:3
+                if point.pos_w[i] - margin[i] < limits[i][1]
+                    limits[i][1] = point.pos_w[i] - margin[i]
+                end
+                if point.pos_w[i] + margin[i] > limits[i][2]
+                    limits[i][2] = point.pos_w[i] + margin[i]
+                end
+            end
         end
     end
     ax = Axis3(fig[1, 1]; aspect = :data,
                xlabel = "X", ylabel = "Y", zlabel = "Z",
-               azimuth = 9/8*π, limits, zoommode = :cursor, viewmode = :fit)
+               azimuth = 9/8*π, zoommode = :cursor, viewmode = :fit,
+               limits
+           )
 
     plot!(ax, sys; kwargs...)
     return fig
