@@ -115,7 +115,7 @@ function Makie.plot(sys::SystemStructure;
         lineseg_plot = plots[:segments]
         seg_colors_obs = lineseg_plot.color
         last_hovered_idx = Ref(-1)
-        original_cam_state = Ref{Any}(nothing)
+        zoomed_in = Ref(false)
 
         # --- Event Handler for Robust Hover Highlighting ---
         on(events(scene).mouseposition, priority = 2) do mp
@@ -132,9 +132,7 @@ function Makie.plot(sys::SystemStructure;
                     p2_3d = seg_points_3d[2 * i]
                     p1_2d = Makie.project(scene, p1_3d)
                     p2_2d = Makie.project(scene, p2_3d)
-
                     dist = point_line_segment_distance(mouse_pos_2d, p1_2d, p2_2d)
-
                     if dist < min_dist
                         min_dist = dist
                         closest_seg_idx = i
@@ -159,50 +157,50 @@ function Makie.plot(sys::SystemStructure;
         end
 
         # --- Event Handler for Click-to-Zoom ---
+        zoomed_in = Ref(false)
         on(events(scene).mousebutton, priority = 2) do event
             if event.button == Mouse.left && event.action == Mouse.press
-                if original_cam_state[] === nothing
-                    # --- ZOOM IN ---
-                    original_cam_state[] = (copy(scene.camera.eyeposition[]),
-                                            copy(scene.camera.view_direction[]))
+                cam = scene.camera
+                if !zoomed_in[]
+                    # --- ZOOM IN --- (This part remains the same)
                     hover_idx = last_hovered_idx[]
-                    
                     if hover_idx != -1
-                        # Zoom to highlighted segment
                         seg = sys.segments[hover_idx]
                         p1_w = sys.points[seg.point_idxs[1]].pos_w
                         p2_w = sys.points[seg.point_idxs[2]].pos_w
-                        center = (p1_w + p2_w) / 2.0f0
                         
+                        center = (p1_w + p2_w) / 2.0f0
                         segment_len = norm(p2_w - p1_w)
                         dist_heuristic = segment_len * 1.5 + 2.0
                         
-                        cam = scene.camera
-                        cam_dir_vec = normalize(cam.eyeposition[] - cam.view_direction[])
+                        inv_view_matrix = inv(cam.view[])
+                        cam_dir_vec = normalize(Vec3f(inv_view_matrix[1, 3], inv_view_matrix[2, 3], inv_view_matrix[3, 3]))
                         new_eyepos = center + dist_heuristic * cam_dir_vec
+                        
                         update_cam!(scene, new_eyepos, center)
-                    else
-                        # Zoom to kite (all wings)
-                        if !isempty(sys.wings)
-                            cam = scene.camera
-                            cam_dir_vec = normalize(cam.eyeposition[] - cam.view_direction[])
-                            wing = sys.wings[1]
-                            len = norm(wing.vsm_aero.panels[1].LE_point_1 -
-                                       wing.vsm_aero.panels[end].LE_point_2)
-                            dist_heuristic = len * 1.5 + 2.0
-                            new_eyepos = wing.pos_w + dist_heuristic * cam_dir_vec
-                            update_cam!(scene, new_eyepos, wing.pos_w)
-                        end
+                        zoomed_in[] = true
                     end
                 else
-                    # --- ZOOM OUT ---
-                    eyepos, view_direction = original_cam_state[]
-                    update_cam!(scene, eyepos, view_direction)
-                    bounding_box = data_limits(scene)
-                    update_cam!(scene, bounding_box)
-                    original_cam_state[] = nothing
+                    # --- ROBUST ZOOM OUT ---
+                    # 1. Get the current camera viewing direction vector
+                    inv_view_matrix = inv(cam.view[])
+                    cam_dir_vec = normalize(Vec3f(inv_view_matrix[1, 3], inv_view_matrix[2, 3], inv_view_matrix[3, 3]))
+
+                    # 2. Get the scene's bounding box and its center (the new target)
+                    bbox = data_limits(scene)
+                    center = bbox.origin .+ bbox.widths ./ 2
+
+                    # 3. Calculate the distance needed to see the whole box
+                    radius = norm(bbox.widths) / 2.0
+                    fov_rad = 2 * atan(1 / cam.projection[][2, 2])
+                    distance = radius / tan(fov_rad / 2.0)
+                    # 4. Calculate the new camera position
+                    new_eyepos = center + cam_dir_vec * (distance * 1.1)
+                    # 5. Update the camera to the new "fit-all" view
+                    update_cam!(scene, new_eyepos, center)
+                    zoomed_in[] = false
                 end
-                return Consume(true) # Consume the event to prevent other interactions
+                return Consume(true) # Consume the event
             end
             return Consume(false)
         end
