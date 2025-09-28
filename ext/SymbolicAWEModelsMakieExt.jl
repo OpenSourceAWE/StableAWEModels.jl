@@ -63,11 +63,16 @@ function Makie.plot!(ax, sys::SystemStructure;
 
     # === Plot Global Axes ===
     begin
-        scale = vector_scale * 1.5 # Make global axes slightly larger
+        scale = vector_scale * 10 # Make global axes slightly larger
         origins = [Point3f(0, 0, 0), Point3f(0, 0, 0), Point3f(0, 0, 0)]
-        directions = [Vec3f(1, 0, 0) * scale, Vec3f(0, 1, 0) * scale, Vec3f(0, 0, 1) * scale]
+        directions = [Vec3f(10, 0, 0), Vec3f(0, 10, 0), Vec3f(0, 0, 10)]
         axis_colors = [:red, :green, :blue]
-        plots[:global_axes] = arrows3d!(ax, origins, directions, color=axis_colors, label="Global Axes")
+        plots[:global_axes] = arrows3d!(ax, origins, directions; 
+                                        shaftradius=0.02,
+                                        tipradius=0.06,
+                                        tiplength=0.1,
+                                        color=axis_colors,
+                                        label="Global Axes")
     end
     
     return plots
@@ -240,7 +245,7 @@ function Makie.plot(sys::SystemStructure;
     end
 
     # Manually create background panes
-    pane_color = RGBAf(0.95, 0.95, 0.95, 0.8)
+    pane_color = RGBAf(0.95, 0.95, 0.95, 0.3)
     # XZ plane at y_max (since camera is at negative y)
     mesh!(scene, Rect3(Vec3f(xlims[1], ylims[2], zlims[1]), Vec3f(xlims[2]-xlims[1], 0.01, zlims[2]-zlims[1])), color=pane_color)
     # YZ plane at x_max
