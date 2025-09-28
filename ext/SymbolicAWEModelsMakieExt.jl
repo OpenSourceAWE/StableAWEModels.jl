@@ -146,7 +146,10 @@ function Makie.plot(sys::SystemStructure;
                 num_segments = length(sys.segments)
                 new_colors = fill(to_color(segment_color), num_segments)
                 if hover_idx != -1
-                    println("Highlighting segment: $hover_idx")
+                    point1 = sys.points[sys.segments[hover_idx].point_idxs[1]].idx
+                    point2 = sys.points[sys.segments[hover_idx].point_idxs[2]].idx
+                    println("Highlighting segment: $hover_idx," *
+                            " connecting point $point1 to point $point2.")
                     new_colors[hover_idx] = to_color(highlight_color)
                 end
                 seg_colors_obs[] = new_colors
@@ -182,8 +185,9 @@ function Makie.plot(sys::SystemStructure;
 
     # Set initial camera position
     update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
-
-    return scene
+    bounding_box = data_limits(scene) # Get the AABB (Axis-Aligned Bounding Box)
+    update_cam!(scene, bounding_box)   # Update camera to fit the box    return scene
+    scene
 end
 
 end
