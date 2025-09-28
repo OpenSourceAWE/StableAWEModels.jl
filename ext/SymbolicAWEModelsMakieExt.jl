@@ -32,13 +32,14 @@ function Makie.plot!(ax, sys::SystemStructure;
         seg_colors = Observable(fill(to_color(segment_color), num_segments))
 
         plots[:segments] = linesegments!(ax, lineseg_points, color=seg_colors,
-                                         linewidth=3, label="Segments")
+                                         linewidth=2, label="Segments", transparency=true)
     end
 
     # === Plot Points ===
     if show_points
         point_positions = [Point3f(p.pos_w) for p in sys.points]
-        plots[:points] = scatter!(ax, point_positions, color=point_color, label="Points")
+        plots[:points] = scatter!(ax, point_positions, color=point_color, label="Points",
+                                  transparency=true)
     end
 
     # === Plot Wings ===
@@ -128,7 +129,7 @@ function Makie.plot(sys::SystemStructure;
                     highlight_color = :red,
                     kwargs...)
     # Use LScene for advanced camera controls
-    scene = Scene(; camera=cam3d!, show_axis=false, size, zoommode = :free)
+    scene = Scene(; camera=cam3d!, show_axis = false, size, zoommode = :free, samples = 16)
     plots = plot!(scene, sys; segment_color, kwargs...)
     
     relevant_plots = AbstractPlot[]
