@@ -30,7 +30,7 @@ end
 
 println("\n\nHanging Mass Example\n", "="^40)
 ### Loading Settings
-set = SymbolicAWEModels.load_settings("base")  # Loads as Dict
+set = Settings("base/system.yaml")
 # Example usage: settings.v_wind = 10  # Set wind speed to 10 m/s
 set.v_wind = 0  # No wind
 set.sample_freq = 1  # Increase to 100 Hz for better visualization (dt = 0.01s)

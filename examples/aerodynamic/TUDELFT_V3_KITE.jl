@@ -18,7 +18,7 @@ labels= [
     ]
 
 # Load VSM settings from YAML configuration file
-settings = VSMSettings("TUDELFT_V3_KITE/vsm_settings.yaml")
+vsm_settings = VSMSettings("TUDELFT_V3_KITE/vsm_settings.yaml")
 
 # Create wing, body_aero, and solver objects using settings
 wing = VortexStepMethod.Wing(vsm_settings)
@@ -26,13 +26,13 @@ body_aero = VortexStepMethod.BodyAerodynamics([wing])
 solver = VortexStepMethod.Solver(body_aero, vsm_settings)
 
 # Set flight conditions from settings
-set_va!(body_aero, settings)
+set_va!(body_aero, vsm_settings)
 
 # Extract values for plotting (optional - for reference)
-wind_speed = settings.condition.wind_speed
-angle_of_attack_deg = settings.condition.alpha
-sideslip_deg = settings.condition.beta
-yaw_rate = settings.condition.yaw_rate
+wind_speed = vsm_settings.condition.wind_speed
+angle_of_attack_deg = vsm_settings.condition.alpha
+sideslip_deg = vsm_settings.condition.beta
+yaw_rate = vsm_settings.condition.yaw_rate
 
 # Using plotting modules, to create more comprehensive plots
 PLOT = true

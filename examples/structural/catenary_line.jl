@@ -13,7 +13,6 @@ Requirements:
 
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 using YAML
-include("load_settings.jl")
 
 # --- Analytical catenary solution functions ---
 
@@ -99,12 +98,11 @@ end
 
 println("\n\nCatenary Line Example\n", "="^40)
 # --- Settings
-set = load_settings(joinpath(@__DIR__, "..", "data", "base", "settings.yaml"))  # Loads as Dict
-# Example usage of set as Dict:
-# set["v_wind"] = 0.0               # No wind for pure catenary
-# set["abs_tol"] = 1e-8
-# set["rel_tol"] = 1e-8
-# set["l_tether"] = 8        # Set tether length for plot size
+set = Settings("base/system.yaml")
+set.v_wind = 0.0               # No wind for pure catenary
+set.abs_tol = 1e-8
+set.rel_tol = 1e-8
+set.l_tether = 10.0            # Set tether length for plot size
 
 # Catenary parameters
 horizontal_span = 8          # Horizontal distance between anchors [m]
@@ -156,16 +154,15 @@ plot(sys_struct, 0.0; zoom=false)
 
 # --- Construct symbolic model
 sam = SymbolicAWEModel(set, sys_struct)
-init!(sam; remake=false)
+init!(sam; remake=true)  # Force remake to ensure proper initialization
 
 # --- Simulate until static equilibrium
 println("Simulating catenary formation...")
-n_steps = 500
+n_steps = 200  # Increased for better convergence (100 seconds at 20 Hz)
 for i in 1:n_steps
     next_step!(sam)
-    # plot(sam, i/set.sample_freq; zoom=false)
-    ## Plot every 10 steps to show evolution
-    if i % 5 == 0
+    # Plot every 2 steps to show evolution
+    if i % 2 == 0
         plot(sam, i/set.sample_freq; zoom=false)
         # println("Step $i/$n_steps")
     end
