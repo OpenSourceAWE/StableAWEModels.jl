@@ -1,6 +1,7 @@
 using LinearAlgebra
 using VortexStepMethod
 using ControlPlots
+using DataFrames
 
 project_dir = dirname(dirname(pathof(VortexStepMethod)))  # Go up one level from src to project root#
 literature_paths = [
@@ -85,6 +86,3 @@ PLOT && plot_distribution(
     is_show=true,
     use_tex=USE_TEX
 )
-
-
-nothing
