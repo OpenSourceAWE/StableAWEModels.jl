@@ -61,23 +61,24 @@ include("examples/ram_air_kite.jl")
 This will take some minutes to precompile the first time you run it.
 
 ## Ram air kite model
-This model represents the kite as a deforming rigid body, with orientation governed by 
-quaternion dynamics. Aerodynamics are computed using the Vortex Step Method. The kite is 
+This model represents the kite as a deforming rigid body, with orientation governed by
+quaternion dynamics. Aerodynamics are computed using the Vortex Step Method. The kite is
 controlled from the ground via four tethers.
 
 Initialize:
 ```julia
-using SymbolicAWEModels, ControlPlots
+using SymbolicAWEModels
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
 init!(sam)
 ```
 
-Simulate and plot:
+Simulate:
 ```julia
 (log, _) = sim_oscillate!(sam)
-plot(sam.sys_struct, log; plot_default=false, plot_heading=true)
 ```
+
+For visualization with Makie, see the [Examples](examples.md) page.
 
 ![Ram heading](assets/ram_heading.png)
 

@@ -8,6 +8,7 @@
 *.xopp
 *.so
 *.so.bak
+Manifest.toml
 data/*.png
 /Manifest.toml
 /Manifest.toml.1.7

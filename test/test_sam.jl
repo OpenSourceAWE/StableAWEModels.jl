@@ -1,12 +1,8 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-using Pkg
-if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
-    using TestEnv; TestEnv.activate()
-end
 using Test, ControlSystemsBase, Printf
-using SymbolicAWEModels, ControlPlots
+using SymbolicAWEModels
 using Statistics, LinearAlgebra, Serialization
 using ModelingToolkit: @variables
 using ModelingToolkit: t_nounits
@@ -39,25 +35,6 @@ end
 
 @testset verbose=true "SymbolicAWEModels Tests" begin
 
-    function test_plot(sam)
-        @testset "Plotting of SymbolicAWEModel" begin
-            function plot_(zoom, front)
-                plt.figure("Kite")
-                lines, sc, txt = plot(sam, 0.0; zoom, front)
-                plt.show(block=false)
-                sleep(1)
-                @test !isnothing(lines)
-                @test length(lines) ≥ 1  # Should have at least one line
-                @test !isnothing(sc)     # Should have scatter points
-                @test !isnothing(txt)    # Should have time text
-            end
-            plot_(false, false)
-            plot_(false, true)
-            plot_(true, false)
-            plot_(true, true)
-        end
-    end
-
     function init(elevation, azimuth, heading)
         set.elevation = elevation
         set.azimuth = azimuth
@@ -89,7 +66,6 @@ end
 
         init(ones(3)...)
         init(zeros(3)...)
-        test_plot(sam)
     end
 
     @testset "Tether properties" begin
@@ -151,13 +127,6 @@ end
             @test sl.syslog.azimuth[begin] ≈ deg2rad(set.azimuth) atol=1e-2
             @test sl.syslog.heading[begin] ≈ deg2rad(set.heading) atol=1e-2
             @test isapprox(sl.syslog.time, collect(dt:dt:5.0))
-            ControlPlots.plt.close_figs()
-            plt = plot(sam.sys_struct, sl)
-            display(plt)
-            @test plt isa ControlPlots.PlotX
-            savefig(joinpath(
-                get_data_path(), "oscillate_$(sam.sys_struct.name)_$steering_freq.png"
-            ))
 
             # --- Cross-Correlation Analysis with Linear Offset Removal (first/last only) ---
             heading_signal = sl.syslog.heading
@@ -248,10 +217,6 @@ end
             target_heading,
             prn=false
         )
-        ControlPlots.plt.close_figs()
-        plt = plot(sam.sys_struct, lg)
-        display(plt)
-        @test plt isa ControlPlots.PlotX
         @test lg.syslog.heading[end] ≈ target_heading atol=0.05
         @test lg.syslog.elevation[end] ≈ target_elevation atol=0.05
         @test lg.syslog.azimuth[end] ≈ target_azimuth atol=0.05
@@ -324,7 +289,6 @@ end
         end
         @test sam.integrator[sys.pos[1, end]] > 0.8set.l_tether
         @test isapprox(sam.integrator[sys.pos[2, end]], 0.0, atol=1.0)
-        test_plot(sam)
     end
     
     @testset "Serialization and Deserialization" begin

@@ -1,11 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-using Pkg
-if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
-    using TestEnv; TestEnv.activate()
-end
-using SymbolicAWEModels, KiteUtils, LinearAlgebra, ControlPlots, OrdinaryDiffEqBDF
+using SymbolicAWEModels, KiteUtils, LinearAlgebra, OrdinaryDiffEqBDF
 
 # Initialize the model
 set = Settings("system.yaml")

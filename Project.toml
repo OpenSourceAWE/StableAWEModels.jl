@@ -1,7 +1,7 @@
 name = "SymbolicAWEModels"
 uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
-authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
 version = "0.5.0"
+authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
 
 [deps]
 AtmosphericModels = "c59cac55-771d-4f45-b14d-1c681463a295"
@@ -94,7 +94,7 @@ Tar = "1.10.0"
 Test = "1"
 Timers = "0.1.5"
 UnPack = "1.0.2"
-VortexStepMethod = "2.2.0"
+VortexStepMethod = "2.3.0"
 julia = "1"
 
 [extras]
@@ -103,8 +103,8 @@ BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
 test = ["Test", "BenchmarkTools", "Documenter", "Makie", "StatsBase", "Aqua", "TOML"]

@@ -2,11 +2,7 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-using Pkg
-if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
-    using TestEnv; TestEnv.activate()
-end
-using SymbolicAWEModels, KiteUtils, Printf, ControlPlots, LaTeXStrings
+using SymbolicAWEModels, KiteUtils, Printf, LaTeXStrings
 
 # --- Setup Models ---
 F_step = 1.0
@@ -43,11 +39,7 @@ for i in 1:4
     @printf "%-8d | %-15.2f %-15.2f %-10.2f | %-15.2f %-15.2f %-10.2f\n" i axial_stiffness[i] real_axial_stiffness[i] stiffness_err axial_damping[i] real_axial_damping[i] damping_err
 end
 
-# --- Plot Step Response ---
+# --- Print summary ---
 steps = size(tether_lens, 2) - 1
-display(plotx(
-   dt .* collect(0:steps), 
-   tether_lens[1,:], 
-   labels=["Tether len [m]"],
-   ysize=10,
-))
+println("\nStep response computed over $(steps) steps with dt=$(dt)")
+println("Final tether length: $(tether_lens[1,end]) m")

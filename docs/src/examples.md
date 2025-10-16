@@ -3,7 +3,9 @@ CurrentModule = SymbolicAWEModels
 ```
 # Examples for using the ram air kite model
 
-## Create a test project
+## For End Users
+
+### Create a test project
 ```bash
 mkdir test
 cd test
@@ -18,6 +20,35 @@ with the following lines:
 using SymbolicAWEModels
 SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
 ```
+
+This will:
+- Copy all example files to an `examples/` directory in your project
+- Copy configuration files to a `data/` directory
+- Install the necessary dependencies (GLMakie, KiteUtils) in your project
+
+## For Developers
+
+If you're developing the package and want to run examples using your local changes:
+
+1. Navigate to the package repository root directory:
+```bash
+cd path/to/SymbolicAWEModels.jl
+```
+
+2. Start Julia with the examples project:
+```bash
+julia --project=examples
+```
+
+3. Add your local development version of the package:
+```julia
+using Pkg
+pkg"dev ."
+```
+
+This ensures that the examples use your local development version of SymbolicAWEModels instead of the registered version. Any changes you make to the source code will be immediately available in the examples.
+
+The `examples/Project.toml` already contains the necessary dependencies (GLMakie, KiteUtils, SymbolicAWEModels).
 
 ## Running the first example
 ```julia

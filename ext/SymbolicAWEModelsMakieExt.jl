@@ -8,6 +8,8 @@ using UnPack
 using LinearAlgebra
 using StaticArrays
 using Statistics
+using KiteUtils
+using KiteUtils: SysLog
 using SymbolicAWEModels
 using VortexStepMethod
 
@@ -104,6 +106,214 @@ function point_line_segment_distance(p, a, b)
     closest_point = a + t_clamped * ab
     # Return the distance from p to that closest point.
     return norm(p - closest_point)
+end
+
+"""
+    Makie.plot(sys::SystemStructure, lg::SysLog; kwargs...)
+
+Create a multi-panel plot of key simulation results from a `SysLog`.
+
+This function visualizes various aspects of the kite's performance and state,
+such as turn rates, reel-out speeds, aerodynamic forces, and wing deformation.
+Each panel can be individually enabled or disabled via keyword arguments.
+
+# Arguments
+- `sys::SystemStructure`: The system structure, used to get component counts (e.g., number of groups).
+- `lg::SysLog`: The simulation log data to be plotted.
+
+# Keyword Arguments
+- `plot_default::Bool=true`: Defaults to true, enabling all plot panels. If false, all panels are disabled.
+- `plot_turn_rates::Bool=false`: Show the panel with the wing's angular velocities (ω_x, ω_y, ω_z).
+- `plot_reelout::Bool=plot_default`: Show the panel with the reel-out velocities of the steering winches.
+- `plot_aero_force::Bool=plot_default`: Show the panel with the z-component of aerodynamic force.
+- `plot_aero_moment::Bool=false`: Show the panel with the y-component of aerodynamic moment.
+- `plot_tether_moment::Bool=false`: Show the panel with the y-component of tether-induced moment.
+- `plot_twist::Bool=plot_default`: Show the panel with the twist angles for each wing group.
+- `plot_aoa::Bool=plot_default`: Show the panel with the angle of attack.
+- `plot_heading::Bool=plot_default`: Show the panel with the kite's heading angle.
+- `plot_elevation::Bool=false`: Show the panel with the kite's elevation angle.
+- `plot_azimuth::Bool=false`: Show the panel with the kite's azimuth angle.
+- `plot_winch_force::Bool=plot_default`: Show the panel with the winch forces.
+- `plot_set_values::Bool=false`: Show the panel with the set torque values.
+- `suffix::String=" - " * sys.name`: Suffix to append to plot labels.
+- `size::Tuple=(1200, 800)`: Figure size in pixels.
+
+# Example
+```julia
+# Plot only the angle of attack and heading
+plot(model.sys_struct, log, plot_reelout=false, plot_aero_force=false, plot_twist=false, plot_winch_force=false)
+```
+"""
+function Makie.plot(sys::SystemStructure, lg::SysLog;
+                    plot_default=true,
+                    plot_reelout=plot_default,
+                    plot_aero_force=plot_default,
+                    plot_twist=plot_default,
+                    plot_aoa=plot_default,
+                    plot_heading=plot_default,
+                    plot_aero_moment=false,
+                    plot_turn_rates=false,
+                    plot_elevation=false,
+                    plot_azimuth=false,
+                    plot_tether_moment=false,
+                    plot_winch_force=plot_default,
+                    plot_set_values=false,
+                    suffix=" - " * sys.name,
+                    size=(1200, 800))
+
+    sl = lg.syslog
+
+    # Build list of panels to plot
+    panels = []
+
+    if plot_turn_rates
+        turn_rates_deg = rad2deg.(hcat(sl.turn_rates...))
+        push!(panels, (
+            data = [turn_rates_deg[1,:], turn_rates_deg[2,:], turn_rates_deg[3,:]],
+            labels = ["ω_x" * suffix, "ω_y" * suffix, "ω_z" * suffix],
+            ylabel = "turn rates [°/s]"
+        ))
+    end
+
+    if plot_reelout
+        v_reelout_2 = [sl.v_reelout[i][2] for i in eachindex(sl.v_reelout)]
+        v_reelout_3 = [sl.v_reelout[i][3] for i in eachindex(sl.v_reelout)]
+        push!(panels, (
+            data = [v_reelout_2, v_reelout_3],
+            labels = ["v_ro[2]" * suffix, "v_ro[3]" * suffix],
+            ylabel = "v_ro [m/s]"
+        ))
+    end
+
+    if plot_aero_force
+        aero_force_z = [sl.aero_force_b[i][3] for i in eachindex(sl.aero_force_b)]
+        push!(panels, (
+            data = [aero_force_z],
+            labels = ["F_aero,z" * suffix],
+            ylabel = "aero F [N]"
+        ))
+    end
+
+    if plot_aero_moment
+        moment_y = [sl.aero_moment_b[i][2] for i in eachindex(sl.aero_moment_b)]
+        push!(panels, (
+            data = [moment_y],
+            labels = ["M_aero,y" * suffix],
+            ylabel = "aero M [Nm]"
+        ))
+    end
+
+    if plot_tether_moment
+        moment_y = [sl.tether_induced_moment[i][2] for i in eachindex(sl.tether_moment)]
+        push!(panels, (
+            data = [moment_y],
+            labels = ["M_tether,y" * suffix],
+            ylabel = "tether M [Nm]"
+        ))
+    end
+
+    if plot_twist && !isempty(sys.groups)
+        twist_angles_deg = rad2deg.(hcat(sl.twist_angles...))[eachindex(sys.groups),:]
+        twist_data = [twist_angles_deg[i,:] for i in eachindex(sys.groups)]
+        twist_labels = ["twist[$i]" * suffix for i in eachindex(sys.groups)]
+        push!(panels, (
+            data = twist_data,
+            labels = twist_labels,
+            ylabel = "twist [°]"
+        ))
+    end
+
+    if plot_aoa
+        AoA_deg = rad2deg.(sl.AoA)
+        push!(panels, (
+            data = [AoA_deg],
+            labels = ["AoA" * suffix],
+            ylabel = "AoA [°]"
+        ))
+    end
+
+    if plot_heading
+        heading_deg = rad2deg.(sl.heading)
+        push!(panels, (
+            data = [heading_deg],
+            labels = ["heading" * suffix],
+            ylabel = "heading [°]"
+        ))
+    end
+
+    if plot_elevation
+        elevation_deg = rad2deg.(sl.elevation)
+        push!(panels, (
+            data = [elevation_deg],
+            labels = ["elevation" * suffix],
+            ylabel = "elevation [°]"
+        ))
+    end
+
+    if plot_azimuth
+        azimuth_deg = rad2deg.(sl.azimuth)
+        push!(panels, (
+            data = [azimuth_deg],
+            labels = ["azimuth" * suffix],
+            ylabel = "azimuth [°]"
+        ))
+    end
+
+    if plot_winch_force
+        winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
+        push!(panels, (
+            data = winch_force,
+            labels = ["F_winch,1" * suffix, "F_winch,2" * suffix, "F_winch,3" * suffix],
+            ylabel = "Winch force [N]"
+        ))
+    end
+
+    if plot_set_values
+        set_values = [[sl.set_torque[i][j] for i in eachindex(sl.set_torque)] for j in 1:3]
+        push!(panels, (
+            data = set_values,
+            labels = ["T_winch,1" * suffix, "T_winch,2" * suffix, "T_winch,3" * suffix],
+            ylabel = "Set torque [Nm]"
+        ))
+    end
+
+    # Check if there's anything to plot
+    if isempty(panels)
+        error("No plot sections enabled. Enable at least one plot panel.")
+    end
+
+    # Create figure with subplots
+    n_panels = length(panels)
+    fig = Figure(size=size)
+
+    axes = []
+    for (i, panel) in enumerate(panels)
+        # Share x-axis with first subplot
+        if i == 1
+            ax = Axis(fig[i, 1], ylabel=panel.ylabel)
+        else
+            ax = Axis(fig[i, 1], ylabel=panel.ylabel, xticklabelsvisible=false)
+            linkxaxes!(axes[1], ax)
+        end
+
+        # Plot each data series in this panel
+        for (j, (data_series, label)) in enumerate(zip(panel.data, panel.labels))
+            lines!(ax, sl.time, data_series, label=label)
+        end
+
+        # Add legend if multiple traces
+        if length(panel.data) > 1
+            axislegend(ax, position=:rt)
+        end
+
+        push!(axes, ax)
+    end
+
+    # Add x-label to bottom subplot
+    axes[end].xlabel = "time [s]"
+    axes[end].xticklabelsvisible = true
+
+    return fig
 end
 
 function zoom_out!(scene, cam, plots; relmargin=0.2)
@@ -257,6 +467,35 @@ function Makie.plot(sys::SystemStructure;
     update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
     zoom_out!(scene, scene.camera, relevant_plots; relmargin)
     scene
+end
+
+"""
+    Makie.plot(sam::SymbolicAWEModel, reltime::Real; kwargs...)
+
+Plot a SymbolicAWEModel at a specific simulation time.
+
+This is a convenience wrapper that extracts wing positions from the SAM
+and calls the SystemStructure plotting function.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The symbolic AWE model to plot
+- `reltime::Real`: Relative time (not used for static plot, but kept for API compatibility)
+
+# Keyword Arguments
+All keyword arguments are passed through to `plot(::SystemStructure)`.
+Common options include `size`, `margin`, `segment_color`, `highlight_color`, etc.
+"""
+function Makie.plot(sam::SymbolicAWEModel, reltime::Real=0.0; kwargs...)
+    # Extract wing positions if available
+    wings = sam.sys_struct.wings
+    if length(wings) > 0
+        wing_pos = [wing.pos_w for wing in wings]
+    else
+        wing_pos = nothing
+    end
+
+    # Call the SystemStructure plot function
+    plot(sam.sys_struct; kwargs...)
 end
 
 end

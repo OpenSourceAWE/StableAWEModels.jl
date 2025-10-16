@@ -16,11 +16,7 @@ using ModelingToolkit
 using ModelingToolkit: t_nounits
 
 PLOT = true
-using Pkg
-if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
-    using TestEnv; TestEnv.activate()
-end
-using ControlPlots, ControlSystemsBase
+using ControlSystemsBase
 toc()
 
 # Initialize model
@@ -58,6 +54,4 @@ find_steady_state!(sam)
 @info "System linearized with matrix dimensions:" A=size(A) B=size(B) C=size(C) D=size(D)
 
 sys = ss(A,B,C,D)
-bode_plot(sys[1,1]; from=1e-4)
-bode_plot(sys[1,2]; from=1e-4)
-bode_plot(sys[1,3]; from=1e-4)
+@info "Linearized system created" sys

@@ -84,13 +84,9 @@ ls Manifest* 2>/dev/null || echo "No Manifest files found."
 
 # --- 4. Update Julia Packages ---
 echo "Adding/updating Julia packages. This may take a while..."
-$JULIA_CMD --startup-file=no -e "using Pkg; Pkg.add(\"TestEnv\")"
-$JULIA_CMD --startup-file=no --project=. -e '
+$JULIA_CMD --startup-file=no --project=test -e '
     using Pkg
     Pkg.resolve()
-    using TestEnv
-    println("--> Activating environment...");
-    TestEnv.activate()
     println("--> Adding PyCall...")
     Pkg.add("PyCall");
     println("--> Building PyCall...");

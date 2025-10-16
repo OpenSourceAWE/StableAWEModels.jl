@@ -3,11 +3,6 @@
 # SPDX-License-Identifier: MPL-2.0
 
 using SymbolicAWEModels
-using Pkg
-if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
-    using TestEnv; TestEnv.activate()
-end
-using ControlPlots
 
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")

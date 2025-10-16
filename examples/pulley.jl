@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using SymbolicAWEModels, VortexStepMethod
 
 set = Settings("system.yaml")
 set.v_wind = 10.0
@@ -28,12 +28,11 @@ push!(pulleys, Pulley(1, (1,2), DYNAMIC))
 
 transforms = [Transform(1, -deg2rad(0.0), 0.0, 0.0; base_pos=[1.0, 0.0, 4.0], base_point_idx=1, rot_point_idx=2)]
 sys_struct = SymbolicAWEModels.SystemStructure("pulley", set; points, segments, pulleys, transforms)
-plot(sys_struct, 0.0; zoom=false, l_tether=set.l_tether)
 
 sam = SymbolicAWEModel(set, sys_struct)
 
 init!(sam; remake=false)
 for i in 1:100
-    plot(sam, i/set.sample_freq; zoom=false)
     next_step!(sam)
 end
+@info "Simulation completed" steps=100
