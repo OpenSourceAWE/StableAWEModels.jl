@@ -192,10 +192,10 @@ get_rho_tether(set::Settings) = set.rho_tether
 @register_symbolic get_rho_tether(set::Settings)
 get_e_tether(set::Settings) = set.e_tether
 @register_symbolic get_e_tether(set::Settings)
-get_damping(set::Settings) = set.damping
-@register_symbolic get_damping(set::Settings)
-get_c_spring(set::Settings) = set.c_spring
-@register_symbolic get_c_spring(set::Settings)
+get_axial_damping(set::Settings) = set.axial_damping
+@register_symbolic get_axial_damping(set::Settings)
+get_axial_stiffness(set::Settings) = set.axial_stiffness
+@register_symbolic get_axial_stiffness(set::Settings)
 get_cd_tether(set::Settings) = set.cd_tether
 @register_symbolic get_cd_tether(set::Settings)
 get_v_wind(set::Settings) = set.v_wind

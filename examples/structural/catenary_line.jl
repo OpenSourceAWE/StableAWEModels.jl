@@ -146,7 +146,7 @@ freq, zeta, recommended_damping = analyze_damping_response(
     sys_struct, set; verbose=true, perturbation_dir=[0.0, 0.0, 1.0]
     )
 println("\n Setting recommended damping to: ", recommended_damping)
-set.damping = recommended_damping  # Update settings with recommended damping
+set.axial_damping = recommended_damping  # Update settings with recommended damping
 
 
 # Plot initial state

@@ -380,7 +380,14 @@ function Segment(idx, set, point_idxs, type;
 
     # Compute axial_damping if not provided
     if isnan(axial_damping)
-        axial_damping = (set.damping / set.c_spring) * axial_stiffness
+        # Use rel_damping if available, otherwise compute from axial_damping/axial_stiffness ratio
+        if hasfield(typeof(set), :rel_damping)
+            axial_damping = set.rel_damping * axial_stiffness
+        elseif hasfield(typeof(set), :axial_damping) && hasfield(typeof(set), :axial_stiffness)
+            axial_damping = (set.axial_damping / set.axial_stiffness) * axial_stiffness
+        else
+            axial_damping = 0.0  # fallback if no damping info available
+        end
     end
 
     Segment(idx, point_idxs, axial_stiffness, axial_damping, l0, compression_frac, 

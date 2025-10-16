@@ -26,11 +26,11 @@ function analyze_damping_response(sys_struct::SystemStructure, set::Settings;
     verbose && println("🔧 Damping Analysis: $(sys_struct.name)")
     
     # Current settings
-    current_damping = set.damping
-    current_c_spring = set.c_spring
-    current_a1 = current_damping / current_c_spring
+    current_damping = set.axial_damping
+    current_stiffness = set.axial_stiffness
+    current_a1 = current_damping / current_stiffness
     
-    verbose && @printf "📊 Current: damping=%.0f, c_spring=%.0f, a₁=%.4f [s]\n" current_damping current_c_spring current_a1
+    verbose && @printf "📊 Current: axial_damping=%.0f, axial_stiffness=%.0f, a₁=%.4f [s]\n" current_damping current_stiffness current_a1
     
     try
         # Create and initialize model
@@ -116,7 +116,7 @@ function analyze_damping_response(sys_struct::SystemStructure, set::Settings;
         if zeta > 0.001  # Valid measurement
             delta_a1 = 2*(target_zeta - zeta) / (2π * freq)
             new_a1 = max(current_a1 + delta_a1, 0.001)  # Minimum damping
-            recommended_damping = new_a1 * current_c_spring
+            recommended_damping = new_a1 * current_stiffness
             
             # Clamp the jump to avoid absurd changes
             scale = clamp(recommended_damping / current_damping, 0.25, 4.0)

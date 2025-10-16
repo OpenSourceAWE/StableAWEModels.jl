@@ -44,7 +44,7 @@ condition:
 # Define wing geometry files and discretization parameters
 wings:
     - name: V3_Kite                    # Wing identifier for output labeling
-      geometry_file: data/pyramid_model/wing_geometry.yaml
+      geometry_file: data/pyramid_model/aero_geometry_converged.yaml
       n_panels: 2                     # Total number of panels along wingspan
       n_groups: 1                      # Number of panel groups (must divide n_panels)
       spanwise_panel_distribution: LINEAR    # Panel spacing algorithm

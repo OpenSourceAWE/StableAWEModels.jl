@@ -26,6 +26,11 @@ using DataFrames
 
 # Include the yaml_loader with all helper functions
 include("../yaml_loader.jl")
+try
+    include("../plotly_plots.jl")  # provides plot3d_v3 and refresh_plot3d!
+catch
+    @warn "plotly_plots.jl not found relative to this script; expecting plot3d_v3 and refresh_plot3d! to be available in scope."
+end
 
 println("\n\nTU Delft V3 Kite - Structural Model\n", "="^50)
 
@@ -214,7 +219,7 @@ freq, zeta, recommended_damping = analyze_damping_response(
     sys, set; verbose=true
 )
 println("  Setting recommended damping to: $recommended_damping")
-set.damping = recommended_damping
+set.axial_damping = recommended_damping
 
 # Create symbolic model
 println("\nInitializing symbolic model...")
