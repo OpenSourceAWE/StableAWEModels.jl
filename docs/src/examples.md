@@ -3,6 +3,33 @@ CurrentModule = SymbolicAWEModels
 ```
 # Examples for using the ram air kite model
 
+## Visualization with GLMakie
+
+SymbolicAWEModels provides plotting functionality through a package extension that automatically loads when you use GLMakie. This means you don't need to explicitly load any plotting package beyond GLMakie itself.
+
+**To enable plotting:**
+```julia
+using SymbolicAWEModels
+using GLMakie  # This automatically loads the plotting extension
+```
+
+Once GLMakie is loaded, you can use the `plot` function to visualize:
+- **3D System Structure**: Interactive 3D visualization of the kite system with clickable segments
+  ```julia
+  plot(sam.sys_struct)  # Plot the system structure
+  ```
+
+- **Time-Series Data**: Multi-panel plots of simulation results
+  ```julia
+  (log, _) = sim_oscillate!(sam)
+  plot(sam.sys_struct, log; plot_default=true)  # Plot simulation results
+  ```
+
+The plotting functions support many keyword arguments to customize which data is displayed. See the function documentation for details:
+```julia
+?plot  # In Julia REPL, shows available options
+```
+
 ## For End Users
 
 ### Create a test project
@@ -56,9 +83,8 @@ include("examples/ram_air_kite.jl")
 ```
 Expected output for first run:
 ```julia
-[ Info: Loading packages 
-[ Info: Precompiling SymbolicAWEModelsControlPlotsExt [986c3e0b-c4a6-5a67-87ac-f6b86e76af74] (cache mi
-sses: include_dependency fsize change (2), wrong dep version loaded (14), mismatched flags (2))
+[ Info: Loading packages
+[ Info: Precompiling SymbolicAWEModelsMakieExt [ba1985c5-ebcb-5009-8fba-190d67777252] (cache misses...)
 Time elapsed: 24.149010176 s
 [ Info: Creating SymbolicAWEModel:
 Time elapsed: 38.51030329 s

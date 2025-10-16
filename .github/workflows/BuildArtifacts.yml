@@ -79,10 +79,6 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v5
 
-    - name: Install matplotlib
-      run: if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get update && sudo apt-get install -y python3-matplotlib; fi
-      shell: bash
-
     - name: Setup Julia ${{ matrix.julia-version }}
       uses: julia-actions/setup-julia@v2
       with:

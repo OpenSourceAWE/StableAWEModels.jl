@@ -50,26 +50,8 @@ jobs:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
 
-      - name: Detect Julia version
-        id: detect_version
-        run: |
-          JULIA_VERSION=$(julia --version | cut -d' ' -f3 | cut -d'.' -f1,2)
-          echo "version=$JULIA_VERSION" >> $GITHUB_OUTPUT
-          echo "Detected Julia version: $JULIA_VERSION"
-
-      - name: Copy default Manifest files
-        run: cp Manifest-v${{ steps.detect_version.outputs.version }}.toml.default Manifest.toml || echo "No default available for version ${{ steps.detect_version.outputs.version }}"
-
-      - name: Install matplotlib
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y python3-matplotlib
-
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
-
-      - name: Build PyCall
-        run: julia --project -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
-
       - uses: julia-actions/julia-runtest@v1
 
       - name: Upload PNG plots as artifact
@@ -96,19 +78,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install matplotlib
-        run: sudo apt-get install -y python3-matplotlib
-
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
 
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
-
-      - name: Build PyCall
-        run: julia --project=docs/ -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
-
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

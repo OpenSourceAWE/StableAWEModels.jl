@@ -240,7 +240,7 @@ This function performs the following actions:
 - Copies all files from the module's `data` directory to the current working directory's `data` folder (`pwd()/data`). Existing files in the destination are NOT overwritten unless `force=true`.
 - Copies all example scripts from the module to the current working directory's `examples` folder (`pwd()/examples`). The folder is created if it does not exist. Existing files are NOT overwritten unless `force=true`.
 - Copies the `bin` directory from the module to the current working directory's `bin` folder (`pwd()/bin`). The folder is created if it does not exist. Existing files are NOT overwritten unless `force=true`.
-- Installs all required packages if they are not already installed. This occurs only if `add_pkg=true` (default). The packages installed are: `KiteUtils`, `ControlPlots`, `LaTeXStrings`, and `Timers`.
+- Installs all required packages if they are not already installed. This occurs only if `add_pkg=true` (default). The packages installed are: `KiteUtils`, `GLMakie`, and `Timers`.
 
 # Keyword Arguments
 - `force::Bool=false`: If `true`, existing files in the destination directories will be overwritten. If `false` (default), existing files will be preserved.
@@ -253,8 +253,7 @@ function init_module(; force=false, add_pkg=true)
 
     if add_pkg
         # Install required packages if not already present
-        pkgs = ["KiteUtils", "ControlPlots", 
-                "LaTeXStrings", "Timers"]
+        pkgs = ["KiteUtils", "GLMakie", "Timers"]
         for pkg in pkgs
             if !(pkg in keys(Pkg.project().dependencies))
                 Pkg.add(pkg)

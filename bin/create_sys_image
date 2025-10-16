@@ -124,7 +124,7 @@ if [ -d src ]; then
 fi
 # Run precompilation for all required packages
 $JULIA_CMD --startup-file=no --project -J "$SOFILE" -e '
-    using SymbolicAWEModels, KiteUtils, ControlPlots, VortexStepMethod
+    using SymbolicAWEModels, KiteUtils, VortexStepMethod
 '
 
 # --- 6. Restore Environment ---

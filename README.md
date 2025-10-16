@@ -36,12 +36,7 @@ This package is part of the Julia Kite Power Tools ecosystem:
 
 ## Installation
 
-Install [Julia 1.11](https://julialang.org/install/) using `juliaup`.  
-On Linux, make sure Python3 and Matplotlib are installed:
-
-```bash
-sudo apt install python3-matplotlib
-```
+Install [Julia 1.11](https://julialang.org/install/) using `juliaup`.
 
 **Recommended workflow:**
 
@@ -96,18 +91,19 @@ This model represents the kite as a deforming rigid body, with orientation gover
 **Initialize:**
 
 ```julia
-using SymbolicAWEModels, ControlPlots
+using SymbolicAWEModels
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
 init!(sam)
 ```
 
-**Simulate and plot:**
+**Simulate:**
 
 ```julia
 (log, _) = sim_oscillate!(sam)
-plot(sam.sys_struct, log; plot_default=false, plot_heading=true)
 ```
+
+For visualization with Makie, see the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/) page.
 
 ![Ram heading](docs/src/assets/ram_heading.png)
 
@@ -127,13 +123,14 @@ simple_sam = SymbolicAWEModel(set, "simple_ram")
 init!(simple_sam)
 ```
 
-**Simulate and plot:**
+**Simulate:**
 
 ```julia
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
 (simple_log, _) = sim_oscillate!(simple_sam)
-plot(simple_sam.sys_struct, simple_log; plot_default=false, plot_heading=true)
 ```
+
+For visualization with Makie, see the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/) page.
 
 ![Simple ram heading](docs/src/assets/simple_ram_heading.png)
 

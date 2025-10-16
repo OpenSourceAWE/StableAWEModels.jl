@@ -24,10 +24,8 @@ This package is part of the Julia Kite Power Tools, which consist of the followi
 ![Julia Kite Power Tools](kite_power_tools.png)
 
 ## Installation
-Install [Julia 1.11](https://julialang.org/install/) using `juliaup`, if you haven't already. On Linux, make sure that Python3 and Matplotlib are installed:
-```
-sudo apt install python3-matplotlib
-```
+Install [Julia 1.11](https://julialang.org/install/) using `juliaup`, if you haven't already.
+
 Before installing this software it is suggested to create a new project, for example like this:
 ```bash
 mkdir test
@@ -78,7 +76,13 @@ Simulate:
 (log, _) = sim_oscillate!(sam)
 ```
 
-For visualization with Makie, see the [Examples](examples.md) page.
+For visualization, load GLMakie to automatically enable the plotting extension:
+```julia
+using GLMakie
+plot(sam.sys_struct, log; plot_default=false, plot_heading=true)
+```
+
+See the [Examples](examples.md) page for more details on plotting options.
 
 ![Ram heading](assets/ram_heading.png)
 
@@ -96,10 +100,15 @@ simple_sam = SymbolicAWEModel(set, "simple_ram")
 init!(simple_sam)
 ```
 
-Simulate and plot:
+Simulate:
 ```julia
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
 (simple_log, _) = sim_oscillate!(simple_sam)
+```
+
+Visualize (requires GLMakie):
+```julia
+using GLMakie
 plot(simple_sam.sys_struct, simple_log; plot_default=false, plot_heading=true)
 ```
 

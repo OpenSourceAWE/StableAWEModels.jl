@@ -6,18 +6,20 @@
 # This script is a wrapper for running the Julia project.
 #
 # For regular users:
-# No special flags are needed. The script will use the default settings,
-# which includes copying a default manifest file for a stable environment.
+# No special flags are needed. The script will use the default settings.
 # e.g., ./bin/run_julia
 #
 # For developers:
-# To avoid overwriting your local Manifest.toml and to disable precompilation
-# during development, use the following flags:
-# ./bin/run_julia --copy-manifest false --precompile false
+# To disable precompilation during development, use:
+# ./bin/run_julia --precompile false
 # You should create an alias for this ;)
 # In my config.fish I have:
-# alias jd './bin/run_julia --copy-manifest false --precompile false'
+# alias jd './bin/run_julia --precompile false'
 # alias jl './bin/run_julia'
+#
+# Advanced usage:
+# You can optionally copy a default manifest file for a reproducible environment:
+# ./bin/run_julia --copy-manifest true
 
 # Ensure the script runs from the project root
 if [[ $(basename "$(pwd)") == "bin" ]]; then
@@ -29,7 +31,7 @@ export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
 # --- Argument Parsing and Setup ---
 final_args=()
 # Default values
-copy_manifest=true
+copy_manifest=false  # Don't copy manifest by default - let Pkg.jl resolve naturally
 # By default, SAM_PRECOMPILE is not set, which allows precompilation.
 # Setting it to "false" will disable it.
 
