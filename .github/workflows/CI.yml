@@ -45,17 +45,24 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Copy default Manifest files
-        run: cp Manifest-v${{ matrix.version }}.toml.default Manifest.toml || echo "No default available"
-
-      - name: Install matplotlib
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y python3-matplotlib
-
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
+
+      - name: Detect Julia version
+        id: detect_version
+        run: |
+          JULIA_VERSION=$(julia --version | cut -d' ' -f3 | cut -d'.' -f1,2)
+          echo "version=$JULIA_VERSION" >> $GITHUB_OUTPUT
+          echo "Detected Julia version: $JULIA_VERSION"
+
+      - name: Copy default Manifest files
+        run: cp Manifest-v${{ steps.detect_version.outputs.version }}.toml.default Manifest.toml || echo "No default available for version ${{ steps.detect_version.outputs.version }}"
+
+      - name: Install matplotlib
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y python3-matplotlib
 
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
