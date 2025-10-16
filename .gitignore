@@ -10,6 +10,7 @@
 *.so.bak
 Manifest.toml
 Manifest*.toml
+Manifest*.default
 data/*.png
 /Manifest.toml
 /Manifest.toml.1.7
