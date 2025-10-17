@@ -63,7 +63,6 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
     for (tether, stether) in zip(sys.tethers, ssys.tethers)
         (length(stether.segment_idxs) != 1) && 
             error("Provide a simple system structure with 1-segment tethers.")
-
         # copy ground point of the tether
         point_idx = sys.segments[tether.segment_idxs[end]].point_idxs[2]
         spoint_idx = ssys.segments[stether.segment_idxs[1]].point_idxs[2]
@@ -82,6 +81,7 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
     # update non-group pos
     ssys.points[1].pos_w .= wing.pos_w + wing.R_b_w * ssys.points[1].pos_b
     ssys.points[2].pos_w .= wing.pos_w + wing.R_b_w * ssys.points[2].pos_b
+    # TODO: add x such that torque around y is the same
 
     # copy twist
     (length(sys.groups) != 4) && error("Sys should have 4 groups.")
@@ -272,12 +272,8 @@ function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=
         ζ = X / (ω_n * T_s)
         c = 2 * ζ * sqrt(k * m)
         c_values[j] = c
-        prn && println("Tether $j: ω_n=$(round(ω_n,digits=3)) rad/s,
-                      T_s=$(round(T_s,digits=3)) s, 
-                      ζ=$(round(ζ,digits=4)), c=$(round(c,digits=4)) Ns/m")
     end
 
-    prn && println("Summary of Results:")
     prn && for j in eachindex(tethers)
         println("Tether $(j): k = $(k_values[j]) N/m, c = $(c_values[j]) Ns/m")
     end

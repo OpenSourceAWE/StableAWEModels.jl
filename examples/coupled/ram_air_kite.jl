@@ -24,14 +24,13 @@ steering_freq = 1/2  # Hz - full left-right cycle frequency
 steering_magnitude = 10.0      # Magnitude of steering input [Nm]
 
 # Initialize model
-set = Setttings("base/system.yaml")
-
-@info "Creating SymbolicAWEModel:"
+set = Settings("system.yaml")
+set.profile_law = 3
 sam = SymbolicAWEModel(set)
 SymbolicAWEModels.init!(sam)
 
 find_steady_state!(sam)
-bias = 0.15
+bias = 0.2
 if set.physical_model == "4_attach_ram"
     bias = 0.05
 end

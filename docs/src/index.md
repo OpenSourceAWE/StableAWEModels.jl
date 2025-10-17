@@ -76,7 +76,7 @@ init!(sam)
 Simulate and plot:
 ```julia
 (log, _) = sim_oscillate!(sam)
-plot(sam.sys_struct, log; plot_all=false, plot_heading=true)
+plot(sam.sys_struct, log; plot_default=false, plot_heading=true)
 ```
 
 ![Ram heading](assets/ram_heading.png)
@@ -99,7 +99,7 @@ Simulate and plot:
 ```julia
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
 (simple_log, _) = sim_oscillate!(simple_sam)
-plot(simple_sam.sys_struct, simple_log; plot_all=false, plot_heading=true)
+plot(simple_sam.sys_struct, simple_log; plot_default=false, plot_heading=true)
 ```
 
 ![Simple ram heading](assets/simple_ram_heading.png)

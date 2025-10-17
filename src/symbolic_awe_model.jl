@@ -313,7 +313,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         for winch in winches
             ss.l_tether[winch.idx] = winch.tether_len
             ss.v_reelout[winch.idx] = winch.tether_vel
-            ss.force[winch.idx] = norm(winch.force)
+            ss.winch_force[winch.idx] = norm(winch.force)
             ss.set_torque[winch.idx] = winch.set_value
         end
     end
@@ -346,6 +346,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
         ss.aero_force_b .= wing.aero_force_b
         ss.aero_moment_b .= wing.aero_moment_b
+        ss.tether_induced_moment .= wing.tether_moment
         ss.vel_kite .= wing.vel_w
         # Calculate Roll, Pitch, Yaw from Quaternion
         q = wing.Q_b_w
@@ -481,12 +482,15 @@ function update_sys_struct!(prob::ProbWithAttributes,
         end
     end
     if length(winches) > 0
-        tether_len, tether_vel, set_value, winch_force_vec = prob.get_winch_state(integ)
+        tether_len, tether_vel, tether_acc, set_value, winch_force_vec, friction =
+            prob.get_winch_state(integ)
         for winch in winches
             winch.tether_len = tether_len[winch.idx]
             winch.tether_vel = tether_vel[winch.idx]
+            winch.tether_acc = tether_acc[winch.idx]
             winch.set_value = set_value[winch.idx]
             winch.force .= winch_force_vec[:, winch.idx]
+            winch.friction = friction[winch.idx]
         end
     end
     if length(tethers) > 0
@@ -498,8 +502,9 @@ function update_sys_struct!(prob::ProbWithAttributes,
     if length(wings) > 0
         wing_state = prob.get_wing_state(integ)
         Q_b_w, ω_b, pos_w, vel_w, acc_w, va_b, v_wind, 
-            aero_force_b, aero_moment_b, elevation, elevation_vel,
-            elevation_acc, azimuth, azimuth_vel, azimuth_acc,
+            aero_force_b, aero_moment_b, tether_moment, tether_force,
+            elevation, elevation_vel, elevation_acc,
+            azimuth, azimuth_vel, azimuth_acc,
             heading, turn_rate, turn_acc, course, aoa = wing_state
         for wing in wings
             wing.Q_b_w .= Q_b_w[wing.idx, :]
@@ -511,6 +516,8 @@ function update_sys_struct!(prob::ProbWithAttributes,
             wing.v_wind .= v_wind[wing.idx, :]
             wing.aero_force_b .= aero_force_b[wing.idx, :]
             wing.aero_moment_b .= aero_moment_b[wing.idx, :]
+            wing.tether_moment .= tether_moment[wing.idx, :]
+            wing.tether_force .= tether_force[wing.idx, :]
             wing.elevation = elevation[wing.idx]
             wing.elevation_vel = elevation_vel[wing.idx]
             wing.elevation_acc = elevation_acc[wing.idx]
@@ -543,6 +550,55 @@ function get_model_name(set::Settings; precompile=false)
     end
     dynamics_type = ifelse(set.quasi_static, "static", "dynamic")
     return "model_$(ver)_$(set.physical_model)_$(dynamics_type)_$(set.segments)_seg.bin$suffix"
+end
+
+"""
+    calc_steady_torque(sam::SymbolicAWEModel)
+
+Calculates the torque for each winch that results in zero acceleration (steady state).
+"""
+function calc_steady_torque(sam::SymbolicAWEModel)
+    sys_struct = sam.sys_struct
+    torques = -[winch.drum_radius / winch.gear_ratio * norm(winch.force) +
+                winch.friction for winch in sys_struct.winches]
+    return torques
+end
+
+"""
+    calc_winch_force(tether_vel, tether_acc, motor_torque, set)
+
+Calculate the tensile force on the winch tether based on its motion and motor torque.
+
+This function uses a settings object to define the physical parameters of the winch.
+
+# Arguments
+- `tether_vel`: The velocity of the tether [m/s].
+- `tether_acc`: The acceleration of the tether [m/s²].
+- `motor_torque`: The torque applied by the motor [Nm].
+- `set`: A settings struct.
+
+# Returns
+- The calculated force on the winch tether [N].
+"""
+function calc_winch_force(sys::SystemStructure, tether_vel, tether_acc, set_values)
+    winches = sys.winches
+    function smooth_sign(x)
+        EPSILON = 6
+        x / sqrt(x * x + EPSILON * EPSILON)
+    end
+    winch_force = zeros(length(winches))
+    for i in eachindex(winches)
+        @unpack gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total = winches[i]
+        ω_motor = gear_ratio / drum_radius * tether_vel[i]
+        tau_friction = smooth_sign(ω_motor) *
+                                  f_coulomb * drum_radius / gear_ratio +
+                                  c_vf * ω_motor * drum_radius^2 / gear_ratio^2
+        tau_motor = set_values[i] # set_value is the motor torque
+        α_motor = tether_acc[i] / drum_radius * gear_ratio
+        tau_total = α_motor * inertia_total
+        winch_force[i] = (-tau_motor + tau_total + tau_friction) / drum_radius * gear_ratio
+    end
+    return winch_force
 end
 
 """

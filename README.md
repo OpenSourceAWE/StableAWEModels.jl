@@ -106,7 +106,7 @@ init!(sam)
 
 ```julia
 (log, _) = sim_oscillate!(sam)
-plot(sam.sys_struct, log; plot_all=false, plot_heading=true)
+plot(sam.sys_struct, log; plot_default=false, plot_heading=true)
 ```
 
 ![Ram heading](docs/src/assets/ram_heading.png)
@@ -132,7 +132,7 @@ init!(simple_sam)
 ```julia
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
 (simple_log, _) = sim_oscillate!(simple_sam)
-plot(simple_sam.sys_struct, simple_log; plot_all=false, plot_heading=true)
+plot(simple_sam.sys_struct, simple_log; plot_default=false, plot_heading=true)
 ```
 
 ![Simple ram heading](docs/src/assets/simple_ram_heading.png)
@@ -169,6 +169,21 @@ Uwe Fechner (uwe.fechner.msc@gmail.com)
 This project is licensed under the [MPL-2.0 License](LICENSE).
 
 ---
+
+## Citing SymbolicAWEModels
+
+If you use SymbolicAWEModels in your research, please cite this repository:
+
+```bibtex
+@misc{SymbolicAWEModels,
+  author = {Bart van de Lint, Uwe Fechner, Jelle Poland},
+  title = {{SymbolicAWEModels}: Symbolic airborne wind energy system models},
+  year = {2025},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{[https://github.com/OpenSourceAWE/SymbolicAWEModels.jl]}},
+}
+```
 
 ## Copyright Notice
 

@@ -21,13 +21,13 @@ Each panel can be individually enabled or disabled via keyword arguments.
 - `lg::SysLog`: The simulation log data to be plotted.
 
 # Keyword Arguments
-- `plot_all::Bool=true`: Defaults to true, enabling all plot panels. If false, all panels are disabled.
-- `plot_turn_rates::Bool=plot_all`: Show the panel with the wing's angular velocities (ω_x, ω_y, ω_z).
-- `plot_reelout::Bool=plot_all`: Show the panel with the reel-out velocities of the steering winches.
-- `plot_aero::Bool=plot_all`: Show the panel with the z-components of aerodynamic force and moment.
-- `plot_twist::Bool=plot_all`: Show the panel with the twist angles for each wing group.
-- `plot_aoa::Bool=plot_all`: Show the panel with the angle of attack.
-- `plot_heading::Bool=plot_all`: Show the panel with the kite's heading angle.
+- `plot_default::Bool=true`: Defaults to true, enabling all plot panels. If false, all panels are disabled.
+- `plot_turn_rates::Bool=plot_default`: Show the panel with the wing's angular velocities (ω_x, ω_y, ω_z).
+- `plot_reelout::Bool=plot_default`: Show the panel with the reel-out velocities of the steering winches.
+- `plot_aero::Bool=plot_default`: Show the panel with the z-components of aerodynamic force and moment.
+- `plot_twist::Bool=plot_default`: Show the panel with the twist angles for each wing group.
+- `plot_aoa::Bool=plot_default`: Show the panel with the angle of attack.
+- `plot_heading::Bool=plot_default`: Show the panel with the kite's heading angle.
 
 # Example
 ```julia
@@ -36,14 +36,19 @@ plot(model.sys_struct, log, plot_turn_rates=false, plot_reelout=false, plot_aero
 ```
 """
 function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
-                           plot_all=true,
-                           plot_turn_rates=plot_all,
-                           plot_reelout=plot_all,
-                           plot_aero=plot_all,
-                           plot_twist=plot_all,
-                           plot_aoa=plot_all,
-                           plot_heading=plot_all,
-                           plot_force=plot_all,
+                           plot_default=true,
+                           plot_reelout=plot_default,
+                           plot_aero_force=plot_default,
+                           plot_twist=plot_default,
+                           plot_aoa=plot_default,
+                           plot_heading=plot_default,
+                           plot_aero_moment=false,
+                           plot_turn_rates=false,
+                           plot_elevation=false,
+                           plot_azimuth=false,
+                           plot_tether_moment=false,
+                           plot_winch_force=plot_default,
+                           plot_set_values=false,
                            suffix=" - " * sys.name)
     sl = lg.syslog
 
@@ -67,12 +72,25 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
         push!(plot_ylabels, L"v_{ro}~[m/s]")
     end
 
-    if plot_aero
+    if plot_aero_force
         aero_force_z = [sl.aero_force_b[i][3] for i in eachindex(sl.aero_force_b)]
-        aero_moment_z = [sl.aero_moment_b[i][3] for i in eachindex(sl.aero_moment_b)]
-        push!(plot_data, [aero_force_z, aero_moment_z])
-        push!(plot_labels, [L"F_{aero,z}"*suffix, L"M_{aero,z}"*suffix])
-        push!(plot_ylabels, "aero F/M")
+        push!(plot_data, [aero_force_z])
+        push!(plot_labels, [L"F_{aero,z}"*suffix])
+        push!(plot_ylabels, "aero F [N]")
+    end
+
+    if plot_aero_moment
+        moment_y = [sl.aero_moment_b[i][2] for i in eachindex(sl.aero_moment_b)]
+        push!(plot_data, [moment_y])
+        push!(plot_labels, [L"M_{aero,y}"*suffix])
+        push!(plot_ylabels, "aero M [Nm]")
+    end
+
+    if plot_tether_moment
+        moment_y = [sl.tether_induced_moment[i][2] for i in eachindex(sl.tether_moment)]
+        push!(plot_data, [moment_y])
+        push!(plot_labels, [L"M_{tether,y}"*suffix])
+        push!(plot_ylabels, "tether M [Nm]")
     end
 
     if plot_twist && !isempty(sys.groups)
@@ -97,11 +115,32 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
         push!(plot_ylabels, "heading [°]")
     end
 
-    if plot_force
-        winch_force = [[sl.force[i][j] for i in eachindex(sl.force)] for j in 1:3]
+    if plot_elevation
+        elevation_deg = rad2deg.(sl.elevation)
+        push!(plot_data, [elevation_deg])
+        push!(plot_labels, ["elevation"*suffix])
+        push!(plot_ylabels, "elevation [°]")
+    end
+
+    if plot_azimuth
+        azimuth_deg = rad2deg.(sl.azimuth)
+        push!(plot_data, [azimuth_deg])
+        push!(plot_labels, ["azimuth"*suffix])
+        push!(plot_ylabels, "azimuth [°]")
+    end
+
+    if plot_winch_force
+        winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
         push!(plot_data, winch_force)
         push!(plot_labels, [L"F_{winch,1}"*suffix, L"F_{winch,2}"*suffix, L"F_{winch,3}"*suffix])
         push!(plot_ylabels, "Winch force [N]")
+    end
+
+    if plot_set_values
+        set_values = [[sl.set_torque[i][j] for i in eachindex(sl.set_torque)] for j in 1:3]
+        push!(plot_data, set_values)
+        push!(plot_labels, [L"Τ_{winch,1}"*suffix, L"Τ_{winch,2}"*suffix, L"Τ_{winch,3}"*suffix])
+        push!(plot_ylabels, "Set torque [Nm]")
     end
 
     # Only create a plot if there is data to show
@@ -109,10 +148,6 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
         @warn "No plot sections enabled. Nothing to display."
         return
     end
-
-    # Calculate a dynamic figure height based on the number of subplots
-    num_plots = length(plot_ylabels)
-    dynamic_ysize = max(5, num_plots * 2.5) # At least 5, plus 2.5 for each subplot
 
     # Call the plotx function with the dynamically built arguments
     ControlPlots.plotx(sl.time,

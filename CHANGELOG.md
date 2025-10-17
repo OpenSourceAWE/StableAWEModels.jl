@@ -3,12 +3,15 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
-# v0.4.2 ???
+# v0.5.0 25-08-2024
+## Removed
+- BREAKING: the Winch struct doesn't have a model field anymore. Instead, all equations are symbolic, and the WinchModels dependency is removed.
 ## Added
-- new example files, testing the workings of the structural solver: #file:hanging_mass.jl , #file:simple_pulley.jl #file:catenary_line.jl #file:tether_deflection_by_wind.jl #file:catenary_line.jl
-cmd:
-JULIA_PKG_PRECOMPILE_AUTO=0 ./bin/run_julia --precompile false --copy-manifest false -e 'include("examples/menu.jl")'
+- The function `calc_steady_torque` calculates the torque that will result in zero acceleration.
 
+# v0.4.2 24-08-2024
+## Fixed
+- Don't write protect manifest
 
 # v0.4.1 13-08-2025
 ## Fixed

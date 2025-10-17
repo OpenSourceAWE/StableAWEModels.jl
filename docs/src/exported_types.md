@@ -56,7 +56,8 @@ Pulley(idx, segment_idxs, type)
 Tether
 Tether(idx, segment_idxs, winch_idx)
 Winch
-Winch(idx, model, tether_idxs; tether_len, tether_vel, brake)
+Winch(idx, set::Settings, tether_idxs; tether_len, tether_vel, brake)
+Winch(idx, tether_idxs, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; tether_len, tether_vel, brake)
 Wing
 Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; transform_idx)
 Transform

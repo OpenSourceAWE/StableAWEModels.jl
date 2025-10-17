@@ -41,7 +41,6 @@ using SteadyStateDiffEq
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
-using WinchModels
 
 #======================================================================#
 #                  IMPORTS (for extending functions)
@@ -71,7 +70,7 @@ export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 
 # --- High-Level Simulation Functions (Workers) ---
-export sim!, sim_oscillate!, sim_turn!
+export sim!, sim_oscillate!, sim_turn!, sim_reposition!
 
 # --- Low-Level Simulation Functions ---
 export find_steady_state!

@@ -30,5 +30,5 @@ bias = 0.2
 
 lin_model = linearize!(simple_sam)
 sl, lin_sl = sim_oscillate!(simple_sam; total_time=1.0, prn=true, bias, lin_model)
-display(plot(simple_sam.sys_struct, sl; plot_all=false, plot_heading=true, suffix=" - simple"))
-display(plot(simple_sam.sys_struct, lin_sl; plot_all=false, plot_heading=true, suffix=" - lin"))
+display(plot(simple_sam.sys_struct, sl; plot_default=false, plot_heading=true, suffix=" - simple"))
+display(plot(simple_sam.sys_struct, lin_sl; plot_default=false, plot_heading=true, suffix=" - lin"))

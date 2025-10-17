@@ -137,7 +137,7 @@ p = plot(n_states_vec, creation_times, label="Model Creation (create_sys!)",
          ylabel="Time (s)",
          title="SymbolicAWEModels.jl Performance",
          legend=:topleft,
-         size=(900,600),
+         size=(900,900),
          marker=:circle)
 
 plot!(p, n_states_vec, compilation_times, label="Symbolic Compilation (mtkcompile)", marker=:circle)
@@ -148,7 +148,7 @@ plot!(p, n_states_vec, solve_times, label="Solve Time (1s sim)", marker=:circle)
 plot!(p, n_states_vec, total_times, label="Total Initial Time", linewidth=3, linestyle=:dash)
 
 display(p)
-savefig(joinpath(get_data_path(), "symbolic_awe_benchmark.png"))
+savefig(joinpath(get_data_path(), "symbolic_awe_benchmark.pdf"))
 
 # --- Appendix: Computer Information ---
 println("\n\n--- Appendix ---")

@@ -214,6 +214,7 @@ mutable struct Group
     const y_airf::KVec3 # spanwise vector in local panel frame which the group rotates around under wing deformation
     const type::DynamicsType
     moment_frac::SimFloat
+    damping::SimFloat
     twist::SimFloat
     twist_ω::SimFloat
     tether_force::SimFloat
@@ -262,11 +263,11 @@ The group can have two [`DynamicsType`](@ref)s:
 # Returns
 - `Group`: A new `Group` object with twist dynamics capability.
 """
-function Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac)
+function Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac; damping=50.0)
     le_pos = [vsm_wing.le_interp[i](gamma) for i in 1:3]
     chord = [vsm_wing.te_interp[i](gamma) for i in 1:3] .- le_pos
     y_airf = normalize([vsm_wing.le_interp[i](gamma-0.01) for i in 1:3] - le_pos)
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, 0.0, 0.0, 0.0, 0.0, 0.0)
+    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, damping, 0.0, 0.0, 0.0, 0.0, 0.0)
 end
 
 """
@@ -274,8 +275,8 @@ end
 
 Inner constructor for a `Group` object. See [`Group`](@ref) for details.
 """
-function Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac)
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, 0.0, 0.0)
+function Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac; damping=50.0)
+    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, damping, 0.0, 0.0, 0.0, 0.0, 0.0)
 end
 
 """
@@ -504,17 +505,23 @@ $(TYPEDFIELDS)
 """
 mutable struct Winch
     const idx::Int16
-    const model::AbstractWinchModel
     const tether_idxs::Vector{Int16}
     tether_len::Union{SimFloat, Nothing}
     tether_vel::SimFloat
+    tether_acc::SimFloat
     set_value::SimFloat
     brake::Bool
     const force::KVec3
+    gear_ratio::SimFloat
+    drum_radius::SimFloat
+    f_coulomb::SimFloat
+    c_vf::SimFloat
+    inertia_total::SimFloat
+    friction::SimFloat
 end
 
 """
-    Winch(idx, model, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
+    Winch(idx, set, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
 
 Constructs a `Winch` object that controls tether length through torque or speed regulation.
 
@@ -527,7 +534,7 @@ see the [WinchModels.jl documentation](https://github.com/aenarete/WinchModels.j
 
 # Arguments
 - `idx::Int16`: Unique identifier for the winch.
-- `model::AbstractWinchModel`: The winch model (`TorqueControlledMachine`, etc.).
+- `set::Settings`: The main settings object, used to retrieve winch parameters.
 - `tether_idxs::Vector{Int16}`: Vector of indices of the tethers connected to this winch.
 
 # Keyword Arguments
@@ -538,8 +545,41 @@ see the [WinchModels.jl documentation](https://github.com/aenarete/WinchModels.j
 # Returns
 - `Winch`: A new `Winch` object.
 """
-function Winch(idx, model, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
-    return Winch(idx, model, tether_idxs, tether_len, tether_vel, 0.0, brake, zeros(KVec3))
+function Winch(idx, set::Settings, tether_idxs; tether_len=0.0, tether_vel=0.0, brake=false)
+    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, 0.0, brake, zeros(KVec3),
+                 set.gear_ratio, set.drum_radius, set.f_coulomb, set.c_vf,
+                 set.inertia_total, zero(SimFloat))
+end
+
+"""
+    Winch(idx, tether_idxs, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; tether_len=0.0, tether_vel=0.0, brake=false)
+
+Constructs a `Winch` object by directly providing its physical parameters.
+
+This constructor is an alternative to creating a winch from a `Settings` object,
+allowing for more modular or programmatic creation of winch components.
+
+# Arguments
+- `idx::Int16`: Unique identifier for the winch.
+- `tether_idxs::Vector{Int16}`: Vector of indices of the tethers connected to this winch.
+- `gear_ratio::SimFloat`: The gear ratio of the winch.
+- `drum_radius::SimFloat`: The radius of the winch drum [m].
+- `f_coulomb::SimFloat`: Coulomb friction force [N].
+- `c_vf::SimFloat`: Viscous friction coefficient [Ns/m].
+- `inertia_total::SimFloat`: Total inertia of the motor, gearbox, and drum [kgm²].
+
+# Keyword Arguments
+- `tether_len::SimFloat=0.0`: Initial tether length [m].
+- `tether_vel::SimFloat=0.0`: Initial tether velocity (reel-out rate) [m/s].
+- `brake::Bool=false`: If true, the winch brake is engaged.
+
+# Returns
+- `Winch`: A new `Winch` object.
+"""
+function Winch(idx, tether_idxs, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total;
+               tether_len=0.0, tether_vel=0.0, brake=false)
+    return Winch(idx, tether_idxs, tether_len, tether_vel, 0.0, 0.0, brake, zeros(KVec3),
+                 gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total, zero(SimFloat))
 end
 
 """
@@ -589,10 +629,13 @@ mutable struct Wing
     const vsm_x::Vector{SimFloat}
     const vsm_jac::Matrix{SimFloat}
     const wind_disturb::KVec3
+    drag_frac::SimFloat
     const va_b::KVec3 # apparent wind in body frame
     const v_wind::KVec3 # wind velocity in world frame at the wing
     const aero_force_b::KVec3 # aerodynamic force in body frame
     const aero_moment_b::KVec3 # aerodynamic moment in body frame
+    const tether_moment::KVec3 # tether moment in world frame
+    const tether_force::KVec3 # tether force in world frame
     elevation::SimFloat
     elevation_vel::SimFloat
     elevation_acc::SimFloat
@@ -605,6 +648,8 @@ mutable struct Wing
     course::SimFloat
     aoa::SimFloat
     fix_sphere::Bool
+    y_damping::SimFloat
+    z_disturb::SimFloat
 end
 function Base.getproperty(wing::Wing, sym::Symbol)
     if sym == :R_b_w
@@ -658,8 +703,7 @@ Points attached to the wing transform as: ``\\mathbf{r}_w = \\mathbf{r}_{wing} +
 - `Wing`: A new `Wing` object providing a rigid body reference frame.
 """
 function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; 
-    transform_idx=1
-)
+              transform_idx=1, y_damping=150.0)
     ny = length(group_idxs)+3+3
     nx = length(group_idxs)+3+3
     return Wing(idx, 
@@ -671,9 +715,12 @@ function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad;
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
         # Derived variables and parameters, updated during simulation
         zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), one(SimFloat),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
-        zeros(KVec3), zeros(KVec3), 0.0, 0.0, false)
+        zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
+        y_damping, 0.0)
 end
 
 """
@@ -807,6 +854,7 @@ mutable struct SystemStructure
     const x::Array{Float64, 2}
     const jac::Array{Float64, 3}
     const wind_vec_gnd::KVec3
+    wind_elevation::SimFloat
     stabilize::Bool
     fix_wing::Bool
 end
@@ -886,7 +934,7 @@ function SystemStructure(name, set;
     jac = zeros(length(wings), nx, ny)
     set.physical_model = name
     sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
-        winches, wings, transforms, y, x, jac, zeros(KVec3), false, false)
+        winches, wings, transforms, y, x, jac, zeros(KVec3), 0.0, false, false)
     reinit!(sys_struct, set)
     return sys_struct
 end
@@ -931,10 +979,9 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
 
         # ==================== ROTATE ==================== #
         curr_rot_pos = get_rot_pos(transform, wings, points)
-        curr_elevation = KiteUtils.calc_elevation(curr_rot_pos - base_pos)
-        curr_azimuth = -KiteUtils.azimuth_east(curr_rot_pos - base_pos)
-        curr_R_t_w = calc_R_t_w(curr_elevation, curr_azimuth)
-        R_t_w = calc_R_t_w(transform.elevation, transform.azimuth)
+        curr_R_t_w = calc_R_t_w(curr_rot_pos - base_pos)
+        transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation), -transform.azimuth)
+        R_t_w = calc_R_t_w(transform_pos)
 
         for point in points
             if point.transform_idx == transform.idx
@@ -953,6 +1000,63 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
                 R_b_w = zeros(3,3)
                 for i in 1:3
                     R_b_w[:, i] .= apply_heading(wing.R_b_c[:, i], R_t_w, curr_R_t_w, transform.heading)
+                end
+                wing.R_b_w = R_b_w
+            end
+        end
+    end
+end
+
+"""
+    reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+
+Update the system's spatial orientation based on its current position, preserving velocities.
+
+This function adjusts the orientation of all components in the `SystemStructure` without
+altering their dynamic state. Unlike `reinit!`, it uses the current world positions (`pos_w`)
+as the starting point for rotations, rather than resetting from the CAD coordinates.
+
+This function is useful for making real-time adjustments to the system's pose during a simulation.
+Crucially, it **preserves the existing velocities (`vel_w`) of all points and wings**.
+
+NOTE: the transform.heading is applied relative to the current heading of the system.
+
+# Arguments
+- `sys_struct::SystemStructure`: The system model to update.
+"""
+function reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+    @unpack points, wings = sys_struct
+    for transform in transforms
+        # Get the current positions of the base and the rotating object
+        base_pos = points[transform.base_point_idx].pos_w
+        rot_pos = get_rot_pos(transform, wings, points)
+
+        # Calculate the current orientation in spherical coordinates
+        curr_rel_pos = rot_pos - base_pos
+        curr_R_t_w = calc_R_t_w(curr_rel_pos)
+        transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation), -transform.azimuth)
+        R_t_w = calc_R_t_w(transform_pos)
+
+        # Apply the rotation to all relevant points
+        for point in points
+            if point.transform_idx == transform.idx
+                vec = point.pos_w - base_pos
+                point.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
+            end
+        end
+
+        # Apply the rotation to all relevant wings
+        for wing in wings
+            if wing.transform_idx == transform.idx
+                # Rotate the wing's position
+                vec = wing.pos_w - base_pos
+                wing.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
+
+                # Rotate the wing's orientation matrix
+                R_b_w = zeros(3,3)
+                current_R_b_w = wing.R_b_w
+                for i in 1:3
+                    R_b_w[:, i] .= apply_heading(current_R_b_w[:, i], R_t_w, curr_R_t_w, transform.heading)
                 end
                 wing.R_b_w = R_b_w
             end
@@ -982,8 +1086,8 @@ This function builds a tether from a specified number of segments, connecting a 
 """
 function create_tether(tether_idx, set, points, segments, tethers, attach_point, 
                        type, dynamics_type; z=[0,0,1], axial_stiffness=NaN, 
-                       axial_damping=NaN)
-    winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z)
+                       axial_damping=NaN, d_pos=zeros(3))
+    winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z) .+ d_pos
     dir = winch_pos - attach_point.pos_cad
     segment_idxs = Int16[]
     winch_idx = 0

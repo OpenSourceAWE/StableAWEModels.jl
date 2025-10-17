@@ -28,7 +28,7 @@ set = Settings("ram_air_kite/system.yaml")
 set_values = [-50.0, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 
 @info "Creating SymbolicAWEModel..."
-s = SymbolicAWEModel(set)
+sam = SymbolicAWEModel(set)
 toc()
 
 # Define outputs for linearization - heading
@@ -42,20 +42,19 @@ outputs = [heading[1], angle_of_attack[1], tether_len[1], winch_force[1]]
 @info "Linear outputs: $outputs"
 
 # Initialize at elevation with linearization outputs
-SymbolicAWEModels.init!(s; outputs)
-sys = s.sys
+SymbolicAWEModels.init!(sam; outputs)
 
 @info "System initialized at:"
 toc()
 
 # --- Stabilize system at operating point ---
 @info "Stabilizing system at operating point..."
-find_steady_state!(s)
+find_steady_state!(sam)
 
 # --- Linearize at operating point ---
 @info "Linearizing system at operating point..."
-(; A, B, C, D) = SymbolicAWEModels.linearize!(s)
-@time (; A, B, C, D) = SymbolicAWEModels.linearize!(s)
+(; A, B, C, D) = SymbolicAWEModels.linearize!(sam)
+@time (; A, B, C, D) = SymbolicAWEModels.linearize!(sam)
 @info "System linearized with matrix dimensions:" A=size(A) B=size(B) C=size(C) D=size(D)
 
 sys = ss(A,B,C,D)

@@ -16,6 +16,7 @@ These functions provide convenient wrappers for running common simulation scenar
 sim!
 sim_oscillate!
 sim_turn!
+sim_reposition!
 ```
 
 ## Low-Level Simulation and Analysis

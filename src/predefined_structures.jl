@@ -156,9 +156,9 @@ function create_4_attach_ram_sys_struct(set::Settings)
                       STEERING_LINE, dynamics_type; z)
 
     winches = [
-        Winch(1, TorqueControlledMachine(set), [left_power_idx, right_power_idx])
-        Winch(2, TorqueControlledMachine(set), [left_steering_idx])
-        Winch(3, TorqueControlledMachine(set), [right_steering_idx])
+        Winch(1, set, [left_power_idx, right_power_idx])
+        Winch(2, set, [left_steering_idx])
+        Winch(3, set, [right_steering_idx])
     ]
 
     vsm_aero = BodyAerodynamics([vsm_wing])
@@ -191,7 +191,7 @@ The model features:
 # Returns
 - `SystemStructure`: A new `SystemStructure` object representing the "ram" model.
 """
-function create_ram_sys_struct(set::Settings)
+function create_ram_sys_struct(set::Settings; d_winch_pos=[zeros(3), zeros(3)])
     vsm_wing = RamAirWing(set; prn=false)
     points = Point[]
     groups = Group[]
@@ -293,15 +293,15 @@ function create_ram_sys_struct(set::Settings)
                       POWER_LINE, dynamics_type; z)
     points, segments, tethers, left_steering_idx =
         create_tether(3, set, points, segments, tethers, attach_points[2], 
-                      STEERING_LINE, dynamics_type; z)
+                      STEERING_LINE, dynamics_type; z, d_pos=d_winch_pos[1])
     points, segments, tethers, right_steering_idx =
         create_tether(4, set, points, segments, tethers, attach_points[4], 
-                      STEERING_LINE, dynamics_type; z)
+                      STEERING_LINE, dynamics_type; z, d_pos=d_winch_pos[2])
 
     winches = [
-        Winch(1, TorqueControlledMachine(set), [left_power_idx, right_power_idx])
-        Winch(2, TorqueControlledMachine(set), [left_steering_idx])
-        Winch(3, TorqueControlledMachine(set), [right_steering_idx])
+        Winch(1, set, [left_power_idx, right_power_idx])
+        Winch(2, set, [left_steering_idx])
+        Winch(3, set, [right_steering_idx])
     ]
 
     vsm_aero = BodyAerodynamics([vsm_wing])
@@ -361,9 +361,9 @@ function create_tether_sys_struct(set::Settings;
                       axial_stiffness=axial_stiffness[4], axial_damping=axial_damping[4])
     
     winches = [
-        Winch(1, TorqueControlledMachine(set), [left_power_idx, right_power_idx]; brake=true)
-        Winch(2, TorqueControlledMachine(set), [left_steering_idx]; brake=true)
-        Winch(3, TorqueControlledMachine(set), [right_steering_idx]; brake=true)
+        Winch(1, set, [left_power_idx, right_power_idx]; brake=true)
+        Winch(2, set, [left_steering_idx]; brake=true)
+        Winch(3, set, [right_steering_idx]; brake=true)
     ]
     
     transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
@@ -433,9 +433,9 @@ function create_simple_ram_sys_struct(set::Settings;
         Tether(4, [4], 8)
     ]
     winches = [
-        Winch(1, TorqueControlledMachine(set), [1,2])
-        Winch(2, TorqueControlledMachine(set), [3])
-        Winch(3, TorqueControlledMachine(set), [4])
+        Winch(1, set, [1,2])
+        Winch(2, set, [3])
+        Winch(3, set, [4])
     ]
     vsm_aero = BodyAerodynamics([vsm_wing])
     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
