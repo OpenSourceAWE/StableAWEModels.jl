@@ -196,8 +196,65 @@ default model, at a much better performance.
 
 ![Oscillating steering input response, simple system](assets/oscillating_steering_simple.png)
 
+## Real-Time 3D Visualization
+
+The `realtime_visualization.jl` example demonstrates how to create a custom simulation loop with real-time 3D visualization. This is useful for:
+- Watching system behavior as it evolves
+- Debugging dynamics issues visually
+- Creating demonstrations and videos
+- Better understanding system response
+
+**Key Features:**
+- Observable-based updates for smooth animation
+- Proper sleep timing to maintain real-time speed
+- Interactive camera control during simulation
+- Configurable visualization frame rate and speed
+
+**Usage:**
+```julia
+include("examples/realtime_visualization.jl")
+```
+
+**How It Works:**
+
+The example creates `Observable` objects for dynamic data (point positions, wing orientations, etc.) and updates them during the simulation loop:
+
+```julia
+# Create observables
+point_positions = Observable([Point3f(p.pos_w) for p in sys_struct.points])
+
+# In simulation loop:
+for step in 1:steps
+    # Run simulation step
+    next_step!(sam; ...)
+
+    # Update visualization
+    if step % plot_interval == 0
+        point_positions[] = [Point3f(p.pos_w) for p in sys_struct.points]
+        sleep(0.001)  # Allow Makie to process events
+    end
+
+    # Sleep to maintain real-time pacing
+    sleep(max(0.0, target_time - elapsed_time))
+end
+```
+
+**Configuration:**
+- `realtime_factor`: Set to 2.0 for 2x speed, 0.5 for half speed, etc.
+- `plot_interval`: Update plot every N steps (higher = better performance)
+- `dt`: Simulation time step
+
+**When to Use:**
+- Use **real-time visualization** when you want to observe behavior as it happens
+- Use **post-simulation plotting** (`plot(sys_struct, log)`) when you want to:
+  - Run simulations faster than real-time
+  - Analyze results in detail after completion
+  - Create publication-quality plots
+
+See: [`realtime_visualization.jl`](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/main/examples/realtime_visualization.jl)
+
 ## Linearization
-The following example creates a nonlinear system model, finds a steady-state operating point, 
+The following example creates a nonlinear system model, finds a steady-state operating point,
 linearizes the model around this operating point and creates bode plots from inputs (torques)
 to output (heading).
 ```julia

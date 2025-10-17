@@ -89,6 +89,7 @@ export tether_length
 
 # --- Helper Functions ---
 export init_module
+export update_plot_observables!
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -120,6 +121,7 @@ const SVec3    = SVector{3, SimFloat}
 function plot end
 # Defined in ext/SymbolicAWEModelsMakieExt.jl
 function plot! end
+function update_plot_observables! end
 
 function __init__()
     if isdir(joinpath(pwd(), "data")) && isfile(joinpath(pwd(), "data", "system.yaml"))
