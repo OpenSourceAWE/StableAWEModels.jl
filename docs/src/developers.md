@@ -112,13 +112,47 @@ cp LocalPreferences.toml.default LocalPreferences.toml
 
 **Note:** Remember to delete `LocalPreferences.toml` if you make changes to the precompilation workload itself.
 
+### Running Examples During Development
+
+When developing the package, you'll want to test your changes with the examples. Here's how to set up the examples to use your local development version:
+
+1. From the package root directory, start Julia with the examples project:
+```bash
+julia --project=examples
+```
+
+2. Add your local development version:
+```julia
+using Pkg
+pkg"dev ."
+```
+
+This command tells Julia to use the local source code in the current directory (`.`) instead of the registered package version. Now any changes you make to the source code will be immediately reflected when you run the examples (especially useful with Revise.jl).
+
+The `examples/Project.toml` file already contains the necessary dependencies:
+- `GLMakie` - for visualization
+- `KiteUtils` - for utility functions
+- `SymbolicAWEModels` - the package itself
+
+You can now run examples directly:
+```julia
+include("simple_tuned_model.jl")
+```
+
+**Alternative approach:** You can also navigate into the examples directory first:
+```bash
+cd examples
+julia --project=.
+```
+Then use `pkg"dev .."` to reference the parent directory.
+
 -----
 
 ## Coding Style Guidelines
 
 Please adhere to the following style guidelines to maintain code quality and readability:
 
-  - **Environment:** Add packages like `TestEnv` and `Revise` to your global Julia environment, not to the project's `Project.toml`.
+  - **Environment:** Add packages like `Revise` to your global Julia environment, not to the project's `Project.toml`.
   - **No Magic Numbers:** Avoid hard-coded values (e.g., `9.81`). Define them as constants (e.g., `G_EARTH`) or read them from a configuration file.
   - **Line Length:** Keep lines under 100 characters, including in documentation.
   - **Operators:**

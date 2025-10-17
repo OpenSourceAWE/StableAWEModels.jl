@@ -859,6 +859,103 @@ mutable struct SystemStructure
     fix_wing::Bool
 end
 
+function Base.getproperty(sys::SystemStructure, sym::Symbol)
+    if sym == :diff_vars
+        vars = SimFloat[]
+        # points
+        for point in sys.points
+            if point.type == DYNAMIC
+                append!(vars, point.pos_w)
+                append!(vars, point.vel_w)
+            end
+        end
+        # wings
+        for wing in sys.wings
+            append!(vars, wing.pos_w)
+            append!(vars, wing.vel_w)
+            append!(vars, wing.Q_b_w)
+            append!(vars, wing.ω_b)
+        end
+        # groups
+        for group in sys.groups
+            if group.type == DYNAMIC
+                push!(vars, group.twist)
+                push!(vars, group.twist_ω)
+            end
+        end
+        # pulleys
+        for pulley in sys.pulleys
+            if pulley.type == DYNAMIC
+                push!(vars, pulley.len)
+                push!(vars, pulley.vel)
+            end
+        end
+        # winches
+        for winch in sys.winches
+            push!(vars, winch.tether_len)
+            push!(vars, winch.tether_vel)
+        end
+        return reshape(vars, :, 1) # Return as a column vector (2D array)
+    else
+        return getfield(sys, sym)
+    end
+end
+
+function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
+    if sym == :diff_vars
+        flat_value = vec(value) # Ensure value is a flat vector
+        offset = 1
+        # points
+        for point in sys.points
+            if point.type == DYNAMIC
+                point.pos_w .= @view flat_value[offset:offset+2]
+                offset += 3
+                point.vel_w .= @view flat_value[offset:offset+2]
+                offset += 3
+            end
+        end
+        # wings
+        for wing in sys.wings
+            wing.pos_w .= @view flat_value[offset:offset+2]
+            offset += 3
+            wing.vel_w .= @view flat_value[offset:offset+2]
+            offset += 3
+            wing.Q_b_w .= @view flat_value[offset:offset+3]
+            offset += 4
+            wing.ω_b .= @view flat_value[offset:offset+2]
+            offset += 3
+        end
+        # groups
+        for group in sys.groups
+            if group.type == DYNAMIC
+                group.twist = flat_value[offset]
+                offset += 1
+                group.twist_ω = flat_value[offset]
+                offset += 1
+            end
+        end
+        # pulleys
+        for pulley in sys.pulleys
+            if pulley.type == DYNAMIC
+                pulley.len = flat_value[offset]
+                offset += 1
+                pulley.vel = flat_value[offset]
+                offset += 1
+            end
+        end
+        # winches
+        for winch in sys.winches
+            winch.tether_len = flat_value[offset]
+            offset += 1
+            winch.tether_vel = flat_value[offset]
+            offset += 1
+        end
+        return value
+    else
+        return setfield!(sys, sym, value)
+    end
+end
+
 """
     SystemStructure(name, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 

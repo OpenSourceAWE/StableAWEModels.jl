@@ -1,12 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-using Pkg
-if ("TestEnv" ∈ keys(Pkg.project().dependencies))
-    if ! ("Documents" ∈ keys(Pkg.project().dependencies))
-        using TestEnv; TestEnv.activate()
-    end
-end
 using ControlPlots, VortexStepMethod
 using SymbolicAWEModels
 using Documenter

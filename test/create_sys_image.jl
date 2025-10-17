@@ -1,11 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-using Pkg
-if ! ("PackageCompiler" ∈ keys(Pkg.project().dependencies))
-    using TestEnv; TestEnv.activate()
-    Pkg.update()
-end
 using PackageCompiler, BenchmarkTools, Documenter
 
 @info "Creating sysimage ..."

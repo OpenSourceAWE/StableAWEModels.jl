@@ -1,7 +1,7 @@
 name = "SymbolicAWEModels"
 uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
-authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
 version = "0.5.0"
+authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
 
 [deps]
 AtmosphericModels = "c59cac55-771d-4f45-b14d-1c681463a295"
@@ -52,9 +52,11 @@ VortexStepMethod = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
 
 [weakdeps]
 ControlPlots = "23c2ee80-7a9e-4350-b264-8e670f12517c"
+Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
 [extensions]
 SymbolicAWEModelsControlPlotsExt = "ControlPlots"
+SymbolicAWEModelsMakieExt = "Makie"
 
 [compat]
 Aqua = "0.8.13"
@@ -72,6 +74,7 @@ KiteUtils = "0.11.0"
 LaTeXStrings = "1.4.0"
 LinearAlgebra = "1"
 LinearSolve = "2 - 3.24"
+Makie = "0.24.6"
 ModelingToolkit = "~10.16"
 NonlinearSolve = "4.8.0"
 OpenSSL_jll = "3.0.16"
@@ -106,17 +109,17 @@ Tar = "1.10.0"
 Test = "1"
 Timers = "0.1.5"
 UnPack = "1.0.2"
-VortexStepMethod = "2.2.0"
+VortexStepMethod = "2.3.0"
 julia = "1"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-ControlPlots = "23c2ee80-7a9e-4350-b264-8e670f12517c"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "BenchmarkTools", "Documenter", "ControlPlots", "StatsBase", "Aqua", "TOML"]
+test = ["Test", "BenchmarkTools", "Documenter", "Makie", "StatsBase", "Aqua", "TOML"]

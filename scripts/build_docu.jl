@@ -20,10 +20,5 @@ if !("LiveServer" in globaldependencies())
     run(`julia -e 'using Pkg; Pkg.add("LiveServer")'`)
 end
 
-if !("Documenter" ∈ keys(Pkg.project().dependencies))
-    using TestEnv
-    TestEnv.activate()
-end
-
 ENV["SAM_PRECOMPILE"] = "false"
 using LiveServer; servedocs(launch_browser=true)

@@ -4,19 +4,14 @@
 using Timers
 tic()
 @info "Loading packages "
+using GLMakie
 using SymbolicAWEModels
 
-PLOT = false
-using Pkg
-if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
-    using TestEnv; TestEnv.activate()
-end
-using ControlPlots, LaTeXStrings
 toc()
 
 # Simulation parameters
 dt = 0.05
-total_time = 10.0  # Longer simulation to see oscillations
+total_time = 10.0
 vsm_interval = 3
 
 # Steering parameters
@@ -24,16 +19,19 @@ steering_freq = 1/2  # Hz - full left-right cycle frequency
 steering_magnitude = 10.0      # Magnitude of steering input [Nm]
 
 # Initialize model
+set_data_path("../data")
 set = Settings("system.yaml")
 set.profile_law = 3
 sam = SymbolicAWEModel(set)
 SymbolicAWEModels.init!(sam)
+plot(sam.sys_struct)
 
 find_steady_state!(sam)
 bias = 0.2
 if set.physical_model == "4_attach_ram"
     bias = 0.05
 end
+
 sl, _ = sim_oscillate!(sam; dt, total_time, vsm_interval, steering_freq, steering_magnitude, 
-                         bias, prn=true)
+                       bias, prn=true)
 display(plot(sam.sys_struct, sl))
