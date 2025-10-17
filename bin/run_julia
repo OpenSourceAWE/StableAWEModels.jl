@@ -11,15 +11,17 @@
 #
 # For developers:
 # To disable precompilation during development, use:
-# ./bin/run_julia --precompile false
+# ./bin/run_julia --no-precompile
 # You should create an alias for this ;)
 # In my config.fish I have:
-# alias jd './bin/run_julia --precompile false'
+# alias jd './bin/run_julia --no-precompile'
 # alias jl './bin/run_julia'
 #
 # Advanced usage:
-# You can optionally copy a default manifest file for a reproducible environment:
-# ./bin/run_julia --copy-manifest true
+# --copy-manifest: Copy a default manifest file for a reproducible environment
+# --project=<path>: Set project path (default: examples)
+#                   Examples: --project=examples, --project=., --project=test
+# --dev: Enable dev mode (runs ]dev ., otherwise runs ]add .)
 
 # Ensure the script runs from the project root
 if [[ $(basename "$(pwd)") == "bin" ]]; then
@@ -32,6 +34,9 @@ export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
 final_args=()
 # Default values
 copy_manifest=false  # Don't copy manifest by default - let Pkg.jl resolve naturally
+project_path="examples"  # Default project path for dev
+dev=false  # Don't dev by default
+resolve=false  # Don't resolve packages by default
 # By default, SAM_PRECOMPILE is not set, which allows precompilation.
 # Setting it to "false" will disable it.
 
@@ -55,27 +60,22 @@ fi
 # Parse all arguments, handle script-specific flags, and collect the rest for Julia
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -cm|--copy-manifest)
-      if [[ -z "$2" || "$2" == -* ]]; then
-        echo "Error: '$1' requires a 'true' or 'false' value." >&2
-        exit 1
-      fi
-      copy_manifest="$2"
-      shift # past key
-      shift # past value
+    --copy-manifest)
+      copy_manifest=true
+      shift
       ;;
-    -p|--precompile)
-      if [[ -z "$2" || "$2" == -* ]]; then
-        echo "Error: '$1' requires a 'true' or 'false' value." >&2
-        exit 1
-      fi
-      if [[ "$2" == "false" ]]; then
-        export SAM_PRECOMPILE=false
-        echo "Precompilation for SymbolicAWEModels.jl disabled."
-      fi
-      # If "true", we do nothing, as the default is to precompile.
-      shift # past key
-      shift # past value
+    --no-precompile)
+      export SAM_PRECOMPILE=false
+      echo "Precompilation for SymbolicAWEModels.jl disabled."
+      shift
+      ;;
+    --project=*)
+      project_path="${1#*=}"
+      shift
+      ;;
+    --dev)
+      dev=true
+      shift
       ;;
     *)
       # Collect all other arguments to be passed through to the Julia executable
@@ -84,6 +84,27 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# --- Handle package management ---
+if [[ "$dev" == "true" ]]; then
+    echo "Developer mode enabled for project: $project_path"
+    julia_pkg_script="
+        using Pkg
+        Pkg.develop(path=\".\")
+    "
+else
+    echo "Normal mode enabled for project: $project_path"
+    julia_pkg_script="
+        using Pkg
+        Pkg.add(path=\".\")
+    "
+fi
+
+if [[ -n "$julia_channel_arg" ]]; then
+    julia "$julia_channel_arg" --project="$project_path" -e "$julia_pkg_script"
+else
+    julia --project="$project_path" -e "$julia_pkg_script"
+fi
 
 # --- Handle Default Manifest Copy, if requested ---
 if [[ "$copy_manifest" == "true" ]]; then
@@ -142,7 +163,7 @@ fi
 # Execute Julia with the filtered arguments
 if test -f "$SOFILE"; then
     echo "Found system image: $SOFILE"
-    julia "${final_args[@]}" -J "$SOFILE" --project
+    julia "${final_args[@]}" -J "$SOFILE" --project="$project_path"
 else
-    julia "${final_args[@]}" --project
+    julia "${final_args[@]}" --project="$project_path"
 fi
