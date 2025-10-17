@@ -103,7 +103,40 @@ Go to the GitHub page for your fork. You should see a prompt to create a pull re
 
 We strongly recommend adding **[Revise.jl](https://timholy.github.io/Revise.jl/stable/)** to your global Julia environment. It allows you to modify source code without restarting your Julia session, which is essential for efficient development.
 
-Consider [configuring Revise to run by default](https://timholy.github.io/Revise.jl/stable/config/#Using-Revise-by-default) in your `startup.jl` file.
+**Install Revise.jl globally:**
+
+```julia
+# Start Julia without a project
+julia
+
+# In the REPL
+using Pkg
+pkg"add Revise"
+```
+
+**Configure Revise to auto-load on startup:**
+
+Create or edit `~/.julia/config/startup.jl` (on Linux/Mac) or `%USERPROFILE%\.julia\config\startup.jl` (on Windows):
+
+```julia
+try
+    @eval using Revise
+catch e
+    @warn "Error initializing Revise" exception=(e, catch_backtrace())
+end
+```
+
+This will automatically load Revise every time you start Julia. The `try`/`catch` block ensures Julia will still start even if Revise encounters an issue.
+
+**Verify it works:**
+
+Start a new Julia session and you should see Revise load automatically. You can verify by checking:
+
+```julia
+julia> @which Revise
+```
+
+Now any changes you make to package source code will be automatically reflected in your Julia session!
 
 ### Disable Precompilation for Core Development
 
@@ -134,11 +167,6 @@ When developing the package, you'll want to test your changes with the examples.
 
    This command tells Julia to use the local source code in the current directory (`.`) instead of the registered package version.
 
-3. **Load Revise** (if not in your `startup.jl`):
-   ```julia
-   using Revise
-   ```
-
 #### Running Examples
 
 Now any changes you make to the source code will be immediately reflected when you run the examples (thanks to Revise.jl):
@@ -156,14 +184,25 @@ The `examples/Project.toml` file already contains the necessary dependencies:
 - `KiteUtils` - for utility functions
 - `SymbolicAWEModels` - the package itself
 
-**Alternative approach:** You can navigate into the examples directory and work from there:
+#### Managing Package Dependencies
+
+When working on examples or the main package, you'll need to add packages to different project environments:
+
+**Adding packages to the examples:**
+```julia
+# While in julia --project=examples
+]  # Enter package mode
+add YourPackage
+```
+
+**Adding packages to SymbolicAWEModels itself:**
 ```bash
-cd examples
+# Start Julia with the main project
 julia --project=.
 ```
-Then use `pkg"dev .."` to reference the parent directory, and include paths become relative:
 ```julia
-include("ram_air_kite.jl")  # No examples/ prefix needed when you're in that directory
+]  # Enter package mode
+add YourPackage
 ```
 
 **Tip**: Create a shell alias to quickly start the development environment:
@@ -236,7 +275,7 @@ Please adhere to the following style guidelines to maintain code quality and rea
     kite_rhs   = [force_eqs[j, i+3].rhs for j in 1:3]
     f_xy       = dot(tether_rhs, e_z) * e_z
     ```
-  - **Settings:** Use the `se()` function from `KiteUtils` to load the settings for the active project. You can specify a file with `set = se("my_settings.yaml")`.
+  - **Settings:** Use the `Settings()` constructor to load the settings for the active project. You can specify a file with `set = Settings("my_settings.yaml")`. Use `set = Settings("")` to load the default settings file.
 
 -----
 

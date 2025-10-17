@@ -4,6 +4,7 @@
 
 using SymbolicAWEModels, VortexStepMethod
 
+set_data_path("data")
 set = Settings("system.yaml")
 set.v_wind = 10.0
 set.l_tether = 5.0

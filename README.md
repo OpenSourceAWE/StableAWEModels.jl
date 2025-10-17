@@ -74,7 +74,7 @@ Or run the ram-air-kite example directly:
 include("examples/ram_air_kite.jl")
 ```
 
-> **Note:** The first run will take a few minutes to precompile.
+> **Note:** The first run will be slow (several minutes) due to compilation. Run a second time for a significant speedup - subsequent runs will be much faster.
 
 See the [Getting Started Guide](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/getting_started/) for detailed instructions for registry users, cloned package users, and developers.
 

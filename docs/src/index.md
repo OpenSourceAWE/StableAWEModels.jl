@@ -59,6 +59,8 @@ include("examples/menu.jl")  # Interactive menu
 include("examples/ram_air_kite.jl")  # Specific example
 ```
 
+**Note**: The first run will be slow (several minutes) due to compilation. Run a second time for much faster performance.
+
 **For developers or cloned package users**, see the detailed [Getting Started Guide](getting_started.md) which explains the different workflows for:
 - Registry users (most common)
 - Cloned package users

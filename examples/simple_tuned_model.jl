@@ -4,6 +4,7 @@
 
 using SymbolicAWEModels
 
+set_data_path("data")
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
 init!(sam)

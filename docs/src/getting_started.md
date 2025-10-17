@@ -63,6 +63,8 @@ Or run a specific example:
 include("examples/ram_air_kite.jl")
 ```
 
+**Important**: The first time you run an example, it will be slow due to compilation and precompilation (this can take several minutes). Run the same example a second time to see the significant speedup - subsequent runs will be much faster as the compiled code is cached.
+
 ### Testing
 
 Run the unit tests (can take about 60 minutes):

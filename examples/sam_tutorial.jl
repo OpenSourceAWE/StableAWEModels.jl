@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: MPL-2.0
 using SymbolicAWEModels, VortexStepMethod, LinearAlgebra
 
+set_data_path("data")
 set = Settings("system.yaml")
 set.segments = 20
 set.l_tether = 50.0

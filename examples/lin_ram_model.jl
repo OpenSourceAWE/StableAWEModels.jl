@@ -20,6 +20,7 @@ using ControlSystemsBase
 toc()
 
 # Initialize model
+set_data_path("data")
 set = Settings("system.yaml")
 set_values = [-50.0, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 
