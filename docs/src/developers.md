@@ -20,7 +20,7 @@ Before you begin, ensure you have the following software installed:
     ```
   - **Git**: For version control.
   - **Bash**: A Unix-like shell environment.
-  - **Visual Studio Code**: Recommended for its excellent Julia support via the [julia-vscode.org](https://www.julia-vscode.org/) extension.
+  - **Code editor**: Your preferred code editor with Julia support.
 
 -----
 
@@ -66,6 +66,18 @@ git fetch upstream
 git checkout main
 git merge upstream/main
 ```
+
+**Keep Your Feature Branch Up to Date**
+While working on your feature branch, regularly merge the latest changes from `main` to avoid merge conflicts later:
+```bash
+git fetch upstream
+git checkout main
+git merge upstream/main
+git checkout add_lei_model
+git merge main
+```
+
+This is especially important for long-running feature branches. Merging frequently makes conflicts smaller and easier to resolve.
 
 **Create a Feature Branch**
 Create a new branch from your up-to-date `main` branch. Give it a short, descriptive name that summarizes your change.
@@ -161,11 +173,11 @@ When developing the package, you'll want to test your changes with the examples.
 
 2. **Link your local development version**:
    ```julia
-   using Pkg
-   pkg"dev ."
+   ]  # Press ] to enter Pkg mode - prompt shows (examples) pkg>
+   dev .
    ```
 
-   This command tells Julia to use the local source code in the current directory (`.`) instead of the registered package version.
+   This command tells Julia to use the local source code in the current directory (`.`) instead of the registered package version. Use `]st` to verify the package is linked to your local path.
 
 #### Running Examples
 
@@ -186,24 +198,45 @@ The `examples/Project.toml` file already contains the necessary dependencies:
 
 #### Managing Package Dependencies
 
-When working on examples or the main package, you'll need to add packages to different project environments:
+**Understanding the Package Manager:**
+
+Press `]` in the Julia REPL to enter package manager (Pkg) mode. The prompt changes to show your current project:
+```julia
+julia> ]  # Press ] to enter Pkg mode
+(examples) pkg>  # Prompt shows you're in the examples project
+```
+
+Press backspace to exit Pkg mode and return to the Julia REPL.
+
+**Common Pkg commands:**
+- `add PackageName` - Add a package to the current project
+- `rm PackageName` - Remove a package
+- `dev .` or `dev ..` - Use local source code instead of registered version
+- `st` - Show status (list all packages and their versions)
+- `up` - Update all packages
+- `instantiate` - Install all packages from Project.toml
 
 **Adding packages to the examples:**
 ```julia
-# While in julia --project=examples
-]  # Enter package mode
+# Start Julia with examples project
+julia --project=examples
+
+]  # Enter Pkg mode - prompt shows (examples) pkg>
 add YourPackage
+st  # Verify the package was added
 ```
 
 **Adding packages to SymbolicAWEModels itself:**
-```bash
+```julia
 # Start Julia with the main project
 julia --project=.
-```
-```julia
-]  # Enter package mode
+
+]  # Enter Pkg mode - prompt shows (SymbolicAWEModels) pkg>
 add YourPackage
+st  # Verify the package was added
 ```
+
+The prompt `(ProjectName) pkg>` always tells you which project you're modifying.
 
 **Tip**: Create a shell alias to quickly start the development environment:
 ```bash
@@ -223,8 +256,8 @@ To preview documentation changes as you work:
 
 2. **Link your local development version** (first time only):
    ```julia
-   using Pkg
-   pkg"dev ."
+   ]  # Press ] to enter Pkg mode - prompt shows (docs) pkg>
+   dev .
    ```
 
 3. **Serve the docs with live reload**:

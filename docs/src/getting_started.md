@@ -38,6 +38,20 @@ This is the recommended approach for most users who want to use SymbolicAWEModel
    pkg"add SymbolicAWEModels"
    ```
 
+   **Alternatively**, use the package manager mode (press `]` to enter, backspace to exit):
+   ```julia
+   ]  # Press ] to enter Pkg mode - prompt changes to (my_kite_project) pkg>
+   add SymbolicAWEModels
+   ```
+
+   **Common Pkg commands:**
+   - `]add PackageName` - Add a package
+   - `]rm PackageName` - Remove a package
+   - `]up` - Update all packages
+   - `]st` - Show status (list installed packages)
+   - `]instantiate` - Install all packages from Project.toml
+   - The prompt shows your current project: `(my_kite_project) pkg>`
+
 4. **Copy examples and data files**:
    ```julia
    using SymbolicAWEModels
@@ -94,11 +108,11 @@ If you've cloned the repository and want to run examples **without** modifying t
 
 3. **Link the local package** (first time only):
    ```julia
-   using Pkg
-   pkg"dev ."
+   ]  # Press ] to enter Pkg mode - prompt shows (examples) pkg>
+   dev .
    ```
 
-   This tells Julia to use the local source code in the current directory instead of downloading the registered package.
+   This tells Julia to use the local source code in the current directory instead of downloading the registered package. Verify with `]st` to see the path.
 
 ### Running Examples
 
@@ -144,16 +158,13 @@ If you want to contribute to the package or modify its source code:
 
 2. **Link your local development version** (first time only):
    ```julia
-   using Pkg
-   pkg"dev ."
+   ]  # Press ] to enter Pkg mode - prompt shows (examples) pkg>
+   dev .
    ```
 
-3. **Load Revise** (if not in startup.jl):
-   ```julia
-   using Revise
-   ```
+   Verify with `]st` to see the package is linked to your local path.
 
-4. **Run examples**:
+3. **Run examples**:
    ```julia
    include("examples/ram_air_kite.jl")
    ```
@@ -183,8 +194,8 @@ To preview documentation changes:
 
 2. **Link your local development version** (first time only):
    ```julia
-   using Pkg
-   pkg"dev ."
+   ]  # Press ] to enter Pkg mode
+   dev .
    ```
 
 3. **Serve the docs with live preview**:
