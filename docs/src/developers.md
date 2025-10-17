@@ -152,7 +152,26 @@ Now any changes you make to package source code will be automatically reflected 
 
 ### Disable Precompilation for Core Development
 
-When actively developing, you can temporarily disable the heavy precompilation workload to speed up restarts. To do this, copy the provided default preferences file:
+When actively developing, you can temporarily disable the heavy precompilation workload to speed up restarts. There are two methods:
+
+**Method 1: Using an environment variable (recommended)**
+
+Set the `SAM_PRECOMPILE` environment variable to `false` before starting Julia:
+
+```bash
+SAM_PRECOMPILE=false julia --project=examples
+```
+
+Or add it to your shell profile for persistent use:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export SAM_PRECOMPILE=false
+```
+
+**Method 2: Using LocalPreferences.toml**
+
+Copy the provided default preferences file:
 
 ```bash
 cp LocalPreferences.toml.default LocalPreferences.toml
