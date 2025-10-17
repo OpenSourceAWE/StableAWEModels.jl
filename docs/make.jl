@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
+<<<<<<< HEAD
 using GLMakie, VortexStepMethod
+=======
+using Makie, VortexStepMethod
+>>>>>>> origin/makie
 using SymbolicAWEModels
 using Documenter
 

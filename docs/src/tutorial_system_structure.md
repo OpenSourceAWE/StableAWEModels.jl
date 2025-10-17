@@ -20,8 +20,7 @@ If necessary, update `SymbolicAWEModels` by typing `]up`.
 We start by loading the necessary packages and defining settings and parameters.
 
 ```julia
-using GLMakie
-using SymbolicAWEModels, VortexStepMethod
+using SymbolicAWEModels, VortexStepMethod, Makie
 
 set = Settings("system.yaml")
 set.segments = 20
@@ -120,8 +119,7 @@ end
 First, we need to update some settings. `l_tether` is specified such that the plot window is zoomed in correctly.
 
 ```julia
-using GLMakie
-using SymbolicAWEModels, VortexStepMethod
+using SymbolicAWEModels, VortexStepMethod, Makie
 
 set = se("system.yaml")
 set.v_wind = 10.0

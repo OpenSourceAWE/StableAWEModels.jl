@@ -1,14 +1,21 @@
 [deps]
+<<<<<<< HEAD
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
+=======
+>>>>>>> origin/makie
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 KiteUtils = "90980105-b163-44e5-ba9f-8b1c83bb0533"
-OpenSSL_jll = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
 SymbolicAWEModels = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
 VortexStepMethod = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
 
 [compat]
+<<<<<<< HEAD
 GLMakie = "0.13"
 Documenter = "1.11"
 KiteUtils = "0.7, 0.8, 0.9, 0.10, 0.11"
 OpenSSL_jll = "~3.0.0"
+=======
+Documenter = "1.11"
+KitePodModels = "0.3"
+>>>>>>> origin/makie
 julia = "1.10, 1.11"
