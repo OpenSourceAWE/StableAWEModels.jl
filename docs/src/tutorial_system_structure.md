@@ -20,7 +20,8 @@ If necessary, update `SymbolicAWEModels` by typing `]up`.
 We start by loading the necessary packages and defining settings and parameters.
 
 ```julia
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using GLMakie
+using SymbolicAWEModels, VortexStepMethod
 
 set = Settings("system.yaml")
 set.segments = 20
@@ -67,7 +68,7 @@ transforms = [Transform(1, deg2rad(-80), 0.0, 0.0;
 From the points, segments and transform we create a [`SystemStructure(name, set)`](@ref), which can be plotted in 2d to quickly investigate if the model is correct.
 ```julia
 sys_struct = SystemStructure("tether", set; points, segments, transforms)
-plot(sys_struct, 0.0)
+plot(sys_struct)
 ```
 ![SystemStructure visualization](assets/tether_sys_struct.png)
 
@@ -119,7 +120,8 @@ end
 First, we need to update some settings. `l_tether` is specified such that the plot window is zoomed in correctly.
 
 ```julia
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using GLMakie
+using SymbolicAWEModels, VortexStepMethod
 
 set = se("system.yaml")
 set.v_wind = 10.0
@@ -157,7 +159,7 @@ We can then use a [`Transform`](@ref) to describe the orientation of the initial
 ```julia
 transforms = [Transform(1, -deg2rad(0.0), 0.0, 0.0; base_pos=[1.0, 0.0, 4.0], base_point_idx=1, rot_point_idx=2)]
 sys_struct = SymbolicAWEModels.SystemStructure("pulley", set; points, segments, pulleys, transforms)
-plot(sys_struct, 0.0; zoom=false, l_tether=set.l_tether)
+plot(sys_struct)
 ```
 
 If the plot of the [`SystemStructure`](@ref) looks good, we can continue by creating a [`SymbolicAWEModel`](@ref) and simulating through time.
@@ -166,9 +168,7 @@ If the plot of the [`SystemStructure`](@ref) looks good, we can continue by crea
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=false)
 for i in 1:100
-    plot(sam, i/set.sample_freq; zoom=false)
+    plot(sam, i/set.sample_freq)
     next_step!(sam)
 end
 ```
-
-

@@ -1,21 +1,19 @@
-# Kite system geometry for simulation - CONVERGED CONFIGURATION
-# Generated from converged simulation output (iteration 4, converged=True)
+# Kite system geometry for simulation based on provided Julia code
 
 wing_sections:
   # ---------------------------------------------------------------
   # headers: [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]
   # airfoil_id: 1 (since only one polar/interpolator is used)
-  # Converged positions from structural simulation
+  # The kite is represented by 4 chordwise points at y = width/2, -width/2 and at y = 0.
+  # Chord positions from get_kite_points(s): P2 (center right), P3 (center left)
+  # Bridle/other points are omitted for simplicity.
   # Units: meters
   # ---------------------------------------------------------------
   headers: [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]
   data:
-    # Right tip chord (nodes 1-2)
-    - [1, -2.52658787,  3.90998347, 8.63399119, -0.56907534,  3.88818007, 8.98058423]
-    # Left tip chord (nodes 5-6)
-    - [1, -2.45823156, -4.29483032, 8.46964736, -0.50150718, -4.25484541, 8.81709563]
-    # Center/apex chord (nodes 3-4)
-    - [1, -3.10388086, -0.25998045, 11.66322754, -1.14745968, -0.25104609, 12.00319579]
+    - [1, 0.0,  4.08, 4.9, 2.0,  4.08, 4.9]      # Right tip chord (P2)
+    - [1, 0.0, -4.08, 4.9, 2.0, -4.08, 4.9]      # Left tip chord  (P3)
+    - [1, 0.0, 0.0,   8.05,  2.0, 0.0,   8.05]       # Bridle attachment (P4/P5 merged, approx.)
 
 wing_airfoils:
   # ---------------------------------------------------------------

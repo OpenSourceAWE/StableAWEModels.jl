@@ -6,7 +6,7 @@
 #   - Build system, init model
 #   - Run a few simulation steps and plot each iteration
 #
-# Requires: YAML.jl, SymbolicAWEModels, VortexStepMethod, ControlPlots
+# Requires: YAML.jl, SymbolicAWEModels, VortexStepMethod, GLMakie
 # Optional: include("../yaml_loader.jl") if your helper lives there.
 
 using LinearAlgebra
@@ -309,4 +309,4 @@ for (idx, step) in enumerate(captured_steps)
     @info "Rendered static snapshot $(idx)/$(length(snapshot_steps)) at step $step"
 end
 
-@info "Done. Created $(length(snapshot_steps)) static Plotly plots covering the simulation window."
+    @info "Done. Created $(length(snapshot_steps)) static Makie plots covering the simulation window."

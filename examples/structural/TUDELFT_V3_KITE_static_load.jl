@@ -6,7 +6,7 @@
 TU Delft V3 Kite Structural Example
 
 This example loads the TU Delft V3 kite structural geometry from a YAML file
-and visualizes it using an interactive 3D PlotlyJS plot.
+and visualizes it using an interactive 3D Makie plot.
 
 The geometry includes:
 - Wing structural members (spars, ribs, etc.)
@@ -14,7 +14,7 @@ The geometry includes:
 - Fixed and dynamic attachment points
 """
 
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using SymbolicAWEModels, VortexStepMethod
 using LinearAlgebra
 using YAML
 using StaticArrays
@@ -184,7 +184,7 @@ println("  Y: [$(minimum(y_coords)), $(maximum(y_coords))] m")
 println("  Z: [$(minimum(z_coords)), $(maximum(z_coords))] m")
 
 ##TODO: later should be turned-on again
-# # Create interactive 3D visualization using PlotlyJS
+# # Create interactive 3D visualization using Makie
 # println("\nGenerating initial 3D plot...")
 # plot3d_v3(sys.points, sys.segments, title="TU Delft V3 Kite - Structural Model (Initial)")
 
@@ -314,6 +314,6 @@ for (idx, step) in enumerate(captured_steps)
     println("  Rendered static snapshot $(idx)/$(length(captured_steps)) at step $step")
 end
 
-println("\nDone. Created $(length(captured_steps)) static Plotly plots covering the simulation window.")
+println("\nDone. Created $(length(captured_steps)) static Makie plots covering the simulation window.")
 
 nothing

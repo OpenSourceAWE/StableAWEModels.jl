@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-using SymbolicAWEModels, KiteUtils, LinearAlgebra, ControlPlots
+using GLMakie
+using SymbolicAWEModels, KiteUtils, LinearAlgebra
 sam_set = Settings("system.yaml")
 sam_set.segments = 3
 set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
@@ -20,4 +21,3 @@ next_step!(s)
 simple_linearize!(s)
 
 @info "Precompile script has completed execution."
-

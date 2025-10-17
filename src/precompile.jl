@@ -118,16 +118,16 @@ function create_default_models(; prn=true)
     return sam, tether_sam, simple_sam, one_seg_sam, one_seg_tether_sam
 end
 
-# @setup_workload begin
-#     using Pkg.Artifacts
+@setup_workload begin
+    using Pkg.Artifacts
 
-#     local will_precompile
-#     will_precompile = get(ENV, "SAM_PRECOMPILE", "true") != "false"
-#     if will_precompile
-#         try
-#             path = dirname(dirname(pathof(@__MODULE__)))
-#             data_path = joinpath(path, "data","ram_air_kite")
-#             data_path = joinpath(path, "data", "ram_air_kite")
+    local will_precompile
+    will_precompile = get(ENV, "SAM_PRECOMPILE", "true") != "false"
+    if will_precompile
+        try
+            path = dirname(dirname(pathof(@__MODULE__)))
+            data_path = joinpath(path, "data","ram_air_kite")
+            data_path = joinpath(path, "data", "ram_air_kite")
 
             # Copy .default files to expected files and make them writable
             artifacts_toml_path = joinpath(path, "Artifacts.toml")
@@ -140,10 +140,10 @@ end
             cp(manifest_default, manifest_actual; force=true)
             chmod(manifest_actual, 0o644)
 
-#             # Use explicit Artifacts API to get the artifact and extract it
-#             artifact_toml = joinpath(path, "Artifacts.toml")
-#             artifact_name = "models_v1_$version_minor"
-#             model_hash = artifact_hash(artifact_name, artifact_toml)
+            # Use explicit Artifacts API to get the artifact and extract it
+            artifact_toml = joinpath(path, "Artifacts.toml")
+            artifact_name = "models_v1_$version_minor"
+            model_hash = artifact_hash(artifact_name, artifact_toml)
 
             if !isnothing(model_hash) && artifact_exists(model_hash)
                 model_dir = artifact_path(model_hash)
@@ -165,18 +165,18 @@ end
         end
     end
 
-#     @compile_workload begin
-#         if will_precompile
-#             prn=true
-#             sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
-#             init!(sam; prn=false, reload=true)
-#             init!(sam; prn=false, reload=false)
-#             sim_oscillate!(sam; total_time=1.0)
-#             copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
-#             find_steady_state!(sam)
-#             ss = SysState(sam)
-#             next_step!(sam)
-#             update_sys_state!(ss, sam)
-#         end
-#     end
-# end
+    @compile_workload begin
+        if will_precompile
+            prn=true
+            sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
+            init!(sam; prn=false, reload=true)
+            init!(sam; prn=false, reload=false)
+            sim_oscillate!(sam; total_time=1.0)
+            copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
+            find_steady_state!(sam)
+            ss = SysState(sam)
+            next_step!(sam)
+            update_sys_state!(ss, sam)
+        end
+    end
+end

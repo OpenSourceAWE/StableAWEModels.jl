@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
+using GLMakie
 using SymbolicAWEModels
 
 set = Settings("ram_air_kite/system.yaml")

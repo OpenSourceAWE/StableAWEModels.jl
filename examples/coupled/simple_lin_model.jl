@@ -4,6 +4,7 @@
 using Timers
 tic()
 @info "Loading packages "
+using GLMakie
 using SymbolicAWEModels
 
 PLOT = false
@@ -68,7 +69,7 @@ try
     for i in 1:steps
         local steering
         global t, set_values, runtime, integ_runtime
-        PLOT && plot(sam, t; zoom=false, front=false)
+        PLOT && plot(sam, t)
         
         # Calculate steering inputs based on cosine wave
         sign = t > 0.5 ? -1 : 1

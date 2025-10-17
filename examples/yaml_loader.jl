@@ -2,8 +2,7 @@ using YAML
 using Logging
 using SymbolicAWEModels
 using LinearAlgebra
-using VortexStepMethod, ControlPlots, KiteUtils
-using Plots, PlotlyJS
+using VortexStepMethod, KiteUtils
 plotlyjs()
 
 # Default diameter for wing section segments (in mm)

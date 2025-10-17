@@ -1,4 +1,5 @@
-using SymbolicAWEModels, VortexStepMethod, ControlPlots, KiteUtils
+using GLMakie
+using SymbolicAWEModels, VortexStepMethod, KiteUtils
 using YAML
 
 # --- Analytical solution functions for hanging mass ---
@@ -89,7 +90,7 @@ set.axial_damping = recommended_damping  # Update settings with recommended damp
 # even though the tether is not used here, it defines the size of the plot
 # and therefore we must set it to a reasonable length
 set.l_tether = 5.0
-plot(sys_struct, 0.0; zoom=false)
+plot(sys_struct)
 
 # Create and initialize the symbolic model
 sam = SymbolicAWEModel(set, sys_struct)
@@ -98,7 +99,7 @@ init!(sam; remake=false)
 # Run simulation for longer time with smaller steps for better convergence visualization
 for i in 1:30
     current_time = i/set.sample_freq
-    plot(sam, current_time; zoom=false)
+    plot(sam, current_time)
     next_step!(sam)
 end
 
@@ -118,4 +119,3 @@ println("  Position error (Δz):         $(round(final_z - equilibrium_z, digits
 pos_error_percent = abs(final_z - equilibrium_z) / abs(equilibrium_z) * 100
 
 println("  Relative error:              $(round(pos_error_percent, digits=2))%")
-

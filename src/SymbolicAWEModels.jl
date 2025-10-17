@@ -116,7 +116,7 @@ Basic 3-dimensional vector, stack allocated, immutable.
 """
 const SVec3    = SVector{3, SimFloat}  
 
-# Defined in ext/SymbolicAWEModelsControlPlotsExt.jl
+# Defined in ext/SymbolicAWEModelsMakieExt.jl
 function plot end
 # Defined in ext/SymbolicAWEModelsMakieExt.jl
 function plot! end
@@ -135,7 +135,7 @@ include("predefined_structures.jl")
 include("tether_properties.jl")
 include("linearize.jl")
 include("generate_system.jl")
-include("plot_recipe.jl")
+# include("plot_recipe.jl")  # TODO: Convert to Makie extension or remove (uses old Plots.jl)
 include("simulate.jl")
 
 function upwind_dir(v_wind_gnd)

@@ -1,4 +1,7 @@
 [deps]
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 KiteUtils = "90980105-b163-44e5-ba9f-8b1c83bb0533"
+PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
 SymbolicAWEModels = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
+VortexStepMethod = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
+YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"

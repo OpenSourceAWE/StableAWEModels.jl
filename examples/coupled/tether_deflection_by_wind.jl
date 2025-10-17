@@ -14,10 +14,11 @@ This approach cleverly works within the existing horizontal wind system by:
 
 Requirements:
 - SymbolicAWEModels
-- ControlPlots
+- GLMakie
 """
 
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using GLMakie
+using SymbolicAWEModels, VortexStepMethod
 using YAML
 include("load_settings.jl")
 
@@ -160,7 +161,7 @@ println("\n Setting recommended damping to: ", recommended_damping)
 set.axial_damping = recommended_damping  # Update settings with recommended damping
 
 # Plot initial state
-plot(sys_struct, 0.0; zoom=false)
+plot(sys_struct)
 
 # --- Construct symbolic model
 sam = SymbolicAWEModel(set, sys_struct)
@@ -173,7 +174,7 @@ for i in 1:n_steps
     next_step!(sam)
     # Plot every 10 steps to show evolution
     if i % 10 == 0
-        plot(sam, i/set.sample_freq; zoom=false)
+        plot(sam, i/set.sample_freq)
         # println("Step $i/$n_steps")
     end
 end
@@ -186,7 +187,7 @@ y_analytical, z_analytical, elastic_tension, max_analytical_deflection = wind_de
     vertical_span, total_length, wind_speed, line_diameter_mm, set)
 
 # --- Final plot with analytical comparison
-plot(sam, n_steps/set.sample_freq; zoom=false)
+plot(sam, n_steps/set.sample_freq)
 
 # Add analytical solution information
 try

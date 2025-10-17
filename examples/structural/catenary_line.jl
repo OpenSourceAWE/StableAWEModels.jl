@@ -8,10 +8,11 @@ the analytical catenary solution.
 
 Requirements:
 - SymbolicAWEModels
-- ControlPlots
+- GLMakie
 """
 
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using GLMakie
+using SymbolicAWEModels, VortexStepMethod
 using YAML
 
 # --- Analytical catenary solution functions ---
@@ -150,7 +151,7 @@ set.axial_damping = recommended_damping  # Update settings with recommended damp
 
 
 # Plot initial state
-plot(sys_struct, 0.0; zoom=false)
+plot(sys_struct)
 
 # --- Construct symbolic model
 sam = SymbolicAWEModel(set, sys_struct)
@@ -163,7 +164,7 @@ for i in 1:n_steps
     next_step!(sam)
     # Plot every 2 steps to show evolution
     if i % 2 == 0
-        plot(sam, i/set.sample_freq; zoom=false)
+        plot(sam, i/set.sample_freq)
         # println("Step $i/$n_steps")
     end
 end
@@ -175,9 +176,9 @@ println("\n\nSimulation vs Analytical Comparison\n", "="^50)
 x_analytical, y_analytical, catenary_a = catenary_analytical_solution(horizontal_span, total_length, line_diameter_mm, set)
 
 # --- Final plot with analytical comparison
-plot(sam, n_steps/set.sample_freq; zoom=false)
+plot(sam, n_steps/set.sample_freq)
 
-# Add analytical solution to the plot (if ControlPlots supports it)
+# Add analytical solution to the plot (if Makie overlay is available)
 try
     # Extract simulation points for plotting
     sim_x = [sam.sys_struct.points[i].pos_w[1] for i in 1:length(points)]
@@ -189,7 +190,7 @@ try
     println("Analytical points: $(length(x_analytical))")
     
     # Note: Additional plotting with analytical overlay would require
-    # extending the ControlPlots functionality or using a different plotting package
+    # extending the Makie-based functionality or using a different plotting package
     
 catch e
     println("Note: Could not overlay analytical solution on plot: $e")

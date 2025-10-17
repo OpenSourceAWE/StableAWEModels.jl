@@ -10,14 +10,17 @@ Saddle Form Benchmark (compact)
 """
 
 using SymbolicAWEModels
-using ControlPlots
-using Plots
+using GLMakie
 using LinearAlgebra
 using KiteUtils
 using YAML
-using PlotlyJS
-plotlyjs()  # Use PlotlyJS backend for interactive 3D plots
-# gr()
+
+plot_helpers_path = joinpath(@__DIR__, "..", "plotly_plots.jl")
+if isfile(plot_helpers_path)
+    include(plot_helpers_path)
+else
+    @warn "Makie plotting helpers not found at $plot_helpers_path. 3D visualisation will be unavailable."
+end
 # ------------------- Transform Helpers -------------------
 
 """
@@ -157,15 +160,13 @@ end
 # ------------------------- 3D Plotting -------------------------
 
 function plot3d_saddle(points, segments; title="Saddle Form")
-    x = [p.pos_w[1] for p in points]; y = [p.pos_w[2] for p in points]; z = [p.pos_w[3] for p in points]
-    p = Plots.scatter3d(x, y, z; markersize=2, markerstrokewidth=0, title, xlabel="X (m)", ylabel="Y (m)", zlabel="Z (m)", legend=false)
-    for s in segments
-        i,j = s.point_idxs
-        Plots.plot3d!([x[i],x[j]],[y[i],y[j]],[z[i],z[j]]; alpha=1, linewidth=1,color=:black)
+    if @isdefined make_plot3d
+        fig = make_plot3d(points, segments; title=title)
+        display(fig)
+        return fig
+    else
+        @warn "3D plot helper not available; skipping plot."
     end
-    fixed_idx = [i for (i,p) in enumerate(points) if p.type == STATIC]
-    !isempty(fixed_idx) && Plots.scatter3d!(x[fixed_idx], y[fixed_idx], z[fixed_idx]; markersize=2, markercolor=:red, markerstrokewidth=0)
-    return p
 end
 
 # -------------------------- Main --------------------------
@@ -220,19 +221,15 @@ function main(; yaml_file)
     init!(sam; remake=false)
     XYZ0 = [copy(p.pos_w) for p in sys.points]
     if is_with_3d_plot
-        fig0 = plot3d_saddle(sys.points, sys.segments; title="Initial State")
-        display(fig0)
+        plot3d_saddle(sys.points, sys.segments; title="Initial State")
     end
-    ControlPlots.plot(sam.sys_struct, 0.0; zoom=false)
     for i in 1:n_iteration_steps
         current_time = i/set.sample_freq
-        ControlPlots.plot(sam, current_time; zoom=false)
         next_step!(sam)
     end
     XYZf = [copy(p.pos_w) for p in sam.sys_struct.points]
     if is_with_3d_plot
-        figf = plot3d_saddle(sam.sys_struct.points, sam.sys_struct.segments; title="Final State")
-        display(figf)
+        plot3d_saddle(sam.sys_struct.points, sam.sys_struct.segments; title="Final State")
     end
     disp = [norm(XYZf[i] .- XYZ0[i]) for i in eachindex(XYZ0) if i ∉ Set(fixed_nodes)]
     println("Max disp=$(round(maximum(disp),digits=4)) m, Avg disp=$(round(sum(disp)/length(disp),digits=4)) m")

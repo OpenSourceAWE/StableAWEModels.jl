@@ -1,5 +1,7 @@
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using GLMakie
+using SymbolicAWEModels, VortexStepMethod
 using YAML
+
 
 # --- Analytical solution functions for simple pulley ---
 """
@@ -121,7 +123,12 @@ push!(pulleys, Pulley(1, (1,2), DYNAMIC))
 
 transforms = [Transform(1, -deg2rad(0.0), 0.0, 0.0; base_pos=[0.0, 0.0, 5.0], base_point_idx=1, rot_point_idx=2)]
 sys_struct = SymbolicAWEModels.SystemStructure("pulley", set; points, segments, pulleys, transforms)
-plot(sys_struct, 0.0; zoom=false, l_tether=set.l_tether)
+
+if @isdefined make_plot3d
+    display(make_plot3d(sys_struct.points, sys_struct.segments; title="Simple Pulley – Initial State"))
+else
+    plot(sys_struct)
+end
 
 # Analyze the system, to find optimal damping
 include("damping_analysis.jl")
@@ -133,10 +140,22 @@ set.axial_damping = recommended_damping  # Update settings with recommended damp
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=false)
 
+states = Vector{Vector{Point}}()
+push!(states, deepcopy(sam.sys_struct.points))
+
 for i in 1:100
     current_time = i/set.sample_freq
-    plot(sam, current_time; zoom=false)
     next_step!(sam)
+    push!(states, deepcopy(sam.sys_struct.points))
+end
+
+if @isdefined make_animated_plot3d
+    fig_anim = make_animated_plot3d(states, sam.sys_struct.segments;
+                                    title="Simple Pulley – Simulation",
+                                    dt=1/set.sample_freq)
+    display(fig_anim)
+else
+    plot(sam, 100/set.sample_freq)
 end
 
 # --- Final comparison with analytical solution ---

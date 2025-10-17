@@ -1,6 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
+using GLMakie
 using SymbolicAWEModels, KiteUtils, LinearAlgebra, OrdinaryDiffEqBDF
 
 # Initialize the model
@@ -22,5 +23,4 @@ lg = SymbolicAWEModels.sim_reposition!(
 
 # Plot the results
 plot(sam.sys_struct, lg)
-
 
