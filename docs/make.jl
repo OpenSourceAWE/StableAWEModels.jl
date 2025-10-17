@@ -20,6 +20,7 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
+        "Getting Started" => "getting_started.md",
         "Examples" => "examples.md",
         "Custom Model" => "tutorial_system_structure.md",
         "Exported Types" => "exported_types.md",

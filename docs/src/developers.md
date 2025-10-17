@@ -12,12 +12,15 @@ This guide provides instructions and best practices for developers contributing 
 
 Before you begin, ensure you have the following software installed:
 
-  - **Julia**: Version 1.10 or 1.11.
+  - **Julia**: Latest release version. Install using [juliaup](https://github.com/JuliaLang/juliaup):
+    ```bash
+    curl -fsSL https://install.julialang.org | sh
+    juliaup add release
+    juliaup default release
+    ```
   - **Git**: For version control.
   - **Bash**: A Unix-like shell environment.
   - **Visual Studio Code**: Recommended for its excellent Julia support via the [julia-vscode.org](https://www.julia-vscode.org/) extension.
-
-For detailed setup instructions, see the [Julia and VSCode installation guide](https://www.google.com/search?q=https://OpenSourceAWE.github.io/2024/08/09/installing-julia-with-juliaup.html).
 
 -----
 
@@ -116,35 +119,102 @@ cp LocalPreferences.toml.default LocalPreferences.toml
 
 When developing the package, you'll want to test your changes with the examples. Here's how to set up the examples to use your local development version:
 
-1. From the package root directory, start Julia with the examples project:
-```bash
-julia --project=examples
-```
+#### Setup (first time only)
 
-2. Add your local development version:
+1. **From the package root directory**, start Julia with the examples project:
+   ```bash
+   julia --project=examples
+   ```
+
+2. **Link your local development version**:
+   ```julia
+   using Pkg
+   pkg"dev ."
+   ```
+
+   This command tells Julia to use the local source code in the current directory (`.`) instead of the registered package version.
+
+3. **Load Revise** (if not in your `startup.jl`):
+   ```julia
+   using Revise
+   ```
+
+#### Running Examples
+
+Now any changes you make to the source code will be immediately reflected when you run the examples (thanks to Revise.jl):
+
 ```julia
-using Pkg
-pkg"dev ."
+include("examples/ram_air_kite.jl")
+include("examples/simple_tuned_model.jl")
+include("examples/menu.jl")
 ```
 
-This command tells Julia to use the local source code in the current directory (`.`) instead of the registered package version. Now any changes you make to the source code will be immediately reflected when you run the examples (especially useful with Revise.jl).
+**Important**: `--project=examples` sets which project environment to use, but doesn't change your current working directory. You still need to use `examples/` in the include paths.
 
 The `examples/Project.toml` file already contains the necessary dependencies:
 - `GLMakie` - for visualization
 - `KiteUtils` - for utility functions
 - `SymbolicAWEModels` - the package itself
 
-You can now run examples directly:
-```julia
-include("simple_tuned_model.jl")
-```
-
-**Alternative approach:** You can also navigate into the examples directory first:
+**Alternative approach:** You can navigate into the examples directory and work from there:
 ```bash
 cd examples
 julia --project=.
 ```
-Then use `pkg"dev .."` to reference the parent directory.
+Then use `pkg"dev .."` to reference the parent directory, and include paths become relative:
+```julia
+include("ram_air_kite.jl")  # No examples/ prefix needed when you're in that directory
+```
+
+**Tip**: Create a shell alias to quickly start the development environment:
+```bash
+alias jl-ex='julia --project=examples'
+```
+
+### Building Documentation Locally
+
+To preview documentation changes as you work:
+
+#### Using LiveServer (Recommended)
+
+1. **Start Julia with the docs project**:
+   ```bash
+   julia --project=docs
+   ```
+
+2. **Link your local development version** (first time only):
+   ```julia
+   using Pkg
+   pkg"dev ."
+   ```
+
+3. **Serve the docs with live reload**:
+   ```julia
+   using LiveServer
+   servedocs(launch_browser=true)
+   ```
+
+   This will:
+   - Build the documentation
+   - Open it in your default browser
+   - Watch for changes to documentation files
+   - Automatically rebuild and refresh when you save changes
+
+#### Manual Build
+
+Alternatively, you can build the documentation once without the live server:
+
+```bash
+julia --project=docs
+```
+
+```julia
+include("docs/make.jl")
+```
+
+Then open `docs/build/index.html` in your browser.
+
+**Note**: If you make changes to the package source code (not just documentation), you'll need to reload Julia or use Revise.jl for the changes to be reflected in the built documentation.
 
 -----
 

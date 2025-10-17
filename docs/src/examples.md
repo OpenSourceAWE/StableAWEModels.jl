@@ -30,52 +30,61 @@ The plotting functions support many keyword arguments to customize which data is
 ?plot  # In Julia REPL, shows available options
 ```
 
-## For End Users
+## Getting Started with Examples
 
-### Create a test project
-```bash
-mkdir test
-cd test
-julia --project=.
-```
-Don't forget to type the dot at the end of the last line.
-With the last command, we told Julia to create a new project in the current directory.
+The approach depends on how you're using SymbolicAWEModels:
 
-You can copy the examples, data and scripts to your project, and install dependencies
-with the following lines:
-```julia
-using SymbolicAWEModels
-SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
-```
+### Registry Users
 
-This will:
-- Copy all example files to an `examples/` directory in your project
-- Copy configuration files to a `data/` directory
-- Install the necessary dependencies (GLMakie, KiteUtils) in your project
+If you installed the package via `pkg"add SymbolicAWEModels"`:
 
-## For Developers
+1. **Copy examples to your project**:
+   ```julia
+   using SymbolicAWEModels
+   SymbolicAWEModels.init_module()
+   ```
 
-If you're developing the package and want to run examples using your local changes:
+   This copies all example files to an `examples/` directory and installs dependencies.
 
-1. Navigate to the package repository root directory:
-```bash
-cd path/to/SymbolicAWEModels.jl
-```
+2. **Run examples**:
+   ```julia
+   include("examples/ram_air_kite.jl")
+   include("examples/menu.jl")  # Interactive menu
+   ```
 
-2. Start Julia with the examples project:
-```bash
-julia --project=examples
-```
+### Cloned Package Users
 
-3. Add your local development version of the package:
-```julia
-using Pkg
-pkg"dev ."
-```
+If you cloned the repository but aren't modifying source code:
 
-This ensures that the examples use your local development version of SymbolicAWEModels instead of the registered version. Any changes you make to the source code will be immediately available in the examples.
+1. **Navigate to the repository**:
+   ```bash
+   cd path/to/SymbolicAWEModels.jl
+   ```
 
-The `examples/Project.toml` already contains the necessary dependencies (GLMakie, KiteUtils, SymbolicAWEModels).
+2. **Start Julia with the examples project**:
+   ```bash
+   julia --project=examples
+   ```
+
+3. **Link the local package** (first time only):
+   ```julia
+   using Pkg
+   pkg"dev ."
+   ```
+
+4. **Run examples**:
+   ```julia
+   include("examples/ram_air_kite.jl")
+   include("examples/menu.jl")
+   ```
+
+   **Note**: `--project=examples` sets the project environment but doesn't change your working directory, so you still need the `examples/` prefix.
+
+### Developers
+
+If you're developing the package, see the [Developer Guide](developers.md#running-examples-during-development) for detailed instructions on using Revise.jl and running examples with live code reloading.
+
+For more details, see the [Getting Started Guide](getting_started.md).
 
 ## Running the first example
 ```julia

@@ -36,37 +36,31 @@ This package is part of the Julia Kite Power Tools ecosystem:
 
 ## Installation
 
-Install [Julia 1.11](https://julialang.org/install/) using `juliaup`.
-
-**Recommended workflow:**
+Install Julia using [juliaup](https://github.com/JuliaLang/juliaup):
 
 ```bash
-mkdir test
-cd test
+curl -fsSL https://install.julialang.org | sh
+juliaup add release
+juliaup default release
+```
+
+**Quick Start:**
+
+```bash
+mkdir my_kite_project
+cd my_kite_project
 julia --project="."
 ```
 
-Then add the package:
+Then add the package and copy examples:
 
 ```julia
 using Pkg
 pkg"add SymbolicAWEModels"
-```
 
-Run the unit tests (can take about 60 minutes):
-
-```julia
-pkg"test SymbolicAWEModels"
-```
-
-Copy the examples, data and scripts to your project, and install dependencies:
-
-```julia
 using SymbolicAWEModels
-SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
+SymbolicAWEModels.init_module()  # Copies examples and installs dependencies
 ```
-
-This adds extra packages needed for the examples and creates a `data` folder with example input files.
 
 Run the interactive example menu:
 
@@ -81,6 +75,8 @@ include("examples/ram_air_kite.jl")
 ```
 
 > **Note:** The first run will take a few minutes to precompile.
+
+See the [Getting Started Guide](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/getting_started/) for detailed instructions for registry users, cloned package users, and developers.
 
 ---
 
