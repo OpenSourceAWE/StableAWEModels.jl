@@ -16,13 +16,56 @@ The geometry includes:
 
 using SymbolicAWEModels, VortexStepMethod, ControlPlots
 using LinearAlgebra
-# using Plots, PlotlyJS
 using YAML
-using CSV
-using DataFrames
+using StaticArrays
 
-# Set PlotlyJS as the backend for interactive 3D visualization
-# plotlyjs()
+# External aerodynamic loads for TUDELFT V3 kite (array rows match node indices)
+const F_AERO_WING = [
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+    -2.55684556e+00   1.95970467e+01   2.87074883e+00;
+    -3.01386405e-02   2.22824114e-01   3.48008143e-02;
+    -1.89232124e+01   9.58494908e+01   6.18829102e+01;
+    -2.41222676e+00   1.23422296e+01   7.95456719e+00;
+    -4.30387165e+01   1.37202855e+02   1.83362930e+02;
+    -6.13500886e+00   1.97691945e+01   2.59619180e+01;
+    -5.31750877e+01   9.56172558e+01   2.78414677e+02;
+    -6.70024895e+00   1.27649189e+01   3.50790650e+01;
+    -4.87888099e+01   3.21247890e+01   3.26042612e+02;
+    -5.40699135e+00   3.21478649e+00   3.45192279e+01;
+    -4.87888099e+01  -3.21247890e+01   3.26042612e+02;
+    -5.40699135e+00  -3.21478649e+00   3.45192279e+01;
+    -5.31750877e+01  -9.56172558e+01   2.78414677e+02;
+    -6.70024895e+00  -1.27649189e+01   3.50790650e+01;
+    -4.30387165e+01  -1.37202855e+02   1.83362930e+02;
+    -6.13500886e+00  -1.97691945e+01   2.59619180e+01;
+    -1.89232124e+01  -9.58494908e+01   6.18829102e+01;
+    -2.41222676e+00  -1.23422296e+01   7.95456719e+00;
+    -2.55684556e+00  -1.95970467e+01   2.87074883e+00;
+    -3.01386405e-02  -2.22824114e-01   3.48008143e-02;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00;
+     0.00000000e+00   0.00000000e+00   0.00000000e+00
+]
+
+# Simulation parameters
+const N_PLOTS = 3  # number of static snapshots to render
+n_steps = 50
+remake_cache = false
 
 # Include the yaml_loader with all helper functions
 include("../yaml_loader.jl")
@@ -118,6 +161,17 @@ dynamic_count = count(p -> p.type == SymbolicAWEModels.DYNAMIC, sys.points)
 println("  Fixed points: $fixed_count")
 println("  Dynamic points: $dynamic_count")
 
+# Apply provided static loads to system points
+println("\nApplying provided static loads to structural nodes...")
+for (i, point) in enumerate(sys.points)
+    if i <= size(F_AERO_WING, 1)
+        point.disturb[1] = F_AERO_WING[i, 1]
+        point.disturb[2] = F_AERO_WING[i, 2]
+        point.disturb[3] = F_AERO_WING[i, 3]
+    end
+end
+println("  Successfully applied static loads to $(min(length(sys.points), size(F_AERO_WING, 1))) points")
+
 # Calculate bounding box
 get_pos(p) = hasproperty(p, :pos_w) ? p.pos_w : p.pos_cad
 x_coords = [get_pos(p)[1] for p in sys.points]
@@ -141,63 +195,6 @@ println("  - Black lines: Structural members (spars, ribs, bridle lines)")
 println("  - Hover over points to see details")
 println("  - Use mouse to rotate, zoom, and pan")
 
-# ===== Load aerodynamic forces from CSV file =====
-println("\n" * "="^60)
-println("Loading aerodynamic forces from CSV")
-println("="^60)
-
-# Path to the loads CSV file
-loads_csv_path = joinpath(dirname(dirname(@__DIR__)), "data", model_name, "vsm_computed_loads.csv")
-
-if !isfile(loads_csv_path)
-    error("Loads CSV file not found at: $loads_csv_path")
-end
-
-# Read the CSV file
-loads_df = CSV.read(loads_csv_path, DataFrame)
-println("Loaded $(nrow(loads_df)) force entries from CSV")
-
-# Display summary of forces
-println("\nForce Summary:")
-println("  Total force X: $(round(sum(loads_df.force_x), digits=2)) N")
-println("  Total force Y: $(round(sum(loads_df.force_y), digits=2)) N")
-println("  Total force Z: $(round(sum(loads_df.force_z), digits=2)) N")
-println("  Total magnitude: $(round(sum(loads_df.force_magnitude), digits=2)) N")
-
-# ===== Apply forces to dynamic points =====
-println("\nApplying forces to structural nodes...")
-
-# Get dynamic points (excluding fixed points)
-dynamic_points = filter(p -> p.type == SymbolicAWEModels.DYNAMIC, sys.points)
-println("  Number of dynamic points: $(length(dynamic_points))")
-println("  Number of force entries: $(nrow(loads_df))")
-
-# Skip first force entry (node 1 is the fixed point)
-# Map forces starting from row 2 to dynamic points
-if length(dynamic_points) != (nrow(loads_df) - 1)
-    @warn "Mismatch: $(length(dynamic_points)) dynamic points vs $(nrow(loads_df)-1) force entries (excluding fixed point)"
-    println("  Will apply forces to first $(min(length(dynamic_points), nrow(loads_df)-1)) points")
-end
-
-# Apply forces from CSV to dynamic points (skip first row which is for fixed point)
-# Note: disturb field is immutable SVector, so we need to copy the values element by element
-let n_forces_applied = 0
-    for (i, point) in enumerate(dynamic_points)
-        if (i + 1) <= nrow(loads_df)  # +1 to skip first CSV row
-            force_row = loads_df[i + 1, :]  # Start from row 2
-            
-            # Copy force values to the disturb field (element-wise assignment)
-            point.disturb[1] = force_row.force_x
-            point.disturb[2] = force_row.force_y
-            point.disturb[3] = force_row.force_z
-            
-            n_forces_applied += 1
-        end
-    end
-    
-    println("  Successfully applied $n_forces_applied forces to dynamic points")
-end
-
 # ===== Run structural simulation =====
 println("\n" * "="^60)
 println("Running structural simulation with aerodynamic loads")
@@ -205,11 +202,10 @@ println("="^60)
 
 # Simulation parameters
 set.sample_freq = 10  # 10 Hz sampling (dt = 0.1s)
-simulation_time = 5.0  # 5 seconds
-n_steps = Int(simulation_time * set.sample_freq)
 
-println("  Simulation time: $simulation_time seconds")
-println("  Time step: $(1/set.sample_freq) seconds")
+Δt = 1.0 / set.sample_freq
+println("  Simulation time: $(n_steps * Δt) seconds")
+println("  Time step: $Δt seconds")
 println("  Total steps: $n_steps")
 
 # Analyze system for optimal damping
@@ -224,28 +220,75 @@ set.axial_damping = recommended_damping
 # Create symbolic model
 println("\nInitializing symbolic model...")
 sam = SymbolicAWEModel(set, sys)
-init!(sam; remake=false)
 
-# Plot initial state with forces applied
-plot(sam, 0.0; zoom=false)
+# Ensure provided static loads are set on the model structure before initialization
+for (i, point) in enumerate(sam.sys_struct.points)
+    if i <= size(F_AERO_WING, 1)
+        point.disturb[1] = F_AERO_WING[i, 1]
+        point.disturb[2] = F_AERO_WING[i, 2]
+        point.disturb[3] = F_AERO_WING[i, 3]
+    end
+end
+
+init!(sam; remake=remake_cache)
+
+# Re-apply provided static loads after initialization
+for (i, point) in enumerate(sam.sys_struct.points)
+    if i <= size(F_AERO_WING, 1)
+        point.disturb[1] = F_AERO_WING[i, 1]
+        point.disturb[2] = F_AERO_WING[i, 2]
+        point.disturb[3] = F_AERO_WING[i, 3]
+    end
+end
+
+# Determine which steps to capture for static plots
+num_samples = max(N_PLOTS, 2)
+snapshot_steps = unique!(sort!(round.(Int, range(0, stop=n_steps, length=num_samples))))
+snapshot_steps[1] != 0 && pushfirst!(snapshot_steps, 0)
+snapshot_steps[end] != n_steps && push!(snapshot_steps, n_steps)
+
+# Store snapshots
+snapshots = Dict{Int, Vector{SymbolicAWEModels.Point}}(0 => deepcopy(sam.sys_struct.points))
 
 # Run simulation
 println("\nRunning simulation...")
-for i in 1:n_steps
-    current_time = i / set.sample_freq
+for step in 1:n_steps
+    t = step * Δt
+    
+    # Re-apply provided static loads at each step
+    for (i, point) in enumerate(sam.sys_struct.points)
+        if i <= size(F_AERO_WING, 1)
+            point.disturb[1] = F_AERO_WING[i, 1]
+            point.disturb[2] = F_AERO_WING[i, 2]
+            point.disturb[3] = F_AERO_WING[i, 3]
+        end
+    end
+    
     next_step!(sam)
     
-    # Plot every 5 steps
-    if i % 5 == 0
-        plot(sam, current_time; zoom=false)
-        println("  Step $i/$n_steps (t = $(round(current_time, digits=2))s)")
+    # Store current state if requested
+    if step in snapshot_steps
+        snapshots[step] = deepcopy(sam.sys_struct.points)
+    end
+    
+    # Print progress
+    if step % 20 == 0
+        println("  Step $step/$n_steps (t = $(round(t, digits=2))s)")
     end
 end
+
+# Ensure final state is captured
+snapshots[n_steps] = get(snapshots, n_steps, deepcopy(sam.sys_struct.points))
+
+captured_steps = sort!(collect(keys(snapshots)))
 
 # ===== Final results =====
 println("\n" * "="^60)
 println("Simulation Complete!")
 println("="^60)
+
+# Get dynamic points for displacement analysis
+dynamic_points = filter(p -> p.type == SymbolicAWEModels.DYNAMIC, sys.points)
 
 # Calculate displacement statistics
 println("\nDisplacement Analysis:")
@@ -261,8 +304,16 @@ println("  Mean displacement: $(round(mean(displacements), digits=4)) m")
 println("  Max displacement: $(round(maximum(displacements), digits=4)) m")
 println("  Min displacement: $(round(minimum(displacements), digits=4)) m")
 
-# Final plot
-println("\nGenerating final 3D plot...")
-plot(sam, simulation_time; zoom=false)
+# Render static plots for captured snapshots
+println("\nRendering $(length(captured_steps)) static plots...")
+for (idx, step) in enumerate(captured_steps)
+    points_snapshot = snapshots[step]
+    t = step * Δt
+    plot_title = "TUDELFT V3 Kite – Step $(step) (t=$(round(t, digits=2)) s)"
+    plot3d_v3(points_snapshot, sam.sys_struct.segments; title=plot_title)
+    println("  Rendered static snapshot $(idx)/$(length(captured_steps)) at step $step")
+end
+
+println("\nDone. Created $(length(captured_steps)) static Plotly plots covering the simulation window.")
 
 nothing

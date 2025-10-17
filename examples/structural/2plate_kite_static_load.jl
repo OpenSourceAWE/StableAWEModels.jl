@@ -16,7 +16,7 @@ using VortexStepMethod
 using StaticArrays
 
 # ============= User settings =============
-const MODEL_NAME = "pyramid_model"
+const MODEL_NAME = "2plate_kite"
 const GEOM_PATH  = joinpath("data", MODEL_NAME, "struc_geometry_converged.yaml")
 const GEOM_PATH  = joinpath("data", MODEL_NAME, "struc_geometry.yaml")
 const N_PLOTS    = 3  # number of static snapshots to render after simulation
@@ -33,18 +33,19 @@ const PANEL_DEFINITIONS = (
 )
 
 # External aerodynamic loads (array rows match node indices 0-6)
+# Symmetric forces: left and right panels mirrored in Y-direction
 const F_AERO_WING = [
-       0.0            0.0            0.0        ;
-     -49.23422944  169.91398256  225.26646516;
-     -21.28999615   70.38702941   93.1314033 ;
-    -136.84008626  -16.26365694  564.1619389 ;
-     -53.14868866   -7.52853902  222.3234133 ;
-     -46.91474061 -185.15041031  224.70657846;
-     -20.7152601   -77.89786305   94.32859107
+       0.0            0.0            0.0        ;  # Node 0: ground
+     -50  50  225;  # Node 1: right LE
+     20   50   100;  # Node 2: right TE  
+    -135  0  400 ;  # Node 3: center LE
+     50  0  250;  # Node 4: center TE
+     -50   -50 225;  # Node 5: left TE (mirrored node 2, Y negated)
+       20  -50 100;  # Node 6: unused/dummy
 ]
 
 # simulation / plotting knobs
-n_steps      = 50
+n_steps      = 3
 use_zoom     = false
 remake_cache = false
 # ========================================
