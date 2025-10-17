@@ -21,7 +21,8 @@
 # --copy-manifest: Copy a default manifest file for a reproducible environment
 # --project=<path>: Set project path (default: examples)
 #                   Examples: --project=examples, --project=., --project=test
-# --dev: Enable dev mode (runs ]dev ., otherwise runs ]add .)
+# --resolve: Resolve packages (runs ]add . for the project)
+# --dev: Enable dev mode with resolve (runs ]dev . instead of ]add .)
 
 # Ensure the script runs from the project root
 if [[ $(basename "$(pwd)") == "bin" ]]; then
@@ -75,6 +76,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --dev)
       dev=true
+      resolve=true
+      shift
+      ;;
+    --resolve)
+      resolve=true
       shift
       ;;
     *)
@@ -86,24 +92,64 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Handle package management ---
-if [[ "$dev" == "true" ]]; then
-    echo "Developer mode enabled for project: $project_path"
-    julia_pkg_script="
-        using Pkg
-        Pkg.develop(path=\".\")
-    "
-else
-    echo "Normal mode enabled for project: $project_path"
-    julia_pkg_script="
-        using Pkg
-        Pkg.add(path=\".\")
-    "
-fi
+if [[ "$resolve" == "true" ]]; then
+    if [[ "$dev" == "true" ]]; then
+        echo "Developer mode enabled for project: $project_path"
+        julia_pkg_script='
+            using Pkg, TOML
+            project_toml = joinpath(pwd(), "Project.toml")
+            if !isfile(project_toml)
+                @warn "Project.toml not found in current directory"
+            else
+                pkg_name = TOML.parsefile(project_toml)["name"]
+                deps = Pkg.dependencies()
+                local pkg_uuid = nothing
+                for (uuid, dep) in deps
+                    if dep.name == pkg_name
+                        pkg_uuid = uuid
+                        break
+                    end
+                end
 
-if [[ -n "$julia_channel_arg" ]]; then
-    julia "$julia_channel_arg" --project="$project_path" -e "$julia_pkg_script"
-else
-    julia --project="$project_path" -e "$julia_pkg_script"
+                if pkg_uuid !== nothing && deps[pkg_uuid].is_tracking_path
+                    println("Package already in dev mode, skipping...")
+                else
+                    Pkg.develop(path=".")
+                end
+            end
+        '
+    else
+        echo "Normal mode enabled for project: $project_path"
+        julia_pkg_script='
+            using Pkg, TOML
+            project_toml = joinpath(pwd(), "Project.toml")
+            if !isfile(project_toml)
+                @warn "Project.toml not found in current directory"
+            else
+                pkg_name = TOML.parsefile(project_toml)["name"]
+                deps = Pkg.dependencies()
+                local pkg_uuid = nothing
+                for (uuid, dep) in deps
+                    if dep.name == pkg_name
+                        pkg_uuid = uuid
+                        break
+                    end
+                end
+
+                if pkg_uuid !== nothing && !deps[pkg_uuid].is_tracking_path
+                    println("Package already added, skipping...")
+                else
+                    Pkg.add(path=".")
+                end
+            end
+        '
+    fi
+
+    if [[ -n "$julia_channel_arg" ]]; then
+        julia "$julia_channel_arg" --project="$project_path" -e "$julia_pkg_script"
+    else
+        julia --project="$project_path" -e "$julia_pkg_script"
+    fi
 fi
 
 # --- Handle Default Manifest Copy, if requested ---
