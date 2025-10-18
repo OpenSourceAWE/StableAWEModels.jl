@@ -8,6 +8,7 @@
 *.xopp
 *.so
 *.so.bak
+.claude
 Manifest.toml
 Manifest*.toml
 Manifest*.default

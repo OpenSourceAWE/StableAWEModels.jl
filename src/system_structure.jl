@@ -1306,3 +1306,136 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
         end
     end
 end
+
+"""
+    update_from_sysstate!(sys::SystemStructure, ss::SysState)
+
+Update the dynamic state of a `SystemStructure` from a `SysState` snapshot.
+
+This function copies the state variables that are present in `SysState` (such as point
+positions, wing orientations, winch lengths, and twist angles) into an existing `SystemStructure`.
+Fields that cannot be populated from `SysState` (such as aerodynamic forces, moments, and
+segment forces) are set to `NaN` to prevent them from being plotted.
+
+This is useful for visualizing a `SysLog` by extracting individual `SysState` snapshots
+and applying them to a `SystemStructure` for plotting with the Makie extension.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to update (must already exist with correct topology).
+- `ss::SysState`: The state snapshot to copy from.
+
+# Example
+```julia
+# Load a system log
+lg = load_log(...)
+
+# Create a SystemStructure with the same topology
+sys = SystemStructure(se(), "ram")
+
+# Update from a specific time step
+update_from_sysstate!(sys, lg.syslog[100])
+
+# Plot the system at that time step
+plot(sys)
+```
+
+# Notes
+- The `SystemStructure` must have been created with the same model configuration as the
+  simulation that generated the `SysLog`.
+- Aerodynamic and force fields are set to `NaN` and will not be plotted.
+- The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
+"""
+function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
+    @unpack points, groups, winches, wings = sys
+
+    # Verify compatibility
+    if length(points) != P
+        error("SystemStructure has $(length(points)) points but SysState has $P points")
+    end
+
+    # Update point positions (X, Y, Z from SysState)
+    for point in points
+        point.pos_w[1] = ss.X[point.idx]
+        point.pos_w[2] = ss.Y[point.idx]
+        point.pos_w[3] = ss.Z[point.idx]
+        # Set velocity to zero (not available in basic SysState)
+        point.vel_w .= 0.0
+        # Set forces to NaN (not available in SysState)
+        point.force .= NaN
+    end
+
+    # Update wing state if wings exist
+    if length(wings) > 0 && length(wings) == 1  # Currently only support single-wing systems
+        wing = wings[1]
+
+        # Copy orientation quaternion
+        wing.Q_b_w .= ss.orient
+
+        # Copy spherical coordinates
+        wing.elevation = Float64(ss.elevation)
+        wing.azimuth = Float64(ss.azimuth)
+        wing.heading = Float64(ss.heading)
+
+        # Compute wing position from average of points (if wings exist)
+        # For a typical system, the wing COM is near the bridle attachment
+        wing.pos_w .= [mean(ss.X), mean(ss.Y), mean(ss.Z)]
+
+        # Copy velocity if available in vel_kite
+        wing.vel_w .= ss.vel_kite
+
+        # Set angular velocity to NaN (turn_rates in SysState, but need conversion)
+        wing.ω_b .= ss.turn_rates
+
+        # Set aerodynamic quantities to NaN (to prevent plotting)
+        wing.aero_force_b .= NaN
+        wing.aero_moment_b .= NaN
+        wing.tether_force .= NaN
+        wing.tether_moment .= NaN
+        wing.va_b .= NaN
+        wing.v_wind .= ss.v_wind_kite
+        wing.aoa = Float64(ss.AoA)
+        wing.course = Float64(ss.course)
+        wing.acc_w .= 0.0
+        wing.turn_rate .= ss.turn_rates
+        wing.turn_acc .= 0.0
+    end
+
+    # Update group twist angles
+    n_groups = min(length(groups), 4)  # SysState stores up to 4 twist angles
+    for i in 1:n_groups
+        if i <= length(groups)
+            groups[i].twist = Float64(ss.twist_angles[i])
+            groups[i].twist_ω = 0.0  # Not available in SysState
+            # Set forces/moments to NaN
+            groups[i].tether_force = NaN
+            groups[i].tether_moment = NaN
+            groups[i].aero_moment = NaN
+        end
+    end
+
+    # Update winch state
+    n_winches = min(length(winches), 4)  # SysState stores up to 4 winches
+    for i in 1:n_winches
+        if i <= length(winches)
+            winches[i].tether_len = Float64(ss.l_tether[i])
+            winches[i].tether_vel = Float64(ss.v_reelout[i])
+            winches[i].force .= NaN  # Force not directly available
+            winches[i].friction = NaN
+            winches[i].tether_acc = 0.0
+            winches[i].set_value = Float64(ss.set_torque[i])
+        end
+    end
+
+    # Update segments - set forces to NaN (not available in SysState)
+    for segment in sys.segments
+        p1 = points[segment.point_idxs[1]]
+        p2 = points[segment.point_idxs[2]]
+        segment.len = norm(p1.pos_w - p2.pos_w)
+        segment.force = NaN  # Not available in SysState
+    end
+
+    # Update global wind vector
+    sys.wind_vec_gnd .= ss.v_wind_gnd
+
+    return nothing
+end
