@@ -18,6 +18,8 @@ using VortexStepMethod
 const PLOT_OBSERVABLES = Ref{Union{Nothing, NamedTuple}}(nothing)
 const PLOT_SCENE = Ref{Union{Nothing, Scene}}(nothing)
 const PLOT_TIME_TEXT = Ref{Union{Nothing, Observable}}(nothing)
+const PLOT_BACKGROUND_PANES = Ref{Union{Nothing, Vector}}(nothing)
+const PLOT_MARGIN = Ref{Float64}(10.0)
 
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
@@ -448,11 +450,11 @@ function zoom_out!(scene, cam, plots; relmargin=0.2)
     update_cam!(scene, new_eyepos, center)
 end
 
-function Makie.plot(sys::SystemStructure; 
-                    size = (1200, 800), 
+function _plot_with_panes(sys::SystemStructure;
+                    size = (1200, 800),
                     margin = 10.0,
                     relmargin = 0.2,
-                    segment_color = :black, 
+                    segment_color = :black,
                     highlight_color = :red,
                     kwargs...)
     # Use LScene for advanced camera controls
@@ -687,34 +689,60 @@ function Makie.plot(sys::SystemStructure;
     end
 
     # --- Calculate limits and draw background panes ---
-    xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10) # Default limits
-    if !isempty(sys.points)
-        all_x = [p.pos_w[1] for p in sys.points]
-        all_y = [p.pos_w[2] for p in sys.points]
-        all_z = [p.pos_w[3] for p in sys.points]
+    function calculate_limits(sys, margin)
+        xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10) # Default limits
+        if !isempty(sys.points)
+            all_x = [p.pos_w[1] for p in sys.points]
+            all_y = [p.pos_w[2] for p in sys.points]
+            all_z = [p.pos_w[3] for p in sys.points]
 
-        xlims_data = extrema(all_x)
-        ylims_data = extrema(all_y)
-        zlims_data = extrema(all_z)
+            xlims_data = extrema(all_x)
+            ylims_data = extrema(all_y)
+            zlims_data = extrema(all_z)
 
-        xlims = (xlims_data[1] - margin, xlims_data[2] + margin)
-        ylims = (ylims_data[1] - margin, ylims_data[2] + margin)
-        zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
+            xlims = (xlims_data[1] - margin, xlims_data[2] + margin)
+            ylims = (ylims_data[1] - margin, ylims_data[2] + margin)
+            zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
+        end
+        return xlims, ylims, zlims
     end
 
-    # Manually create background panes
+    xlims, ylims, zlims = calculate_limits(sys, margin)
+
+    # Create background panes with observables for dynamic updates
     pane_color = RGBAf(0.95, 0.95, 0.95, 0.3)
+
     # XZ plane at y_max (since camera is at negative y)
-    mesh!(scene, Rect3(Vec3f(xlims[1], ylims[2], zlims[1]), Vec3f(xlims[2]-xlims[1], 0.01, zlims[2]-zlims[1])), color=pane_color)
+    xz_pane_obs = Observable(Rect3(Vec3f(xlims[1], ylims[2], zlims[1]),
+                                    Vec3f(xlims[2]-xlims[1], 0.01, zlims[2]-zlims[1])))
+    xz_pane = mesh!(scene, xz_pane_obs, color=pane_color)
+
     # YZ plane at x_max
-    mesh!(scene, Rect3(Vec3f(xlims[2], ylims[1], zlims[1]), Vec3f(0.01, ylims[2]-ylims[1], zlims[2]-zlims[1])), color=pane_color)
+    yz_pane_obs = Observable(Rect3(Vec3f(xlims[2], ylims[1], zlims[1]),
+                                    Vec3f(0.01, ylims[2]-ylims[1], zlims[2]-zlims[1])))
+    yz_pane = mesh!(scene, yz_pane_obs, color=pane_color)
+
     # XY plane at z_min
-    mesh!(scene, Rect3(Vec3f(xlims[1], ylims[1], zlims[1]), Vec3f(xlims[2]-xlims[1], ylims[2]-ylims[1], 0.01)), color=pane_color)
+    xy_pane_obs = Observable(Rect3(Vec3f(xlims[1], ylims[1], zlims[1]),
+                                    Vec3f(xlims[2]-xlims[1], ylims[2]-ylims[1], 0.01)))
+    xy_pane = mesh!(scene, xy_pane_obs, color=pane_color)
+
+    # Store pane observables
+    pane_observables = [xz_pane_obs, yz_pane_obs, xy_pane_obs]
 
     # Set initial camera position
     update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
     zoom_out!(scene, scene.camera, relevant_plots; relmargin)
-    scene
+
+    # Return scene along with pane_observables and margin
+    # These will be used by time-based plotting
+    return scene, pane_observables, margin
+end
+
+# Public API function - returns just the scene for backward compatibility
+function Makie.plot(sys::SystemStructure; kwargs...)
+    scene, _, _ = _plot_with_panes(sys; kwargs...)
+    return scene
 end
 
 """
@@ -809,8 +837,8 @@ function Makie.plot(sys::SystemStructure, time::Real;
             wing_directions_obs = wing_directions_obs
         )
 
-        # Create scene with observables
-        scene = plot(sys;
+        # Create scene with observables using internal function
+        scene, pane_observables, margin = _plot_with_panes(sys;
                     segment_points_obs,
                     point_positions_obs,
                     wing_origins_obs,
@@ -823,9 +851,11 @@ function Makie.plot(sys::SystemStructure, time::Real;
         text!(scene, time_text, position = Point2f(20, 50), space = :pixel,
               fontsize = 24, color = :black, align = (:left, :top))
 
-        # Store scene and time text globally
+        # Store scene, time text, and pane observables globally
         PLOT_SCENE[] = scene
         PLOT_TIME_TEXT[] = time_text
+        PLOT_BACKGROUND_PANES[] = pane_observables
+        PLOT_MARGIN[] = margin
 
         # Display the scene
         display(scene)
@@ -879,6 +909,39 @@ function Makie.plot(sys::SystemStructure, time::Real;
                 # Update time display
                 if !isnothing(PLOT_TIME_TEXT[])
                     PLOT_TIME_TEXT[][] = @sprintf("Time: %.2f s", time)
+                end
+
+                # Update background panes
+                if !isnothing(PLOT_BACKGROUND_PANES[])
+                    panes = PLOT_BACKGROUND_PANES[]
+                    margin = PLOT_MARGIN[]
+
+                    # Recalculate limits based on current point positions
+                    xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10)
+                    if !isempty(sys.points)
+                        all_x = [p.pos_w[1] for p in sys.points]
+                        all_y = [p.pos_w[2] for p in sys.points]
+                        all_z = [p.pos_w[3] for p in sys.points]
+
+                        xlims_data = extrema(all_x)
+                        ylims_data = extrema(all_y)
+                        zlims_data = extrema(all_z)
+
+                        xlims = (xlims_data[1] - margin, xlims_data[2] + margin)
+                        ylims = (ylims_data[1] - margin, ylims_data[2] + margin)
+                        zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
+                    end
+
+                    # Update pane observables
+                    # XZ plane at y_max
+                    panes[1][] = Rect3(Vec3f(xlims[1], ylims[2], zlims[1]),
+                                       Vec3f(xlims[2]-xlims[1], 0.01, zlims[2]-zlims[1]))
+                    # YZ plane at x_max
+                    panes[2][] = Rect3(Vec3f(xlims[2], ylims[1], zlims[1]),
+                                       Vec3f(0.01, ylims[2]-ylims[1], zlims[2]-zlims[1]))
+                    # XY plane at z_min
+                    panes[3][] = Rect3(Vec3f(xlims[1], ylims[1], zlims[1]),
+                                       Vec3f(xlims[2]-xlims[1], ylims[2]-ylims[1], 0.01))
                 end
 
                 return nothing
