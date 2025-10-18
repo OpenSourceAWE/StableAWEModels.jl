@@ -563,6 +563,52 @@ function Makie.plot(sys::SystemStructure;
             end
         end
 
+        # --- Event Handler for Camera Movement ---
+        on(scene.camera.view, priority = 1) do _
+            # Update label positions when camera moves
+            hover_idx = last_hovered_idx[]
+            if hover_idx != -1
+                seg = sys.segments[hover_idx]
+                p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                p2_3d = sys.points[seg.point_idxs[2]].pos_w
+
+                # Update segment label position
+                mid_point_3d = (p1_3d + p2_3d) / 2
+                mid_point_2d = Makie.project(scene, mid_point_3d)
+                segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+
+                # Update point label positions
+                p1_2d = Makie.project(scene, p1_3d)
+                p2_2d = Makie.project(scene, p2_3d)
+                point1_label_pos[] = p1_2d + Point2f(20, 0)
+                point2_label_pos[] = p2_2d + Point2f(20, 0)
+            end
+        end
+
+        # --- Update label positions after zoom ---
+        on(scene.camera.view, priority = 0) do _
+            # Small delay to ensure camera update is complete
+            # This helps with label positioning after zoom operations
+            sleep(0.01)
+            hover_idx = last_hovered_idx[]
+            if hover_idx != -1
+                seg = sys.segments[hover_idx]
+                p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                p2_3d = sys.points[seg.point_idxs[2]].pos_w
+
+                # Update segment label position
+                mid_point_3d = (p1_3d + p2_3d) / 2
+                mid_point_2d = Makie.project(scene, mid_point_3d)
+                segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+
+                # Update point label positions
+                p1_2d = Makie.project(scene, p1_3d)
+                p2_2d = Makie.project(scene, p2_3d)
+                point1_label_pos[] = p1_2d + Point2f(20, 0)
+                point2_label_pos[] = p2_2d + Point2f(20, 0)
+            end
+        end
+
         # --- Event Handler for Click-to-Zoom ---
         zoomed_in = Ref(false)
         on(events(scene).mousebutton, priority = 2) do event
@@ -586,10 +632,48 @@ function Makie.plot(sys::SystemStructure;
                         
                         update_cam!(scene, new_eyepos, center)
                         zoomed_in[] = true
+                        
+                        # Update label positions after zoom
+                        # Small delay to ensure camera update is complete
+                        sleep(0.01)
+                        p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                        p2_3d = sys.points[seg.point_idxs[2]].pos_w
+                        
+                        # Update segment label position
+                        mid_point_3d = (p1_3d + p2_3d) / 2
+                        mid_point_2d = Makie.project(scene, mid_point_3d)
+                        segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+                        
+                        # Update point label positions
+                        p1_2d = Makie.project(scene, p1_3d)
+                        p2_2d = Makie.project(scene, p2_3d)
+                        point1_label_pos[] = p1_2d + Point2f(20, 0)
+                        point2_label_pos[] = p2_2d + Point2f(20, 0)
                     end
                 else
                     zoom_out!(scene, cam, relevant_plots; relmargin)
                     zoomed_in[] = false
+                    
+                    # Update label positions after zoom out
+                    # Small delay to ensure camera update is complete
+                    sleep(0.01)
+                    hover_idx = last_hovered_idx[]
+                    if hover_idx != -1
+                        seg = sys.segments[hover_idx]
+                        p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                        p2_3d = sys.points[seg.point_idxs[2]].pos_w
+                        
+                        # Update segment label position
+                        mid_point_3d = (p1_3d + p2_3d) / 2
+                        mid_point_2d = Makie.project(scene, mid_point_3d)
+                        segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+                        
+                        # Update point label positions
+                        p1_2d = Makie.project(scene, p1_3d)
+                        p2_2d = Makie.project(scene, p2_3d)
+                        point1_label_pos[] = p1_2d + Point2f(20, 0)
+                        point2_label_pos[] = p2_2d + Point2f(20, 0)
+                    end
                 end
                 return Consume(true) # Consume the event
             end
@@ -742,6 +826,10 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
         
         # Update time display
         sim_time_text[] = @sprintf("Time: %.2f s", ss.time)
+        
+        # Update label positions if labels were visible in the static plot
+        # Note: In replay mode, hover labels are not currently supported
+        # This is a placeholder for potential future implementation
         
         # Maintain replay speed timing
         if replay_speed > 0 && i < length(lg.syslog)
