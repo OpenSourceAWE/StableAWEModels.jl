@@ -721,28 +721,19 @@ end
 
 Plot a SymbolicAWEModel at a specific simulation time.
 
-This is a convenience wrapper that extracts wing positions from the SAM
-and calls the SystemStructure plotting function.
+This is a convenience wrapper that calls `plot(sam.sys_struct, reltime)`.
 
 # Arguments
 - `sam::SymbolicAWEModel`: The symbolic AWE model to plot
-- `reltime::Real`: Relative time (not used for static plot, but kept for API compatibility)
+- `reltime::Real`: Simulation time. Use 0.0 to create a new plot, any other value to update existing plot.
 
 # Keyword Arguments
-All keyword arguments are passed through to `plot(::SystemStructure)`.
-Common options include `size`, `margin`, `segment_color`, `highlight_color`, etc.
+All keyword arguments are passed through to `plot(::SystemStructure, ::Real)`.
+Common options include `size`, `margin`, `segment_color`, `highlight_color`, `vector_scale`, etc.
 """
 function Makie.plot(sam::SymbolicAWEModel, reltime::Real=0.0; kwargs...)
-    # Extract wing positions if available
-    wings = sam.sys_struct.wings
-    if length(wings) > 0
-        wing_pos = [wing.pos_w for wing in wings]
-    else
-        wing_pos = nothing
-    end
-
-    # Call the SystemStructure plot function
-    plot(sam.sys_struct; kwargs...)
+    # Delegate to the SystemStructure time-based plot function
+    plot(sam.sys_struct, reltime; kwargs...)
 end
 
 """
@@ -794,7 +785,8 @@ end
 function Makie.plot(sys::SystemStructure, time::Real;
                     vector_scale=0.2,
                     kwargs...)
-    if time == 0.0
+    # Helper function to create new plot
+    function create_new_plot()
         # Create new plot with observables
         segment_points_obs = Observable(Point3f[])
         point_positions_obs = Observable(Point3f[])
@@ -828,21 +820,57 @@ function Makie.plot(sys::SystemStructure, time::Real;
         # Store scene globally
         PLOT_SCENE[] = scene
 
+        # Display the scene
+        display(scene)
+
         return scene
+    end
+
+    # Check if we need to create a new plot
+    if time == 0.0
+        # User explicitly requested new plot
+        return create_new_plot()
     else
-        # Update existing observables
-        if isnothing(PLOT_OBSERVABLES[])
-            error("No plot created yet. Call plot(sys_struct, 0.0) first to create a new plot.")
+        # Try to update existing plot
+        if isnothing(PLOT_OBSERVABLES[]) || isnothing(PLOT_SCENE[])
+            # No plot exists, create new one
+            @warn "No plot exists. Creating new plot (call with time=0.0 to avoid this warning)."
+            return create_new_plot()
+        else
+            # Check if the scene still has an active display
+            scene = PLOT_SCENE[]
+            scene_has_display = false
+
+            # Check if scene is in any current screen
+            try
+                # In Makie, we can check the events.window_open observable
+                # If the scene has events and window_open exists, check its value
+                if hasfield(typeof(scene), :events) &&
+                   hasfield(typeof(scene.events), :window_open)
+                    scene_has_display = scene.events.window_open[]
+                else
+                    # Fallback: assume display exists (we'll create new one if update fails)
+                    scene_has_display = true
+                end
+            catch
+                # If checking fails, assume no display
+                scene_has_display = false
+            end
+
+            if !scene_has_display
+                # Display was closed, create new one
+                return create_new_plot()
+            else
+                # Update existing observables
+                obs = PLOT_OBSERVABLES[]
+                update_plot_observables!(
+                    obs.segment_points_obs, obs.point_positions_obs,
+                    obs.wing_origins_obs, obs.wing_directions_obs,
+                    sys; vector_scale
+                )
+                return nothing
+            end
         end
-
-        obs = PLOT_OBSERVABLES[]
-        update_plot_observables!(
-            obs.segment_points_obs, obs.point_positions_obs,
-            obs.wing_origins_obs, obs.wing_directions_obs,
-            sys; vector_scale
-        )
-
-        return nothing
     end
 end
 
