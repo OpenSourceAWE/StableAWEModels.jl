@@ -17,6 +17,7 @@ using VortexStepMethod
 # Global storage for plot observables (for time-based plotting)
 const PLOT_OBSERVABLES = Ref{Union{Nothing, NamedTuple}}(nothing)
 const PLOT_SCENE = Ref{Union{Nothing, Scene}}(nothing)
+const PLOT_TIME_TEXT = Ref{Union{Nothing, Observable}}(nothing)
 
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
@@ -817,8 +818,14 @@ function Makie.plot(sys::SystemStructure, time::Real;
                     vector_scale,
                     kwargs...)
 
-        # Store scene globally
+        # Add time display overlay
+        time_text = Observable(@sprintf("Time: %.2f s", time))
+        text!(scene, time_text, position = Point2f(20, 50), space = :pixel,
+              fontsize = 24, color = :black, align = (:left, :top))
+
+        # Store scene and time text globally
         PLOT_SCENE[] = scene
+        PLOT_TIME_TEXT[] = time_text
 
         # Display the scene
         display(scene)
@@ -868,6 +875,12 @@ function Makie.plot(sys::SystemStructure, time::Real;
                     obs.wing_origins_obs, obs.wing_directions_obs,
                     sys; vector_scale
                 )
+
+                # Update time display
+                if !isnothing(PLOT_TIME_TEXT[])
+                    PLOT_TIME_TEXT[][] = @sprintf("Time: %.2f s", time)
+                end
+
                 return nothing
             end
         end
@@ -900,86 +913,44 @@ replay(log, sys_struct, replay_speed=2.0)
 replay(log, sys_struct, replay_speed=0.5, vector_scale=0.3)
 ```
 """
-function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure; 
-                      replay_speed=1.0, 
-                      segment_color = :black,
-                      point_color = :darkred,
+function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
+                      replay_speed=1.0,
                       vector_scale = 0.2,
-                      size = (1200, 800),
                       kwargs...)
-    
-    # Create observables for dynamic visualization
-    segment_points_obs = Observable(Point3f[])
-    point_positions_obs = Observable(Point3f[])
-    wing_origins_obs = Observable(Point3f[])
-    wing_directions_obs = Observable(Vec3f[])
-    
-    # Initialize with first state
+
+    # Initialize with first state and create initial plot
     if !isempty(lg.syslog)
         update_from_sysstate!(sys, lg.syslog[1])
-        update_plot_observables!(
-            segment_points_obs, point_positions_obs,
-            wing_origins_obs, wing_directions_obs,
-            sys; vector_scale
-        )
     end
-    
-    # Create 3D scene using existing plot function with observables
-    scene = plot(sys;
-                 segment_points_obs,
-                 point_positions_obs,
-                 wing_origins_obs,
-                 wing_directions_obs,
-                 segment_color,
-                 point_color,
-                 vector_scale,
-                 size,
-                 kwargs...)
-    
-    # Add text overlay for time display
-    sim_time_text = Observable("Time: 0.00 s")
-    text!(scene, sim_time_text, position = Point2f(20, 50), space = :pixel,
-          fontsize = 24, color = :black, align = (:left, :top))
-    
-    # Display the scene
-    display(scene)
-    
+
+    # Create initial plot using plot(sys, 0.0) which sets up observables, scene, and time display
+    scene = plot(sys, 0.0; vector_scale, kwargs...)
+
     # Replay loop
     start_time = time()
     for (i, ss) in enumerate(lg.syslog)
         # Update system state from log
         update_from_sysstate!(sys, ss)
-        
-        # Update observables
-        update_plot_observables!(
-            segment_points_obs, point_positions_obs,
-            wing_origins_obs, wing_directions_obs,
-            sys; vector_scale
-        )
-        
-        # Update time display
-        sim_time_text[] = @sprintf("Time: %.2f s", ss.time)
-        
-        # Update label positions if labels were visible in the static plot
-        # Note: In replay mode, hover labels are not currently supported
-        # This is a placeholder for potential future implementation
-        
+
+        # Update plot using plot(sys, time) which updates observables and time display
+        plot(sys, ss.time; vector_scale)
+
         # Maintain replay speed timing
         if replay_speed > 0 && i < length(lg.syslog)
             next_time = lg.syslog[i+1].time
             current_time = ss.time
             dt = next_time - current_time
-            
+
             target_elapsed = (current_time - lg.syslog[1].time) / replay_speed
             actual_elapsed = time() - start_time
             sleep_time = max(0.0, target_elapsed - actual_elapsed)
             sleep(sleep_time)
         end
-        
+
         # Allow UI updates
         sleep(0.001)
     end
-    
+
     return scene
 end
 
