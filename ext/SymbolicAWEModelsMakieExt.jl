@@ -14,6 +14,10 @@ using KiteUtils: SysLog
 using SymbolicAWEModels
 using VortexStepMethod
 
+# Global storage for plot observables (for time-based plotting)
+const PLOT_OBSERVABLES = Ref{Union{Nothing, NamedTuple}}(nothing)
+const PLOT_SCENE = Ref{Union{Nothing, Scene}}(nothing)
+
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 0.2,
@@ -742,8 +746,109 @@ function Makie.plot(sam::SymbolicAWEModel, reltime::Real=0.0; kwargs...)
 end
 
 """
+    Makie.plot(sys::SystemStructure, time::Real; kwargs...)
+
+Plot a SystemStructure at a specific simulation time, with automatic observable management.
+
+When `time == 0.0`, this function creates a new 3D scene with observables for dynamic updates.
+The observables are stored globally and reused for subsequent calls.
+
+When `time != 0.0`, this function updates the existing observables from the current
+SystemStructure state without creating a new scene.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to plot
+- `time::Real`: Simulation time. Use 0.0 to create a new plot, any other value to update existing plot.
+
+# Keyword Arguments
+All keyword arguments are passed through to `plot(::SystemStructure)`.
+Common options include:
+- `size::Tuple=(1200, 800)`: Figure size in pixels
+- `margin::Real=10.0`: Margin around plot limits
+- `relmargin::Real=0.2`: Relative margin for zoom operations
+- `segment_color=:black`: Color for tether segments
+- `highlight_color=:red`: Color for highlighted segments
+- `vector_scale::Real=0.2`: Scale factor for wing orientation arrows
+- `point_color=:darkred`: Color for point markers
+- `show_points::Bool=true`: Whether to show points
+- `show_segments::Bool=true`: Whether to show segments
+- `show_orient::Bool=true`: Whether to show wing orientations
+
+# Returns
+- When `time == 0.0`: Returns the new Scene object
+- When `time != 0.0`: Returns nothing (updates existing scene)
+
+# Example
+```julia
+# Create initial plot
+scene = plot(sys_struct, 0.0)
+
+# In simulation loop, update the plot
+for i in 1:100
+    next_step!(sam)
+    plot(sys_struct, i/sample_freq)
+    sleep(0.01)
+end
+```
+"""
+function Makie.plot(sys::SystemStructure, time::Real;
+                    vector_scale=0.2,
+                    kwargs...)
+    if time == 0.0
+        # Create new plot with observables
+        segment_points_obs = Observable(Point3f[])
+        point_positions_obs = Observable(Point3f[])
+        wing_origins_obs = Observable(Point3f[])
+        wing_directions_obs = Observable(Vec3f[])
+
+        # Initialize observables from current state
+        update_plot_observables!(
+            segment_points_obs, point_positions_obs,
+            wing_origins_obs, wing_directions_obs,
+            sys; vector_scale
+        )
+
+        # Store observables globally for reuse
+        PLOT_OBSERVABLES[] = (
+            segment_points_obs = segment_points_obs,
+            point_positions_obs = point_positions_obs,
+            wing_origins_obs = wing_origins_obs,
+            wing_directions_obs = wing_directions_obs
+        )
+
+        # Create scene with observables
+        scene = plot(sys;
+                    segment_points_obs,
+                    point_positions_obs,
+                    wing_origins_obs,
+                    wing_directions_obs,
+                    vector_scale,
+                    kwargs...)
+
+        # Store scene globally
+        PLOT_SCENE[] = scene
+
+        return scene
+    else
+        # Update existing observables
+        if isnothing(PLOT_OBSERVABLES[])
+            error("No plot created yet. Call plot(sys_struct, 0.0) first to create a new plot.")
+        end
+
+        obs = PLOT_OBSERVABLES[]
+        update_plot_observables!(
+            obs.segment_points_obs, obs.point_positions_obs,
+            obs.wing_origins_obs, obs.wing_directions_obs,
+            sys; vector_scale
+        )
+
+        return nothing
+    end
+end
+
+"""
     replay(lg::SysLog, sys::SystemStructure; replay_speed=1.0, kwargs...)
-    
+
 Replay a SysLog with real-time 3D visualization.
     
 This function replays a recorded simulation log with 3D visualization, updating the 
