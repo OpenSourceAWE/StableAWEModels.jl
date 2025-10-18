@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 #
 # SPDX-License-Identifier: MPL-2.0
-using SymbolicAWEModels, VortexStepMethod, LinearAlgebra
+using GLMakie
+using VortexStepMethod, LinearAlgebra
+using SymbolicAWEModels
+using SymbolicAWEModels: Point
 
 set_data_path("data")
 set = Settings("system.yaml")
@@ -25,7 +28,7 @@ for i in 1:set.segments
         push!(points, Point(point_idx, pos, dynamics_type; mass=1.0, wing_idx=0))
     end
     segment_idx = i
-    push!(segments, Segment(segment_idx, (point_idx-1, point_idx), BRIDLE))
+    push!(segments, Segment(segment_idx, set, (point_idx-1, point_idx), BRIDLE))
     push!(segment_idxs, segment_idx)
 end
 
@@ -45,11 +48,8 @@ end
 
 # ADDING A WINCH
 set.v_wind = 0.0
-tethers = [Tether(1,[segment.idx for segment in segments])]
-
-using WinchModels
-wm = TorqueControlledMachine(set)
-winches = [Winch(1, wm, [1])]
+tethers = [Tether(1, [segment.idx for segment in segments], 1)]
+winches = [Winch(1, set, [1])]
 
 sys_struct = SystemStructure("winch", set; points, segments, tethers, winches, transforms)
 sam = SymbolicAWEModel(set, sys_struct)
@@ -65,8 +65,8 @@ end
 # ADDING A PULLEY
 push!(points, Point(22, [0, 0, set.l_tether+5], DYNAMIC))
 push!(points, Point(23, [1, 0, set.l_tether+5], STATIC))
-push!(segments, Segment(21, (21,22), BRIDLE))
-push!(segments, Segment(22, (21,23), BRIDLE))
+push!(segments, Segment(21, set, (21,22), BRIDLE))
+push!(segments, Segment(22, set, (21,23), BRIDLE))
 pulleys = [Pulley(1, (21,22), DYNAMIC)]
 transforms[1].elevation = deg2rad(-85.0)
 sys_struct = SystemStructure("pulley", set; points, segments, tethers, winches, pulleys, transforms)
@@ -83,11 +83,11 @@ end
 vsm_wing = RamAirWing(set; prn=false)
 vsm_aero = BodyAerodynamics([vsm_wing])
 vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
-wings = [SymbolicAWEModels.Wing(1, Group[], I(3), [0.5, 0, set.l_tether+6])]
+wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing, vsm_solver, [], I(3), [0.5, 0, set.l_tether+6])]
 
 sys_struct = SystemStructure("wing", set; points, segments, tethers, winches, pulleys, wings, transforms)
 
-sam = SymbolicAWEModel(set, sys_struct, [vsm_aero], [vsm_solver])
+sam = SymbolicAWEModel(set, sys_struct)
 @info "Wing model created successfully"
 
 

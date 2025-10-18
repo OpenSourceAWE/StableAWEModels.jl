@@ -489,7 +489,17 @@ function Winch(idx, tether_idxs, gear_ratio, drum_radius, f_coulomb, c_vf, inert
 end
 
 """
-    mutable struct Wing
+    abstract type AbstractWing
+
+Abstract base type for all wing implementations.
+
+Concrete subtypes must implement rigid body dynamics and provide a reference frame
+for attached points and groups.
+"""
+abstract type AbstractWing end
+
+"""
+    mutable struct BaseWing <: AbstractWing
 
 A rigid wing body that can have multiple groups of points attached to it.
 
@@ -509,13 +519,8 @@ wing.Q_b_w = quat
 
 $(TYPEDFIELDS)
 """
-mutable struct Wing
+mutable struct BaseWing <: AbstractWing
     const idx::Int16
-
-    # VSM aerodynamics
-    vsm_aero::VortexStepMethod.BodyAerodynamics
-    vsm_wing::VortexStepMethod.RamAirWing
-    vsm_solver::VortexStepMethod.Solver
 
     # Structural information
     const group_idxs::Vector{Int16}
@@ -531,9 +536,6 @@ mutable struct Wing
     const acc_w::KVec3
 
     # Derived variables and parameters, updated during simulation
-    const vsm_y::Vector{SimFloat}
-    const vsm_x::Vector{SimFloat}
-    const vsm_jac::Matrix{SimFloat}
     const wind_disturb::KVec3
     drag_frac::SimFloat
     const va_b::KVec3 # apparent wind in body frame
@@ -557,14 +559,14 @@ mutable struct Wing
     y_damping::SimFloat
     z_disturb::SimFloat
 end
-function Base.getproperty(wing::Wing, sym::Symbol)
+function Base.getproperty(wing::BaseWing, sym::Symbol)
     if sym == :R_b_w
         return quaternion_to_rotation_matrix(wing.Q_b_w)
     else
         return getfield(wing, sym)
     end
 end
-function Base.setproperty!(wing::Wing, sym::Symbol, value)
+function Base.setproperty!(wing::BaseWing, sym::Symbol, value)
     if sym == :R_b_w
         wing.Q_b_w .= rotation_matrix_to_quaternion(value)
     else
@@ -573,27 +575,127 @@ function Base.setproperty!(wing::Wing, sym::Symbol, value)
 end
 
 """
+    mutable struct VSMWing <: AbstractWing
+
+A wing that uses the Vortex Step Method (VSM) for aerodynamic computations.
+
+This struct extends the base wing functionality with VSM-specific aerodynamic
+modeling capabilities, including vortex wake computations and aerodynamic loads.
+
+$(TYPEDFIELDS)
+"""
+mutable struct VSMWing <: AbstractWing
+    # Base wing functionality
+    base::BaseWing
+
+    # VSM aerodynamics
+    vsm_aero::VortexStepMethod.BodyAerodynamics
+    vsm_wing::VortexStepMethod.RamAirWing
+    vsm_solver::VortexStepMethod.Solver
+
+    # VSM state and linearization
+    const vsm_y::Vector{SimFloat}
+    const vsm_x::Vector{SimFloat}
+    const vsm_jac::Matrix{SimFloat}
+
+    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac)
+        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac)
+    end
+end
+
+# Delegate property access to base wing for VSMWing
+function Base.getproperty(wing::VSMWing, sym::Symbol)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac)
+        return getfield(wing, sym)
+    else
+        return getproperty(getfield(wing, :base), sym)
+    end
+end
+
+function Base.setproperty!(wing::VSMWing, sym::Symbol, value)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac)
+        setfield!(wing, sym, value)
+    else
+        setproperty!(getfield(wing, :base), sym, value)
+    end
+end
+
+"""
+    BaseWing(idx::Int16, group_idxs::Vector{Int16}, R_b_c::Matrix{SimFloat},
+             pos_cad::KVec3; transform_idx=1, y_damping=150.0)
+
+Constructs a `BaseWing` object representing a rigid body reference frame.
+
+# Arguments
+- `idx::Int16`: Unique identifier for the wing.
+- `group_idxs::Vector{Int16}`: Indices of groups attached to this wing.
+- `R_b_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
+- `pos_cad::KVec3`: Position of wing center of mass in CAD frame.
+
+# Keyword Arguments
+- `transform_idx::Int16=1`: Transform used for initial positioning and orientation.
+- `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
+
+# Returns
+- `BaseWing`: A new base wing object.
+"""
+function BaseWing(idx::Int16, group_idxs::AbstractVector, R_b_c::AbstractMatrix,
+                  pos_cad::KVec3; transform_idx=1, y_damping=150.0)
+    return BaseWing(idx,
+        # Structural information
+        group_idxs, transform_idx, R_b_c, pos_cad,
+        # Differential variables in world frame, updated during simulation
+        zeros(4), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        # Derived variables and parameters, updated during simulation
+        zeros(KVec3), one(SimFloat),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3),
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
+        y_damping, 0.0)
+end
+
+"""
+    VSMWing(idx::Int16, vsm_aero, vsm_wing, vsm_solver, group_idxs::Vector{Int16},
+            R_b_c::Matrix{SimFloat}, pos_cad::KVec3; transform_idx=1, y_damping=150.0)
+
+Constructs a `VSMWing` object with Vortex Step Method aerodynamics.
+
+# Arguments
+- `idx::Int16`: Unique identifier for the wing.
+- `vsm_aero`: VortexStepMethod.BodyAerodynamics object.
+- `vsm_wing`: VortexStepMethod.RamAirWing object.
+- `vsm_solver`: VortexStepMethod.Solver object.
+- `group_idxs::Vector{Int16}`: Indices of groups attached to this wing.
+- `R_b_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
+- `pos_cad::KVec3`: Position of wing center of mass in CAD frame.
+
+# Keyword Arguments
+- `transform_idx::Int16=1`: Transform used for initial positioning and orientation.
+- `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
+
+# Returns
+- `VSMWing`: A new VSM wing object.
+"""
+function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
+                 group_idxs::AbstractVector, R_b_c::AbstractMatrix, pos_cad::AbstractVector;
+                 transform_idx=1, y_damping=150.0)
+    base = BaseWing(Int16(idx), convert(Vector{Int16}, group_idxs), R_b_c, convert(KVec3, pos_cad);
+                    transform_idx, y_damping)
+    ny = length(group_idxs)+3+3
+    nx = length(group_idxs)+3+3
+    return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
+                   zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny))
+end
+
+"""
     Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; transform_idx)
 
-Constructs a `Wing` object representing a rigid body that serves as a reference frame.
+Constructs a `VSMWing` object (backward compatibility constructor).
 
-A `Wing` provides a rigid body coordinate system for kite components. Points with `type == WING`
-move rigidly with the wing body. Groups attached to the wing undergo local deformation
-(twist) relative to the rigid wing body frame.
-
-**Rigid Body Dynamics:**
-The wing follows standard rigid body equations of motion:
-```math
-\\begin{aligned}
-\\frac{\\delta \\mathbf{q}_b^w}{\\delta t} &= \\frac{1}{2} \\Omega(\\boldsymbol{\\omega}_b) \\mathbf{q}_b^w \\\\
-\\boldsymbol{\\tau}_w &= \\mathbf{I} \\frac{\\delta \\boldsymbol{\\omega}}{\\delta t} + \\boldsymbol{\\omega}_b \\times (\\mathbf{I}\\boldsymbol{\\omega}_b)
-\\end{aligned}
-```
-where ``\\mathbf{q}_b^w`` is the quaternion, ``\\boldsymbol{\\omega}_b`` is the angular velocity,
-``\\mathbf{I}`` is the inertia tensor, and ``\\boldsymbol{\\tau}_w`` is the total applied torque.
-
-**Coordinate Transformations:**
-Points attached to the wing transform as: ``\\mathbf{r}_w = \\mathbf{r}_{wing} + \\mathbf{R}_{b \\rightarrow w} \\mathbf{r}_b``
+This is a convenience constructor that creates a VSMWing for backward compatibility
+with existing code. New code should use `VSMWing(...)` directly.
 
 # Arguments
 - `idx::Int16`: Unique identifier for the wing.
@@ -604,29 +706,13 @@ Points attached to the wing transform as: ``\\mathbf{r}_w = \\mathbf{r}_{wing} +
 
 # Keyword Arguments
 - `transform_idx::Int16=1`: Transform used for initial positioning and orientation.
+- `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
 
 # Returns
-- `Wing`: A new `Wing` object providing a rigid body reference frame.
+- `VSMWing`: A new VSM wing object.
 """
-function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; 
-              transform_idx=1, y_damping=150.0)
-    ny = length(group_idxs)+3+3
-    nx = length(group_idxs)+3+3
-    return Wing(idx, 
-        vsm_aero, vsm_wing, vsm_solver,
-        # Structural information
-        group_idxs, transform_idx, R_b_c, pos_cad, 
-        # Differential variables in world frame, updated during simulation
-        zeros(4), zeros(KVec3),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3),
-        # Derived variables and parameters, updated during simulation
-        zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny),
-        zeros(KVec3), one(SimFloat),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
-        zeros(KVec3), zeros(KVec3),
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
-        zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
-        y_damping, 0.0)
+function SymbolicAWEModels.Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; kwargs...)
+    return VSMWing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; kwargs...)
 end
 
 """
@@ -754,7 +840,7 @@ mutable struct SystemStructure
     const pulleys::Vector{Pulley}
     const tethers::Vector{Tether}
     const winches::Vector{Winch}
-    const wings::Vector{Wing}
+    const wings::Vector{AbstractWing}
     const transforms::Vector{Transform}
     const y::Array{Float64, 2}
     const x::Array{Float64, 2}
@@ -881,14 +967,14 @@ Constructs a `SystemStructure` object representing a complete kite system.
 # Returns
 - `SystemStructure`: A complete system ready for building a `SymbolicAWEModel`.
 """
-function SystemStructure(name, set; 
-        points=Point[], 
-        groups=Group[], 
-        segments=Segment[], 
-        pulleys=Pulley[], 
-        tethers=Tether[], 
-        winches=Winch[], 
-        wings=Wing[],
+function SystemStructure(name, set;
+        points=Point[],
+        groups=Group[],
+        segments=Segment[],
+        pulleys=Pulley[],
+        tethers=Tether[],
+        winches=Winch[],
+        wings=AbstractWing[],
         transforms=Transform[],
     )
     for (i, point) in enumerate(points)
