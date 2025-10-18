@@ -636,7 +636,7 @@ replay(log, sys_struct, replay_speed=2.0)
 replay(log, sys_struct, replay_speed=0.5, vector_scale=0.3)
 ```
 """
-function replay(lg::SysLog, sys::SystemStructure; 
+function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure; 
                       replay_speed=1.0, 
                       segment_color = :black,
                       point_color = :darkred,
