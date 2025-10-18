@@ -2,18 +2,23 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-Real-Time 3D Visualization Example
+Real-Time 3D Visualization Example with Keyboard Control
 
 This example demonstrates how to create a custom simulation loop with real-time
-3D visualization using the time-based plot() API.
+3D visualization and interactive keyboard control using the time-based plot() API.
 
 Key features:
 - Real-time 3D updates using plot(sys_struct, time)
+- Interactive keyboard control: Arrow keys for steering
+  - Left Arrow:  Turn left   [0.0, -mag, mag]
+  - Right Arrow: Turn right  [0.0, mag, -mag]
+  - Down Arrow:  Pitch down  [0.0, -mag, -mag]
+  - Up Arrow:    Pitch up    [0.0, mag, mag]
+  - ESC:         Stop simulation
 - Automatic time display and background pane updates
 - Proper sleep timing to maintain real-time speed
 - Interactive camera control during simulation (hover, click-to-zoom)
 - Configurable visualization frame rate
-- Clean API - just call plot(sys_struct, t) to update!
 """
 
 using GLMakie
@@ -27,16 +32,14 @@ using Printf
 # ============================================================================
 
 dt = 0.05                    # Time step [s]
-total_time = 20.0           # Total simulation time [s]
+total_time = 60.0           # Total simulation time [s]
 vsm_interval = 3            # VSM update interval
 realtime_factor = 1.0       # 1.0 = realtime, 2.0 = 2x speed, 0.5 = half speed
 plot_interval = 1           # Update plot every N steps (1 = every step)
 vector_scale = 1.0         # Scale for wing orientation arrows
 
 # Steering parameters
-steering_freq = 0.5         # Hz - full left-right cycle frequency
-steering_magnitude = 10.0   # Magnitude of steering input [Nm]
-bias = 0.2                  # Steering bias
+steering_magnitude = 5.0   # Magnitude of steering input [Nm]
 
 # ============================================================================
 # INITIALIZE MODEL
@@ -64,23 +67,66 @@ println("Creating 3D visualization window...")
 # This automatically creates observables and sets up the scene
 scene = plot(sys_struct, 0.0; vector_scale, size=(1400, 900))
 
-# Add progress text overlay (time display is already added by plot function)
+# Add progress text overlay and keyboard instructions
 progress_text = Observable("Progress: 0%")
 text!(scene, progress_text, position = Point2f(1380, 40), space = :pixel,
       fontsize = 20, color = :black, align = (:right, :top))
 
+# Add keyboard control instructions
+instructions = """
+Keyboard Controls:
+← Left   → Right
+↓ Down   ↑ Up
+ESC to Stop
+"""
+text!(scene, instructions, position = Point2f(20, 130), space = :pixel,
+      fontsize = 16, color = :darkblue, align = (:left, :top))
+
 # ============================================================================
-# PREPARE CONTROL INPUTS
+# SETUP KEYBOARD CONTROL
 # ============================================================================
 
-println("Preparing control inputs...")
-set_values = zeros(Float64, steps, num_winches)
+println("Setting up keyboard controls...")
 
-for step in 1:steps
-    t = (step-1) * dt
-    steering = steering_magnitude * cos(2π * steering_freq * t + bias)
-    set_values[step, :] = [0.0, steering, -steering]
+# Current steering state (will be updated by keyboard events)
+current_steering = Observable([0.0, 0.0, 0.0])  # [power, steer_left, steer_right]
+stop_simulation = Ref(false)  # Flag to stop simulation on ESC
+
+# Keyboard event handler
+on(events(scene).keyboardbutton) do event
+    if event.action == Keyboard.press || event.action == Keyboard.repeat
+        mag = steering_magnitude
+        if event.key == Keyboard.left
+            # Left: turn left
+            current_steering[] = [0.0, -mag, mag]
+        elseif event.key == Keyboard.right
+            # Right: turn right
+            current_steering[] = [0.0, mag, -mag]
+        elseif event.key == Keyboard.down
+            # Down: pitch down
+            current_steering[] = [0.0, -mag, -mag]
+        elseif event.key == Keyboard.up
+            # Up: pitch up
+            current_steering[] = [0.0, mag, mag]
+        elseif event.key == Keyboard.escape
+            # ESC: stop simulation
+            stop_simulation[] = true
+            println("\nESC pressed - stopping simulation...")
+        end
+    elseif event.action == Keyboard.release
+        # Release: return to neutral (but not for ESC)
+        if event.key != Keyboard.escape
+            current_steering[] = [0.0, 0.0, 0.0]
+        end
+    end
 end
+
+println("Keyboard controls active:")
+println("  ← Left:  Turn left")
+println("  → Right: Turn right")
+println("  ↓ Down:  Pitch down")
+println("  ↑ Up:    Pitch up")
+println("  ESC:     Stop simulation")
 
 # ============================================================================
 # RUN REAL-TIME SIMULATION
@@ -91,7 +137,7 @@ println("  Total time: $(total_time)s")
 println("  Time step: $(dt)s")
 println("  Realtime factor: $(realtime_factor)x")
 println("  Plot update interval: every $(plot_interval) step(s)")
-println("\nSimulation running... (you can interact with the 3D view)\n")
+println("\nSimulation running... Use arrow keys to control the kite!\n")
 
 # Initialize state
 logger = SymbolicAWEModels.Logger(length(sys_struct.points), steps+1)
@@ -101,22 +147,29 @@ SymbolicAWEModels.log!(logger, sys_state)
 
 steady_torque = SymbolicAWEModels.calc_steady_torque(sam)
 torque_damp = 0.9
-set_torques = similar(set_values)
 
 # Simulation loop with real-time visualization
 start_time = time()
+simulation_time = 0.0  # Track actual time spent in simulation (next_step!)
+
 for step in 1:steps
-    global steady_torque  # Declare that we're modifying the global variable
+    # Check if user pressed ESC to stop
+    if stop_simulation[]
+        break
+    end
+
+    global steady_torque, simulation_time  # Declare that we're modifying global variables
     t = step * dt
     target_elapsed = t / realtime_factor
 
-    # Calculate control torques
+    # Calculate control torques using current keyboard input
     steady_torque = torque_damp * steady_torque + (1-torque_damp) * SymbolicAWEModels.calc_steady_torque(sam)
-    set_torques[step, :] = steady_torque .+ set_values[step, :]
+    control_input = steady_torque .+ current_steering[]
 
-    # Simulation step
+    # Simulation step - measure only this time
+    step_start = time()
     try
-        next_step!(sam; set_values=set_torques[step, :], dt, vsm_interval)
+        next_step!(sam; set_values=control_input, dt, vsm_interval)
     catch e
         if e isa AssertionError
             @warn "Simulation crashed at t=$t"
@@ -125,6 +178,7 @@ for step in 1:steps
             rethrow(e)
         end
     end
+    simulation_time += time() - step_start
 
     # Update system state and log
     SymbolicAWEModels.update_sys_state!(sys_state, sam)
@@ -158,7 +212,9 @@ end
 total_elapsed = time() - start_time
 println("\nSimulation complete!")
 println("  Total runtime: $(round(total_elapsed, digits=2))s")
-println("  Speedup: $(round(total_time / total_elapsed, digits=2))x realtime")
+println("  Simulation time (next_step!): $(round(simulation_time, digits=2))s")
+println("  Speedup (simulation only): $(round(total_time / simulation_time, digits=2))x realtime")
+println("  Overall speedup: $(round(total_time / total_elapsed, digits=2))x realtime")
 
 # ============================================================================
 # SAVE AND PLOT RESULTS
@@ -170,7 +226,7 @@ SymbolicAWEModels.save_log(logger, "tmp_realtime_run")
 lg = load_log("tmp_realtime_run")
 
 println("Creating post-simulation plots...")
-fig_results = plot(sam.sys_struct, lg; plot_default=false, plot_heading=true, plot_aoa=true)
+fig_results = plot(sam.sys_struct, lg)
 display(fig_results)
 
 println("\nDone! Close the windows to exit.")
