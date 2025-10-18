@@ -9,6 +9,7 @@
 *.so
 *.so.bak
 .claude
+AGENTS.md
 Manifest.toml
 Manifest*.toml
 Manifest*.default
