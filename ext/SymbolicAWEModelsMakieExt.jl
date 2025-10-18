@@ -470,12 +470,38 @@ function Makie.plot(sys::SystemStructure;
         end
     end
 
+    # --- Add Point and Segment Labels ---
+    # Add point index labels
+    for (i, point) in enumerate(sys.points)
+        point_pos_2d = Makie.project(scene, point.pos_w)
+        text!(scene, string(point.idx), position = point_pos_2d + Point2f(5, 5),
+              space = :pixel, fontsize = 10, color = :blue, align = (:left, :bottom))
+    end
+
+    # Add segment index labels at the middle of each segment
+    for (i, seg) in enumerate(sys.segments)
+        p1_3d = sys.points[seg.point_idxs[1]].pos_w
+        p2_3d = sys.points[seg.point_idxs[2]].pos_w
+        mid_point_3d = (p1_3d + p2_3d) / 2
+        mid_point_2d = Makie.project(scene, mid_point_3d)
+        text!(scene, string(i), position = mid_point_2d + Point2f(0, -8),
+              space = :pixel, fontsize = 10, color = :red, align = (:center, :top))
+    end
+
     # --- Event Handling for Segments ---
     if haskey(plots, :segments)
         lineseg_plot = plots[:segments]
         seg_colors_obs = lineseg_plot.color
         last_hovered_idx = Ref(-1)
         zoomed_in = Ref(false)
+
+        # --- Hover Text Popup ---
+        hover_text = Observable("")
+        hover_text_pos = Observable(Point2f(0, 0))
+        hover_text_visible = Observable(false)
+        text!(scene, hover_text, position = hover_text_pos, space = :pixel,
+              fontsize = 14, color = :white, strokecolor = :black, strokewidth = 2,
+              align = (:left, :bottom), visible = hover_text_visible, transparency = true)
 
         # --- Event Handler for Robust Hover Highlighting ---
         on(events(scene).mouseposition, priority = 2) do mp
@@ -507,9 +533,20 @@ function Makie.plot(sys::SystemStructure;
                 if hover_idx != -1
                     point1 = sys.points[sys.segments[hover_idx].point_idxs[1]].idx
                     point2 = sys.points[sys.segments[hover_idx].point_idxs[2]].idx
-                    println("Highlighting segment: $hover_idx," *
-                            " connecting point $point1 to point $point2.")
+                    hover_text[] = "Segment $hover_idx: points $point1 → $point2"
+
+                    # Position text slightly to the right of the middle of the segment
+                    seg = sys.segments[hover_idx]
+                    p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                    p2_3d = sys.points[seg.point_idxs[2]].pos_w
+                    mid_point_3d = (p1_3d + p2_3d) / 2
+                    mid_point_2d = Makie.project(scene, mid_point_3d)
+                    hover_text_pos[] = mid_point_2d + Point2f(20, 0)  # 20 pixels to the right of segment middle
+
+                    hover_text_visible[] = true
                     new_colors[hover_idx] = to_color(highlight_color)
+                else
+                    hover_text_visible[] = false
                 end
                 seg_colors_obs[] = new_colors
                 last_hovered_idx[] = hover_idx
@@ -674,7 +711,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     
     # Add text overlay for time display
     sim_time_text = Observable("Time: 0.00 s")
-    text!(scene, sim_time_text, position = Point2f(20, 20), space = :pixel,
+    text!(scene, sim_time_text, position = Point2f(20, 50), space = :pixel,
           fontsize = 24, color = :black, align = (:left, :top))
     
     # Display the scene
