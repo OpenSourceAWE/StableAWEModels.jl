@@ -483,23 +483,23 @@ function Makie.plot(sys::SystemStructure;
         segment_label_pos = Observable(Point2f(0, 0))
         segment_label_visible = Observable(false)
         text!(scene, segment_label, position = segment_label_pos, space = :pixel,
-              fontsize = 12, color = :red, strokecolor = :black, strokewidth = 1,
-              align = (:center, :center), visible = segment_label_visible)
+              fontsize = 14, color = :white, strokecolor = :black, strokewidth = 1,
+              align = (:center, :center), visible = segment_label_visible, transparency = true)
 
         # Point index labels at segment endpoints
         point1_label = Observable("")
         point1_label_pos = Observable(Point2f(0, 0))
         point1_label_visible = Observable(false)
         text!(scene, point1_label, position = point1_label_pos, space = :pixel,
-              fontsize = 12, color = :blue, strokecolor = :black, strokewidth = 1,
-              align = (:center, :center), visible = point1_label_visible)
+              fontsize = 14, color = :white, strokecolor = :black, strokewidth = 1,
+              align = (:center, :center), visible = point1_label_visible, transparency = true)
 
         point2_label = Observable("")
         point2_label_pos = Observable(Point2f(0, 0))
         point2_label_visible = Observable(false)
         text!(scene, point2_label, position = point2_label_pos, space = :pixel,
-              fontsize = 12, color = :blue, strokecolor = :black, strokewidth = 1,
-              align = (:center, :center), visible = point2_label_visible)
+              fontsize = 14, color = :white, strokecolor = :black, strokewidth = 1,
+              align = (:center, :center), visible = point2_label_visible, transparency = true)
 
         # --- Event Handler for Robust Hover Highlighting ---
         on(events(scene).mouseposition, priority = 2) do mp
@@ -533,23 +533,23 @@ function Makie.plot(sys::SystemStructure;
                     p1_3d = sys.points[seg.point_idxs[1]].pos_w
                     p2_3d = sys.points[seg.point_idxs[2]].pos_w
 
-                    # Show segment index at middle of segment
+                    # Show segment index 20px to the right of middle of segment
                     mid_point_3d = (p1_3d + p2_3d) / 2
                     mid_point_2d = Makie.project(scene, mid_point_3d)
                     segment_label[] = string(hover_idx)
-                    segment_label_pos[] = mid_point_2d
+                    segment_label_pos[] = mid_point_2d + Point2f(20, 0)
                     segment_label_visible[] = true
 
-                    # Show point indices at segment endpoints
+                    # Show point indices 20px to the right of segment endpoints
                     p1_2d = Makie.project(scene, p1_3d)
                     p2_2d = Makie.project(scene, p2_3d)
                     point1 = sys.points[seg.point_idxs[1]].idx
                     point2 = sys.points[seg.point_idxs[2]].idx
                     point1_label[] = string(point1)
-                    point1_label_pos[] = p1_2d + Point2f(8, 8)
+                    point1_label_pos[] = p1_2d + Point2f(20, 0)
                     point1_label_visible[] = true
                     point2_label[] = string(point2)
-                    point2_label_pos[] = p2_2d + Point2f(8, 8)
+                    point2_label_pos[] = p2_2d + Point2f(20, 0)
                     point2_label_visible[] = true
 
                     new_colors[hover_idx] = to_color(highlight_color)
