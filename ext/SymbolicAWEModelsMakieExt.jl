@@ -8,6 +8,7 @@ using UnPack
 using LinearAlgebra
 using StaticArrays
 using Statistics
+using Printf
 using KiteUtils
 using KiteUtils: SysLog
 using SymbolicAWEModels
@@ -607,6 +608,111 @@ function Makie.plot(sam::SymbolicAWEModel, reltime::Real=0.0; kwargs...)
 
     # Call the SystemStructure plot function
     plot(sam.sys_struct; kwargs...)
+end
+
+"""
+    replay(lg::SysLog, sys::SystemStructure; replay_speed=1.0, kwargs...)
+    
+Replay a SysLog with real-time 3D visualization.
+    
+This function replays a recorded simulation log with 3D visualization, updating the 
+system structure at each time step according to the logged states. The replay speed 
+can be adjusted to control the visualization speed.
+    
+# Arguments
+- `lg::SysLog`: The simulation log to replay
+- `sys::SystemStructure`: The system structure matching the log's topology
+    
+# Keyword Arguments
+- `replay_speed::Real=1.0`: Replay speed factor (1.0 = real-time, 2.0 = 2x speed, etc.)
+- All other keyword arguments are passed through to the SystemStructure plot function
+    
+# Example
+```julia
+# Replay a log at 2x speed
+replay(log, sys_struct, replay_speed=2.0)
+
+# Replay with custom visualization settings
+replay(log, sys_struct, replay_speed=0.5, vector_scale=0.3)
+```
+"""
+function replay(lg::SysLog, sys::SystemStructure; 
+                      replay_speed=1.0, 
+                      segment_color = :black,
+                      point_color = :darkred,
+                      vector_scale = 0.2,
+                      size = (1200, 800),
+                      kwargs...)
+    
+    # Create observables for dynamic visualization
+    segment_points_obs = Observable(Point3f[])
+    point_positions_obs = Observable(Point3f[])
+    wing_origins_obs = Observable(Point3f[])
+    wing_directions_obs = Observable(Vec3f[])
+    
+    # Initialize with first state
+    if !isempty(lg.syslog)
+        update_from_sysstate!(sys, lg.syslog[1])
+        update_plot_observables!(
+            segment_points_obs, point_positions_obs,
+            wing_origins_obs, wing_directions_obs,
+            sys; vector_scale
+        )
+    end
+    
+    # Create 3D scene using existing plot function with observables
+    scene = plot(sys;
+                 segment_points_obs,
+                 point_positions_obs,
+                 wing_origins_obs,
+                 wing_directions_obs,
+                 segment_color,
+                 point_color,
+                 vector_scale,
+                 size,
+                 kwargs...)
+    
+    # Add text overlay for time display
+    sim_time_text = Observable("Time: 0.00 s")
+    text!(scene, sim_time_text, position = Point2f(20, 20), space = :pixel,
+          fontsize = 24, color = :black, align = (:left, :top))
+    
+    # Display the scene
+    display(scene)
+    
+    # Replay loop
+    start_time = time()
+    for (i, ss) in enumerate(lg.syslog)
+        # Update system state from log
+        update_from_sysstate!(sys, ss)
+        
+        # Update observables
+        update_plot_observables!(
+            segment_points_obs, point_positions_obs,
+            wing_origins_obs, wing_directions_obs,
+            sys; vector_scale
+        )
+        
+        # Update time display
+        sim_time_text[] = @sprintf("Time: %.2f s", ss.time)
+        
+        # Maintain replay speed timing
+        if replay_speed > 0 && i < length(lg.syslog)
+            next_time = lg.syslog[i+1].time
+            current_time = ss.time
+            dt = next_time - current_time
+            
+            target_elapsed = (current_time - lg.syslog[1].time) / replay_speed
+            actual_elapsed = time() - start_time
+            sleep_time = max(0.0, target_elapsed - actual_elapsed)
+            sleep(sleep_time)
+        end
+        
+        # Allow UI updates
+        sleep(0.001)
+    end
+    
+    return scene
 end
 
 end
