@@ -711,20 +711,21 @@ function _plot_with_panes(sys::SystemStructure;
 
     # Create background panes with observables for dynamic updates
     pane_color = RGBAf(0.95, 0.95, 0.95, 0.3)
+    pane_extent = 10000.0f0  # Large value for "infinite" extent
 
-    # XZ plane at y_max (since camera is at negative y)
-    xz_pane_obs = Observable(Rect3(Vec3f(xlims[1], ylims[2], zlims[1]),
-                                    Vec3f(xlims[2]-xlims[1], 0.01, zlims[2]-zlims[1])))
+    # XZ plane at y_max - extends far in -X and +Z directions
+    xz_pane_obs = Observable(Rect3(Vec3f(xlims[1] - pane_extent, ylims[2], zlims[1]),
+                                    Vec3f(xlims[2] - xlims[1] + pane_extent, 0.01, pane_extent)))
     xz_pane = mesh!(scene, xz_pane_obs, color=pane_color)
 
-    # YZ plane at x_max
-    yz_pane_obs = Observable(Rect3(Vec3f(xlims[2], ylims[1], zlims[1]),
-                                    Vec3f(0.01, ylims[2]-ylims[1], zlims[2]-zlims[1])))
+    # YZ plane at x_max - extends far in -Y and +Z directions
+    yz_pane_obs = Observable(Rect3(Vec3f(xlims[2], ylims[1] - pane_extent, zlims[1]),
+                                    Vec3f(0.01, ylims[2] - ylims[1] + pane_extent, pane_extent)))
     yz_pane = mesh!(scene, yz_pane_obs, color=pane_color)
 
-    # XY plane at z_min
-    xy_pane_obs = Observable(Rect3(Vec3f(xlims[1], ylims[1], zlims[1]),
-                                    Vec3f(xlims[2]-xlims[1], ylims[2]-ylims[1], 0.01)))
+    # XY plane at z_min - extends far in -X and -Y directions
+    xy_pane_obs = Observable(Rect3(Vec3f(xlims[1] - pane_extent, ylims[1] - pane_extent, zlims[1]),
+                                    Vec3f(xlims[2] - xlims[1] + pane_extent, ylims[2] - ylims[1] + pane_extent, 0.01)))
     xy_pane = mesh!(scene, xy_pane_obs, color=pane_color)
 
     # Store pane observables
@@ -932,16 +933,18 @@ function Makie.plot(sys::SystemStructure, time::Real;
                         zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
                     end
 
-                    # Update pane observables
-                    # XZ plane at y_max
-                    panes[1][] = Rect3(Vec3f(xlims[1], ylims[2], zlims[1]),
-                                       Vec3f(xlims[2]-xlims[1], 0.01, zlims[2]-zlims[1]))
-                    # YZ plane at x_max
-                    panes[2][] = Rect3(Vec3f(xlims[2], ylims[1], zlims[1]),
-                                       Vec3f(0.01, ylims[2]-ylims[1], zlims[2]-zlims[1]))
-                    # XY plane at z_min
-                    panes[3][] = Rect3(Vec3f(xlims[1], ylims[1], zlims[1]),
-                                       Vec3f(xlims[2]-xlims[1], ylims[2]-ylims[1], 0.01))
+                    # Update pane observables with infinite extent
+                    pane_extent = 10000.0f0
+
+                    # XZ plane at y_max - extends far in -X and +Z directions
+                    panes[1][] = Rect3(Vec3f(xlims[1] - pane_extent, ylims[2], zlims[1]),
+                                       Vec3f(xlims[2] - xlims[1] + pane_extent, 0.01, pane_extent))
+                    # YZ plane at x_max - extends far in -Y and +Z directions
+                    panes[2][] = Rect3(Vec3f(xlims[2], ylims[1] - pane_extent, zlims[1]),
+                                       Vec3f(0.01, ylims[2] - ylims[1] + pane_extent, pane_extent))
+                    # XY plane at z_min - extends far in -X and -Y directions
+                    panes[3][] = Rect3(Vec3f(xlims[1] - pane_extent, ylims[1] - pane_extent, zlims[1]),
+                                       Vec3f(xlims[2] - xlims[1] + pane_extent, ylims[2] - ylims[1] + pane_extent, 0.01))
                 end
 
                 return nothing
