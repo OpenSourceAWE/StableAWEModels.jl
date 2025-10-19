@@ -12,8 +12,8 @@ Key features:
 - Interactive keyboard control: Arrow keys for steering
   - Left Arrow:  Turn left   [0.0, -mag, mag]
   - Right Arrow: Turn right  [0.0, mag, -mag]
-  - Down Arrow:  Pitch down  [0.0, -mag, -mag]
-  - Up Arrow:    Pitch up    [0.0, mag, mag]
+  - Down Arrow:  Power       [0.0, -mag, -mag]
+  - Up Arrow:    Depower     [0.0, mag, mag]
   - ESC:         Stop simulation
 - Automatic time display and background pane updates
 - Proper sleep timing to maintain real-time speed
