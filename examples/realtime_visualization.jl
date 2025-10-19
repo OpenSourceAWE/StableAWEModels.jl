@@ -41,6 +41,11 @@ vector_scale = 1.0         # Scale for wing orientation arrows
 # Steering parameters
 steering_magnitude = 5.0   # Magnitude of steering input [Nm]
 
+# Video recording parameters
+record_video = false        # Set to true to record video to MP4
+output_filename = "data/kite_simulation.mp4"  # Output video filename
+framerate = 20              # Video framerate (frames per second)
+
 # ============================================================================
 # INITIALIZE MODEL
 # ============================================================================
@@ -137,6 +142,10 @@ println("  Total time: $(total_time)s")
 println("  Time step: $(dt)s")
 println("  Realtime factor: $(realtime_factor)x")
 println("  Plot update interval: every $(plot_interval) step(s)")
+if record_video
+    println("  Recording video to: $(output_filename)")
+    println("  Video framerate: $(framerate) fps")
+end
 println("\nSimulation running... Use arrow keys to control the kite!\n")
 
 # Initialize state
@@ -151,6 +160,9 @@ torque_damp = 0.9
 # Simulation loop with real-time visualization
 start_time = time()
 simulation_time = 0.0  # Track actual time spent in simulation (next_step!)
+
+# Initialize video recording if enabled
+io = record_video ? VideoStream(scene; framerate) : nothing
 
 for step in 1:steps
     # Check if user pressed ESC to stop
@@ -190,15 +202,20 @@ for step in 1:steps
         # Update plot using time-based API
         # This automatically updates observables, time display, and background panes
         plot(sys_struct, t; vector_scale)
+        display(scene)
 
         # Update progress text overlay
         progress_text[] = @sprintf("Progress: %d%%", round(Int, 100 * step / steps))
+
+        # Record frame if video recording is enabled
+        if record_video
+            recordframe!(io)
+        end
 
         # Force Makie to process events and update display
         sleep(0.001)
     end
 
-    # Sleep to maintain real-time pacing
     actual_elapsed = time() - start_time
     sleep_time = max(0.0, target_elapsed - actual_elapsed)
     sleep(sleep_time)
@@ -207,6 +224,12 @@ for step in 1:steps
     if step % (steps ÷ 10) == 0
         @printf("  %.0f%% complete (t=%.1fs)\n", 100 * step / steps, t)
     end
+end
+
+# Save video if recording was enabled
+if record_video
+    save(output_filename, io)
+    println("\nVideo saved to: $(output_filename)")
 end
 
 total_elapsed = time() - start_time
