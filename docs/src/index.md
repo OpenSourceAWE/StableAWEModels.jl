@@ -23,61 +23,76 @@ This package is part of the Julia Kite Power Tools, which consist of the followi
 
 ![Julia Kite Power Tools](kite_power_tools.png)
 
-## Installation
-Install [Julia 1.11](https://julialang.org/install/) using `juliaup`, if you haven't already. On Linux, make sure that Python3 and Matplotlib are installed:
-```
-sudo apt install python3-matplotlib
-```
-Before installing this software it is suggested to create a new project, for example like this:
+## Quick Start
+
+Install Julia using [juliaup](https://github.com/JuliaLang/juliaup), if you haven't already:
+
 ```bash
-mkdir test
-cd test
+curl -fsSL https://install.julialang.org | sh
+juliaup add release
+juliaup default release
+```
+
+**For most users** (installing from the registry):
+
+```bash
+mkdir my_kite_project
+cd my_kite_project
 julia --project="."
 ```
-Then add SymbolicAWEModels from  Julia's package manager, by typing:
+
+Then add SymbolicAWEModels and copy examples:
+
 ```julia
 using Pkg
 pkg"add SymbolicAWEModels"
-``` 
-at the Julia prompt. You can run the unit tests with the command (careful, can take 60 min):
-```julia
-pkg"test SymbolicAWEModels"
-```
-Copy the examples, data and scripts to your project, and install dependencies:
-```julia
+
 using SymbolicAWEModels
-SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
-```
-This also adds the extra packages, needed for the examples to the project. Furthermore, it creates a folder `data`
-with some example input files. You can now run the examples with the command:
-```julia
-include("examples/menu.jl")
-```
-You can also run the ram-air-kite example like this:
-```julia
-include("examples/ram_air_kite.jl")
+SymbolicAWEModels.init_module()  # Copies examples and installs dependencies
 ```
 
-This will take some minutes to precompile the first time you run it.
+Run the examples:
+
+```julia
+include("examples/menu.jl")  # Interactive menu
+# or
+include("examples/ram_air_kite.jl")  # Specific example
+```
+
+**Note**: The first run will be slow (several minutes) due to compilation. Run a second time for much faster performance.
+
+**For developers or cloned package users**, see the detailed [Getting Started Guide](getting_started.md) which explains the different workflows for:
+- Registry users (most common)
+- Cloned package users
+- Package developers
+
+The guide also includes instructions for building documentation locally.
 
 ## Ram air kite model
-This model represents the kite as a deforming rigid body, with orientation governed by 
-quaternion dynamics. Aerodynamics are computed using the Vortex Step Method. The kite is 
+This model represents the kite as a deforming rigid body, with orientation governed by
+quaternion dynamics. Aerodynamics are computed using the Vortex Step Method. The kite is
 controlled from the ground via four tethers.
 
 Initialize:
 ```julia
-using SymbolicAWEModels, ControlPlots
+using SymbolicAWEModels
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
 init!(sam)
 ```
 
-Simulate and plot:
+Simulate:
 ```julia
 (log, _) = sim_oscillate!(sam)
+```
+
+For visualization, load GLMakie to automatically enable the plotting extension:
+```julia
+using GLMakie
 plot(sam.sys_struct, log; plot_default=false, plot_heading=true)
 ```
+
+See the [Examples](examples.md) page for more details on plotting options.
 
 ![Ram heading](assets/ram_heading.png)
 
@@ -95,10 +110,15 @@ simple_sam = SymbolicAWEModel(set, "simple_ram")
 init!(simple_sam)
 ```
 
-Simulate and plot:
+Simulate:
 ```julia
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
 (simple_log, _) = sim_oscillate!(simple_sam)
+```
+
+Visualize (requires GLMakie):
+```julia
+using GLMakie
 plot(simple_sam.sys_struct, simple_log; plot_default=false, plot_heading=true)
 ```
 

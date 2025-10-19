@@ -7,11 +7,6 @@ tic()
 using SymbolicAWEModels
 
 PLOT = false
-using Pkg
-if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
-    using TestEnv; TestEnv.activate()
-end
-using ControlPlots
 using ControlSystemsBase
 
 if ! @isdefined SIMPLE
@@ -31,6 +26,7 @@ steering_freq = 1/2  # Hz - full left-right cycle frequency
 steering_magnitude = 10.0      # Magnitude of steering input [Nm]
 
 # Initialize model
+set_data_path("data")
 set = Settings("system.yaml")
 set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
 
@@ -109,42 +105,15 @@ end
 @info "Total time without plotting:"
 toc()
 
-# Plot results
+# Save results
 save_log(logger, "tmp")
-lg =load_log("tmp")
+lg = load_log("tmp")
 sl = lg.syslog
 
 # Linear simulation
 lin_res = lsim(lin_sam, set_values .- u0, sl.time)
 
-# --- Updated Plotting ---
-# Extract necessary data using meaningful names
-force_nonlin = [sl.force[i][1] for i in eachindex(sl.force)]
-len_nonlin = [[sl.l_tether[i][j] for i in eachindex(sl.l_tether)] for j in 1:3]
-aoa_nonlin = rad2deg.(sl.AoA)
-heading_nonlin = rad2deg.(sl.heading)
-force_lin = lin_res.y[4,:] .+ force_nonlin[1]
-len_lin = [lin_res.x[2+i,:] .+ len_nonlin[i][1] for i in 1:3]
-aoa_lin = rad2deg.(lin_res.y[2,:]) .+ aoa_nonlin[1]
-heading_lin = rad2deg.(lin_res.y[1,:]) .+ heading_nonlin[1]
-
-p = plotx(sl.time,
-    [heading_lin, heading_nonlin],
-    [len_lin..., len_nonlin...],
-    [aoa_lin, aoa_nonlin],
-    [force_lin, force_nonlin],
-    [[sl.v_app[i] - sl.v_app[1] for i in eachindex(sl.v_app)], set_values[1,:] .- set_values[1,1]];
-    ylabels=["Heading [°]", "Length [m]", "AoA [°]", "Force [N]", "Params"],
-    ysize=10,
-    labels=[
-        ["Lin", "Nonlin"],
-        ["Lin1", "Lin2", "Lin3", "Nonlin1", "Nonlin2", "Nonlin3"],
-        ["Lin", "Nonlin"],
-        ["Lin", "Nonlin"],
-        ["V_app", "Input"],
-    ],
-    fig="Oscillating Steering Input Response")
-display(p)
+@info "Simulation completed" steps=length(sl.time) final_heading=rad2deg(sl.heading[end])
 
 @info "Performance:" times_realtime=(total_time/2)/runtime integrator_times_realtime=(total_time/2)/integ_runtime
 

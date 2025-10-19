@@ -100,7 +100,7 @@ echo "--- Creating system image ---"
 rm -f "data/model_${julia_major}_*.bin" "data/model_${julia_major}_*.bin.xz"
 
 # Run the Julia script that builds the system image
-$JULIA_CMD --startup-file=no --project -e "using TestEnv; TestEnv.activate(); include(\"test/create_sys_image.jl\");"
+$JULIA_CMD --startup-file=no --project=test -e "include(\"test/create_sys_image.jl\");"
 
 # Determine final system image path
 branch=""
@@ -124,8 +124,7 @@ if [ -d src ]; then
 fi
 # Run precompilation for all required packages
 $JULIA_CMD --startup-file=no --project -J "$SOFILE" -e '
-    using SymbolicAWEModels, KiteUtils, ControlPlots, VortexStepMethod
-    using TestEnv; TestEnv.activate(); using ControlPlots
+    using SymbolicAWEModels, KiteUtils, VortexStepMethod
 '
 
 # --- 6. Restore Environment ---

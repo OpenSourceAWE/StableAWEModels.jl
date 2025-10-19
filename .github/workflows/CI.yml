@@ -18,14 +18,10 @@ jobs:
   reuse-lint:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
-          
+      - uses: actions/checkout@v5
+
       - name: Run REUSE lint
-        run: |
-          docker run --rm --volume ${{ github.workspace }}:/data fsfe/reuse lint
+        run: docker run --rm --volume ${{ github.workspace }}:/data fsfe/reuse lint
 
   test-with-code-coverage:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
@@ -35,8 +31,8 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1.10'
-          - '1.11'
+          - '1'      # Latest stable release
+          - 'lts'    # Long-term support release
         os:
           - ubuntu-latest
           - windows-latest
@@ -45,22 +41,9 @@ jobs:
         include:
           - os: macOS-latest
             arch: aarch64
-            version: 1.11
+            version: '1'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
-
-      - name: Copy default Manifest files
-        run: |
-          cp Manifest-v${{ matrix.version }}.toml.default Manifest.toml || 
-                echo "No default available for Manifest-v${{ matrix.version }}.toml"
-        shell: bash
-
-      - name: Install matplotlib
-        run: if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get install -y python3-matplotlib; fi
-        shell: bash
+      - uses: actions/checkout@v5
 
       - uses: julia-actions/setup-julia@v2
         with:
@@ -68,13 +51,7 @@ jobs:
           arch: ${{ matrix.arch }}
 
       - uses: julia-actions/cache@v2
-
       - uses: julia-actions/julia-buildpkg@v1
-
-      - name: Build PyCall
-        run: julia --project -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
-        shell: bash
-
       - uses: julia-actions/julia-runtest@v1
 
       - name: Upload PNG plots as artifact
@@ -99,36 +76,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.client_payload.ref || github.head_ref || github.ref }}
+      - uses: actions/checkout@v5
 
-      - name: Copy default Manifest files
-        run: |
-          cp Manifest-v1.11.toml.default Manifest.toml || 
-                echo "No default available for Manifest-v1.11.toml"
-        shell: bash
-          
-      - name: Install matplotlib
-        run: sudo apt-get install -y python3-matplotlib
-        shell: bash
-        
       - uses: julia-actions/setup-julia@v2
-      
+        with:
+          version: '1'
+
       - uses: julia-actions/cache@v2
-
       - uses: julia-actions/julia-buildpkg@v1
-
-      - name: Build PyCall
-        run: julia --project=docs/ -e 'ENV["SAM_PRECOMPILE"]="false"; ENV["PYTHON"]=""; using Pkg; Pkg.instantiate(); Pkg.add("PyCall"); Pkg.build("PyCall")'
-        shell: bash
-        
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
-      - run: |
+
+      - name: Run doctests
+        run: |
           julia --project=docs -e '
             using Documenter: DocMeta, doctest
             using KiteUtils

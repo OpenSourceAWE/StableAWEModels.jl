@@ -12,7 +12,7 @@ SPDX-License-Identifier = "MPL-2.0"
 
 [[annotations]]
 path = ["docs/.gitignore", "docs/src/assets/*.png", "docs/src/assets/*.svg", 
-        "docs/Project.toml", "Manifest*", "docs/LocalPreferences.toml", "Project*", 
+        "docs/Project.toml", "Manifest*", "docs/LocalPreferences.toml", "*/Project*", "Project*", 
         "CITATION.cff", "Artifacts*"]
 SPDX-FileCopyrightText = "2025 Bart van de Lint, Uwe Fechner"
 SPDX-License-Identifier = "MPL-2.0"

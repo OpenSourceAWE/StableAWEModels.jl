@@ -73,20 +73,23 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        julia-version: ['1.10', '1.11']
+        julia-version: ['1', 'lts']
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
 
-    - name: Install matplotlib
-      run: if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get update && sudo apt-get install -y python3-matplotlib; fi
-      shell: bash
-
     - name: Setup Julia ${{ matrix.julia-version }}
       uses: julia-actions/setup-julia@v2
       with:
         version: ${{ matrix.julia-version }}
+
+    - name: Detect Julia version
+      id: detect_version
+      run: |
+        JULIA_VERSION=$(julia --version | cut -d' ' -f3 | cut -d'.' -f1,2)
+        echo "version=$JULIA_VERSION" >> $GITHUB_OUTPUT
+        echo "Detected Julia version: $JULIA_VERSION"
 
     - name: Install ArtifactUtils package
       run: julia -e 'using Pkg; Pkg.add("ArtifactUtils");'
@@ -103,15 +106,15 @@ jobs:
     - name: Upload tar.gz artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: model-tarballs-${{ matrix.julia-version }}
-        path: data/models_v${{ matrix.julia-version }}.tar.gz
+        name: model-tarballs-${{ steps.detect_version.outputs.version }}
+        path: data/models_v${{ steps.detect_version.outputs.version }}.tar.gz
         retention-days: 7
 
     # Upload the entire workspace to capture the generated TOML files.
-    - name: Upload workspace for Julia ${{ matrix.julia-version }}
+    - name: Upload workspace for Julia ${{ steps.detect_version.outputs.version }}
       uses: actions/upload-artifact@v4
       with:
-        name: workspace-${{ matrix.julia-version }}
+        name: workspace-${{ steps.detect_version.outputs.version }}
         path: .
         retention-days: 1
 
@@ -150,33 +153,49 @@ jobs:
     - name: Checkout a clean version of the code
       uses: actions/checkout@v5
 
-    # Download only the specific workspace artifacts needed.
-    - name: Download workspace-1.10 artifact
+    # Download all workspace artifacts (regardless of version)
+    - name: Download all workspace artifacts
       uses: actions/download-artifact@v4
       with:
-        name: workspace-1.10
-        path: ./artifacts/workspace-1.10
-
-    - name: Download workspace-1.11 artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: workspace-1.11
-        path: ./artifacts/workspace-1.11
+        pattern: workspace-*
+        path: ./artifacts
 
     # Merge the version-specific artifact files and restore manifests.
     - name: Merge and Restore TOML files from artifacts
       run: |
         echo "Merging version-specific Artifacts.toml files..."
-        # Use cat to concatenate the two files into one.
-        # A blank line is added between them for readability.
-        cat ./artifacts/workspace-1.10/Artifacts-v1.10.toml.default > Artifacts.toml.default
-        echo "" >> Artifacts.toml.default
-        cat ./artifacts/workspace-1.11/Artifacts-v1.11.toml.default >> Artifacts.toml.default
+
+        # Find all workspace directories
+        workspaces=$(find ./artifacts -maxdepth 1 -type d -name "workspace-*" | sort)
+
+        # Initialize the merged Artifacts.toml.default
+        > Artifacts.toml.default
+
+        # Process each workspace
+        first=true
+        for workspace in $workspaces; do
+          version=$(basename "$workspace" | sed 's/workspace-//')
+          echo "Processing workspace for Julia $version..."
+
+          # Merge Artifacts.toml files
+          artifacts_file="$workspace/Artifacts-v${version}.toml.default"
+          if [ -f "$artifacts_file" ]; then
+            if [ "$first" = false ]; then
+              echo "" >> Artifacts.toml.default
+            fi
+            cat "$artifacts_file" >> Artifacts.toml.default
+            first=false
+          fi
+
+          # Copy manifest files
+          manifest_file="$workspace/Manifest-v${version}.toml.default"
+          if [ -f "$manifest_file" ]; then
+            cp "$manifest_file" "./Manifest-v${version}.toml.default"
+            echo "Copied Manifest-v${version}.toml.default"
+          fi
+        done
+
         echo "Final Artifacts.toml.default created."
-        
-        echo "Copying manifest files..."
-        cp ./artifacts/workspace-1.10/Manifest-v1.10.toml.default ./Manifest-v1.10.toml.default
-        cp ./artifacts/workspace-1.11/Manifest-v1.11.toml.default ./Manifest-v1.11.toml.default
         echo "Files restored."
 
     # Generate a token from the GitHub App to authorize the PR creation
@@ -202,5 +221,4 @@ jobs:
         # Add the paths for all the files you want to include in the PR.
         add-paths: |
           Artifacts.toml.default
-          Manifest-v1.10.toml.default
-          Manifest-v1.11.toml.default
+          Manifest-v*.toml.default

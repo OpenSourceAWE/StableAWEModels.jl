@@ -36,42 +36,31 @@ This package is part of the Julia Kite Power Tools ecosystem:
 
 ## Installation
 
-Install [Julia 1.11](https://julialang.org/install/) using `juliaup`.  
-On Linux, make sure Python3 and Matplotlib are installed:
+Install Julia using [juliaup](https://github.com/JuliaLang/juliaup):
 
 ```bash
-sudo apt install python3-matplotlib
+curl -fsSL https://install.julialang.org | sh
+juliaup add release
+juliaup default release
 ```
 
-**Recommended workflow:**
+**Quick Start:**
 
 ```bash
-mkdir test
-cd test
+mkdir my_kite_project
+cd my_kite_project
 julia --project="."
 ```
 
-Then add the package:
+Then add the package and copy examples:
 
 ```julia
 using Pkg
 pkg"add SymbolicAWEModels"
-```
 
-Run the unit tests (can take about 60 minutes):
-
-```julia
-pkg"test SymbolicAWEModels"
-```
-
-Copy the examples, data and scripts to your project, and install dependencies:
-
-```julia
 using SymbolicAWEModels
-SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
+SymbolicAWEModels.init_module()  # Copies examples and installs dependencies
 ```
-
-This adds extra packages needed for the examples and creates a `data` folder with example input files.
 
 Run the interactive example menu:
 
@@ -85,7 +74,9 @@ Or run the ram-air-kite example directly:
 include("examples/ram_air_kite.jl")
 ```
 
-> **Note:** The first run will take a few minutes to precompile.
+> **Note:** The first run will be slow (several minutes) due to compilation. Run a second time for a significant speedup - subsequent runs will be much faster.
+
+See the [Getting Started Guide](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/getting_started/) for detailed instructions for registry users, cloned package users, and developers.
 
 ---
 
@@ -96,18 +87,19 @@ This model represents the kite as a deforming rigid body, with orientation gover
 **Initialize:**
 
 ```julia
-using SymbolicAWEModels, ControlPlots
+using SymbolicAWEModels
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
 init!(sam)
 ```
 
-**Simulate and plot:**
+**Simulate:**
 
 ```julia
 (log, _) = sim_oscillate!(sam)
-plot(sam.sys_struct, log; plot_default=false, plot_heading=true)
 ```
+
+For visualization with Makie, see the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/) page.
 
 ![Ram heading](docs/src/assets/ram_heading.png)
 
@@ -127,13 +119,14 @@ simple_sam = SymbolicAWEModel(set, "simple_ram")
 init!(simple_sam)
 ```
 
-**Simulate and plot:**
+**Simulate:**
 
 ```julia
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
 (simple_log, _) = sim_oscillate!(simple_sam)
-plot(simple_sam.sys_struct, simple_log; plot_default=false, plot_heading=true)
 ```
+
+For visualization with Makie, see the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/) page.
 
 ![Simple ram heading](docs/src/assets/simple_ram_heading.png)
 

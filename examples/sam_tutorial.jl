@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 #
 # SPDX-License-Identifier: MPL-2.0
-using SymbolicAWEModels, VortexStepMethod, ControlPlots, LinearAlgebra
+using SymbolicAWEModels, VortexStepMethod, LinearAlgebra
 
+set_data_path("data")
 set = Settings("system.yaml")
 set.segments = 20
 set.l_tether = 50.0
@@ -33,15 +34,14 @@ transforms = [Transform(1, deg2rad(-80), 0.0, 0.0;
               rot_point_idx=points[end].idx)]
 
 sys_struct = SystemStructure("tether", set; points, segments, transforms)
-plot(sys_struct, 0.0)
 
 sam = SymbolicAWEModel(set, sys_struct)
 
 init!(sam; remake=false)
 for i in 1:80
-    plot(sam, i/set.sample_freq)
     next_step!(sam)
 end
+@info "Tether simulation completed" steps=80
 
 # ADDING A WINCH
 set.v_wind = 0.0
@@ -57,10 +57,10 @@ init!(sam; remake=false)
 ss = SysState(sam)
 
 for i in 1:80
-    plot(sam, (i-1)/set.sample_freq)
     next_step!(sam; set_values=[-20.0])
     update_sys_state!(ss, sam)
 end
+@info "Winch simulation completed" steps=80
 
 # ADDING A PULLEY
 push!(points, Point(22, [0, 0, set.l_tether+5], DYNAMIC))
@@ -70,15 +70,14 @@ push!(segments, Segment(22, (21,23), BRIDLE))
 pulleys = [Pulley(1, (21,22), DYNAMIC)]
 transforms[1].elevation = deg2rad(-85.0)
 sys_struct = SystemStructure("pulley", set; points, segments, tethers, winches, pulleys, transforms)
-plot(sys_struct, 0.0)
 
 sam = SymbolicAWEModel(set, sys_struct)
 
 init!(sam; remake=false)
 for i in 1:80
-    plot(sam, i/set.sample_freq)
     next_step!(sam; set_values=[-10.0])
 end
+@info "Pulley simulation completed" steps=80
 
 # ADDING A KITE
 vsm_wing = RamAirWing(set; prn=false)
@@ -87,9 +86,9 @@ vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
 wings = [SymbolicAWEModels.Wing(1, Group[], I(3), [0.5, 0, set.l_tether+6])]
 
 sys_struct = SystemStructure("wing", set; points, segments, tethers, winches, pulleys, wings, transforms)
-plot(sys_struct, 0.0)
 
 sam = SymbolicAWEModel(set, sys_struct, [vsm_aero], [vsm_solver])
+@info "Wing model created successfully"
 
 
 

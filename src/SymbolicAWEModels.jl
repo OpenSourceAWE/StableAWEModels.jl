@@ -9,6 +9,7 @@ module SymbolicAWEModels
 
 # --- Julia Standard Library & General Utilities ---
 using Pkg
+using TOML
 using PrecompileTools: @setup_workload, @compile_workload
 using DocStringExtensions
 using LinearAlgebra
@@ -46,7 +47,7 @@ using VortexStepMethod
 #                  IMPORTS (for extending functions)
 #======================================================================#
 
-import KiteUtils: init!, next_step!, update_sys_state!
+import KiteUtils: init!, next_step!, update_sys_state!, SysState
 import ModelingToolkit: t_nounits as t, D_nounits as D
 import ModelingToolkit.SciMLBase: successful_retcode
 
@@ -88,6 +89,7 @@ export tether_length
 
 # --- Helper Functions ---
 export init_module
+export update_plot_observables!
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -117,6 +119,9 @@ const SVec3    = SVector{3, SimFloat}
 
 # Defined in ext/SymbolicAWEModelsControlPlotsExt.jl
 function plot end
+# Defined in ext/SymbolicAWEModelsMakieExt.jl
+function plot! end
+function update_plot_observables! end
 
 function __init__()
     if isdir(joinpath(pwd(), "data")) && isfile(joinpath(pwd(), "data", "system.yaml"))
@@ -229,6 +234,25 @@ function copy_dir(src_dir::AbstractString, dst_dir::AbstractString; force=false)
 end
 
 """
+    get_example_packages()
+
+Get the list of packages from examples/Project.toml, excluding SymbolicAWEModels itself.
+This ensures init_module installs the correct dependencies for running examples.
+"""
+function get_example_packages()
+    examples_project_path = joinpath(dirname(pathof(@__MODULE__)), "..", "examples", "Project.toml")
+    if !isfile(examples_project_path)
+        @warn "examples/Project.toml not found, using default package list"
+        return ["KiteUtils", "GLMakie"]
+    end
+
+    examples_project = TOML.parsefile(examples_project_path)
+    deps = get(examples_project, "deps", Dict())
+    # Exclude SymbolicAWEModels itself (it's already in the user's project)
+    return sort([name for name in keys(deps) if name != "SymbolicAWEModels"])
+end
+
+"""
     init_module(; force=false, add_pkg=true)
 
 Initialize the module in the current working directory.
@@ -237,8 +261,7 @@ This function performs the following actions:
 
 - Copies all files from the module's `data` directory to the current working directory's `data` folder (`pwd()/data`). Existing files in the destination are NOT overwritten unless `force=true`.
 - Copies all example scripts from the module to the current working directory's `examples` folder (`pwd()/examples`). The folder is created if it does not exist. Existing files are NOT overwritten unless `force=true`.
-- Copies the `bin` directory from the module to the current working directory's `bin` folder (`pwd()/bin`). The folder is created if it does not exist. Existing files are NOT overwritten unless `force=true`.
-- Installs all required packages if they are not already installed. This occurs only if `add_pkg=true` (default). The packages installed are: `KiteUtils`, `ControlPlots`, `LaTeXStrings`, and `Timers`.
+- Installs all required packages if they are not already installed. This occurs only if `add_pkg=true` (default). The packages are automatically determined from `examples/Project.toml`.
 
 # Keyword Arguments
 - `force::Bool=false`: If `true`, existing files in the destination directories will be overwritten. If `false` (default), existing files will be preserved.
@@ -247,12 +270,11 @@ This function performs the following actions:
 function init_module(; force=false, add_pkg=true)
     copy_data(; force)
     copy_examples(; force)
-    copy_bin(; force)
 
     if add_pkg
         # Install required packages if not already present
-        pkgs = ["KiteUtils", "ControlPlots", 
-                "LaTeXStrings", "Timers"]
+        pkgs = get_example_packages()
+        println("Installing example dependencies: ", join(pkgs, ", "))
         for pkg in pkgs
             if !(pkg in keys(Pkg.project().dependencies))
                 Pkg.add(pkg)
@@ -260,7 +282,7 @@ function init_module(; force=false, add_pkg=true)
         end
     end
 
-    println("Initialization complete! Scripts, examples, and binaries are prepared in the current directory.")
+    println("Initialization complete! Examples and data files are prepared in the current directory.")
 end
 
 include("precompile.jl")

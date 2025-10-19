@@ -3,21 +3,88 @@ CurrentModule = SymbolicAWEModels
 ```
 # Examples for using the ram air kite model
 
-## Create a test project
-```bash
-mkdir test
-cd test
-julia --project=.
-```
-Don't forget to type the dot at the end of the last line.
-With the last command, we told Julia to create a new project in the current directory.
+## Visualization with GLMakie
 
-You can copy the examples, data and scripts to your project, and install dependencies
-with the following lines:
+SymbolicAWEModels provides plotting functionality through a package extension that automatically loads when you use GLMakie. This means you don't need to explicitly load any plotting package beyond GLMakie itself.
+
+**To enable plotting:**
 ```julia
 using SymbolicAWEModels
-SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
+using GLMakie  # This automatically loads the plotting extension
 ```
+
+Once GLMakie is loaded, you can use the `plot` function to visualize:
+- **3D System Structure**: Interactive 3D visualization of the kite system with clickable segments
+  ```julia
+  plot(sam.sys_struct)  # Plot the system structure
+  ```
+
+- **Time-Series Data**: Multi-panel plots of simulation results
+  ```julia
+  (log, _) = sim_oscillate!(sam)
+  plot(sam.sys_struct, log; plot_default=true)  # Plot simulation results
+  ```
+
+The plotting functions support many keyword arguments to customize which data is displayed. See the function documentation for details:
+```julia
+?plot  # In Julia REPL, shows available options
+```
+
+## Getting Started with Examples
+
+The approach depends on how you're using SymbolicAWEModels:
+
+### Registry Users
+
+If you installed the package via `pkg"add SymbolicAWEModels"`:
+
+1. **Copy examples to your project**:
+   ```julia
+   using SymbolicAWEModels
+   SymbolicAWEModels.init_module()
+   ```
+
+   This copies all example files to an `examples/` directory and installs dependencies.
+
+2. **Run examples**:
+   ```julia
+   include("examples/ram_air_kite.jl")
+   include("examples/menu.jl")  # Interactive menu
+   ```
+
+### Cloned Package Users
+
+If you cloned the repository but aren't modifying source code:
+
+1. **Navigate to the repository**:
+   ```bash
+   cd path/to/SymbolicAWEModels.jl
+   ```
+
+2. **Start Julia with the examples project**:
+   ```bash
+   julia --project=examples
+   ```
+
+3. **Link the local package** (first time only):
+   ```julia
+   using Pkg
+   pkg"dev ."
+   ```
+
+4. **Run examples**:
+   ```julia
+   include("examples/ram_air_kite.jl")
+   include("examples/menu.jl")
+   ```
+
+   **Note**: `--project=examples` sets the project environment but doesn't change your working directory, so you still need the `examples/` prefix.
+
+### Developers
+
+If you're developing the package, see the [Developer Guide](developers.md#running-examples-during-development) for detailed instructions on using Revise.jl and running examples with live code reloading.
+
+For more details, see the [Getting Started Guide](getting_started.md).
 
 ## Running the first example
 ```julia
@@ -25,9 +92,8 @@ include("examples/ram_air_kite.jl")
 ```
 Expected output for first run:
 ```julia
-[ Info: Loading packages 
-[ Info: Precompiling SymbolicAWEModelsControlPlotsExt [986c3e0b-c4a6-5a67-87ac-f6b86e76af74] (cache mi
-sses: include_dependency fsize change (2), wrong dep version loaded (14), mismatched flags (2))
+[ Info: Loading packages
+[ Info: Precompiling SymbolicAWEModelsMakieExt [ba1985c5-ebcb-5009-8fba-190d67777252] (cache misses...)
 Time elapsed: 24.149010176 s
 [ Info: Creating SymbolicAWEModel:
 Time elapsed: 38.51030329 s
@@ -130,8 +196,65 @@ default model, at a much better performance.
 
 ![Oscillating steering input response, simple system](assets/oscillating_steering_simple.png)
 
+## Real-Time 3D Visualization
+
+The `realtime_visualization.jl` example demonstrates how to create a custom simulation loop with real-time 3D visualization. This is useful for:
+- Watching system behavior as it evolves
+- Debugging dynamics issues visually
+- Creating demonstrations and videos
+- Better understanding system response
+
+**Key Features:**
+- Observable-based updates for smooth animation
+- Proper sleep timing to maintain real-time speed
+- Interactive camera control during simulation
+- Configurable visualization frame rate and speed
+
+**Usage:**
+```julia
+include("examples/realtime_visualization.jl")
+```
+
+**How It Works:**
+
+The example creates `Observable` objects for dynamic data (point positions, wing orientations, etc.) and updates them during the simulation loop:
+
+```julia
+# Create observables
+point_positions = Observable([Point3f(p.pos_w) for p in sys_struct.points])
+
+# In simulation loop:
+for step in 1:steps
+    # Run simulation step
+    next_step!(sam; ...)
+
+    # Update visualization
+    if step % plot_interval == 0
+        point_positions[] = [Point3f(p.pos_w) for p in sys_struct.points]
+        sleep(0.001)  # Allow Makie to process events
+    end
+
+    # Sleep to maintain real-time pacing
+    sleep(max(0.0, target_time - elapsed_time))
+end
+```
+
+**Configuration:**
+- `realtime_factor`: Set to 2.0 for 2x speed, 0.5 for half speed, etc.
+- `plot_interval`: Update plot every N steps (higher = better performance)
+- `dt`: Simulation time step
+
+**When to Use:**
+- Use **real-time visualization** when you want to observe behavior as it happens
+- Use **post-simulation plotting** (`plot(sys_struct, log)`) when you want to:
+  - Run simulations faster than real-time
+  - Analyze results in detail after completion
+  - Create publication-quality plots
+
+See: [`realtime_visualization.jl`](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/main/examples/realtime_visualization.jl)
+
 ## Linearization
-The following example creates a nonlinear system model, finds a steady-state operating point, 
+The following example creates a nonlinear system model, finds a steady-state operating point,
 linearizes the model around this operating point and creates bode plots from inputs (torques)
 to output (heading).
 ```julia

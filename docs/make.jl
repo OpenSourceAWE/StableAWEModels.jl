@@ -1,13 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-using Pkg
-if ("TestEnv" ∈ keys(Pkg.project().dependencies))
-    if ! ("Documents" ∈ keys(Pkg.project().dependencies))
-        using TestEnv; TestEnv.activate()
-    end
-end
-using ControlPlots, VortexStepMethod
+using Makie, VortexStepMethod
 using SymbolicAWEModels
 using Documenter
 
@@ -26,6 +20,7 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
+        "Getting Started" => "getting_started.md",
         "Examples" => "examples.md",
         "Custom Model" => "tutorial_system_structure.md",
         "Exported Types" => "exported_types.md",
