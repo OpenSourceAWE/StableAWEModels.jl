@@ -5,6 +5,7 @@ using GLMakie
 using SymbolicAWEModels, KiteUtils, LinearAlgebra, OrdinaryDiffEqBDF
 
 # Initialize the model
+set_data_path("data")
 set = Settings("system.yaml")
 set.sample_freq = 100
 sam = SymbolicAWEModel(set)

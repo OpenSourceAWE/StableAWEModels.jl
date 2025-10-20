@@ -16,20 +16,31 @@ using VortexStepMethod
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 0.2,
-                     show_points = true, show_segments = true, show_orient = true)
+                     show_points = true, show_segments = true, show_orient = true,
+                     # Optional observables for real-time updates
+                     segment_points_obs = nothing,
+                     point_positions_obs = nothing,
+                     wing_origins_obs = nothing,
+                     wing_directions_obs = nothing)
 
     plots = Dict{Symbol, Any}()
 
     # === Plot Segments ===
     if show_segments
-        lineseg_points = Point3f[]
-        for seg in sys.segments
-            p1 = sys.points[seg.point_idxs[1]].pos_w
-            p2 = sys.points[seg.point_idxs[2]].pos_w
-            push!(lineseg_points, Point3f(p1))
-            push!(lineseg_points, Point3f(p2))
+        if isnothing(segment_points_obs)
+            # Static plotting: build segment points once
+            lineseg_points = Point3f[]
+            for seg in sys.segments
+                p1 = sys.points[seg.point_idxs[1]].pos_w
+                p2 = sys.points[seg.point_idxs[2]].pos_w
+                push!(lineseg_points, Point3f(p1))
+                push!(lineseg_points, Point3f(p2))
+            end
+        else
+            # Dynamic plotting: use provided observable
+            lineseg_points = segment_points_obs
         end
-        
+
         num_segments = length(sys.segments)
         seg_colors = Observable(fill(to_color(segment_color), num_segments))
 
@@ -39,27 +50,41 @@ function Makie.plot!(ax, sys::SystemStructure;
 
     # === Plot Points ===
     if show_points
-        point_positions = [Point3f(p.pos_w) for p in sys.points]
+        if isnothing(point_positions_obs)
+            # Static plotting
+            point_positions = [Point3f(p.pos_w) for p in sys.points]
+        else
+            # Dynamic plotting: use provided observable
+            point_positions = point_positions_obs
+        end
         plots[:points] = scatter!(ax, point_positions, color=point_color, label="Points",
                                   transparency=true)
     end
 
     # === Plot Wings ===
     if show_orient
-        plots[:wings] = []
-        plots[:vsm] = []
-        for (i, wing) in enumerate(sys.wings)
-            wing_pos = Point3f(wing.pos_w)
-            R = wing.R_b_w
-            scale = vector_scale
-            origins = [wing_pos, wing_pos, wing_pos]
-            directions = [Vec3f(R[:, 1]) * scale, Vec3f(R[:, 2]) * scale, Vec3f(R[:, 3]) * scale]
+        if isnothing(wing_origins_obs) || isnothing(wing_directions_obs)
+            # Static plotting: create separate arrows for each wing
+            plots[:wings] = []
+            plots[:vsm] = []
+            for (i, wing) in enumerate(sys.wings)
+                wing_pos = Point3f(wing.pos_w)
+                R = wing.R_b_w
+                scale = vector_scale
+                origins = [wing_pos, wing_pos, wing_pos]
+                directions = [Vec3f(R[:, 1]) * scale, Vec3f(R[:, 2]) * scale, Vec3f(R[:, 3]) * scale]
 
-            axis_colors = [:red, :green, :blue]
-            p = arrows3d!(ax, origins, directions, color=axis_colors, label="Wing $i Axes")
-            push!(plots[:wings], p)
-            p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w)
-            push!(plots[:vsm], p)
+                axis_colors = [:red, :green, :blue]
+                p = arrows3d!(ax, origins, directions, color=axis_colors, label="Wing $i Axes")
+                push!(plots[:wings], p)
+                p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w)
+                push!(plots[:vsm], p)
+            end
+        else
+            # Dynamic plotting: single arrows plot with observables
+            axis_colors = repeat([:red, :green, :blue], length(sys.wings))
+            plots[:wings] = arrows3d!(ax, wing_origins_obs, wing_directions_obs,
+                                     color=axis_colors)
         end
     end
 
@@ -69,15 +94,96 @@ function Makie.plot!(ax, sys::SystemStructure;
         origins = [Point3f(0, 0, 0), Point3f(0, 0, 0), Point3f(0, 0, 0)]
         directions = [Vec3f(10, 0, 0), Vec3f(0, 10, 0), Vec3f(0, 0, 10)]
         axis_colors = [:red, :green, :blue]
-        plots[:global_axes] = arrows3d!(ax, origins, directions; 
+        plots[:global_axes] = arrows3d!(ax, origins, directions;
                                         shaftradius=0.02,
                                         tipradius=0.06,
                                         tiplength=0.1,
                                         color=axis_colors,
                                         label="Global Axes")
     end
-    
+
     return plots
+end
+
+"""
+    SymbolicAWEModels.update_plot_observables!(segment_points_obs, point_positions_obs,
+                                               wing_origins_obs, wing_directions_obs,
+                                               sys::SystemStructure; vector_scale=0.2)
+
+Update Observable objects for real-time 3D visualization from a SystemStructure.
+
+This function extracts the current state from `sys` (point positions, segment endpoints,
+wing orientations) and updates the provided Observable objects. The observables will
+trigger automatic updates in any Makie plots that use them.
+
+# Arguments
+- `segment_points_obs::Observable`: Observable containing segment line endpoints
+- `point_positions_obs::Observable`: Observable containing point positions
+- `wing_origins_obs::Observable`: Observable containing wing arrow origins
+- `wing_directions_obs::Observable`: Observable containing wing arrow directions
+- `sys::SystemStructure`: The system structure to extract data from
+
+# Keyword Arguments
+- `vector_scale::Real=0.2`: Scale factor for wing orientation arrows
+
+# Example
+```julia
+# Create observables
+seg_obs = Observable(Point3f[])
+pts_obs = Observable(Point3f[])
+orig_obs = Observable(Point3f[])
+dir_obs = Observable(Vec3f[])
+
+# Create plot with observables
+scene = plot(sys_struct; segment_points_obs=seg_obs, point_positions_obs=pts_obs,
+             wing_origins_obs=orig_obs, wing_directions_obs=dir_obs)
+
+# In simulation loop:
+for step in 1:steps
+    next_step!(sam; ...)
+    update_plot_observables!(seg_obs, pts_obs, orig_obs, dir_obs, sam.sys_struct)
+    sleep(0.001)  # Allow Makie to process updates
+end
+```
+"""
+function SymbolicAWEModels.update_plot_observables!(segment_points_obs, point_positions_obs,
+                                                     wing_origins_obs, wing_directions_obs,
+                                                     sys::SystemStructure; vector_scale=0.2)
+    # Update point positions
+    if !isnothing(point_positions_obs)
+        point_positions_obs[] = [Point3f(p.pos_w) for p in sys.points]
+    end
+
+    # Update segment endpoints
+    if !isnothing(segment_points_obs)
+        seg_points = Point3f[]
+        for seg in sys.segments
+            p1 = sys.points[seg.point_idxs[1]].pos_w
+            p2 = sys.points[seg.point_idxs[2]].pos_w
+            push!(seg_points, Point3f(p1))
+            push!(seg_points, Point3f(p2))
+        end
+        segment_points_obs[] = seg_points
+    end
+
+    # Update wing orientations
+    if !isnothing(wing_origins_obs) && !isnothing(wing_directions_obs)
+        origins = Point3f[]
+        directions = Vec3f[]
+        for wing in sys.wings
+            wing_pos = Point3f(wing.pos_w)
+            R = wing.R_b_w
+            # Add three arrow vectors for each axis (x, y, z in body frame)
+            for i in 1:3
+                push!(origins, wing_pos)
+                push!(directions, Vec3f(R[:, i]) * vector_scale)
+            end
+        end
+        wing_origins_obs[] = origins
+        wing_directions_obs[] = directions
+    end
+
+    return nothing
 end
 
 """
@@ -355,7 +461,12 @@ function Makie.plot(sys::SystemStructure;
         push!(relevant_plots, plots[:points])
     end
     if haskey(plots, :wings)
-        append!(relevant_plots, plots[:wings])
+        # plots[:wings] can be either an array (static) or a single plot (observables)
+        if plots[:wings] isa AbstractArray
+            append!(relevant_plots, plots[:wings])
+        else
+            push!(relevant_plots, plots[:wings])
+        end
     end
 
     # --- Event Handling for Segments ---

@@ -12,12 +12,15 @@ This guide provides instructions and best practices for developers contributing 
 
 Before you begin, ensure you have the following software installed:
 
-  - **Julia**: Version 1.10 or 1.11.
+  - **Julia**: Latest release version. Install using [juliaup](https://github.com/JuliaLang/juliaup):
+    ```bash
+    curl -fsSL https://install.julialang.org | sh
+    juliaup add release
+    juliaup default release
+    ```
   - **Git**: For version control.
   - **Bash**: A Unix-like shell environment.
-  - **Visual Studio Code**: Recommended for its excellent Julia support via the [julia-vscode.org](https://www.julia-vscode.org/) extension.
-
-For detailed setup instructions, see the [Julia and VSCode installation guide](https://www.google.com/search?q=https://OpenSourceAWE.github.io/2024/08/09/installing-julia-with-juliaup.html).
+  - **Code editor**: Your preferred code editor with Julia support.
 
 -----
 
@@ -64,6 +67,18 @@ git checkout main
 git merge upstream/main
 ```
 
+**Keep Your Feature Branch Up to Date**
+While working on your feature branch, regularly merge the latest changes from `main` to avoid merge conflicts later:
+```bash
+git fetch upstream
+git checkout main
+git merge upstream/main
+git checkout add_lei_model
+git merge main
+```
+
+This is especially important for long-running feature branches. Merging frequently makes conflicts smaller and easier to resolve.
+
 **Create a Feature Branch**
 Create a new branch from your up-to-date `main` branch. Give it a short, descriptive name that summarizes your change.
 
@@ -100,11 +115,63 @@ Go to the GitHub page for your fork. You should see a prompt to create a pull re
 
 We strongly recommend adding **[Revise.jl](https://timholy.github.io/Revise.jl/stable/)** to your global Julia environment. It allows you to modify source code without restarting your Julia session, which is essential for efficient development.
 
-Consider [configuring Revise to run by default](https://timholy.github.io/Revise.jl/stable/config/#Using-Revise-by-default) in your `startup.jl` file.
+**Install Revise.jl globally:**
+
+```julia
+# Start Julia without a project
+julia
+
+# In the REPL
+using Pkg
+pkg"add Revise"
+```
+
+**Configure Revise to auto-load on startup:**
+
+Create or edit `~/.julia/config/startup.jl` (on Linux/Mac) or `%USERPROFILE%\.julia\config\startup.jl` (on Windows):
+
+```julia
+try
+    @eval using Revise
+catch e
+    @warn "Error initializing Revise" exception=(e, catch_backtrace())
+end
+```
+
+This will automatically load Revise every time you start Julia. The `try`/`catch` block ensures Julia will still start even if Revise encounters an issue.
+
+**Verify it works:**
+
+Start a new Julia session and you should see Revise load automatically. You can verify by checking:
+
+```julia
+julia> @which Revise
+```
+
+Now any changes you make to package source code will be automatically reflected in your Julia session!
 
 ### Disable Precompilation for Core Development
 
-When actively developing, you can temporarily disable the heavy precompilation workload to speed up restarts. To do this, copy the provided default preferences file:
+When actively developing, you can temporarily disable the heavy precompilation workload to speed up restarts. There are two methods:
+
+**Method 1: Using an environment variable (recommended)**
+
+Set the `SAM_PRECOMPILE` environment variable to `false` before starting Julia:
+
+```bash
+SAM_PRECOMPILE=false julia --project=examples
+```
+
+Or add it to your shell profile for persistent use:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export SAM_PRECOMPILE=false
+```
+
+**Method 2: Using LocalPreferences.toml**
+
+Copy the provided default preferences file:
 
 ```bash
 cp LocalPreferences.toml.default LocalPreferences.toml
@@ -116,35 +183,129 @@ cp LocalPreferences.toml.default LocalPreferences.toml
 
 When developing the package, you'll want to test your changes with the examples. Here's how to set up the examples to use your local development version:
 
-1. From the package root directory, start Julia with the examples project:
-```bash
-julia --project=examples
-```
+#### Setup (first time only)
 
-2. Add your local development version:
+1. **From the package root directory**, start Julia with the examples project:
+   ```bash
+   julia --project=examples
+   ```
+
+2. **Link your local development version**:
+   ```julia
+   ]  # Press ] to enter Pkg mode - prompt shows (examples) pkg>
+   dev .
+   ```
+
+   This command tells Julia to use the local source code in the current directory (`.`) instead of the registered package version. Use `]st` to verify the package is linked to your local path.
+
+#### Running Examples
+
+Now any changes you make to the source code will be immediately reflected when you run the examples (thanks to Revise.jl):
+
 ```julia
-using Pkg
-pkg"dev ."
+include("examples/ram_air_kite.jl")
+include("examples/simple_tuned_model.jl")
+include("examples/menu.jl")
 ```
 
-This command tells Julia to use the local source code in the current directory (`.`) instead of the registered package version. Now any changes you make to the source code will be immediately reflected when you run the examples (especially useful with Revise.jl).
+**Important**: `--project=examples` sets which project environment to use, but doesn't change your current working directory. You still need to use `examples/` in the include paths.
 
 The `examples/Project.toml` file already contains the necessary dependencies:
 - `GLMakie` - for visualization
 - `KiteUtils` - for utility functions
 - `SymbolicAWEModels` - the package itself
 
-You can now run examples directly:
+#### Managing Package Dependencies
+
+**Understanding the Package Manager:**
+
+Press `]` in the Julia REPL to enter package manager (Pkg) mode. The prompt changes to show your current project:
 ```julia
-include("simple_tuned_model.jl")
+julia> ]  # Press ] to enter Pkg mode
+(examples) pkg>  # Prompt shows you're in the examples project
 ```
 
-**Alternative approach:** You can also navigate into the examples directory first:
-```bash
-cd examples
-julia --project=.
+Press backspace to exit Pkg mode and return to the Julia REPL.
+
+**Common Pkg commands:**
+- `add PackageName` - Add a package to the current project
+- `rm PackageName` - Remove a package
+- `dev .` or `dev ..` - Use local source code instead of registered version
+- `st` - Show status (list all packages and their versions)
+- `up` - Update all packages
+- `instantiate` - Install all packages from Project.toml
+
+**Adding packages to the examples:**
+```julia
+# Start Julia with examples project
+julia --project=examples
+
+]  # Enter Pkg mode - prompt shows (examples) pkg>
+add YourPackage
+st  # Verify the package was added
 ```
-Then use `pkg"dev .."` to reference the parent directory.
+
+**Adding packages to SymbolicAWEModels itself:**
+```julia
+# Start Julia with the main project
+julia --project=.
+
+]  # Enter Pkg mode - prompt shows (SymbolicAWEModels) pkg>
+add YourPackage
+st  # Verify the package was added
+```
+
+The prompt `(ProjectName) pkg>` always tells you which project you're modifying.
+
+**Tip**: Create a shell alias to quickly start the development environment:
+```bash
+alias jl-ex='julia --project=examples'
+```
+
+### Building Documentation Locally
+
+To preview documentation changes as you work:
+
+#### Using LiveServer (Recommended)
+
+1. **Start Julia with the docs project**:
+   ```bash
+   julia --project=docs
+   ```
+
+2. **Link your local development version** (first time only):
+   ```julia
+   ]  # Press ] to enter Pkg mode - prompt shows (docs) pkg>
+   dev .
+   ```
+
+3. **Serve the docs with live reload**:
+   ```julia
+   using LiveServer
+   servedocs(launch_browser=true)
+   ```
+
+   This will:
+   - Build the documentation
+   - Open it in your default browser
+   - Watch for changes to documentation files
+   - Automatically rebuild and refresh when you save changes
+
+#### Manual Build
+
+Alternatively, you can build the documentation once without the live server:
+
+```bash
+julia --project=docs
+```
+
+```julia
+include("docs/make.jl")
+```
+
+Then open `docs/build/index.html` in your browser.
+
+**Note**: If you make changes to the package source code (not just documentation), you'll need to reload Julia or use Revise.jl for the changes to be reflected in the built documentation.
 
 -----
 
@@ -166,7 +327,7 @@ Please adhere to the following style guidelines to maintain code quality and rea
     kite_rhs   = [force_eqs[j, i+3].rhs for j in 1:3]
     f_xy       = dot(tether_rhs, e_z) * e_z
     ```
-  - **Settings:** Use the `se()` function from `KiteUtils` to load the settings for the active project. You can specify a file with `set = se("my_settings.yaml")`.
+  - **Settings:** Use the `Settings()` constructor to load the settings for the active project. You can specify a file with `set = Settings("my_settings.yaml")`. Use `set = Settings("")` to load the default settings file.
 
 -----
 

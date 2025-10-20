@@ -102,6 +102,7 @@ SymbolicAWEModels.copy_bin
 SymbolicAWEModels.copy_examples
 SymbolicAWEModels.copy_data
 SymbolicAWEModels.copy_dir
+SymbolicAWEModels.get_example_packages
 ```
 
 ## Base Overloads (Internal Use)

@@ -6,6 +6,7 @@ using SymbolicAWEModels, KiteUtils, Printf, LaTeXStrings
 
 # --- Setup Models ---
 F_step = 1.0
+set_data_path("data")
 set = Settings("system.yaml")
 set.sample_freq = 600
 set.abs_tol = 1e-6
