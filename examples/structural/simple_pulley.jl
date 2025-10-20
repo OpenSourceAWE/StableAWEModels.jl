@@ -109,10 +109,10 @@ rest_length_per_segment = 3.5  # Rest length per segment in meters
 line_diameter_mm = 5.0  # Diameter of the segments in mm
 
 # pulley point was placed in the middle, as the side-to-side movement converges very slowly
-points = Point[]
-push!(points, Point(1, [0.0, 0.0, 5.0], STATIC))
-push!(points, Point(2, [5.0, 0.0, 5.0], STATIC))
-push!(points, Point(3, [2.5, 0.0, 1], DYNAMIC; mass=point_mass))
+points = SymbolicAWEModels.Point[]
+push!(points, SymbolicAWEModels.Point(1, [0.0, 0.0, 5.0], STATIC))
+push!(points, SymbolicAWEModels.Point(2, [5.0, 0.0, 5.0], STATIC))
+push!(points, SymbolicAWEModels.Point(3, [2.5, 0.0, 1], DYNAMIC; mass=point_mass))
 
 segments = Segment[]
 push!(segments, Segment(1, set, (3,1), BRIDLE,; l0=rest_length_per_segment, compression_frac=0.01, diameter_mm=line_diameter_mm))  
@@ -124,11 +124,30 @@ push!(pulleys, Pulley(1, (1,2), DYNAMIC))
 transforms = [Transform(1, -deg2rad(0.0), 0.0, 0.0; base_pos=[0.0, 0.0, 5.0], base_point_idx=1, rot_point_idx=2)]
 sys_struct = SymbolicAWEModels.SystemStructure("pulley", set; points, segments, pulleys, transforms)
 
-if @isdefined make_plot3d
-    display(make_plot3d(sys_struct.points, sys_struct.segments; title="Simple Pulley – Initial State"))
-else
-    plot(sys_struct)
+# Plot initial state using custom 2D Makie plot
+fig_initial = Figure(size=(800, 600))
+ax_initial = Axis(fig_initial[1, 1], 
+                  xlabel="x [m]", ylabel="z [m]",
+                  title="Simple Pulley - Initial State",
+                  aspect=DataAspect())
+
+# Plot segments
+for seg in sys_struct.segments
+    p1 = sys_struct.points[seg.point_idxs[1]].pos_w
+    p2 = sys_struct.points[seg.point_idxs[2]].pos_w
+    lines!(ax_initial, [p1[1], p2[1]], [p1[3], p2[3]], color=:black, linewidth=2)
 end
+
+# Plot points
+for p in sys_struct.points
+    if p.type == STATIC
+        scatter!(ax_initial, [p.pos_w[1]], [p.pos_w[3]], color=:blue, markersize=15, label="Static")
+    else
+        scatter!(ax_initial, [p.pos_w[1]], [p.pos_w[3]], color=:red, markersize=20, label="Dynamic")
+    end
+end
+
+display(fig_initial)
 
 # Analyze the system, to find optimal damping
 include("damping_analysis.jl")
@@ -140,23 +159,95 @@ set.axial_damping = recommended_damping  # Update settings with recommended damp
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=false)
 
-states = Vector{Vector{Point}}()
+# Store states for animation
+states = []
 push!(states, deepcopy(sam.sys_struct.points))
 
+# Run simulation for 100 time steps
 for i in 1:100
-    current_time = i/set.sample_freq
     next_step!(sam)
     push!(states, deepcopy(sam.sys_struct.points))
 end
 
-if @isdefined make_animated_plot3d
-    fig_anim = make_animated_plot3d(states, sam.sys_struct.segments;
-                                    title="Simple Pulley – Simulation",
-                                    dt=1/set.sample_freq)
-    display(fig_anim)
-else
-    plot(sam, 100/set.sample_freq)
+# Create animated 2D plot
+fig_anim = Figure(size=(800, 600))
+ax_anim = Axis(fig_anim[1, 1], 
+               xlabel="x [m]", ylabel="z [m]",
+               title="Simple Pulley - Animated",
+               aspect=DataAspect())
+
+# Get bounds for axis limits
+all_x = [p.pos_w[1] for state in states for p in state]
+all_z = [p.pos_w[3] for state in states for p in state]
+xlims!(ax_anim, minimum(all_x) - 0.5, maximum(all_x) + 0.5)
+ylims!(ax_anim, minimum(all_z) - 0.5, maximum(all_z) + 0.5)
+
+# Observable for animation frame
+frame = Observable(1)
+
+# Create observables for segments and points
+segment_lines = Observable(Point2f[])
+static_points = Observable(Point2f[])
+dynamic_points = Observable(Point2f[])
+trajectory = Observable(Point2f[])
+
+# Update function
+function update_frame(f)
+    current_state = states[f]
+    
+    # Update segments
+    seg_pts = Point2f[]
+    for seg in sam.sys_struct.segments
+        p1 = current_state[seg.point_idxs[1]].pos_w
+        p2 = current_state[seg.point_idxs[2]].pos_w
+        push!(seg_pts, Point2f(p1[1], p1[3]))
+        push!(seg_pts, Point2f(p2[1], p2[3]))
+    end
+    segment_lines[] = seg_pts
+    
+    # Update points
+    static_pts = Point2f[]
+    dynamic_pts = Point2f[]
+    for p in current_state
+        if p.type == STATIC
+            push!(static_pts, Point2f(p.pos_w[1], p.pos_w[3]))
+        else
+            push!(dynamic_pts, Point2f(p.pos_w[1], p.pos_w[3]))
+        end
+    end
+    static_points[] = static_pts
+    dynamic_points[] = dynamic_pts
+    
+    # Update trajectory (trace of dynamic point)
+    traj = [Point2f(states[i][3].pos_w[1], states[i][3].pos_w[3]) for i in 1:f]
+    trajectory[] = traj
 end
+
+# Plot elements
+linesegments!(ax_anim, segment_lines, color=:black, linewidth=2)
+scatter!(ax_anim, static_points, color=:blue, markersize=15, label="Static")
+scatter!(ax_anim, dynamic_points, color=:red, markersize=20, label="Dynamic")
+lines!(ax_anim, trajectory, color=(:green, 0.5), linewidth=1, label="Trajectory")
+axislegend(ax_anim, position=:rt)
+
+# Initial update
+update_frame(1)
+
+# Animation controls
+framerate = 30  # fps
+dt = 1.0 / set.sample_freq
+slowdown = 2  # Make animation slower by this factor
+total_frames = length(states)
+
+# Animate
+record(fig_anim, "pulley_animation.mp4", 1:total_frames; framerate=framerate) do f
+    update_frame(f)
+end
+println("Animation saved to pulley_animation.mp4")
+
+# Also display the final frame
+update_frame(total_frames)
+display(fig_anim)
 
 # --- Final comparison with analytical solution ---
 println("\n\nSimulation vs Analytical Comparison\n", "="^45)
