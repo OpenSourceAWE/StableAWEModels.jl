@@ -33,6 +33,7 @@ jobs:
         version:
           - '1'      # Latest stable release
           - 'lts'    # Long-term support release
+          - 'pre'
         os:
           - ubuntu-latest
           - windows-latest
