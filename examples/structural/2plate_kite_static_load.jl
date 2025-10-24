@@ -1,7 +1,7 @@
-# run_pyramid_model.jl
+# run_2plate_kite_model.jl
 #
 # Purpose:
-#   - Load pyramid_model structural YAML
+#   - Load 2plate_kite_model structural YAML
 #   - Compute panel normals & nodal loads (perpendicular to each panel)
 #   - Build system, init model
 #   - Run a few simulation steps and plot each iteration
@@ -187,7 +187,7 @@ end
 # Load default settings for a minimal structural run.
 # If you have a project-specific settings dir, swap for load_settings(MODEL_NAME).
 set = try
-    SymbolicAWEModels.load_settings(MODEL_NAME)  # expects data/pyramid_model/settings.yaml etc.
+    SymbolicAWEModels.load_settings(MODEL_NAME)  # expects data/2plate_kite_model/settings.yaml etc.
 catch
     # Fallback: a minimal Settings file if your project uses a base/system.yaml
     Settings("base/system.yaml")
@@ -208,7 +208,7 @@ sys = load_sys_struct_from_yaml(GEOM_PATH; system_name=MODEL_NAME, set=set)
 # @info "Marked node 3 as STATIC"
 
 # Initial 3D plot of the structure (t=0)
-# plt = plot3d_v3(sys.points, sys.segments; title="Pyramid Model (Initial)")
+# plt = plot3d_v3(sys.points, sys.segments; title="2plate_kite Model (Initial)")
 
 
 @info "System summary: points=$(length(sys.points)), segments=$(length(sys.segments)), pulleys=$(length(sys.pulleys))"
@@ -304,7 +304,7 @@ captured_steps = sort!(collect(keys(snapshots)))
 for (idx, step) in enumerate(captured_steps)
     points_snapshot = snapshots[step]
     t = step * Δt
-    plot_title = "Pyramid Model – Step $(step) (t=$(round(t, digits=2)) s)"
+    plot_title = "2plate_kite Model – Step $(step) (t=$(round(t, digits=2)) s)"
     plot3d_v3(points_snapshot, sam.sys_struct.segments; title=plot_title)
     @info "Rendered static snapshot $(idx)/$(length(snapshot_steps)) at step $step"
 end

@@ -192,7 +192,7 @@ where:
 - `Point`: A new `Point` object.
 """
 function Point(idx, pos_cad, type;
-    wing_idx=1, vel_w=zeros(KVec3), transform_idx=1, 
+    wing_idx=1, vel_w=zeros(KVec3), transform_idx=1,
     mass=0.0, body_frame_damping=0.0, world_frame_damping=0.0, fix_sphere=false
 )
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
@@ -608,8 +608,9 @@ mutable struct Wing
 
     # VSM aerodynamics
     vsm_aero::VortexStepMethod.BodyAerodynamics
-    vsm_wing::VortexStepMethod.RamAirWing
+    vsm_wing::VortexStepMethod.AbstractWing
     vsm_solver::VortexStepMethod.Solver
+    const inertia_principal::KVec3
 
     # Structural information
     const group_idxs::Vector{Int16}
@@ -702,12 +703,13 @@ Points attached to the wing transform as: ``\\mathbf{r}_w = \\mathbf{r}_{wing} +
 # Returns
 - `Wing`: A new `Wing` object providing a rigid body reference frame.
 """
-function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; 
-              transform_idx=1, y_damping=150.0)
+function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad;
+              transform_idx=1, y_damping=150.0, inertia_diag=nothing)
     ny = length(group_idxs)+3+3
     nx = length(group_idxs)+3+3
+    inertia_vec = inertia_diag === nothing ? wing_inertia_principal(vsm_wing) : inertia_diag
     return Wing(idx, 
-        vsm_aero, vsm_wing, vsm_solver,
+        vsm_aero, vsm_wing, vsm_solver, inertia_vec,
         # Structural information
         group_idxs, transform_idx, R_b_c, pos_cad, 
         # Differential variables in world frame, updated during simulation
@@ -721,6 +723,14 @@ function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad;
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
         zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
         y_damping, 0.0)
+end
+
+function wing_inertia_principal(vsm_wing)
+    if hasproperty(vsm_wing, :inertia_tensor)
+        diag_vals = diag(vsm_wing.inertia_tensor)
+        return MVector{3, SimFloat}(diag_vals)
+    end
+    return MVector{3, SimFloat}(ones(SimFloat, 3))
 end
 
 """
@@ -987,7 +997,8 @@ function SystemStructure(name, set;
     )
     for (i, point) in enumerate(points)
         @assert point.idx == i
-        @assert point.transform_idx <= length(transforms)
+        # Allow transform_idx=0 (no transform) or valid transform index
+        @assert point.transform_idx == 0 || point.transform_idx <= length(transforms)
     end
     for (i, group) in enumerate(groups)
         @assert group.idx == i
@@ -1054,9 +1065,28 @@ Apply the initial spatial transformations to all components in a `SystemStructur
 This function iterates through all transforms and applies the specified translation
 and rotation to position and orient the kite system components correctly in the
 world frame at the beginning of a simulation.
+
+If transforms is empty, simply initializes pos_w = pos_cad for all components.
 """
 function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
     @unpack points, wings = sys_struct
+    
+    # Handle the case with no transforms: just copy CAD positions to world positions
+    if isempty(transforms)
+        for point in points
+            point.pos_w .= point.pos_cad
+            point.vel_w .= 0.0
+        end
+        for wing in wings
+            wing.pos_w .= wing.pos_cad
+            wing.vel_w .= 0.0
+            wing.ω_b .= 0.0
+            wing.Q_b_w .= rotation_matrix_to_quaternion(wing.R_b_c)
+        end
+        return  # Early return - no transforms to apply
+    end
+    
+    # Apply transforms
     for transform in transforms
         # ==================== TRANSLATE ==================== #
         base_pos, curr_base_pos = get_base_pos(transform, wings, points)

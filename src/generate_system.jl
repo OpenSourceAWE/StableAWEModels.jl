@@ -852,12 +852,7 @@ function wing_eqs!(
     ]
 
     for wing in wings
-        vsm_wing = wing.vsm_wing
-        I_b = [
-            vsm_wing.inertia_tensor[1, 1],
-            vsm_wing.inertia_tensor[2, 2],
-            vsm_wing.inertia_tensor[3, 3],
-        ]
+        I_b = wing.inertia_principal
         axis = sym_normalize(wing_pos[wing.idx, :])
         axis_b = R_b_w[wing.idx, :, :]' * axis
         eqs = [
@@ -1117,7 +1112,10 @@ function scalar_eqs!(
 
     for wing in wings
         x, y, z = wing_pos[wing.idx, :]
-        half_len = wing.group_idxs[1] + length(wing.group_idxs) ÷ 2 - 1
+        has_groups = !isempty(wing.group_idxs)
+        if has_groups
+            half_len = wing.group_idxs[1] + length(wing.group_idxs) ÷ 2 - 1
+        end
 
         eqs = [
             eqs
@@ -1156,8 +1154,7 @@ function scalar_eqs!(
 
             angle_of_attack[wing.idx] ~
                 calc_angle_of_attack(va_wing_b[wing.idx, :]) +
-                0.5 * twist_angle[half_len] +
-                0.5 * twist_angle[half_len+1]
+                (has_groups ? 0.5 * twist_angle[half_len] + 0.5 * twist_angle[half_len + 1] : 0)
         ]
     end
     return eqs
@@ -1359,4 +1356,3 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     s.full_sys = sys
     return set_values
 end
-

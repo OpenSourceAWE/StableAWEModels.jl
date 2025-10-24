@@ -1,6 +1,5 @@
 using YAML
 using Logging
-using SymbolicAWEModels
 using LinearAlgebra
 using VortexStepMethod, KiteUtils
 
@@ -50,7 +49,7 @@ end
 #     end
 #     curr_elev   = KiteUtils.calc_elevation(dir0)
 #     curr_azim   = -KiteUtils.azimuth_east(dir0)
-#     return SymbolicAWEModels.Transform(idx, curr_elev, curr_azim, 0.0;
+#     return Transform(idx, curr_elev, curr_azim, 0.0;
 #         base_pos=base_pos, base_point_idx=base_point_idx, rot_point_idx=rot_point_idx)
 # end
 
@@ -58,7 +57,7 @@ end
 struct RawPoint
     raw_id::Int
     pos::Vector{Float64}
-    type::SymbolicAWEModels.DynamicsType
+    type::DynamicsType
     mass::Float64
     body_damping::Float64
     world_damping::Float64
@@ -67,7 +66,7 @@ end
 """
         load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing)
 
-Build a `SymbolicAWEModels.SystemStructure` from a TU Delft style structural YAML file.
+Build a `SystemStructure` from a TU Delft style structural YAML file.
 
 # Expected top-level blocks
 - `bridle_point_node`: `[x,y,z]` location of the KCU/bridle origin (optional).
@@ -85,7 +84,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
-    set === nothing && (set = SymbolicAWEModels.load_settings("base"))
+    set === nothing && (set = load_settings("base"))
 
     # Collect material properties if present (e.g., dyneema block)
     material_props = Dict{String,Dict{String,Float64}}()
@@ -113,7 +112,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     if haskey(data, "bridle_point_node")
         pos_vec = Float64.(data["bridle_point_node"])
         raw_id = 0
-        ptype = raw_id in fixed_ids ? SymbolicAWEModels.STATIC : SymbolicAWEModels.DYNAMIC
+        ptype = raw_id in fixed_ids ? STATIC : DYNAMIC
         mass = get(data, "kcu_mass", 0.0)
         push!(raw_points, RawPoint(raw_id, pos_vec, ptype, Float64(mass), 0.0, 0.0))
     end
@@ -125,7 +124,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             section = Dict(zip(headers, row))
             raw_id = Int(section[:id])
             pos_vec = [Float64(section[:x]), Float64(section[:y]), Float64(section[:z])]
-            ptype = raw_id in fixed_ids ? SymbolicAWEModels.STATIC : SymbolicAWEModels.DYNAMIC
+            ptype = raw_id in fixed_ids ? STATIC : DYNAMIC
             push!(raw_points, RawPoint(raw_id, pos_vec, ptype, 0.0, 0.0, 0.0))
         end
     end
@@ -137,7 +136,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             section = Dict(zip(headers, row))
             raw_id = Int(section[:id])
             pos_vec = [Float64(section[:x]), Float64(section[:y]), Float64(section[:z])]
-            ptype = raw_id in fixed_ids ? SymbolicAWEModels.STATIC : SymbolicAWEModels.DYNAMIC
+            ptype = raw_id in fixed_ids ? STATIC : DYNAMIC
             push!(raw_points, RawPoint(raw_id, pos_vec, ptype, 0.0, 0.0, 0.0))
         end
     end
@@ -146,18 +145,21 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     sort!(raw_points, by = rp -> rp.raw_id)
 
     # Reindex points sequentially while keeping a mapping from raw IDs to internal indices
-    points = SymbolicAWEModels.Point[]
+    points = Point[]
     raw_to_idx = Dict{Int,Int}()
     for rp in raw_points
         idx = length(points) + 1
-        push!(points, SymbolicAWEModels.Point(
+        push!(points, Point(
             idx,
             rp.pos,
             rp.type;
             mass = rp.mass,
             body_frame_damping = rp.body_damping,
-            world_frame_damping = rp.world_damping
+            world_frame_damping = rp.world_damping,
+            transform_idx = Int16(0)
         ))
+        points[end].pos_w .= points[end].pos_cad
+        points[end].vel_w .= 0.0
         raw_to_idx[rp.raw_id] = idx
     end
 
@@ -184,7 +186,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     end
 
     # --- Segments ------------------------------------------------------------
-    segments = SymbolicAWEModels.Segment[]
+    segments = Segment[]
 
     # Wing structural connections
     if haskey(data, "wing_connections")
@@ -204,11 +206,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             if haskey(elem, :d)
                 diameter_mm = Float64(elem[:d]) * 1000
             end
-            push!(segments, SymbolicAWEModels.Segment(
+            push!(segments, Segment(
                 length(segments) + 1,
                 set,
                 (raw_to_idx[ci], raw_to_idx[cj]),
-                SymbolicAWEModels.POWER_LINE;
+                POWER_LINE;
                 l0 = l0,
                 diameter_mm = diameter_mm,
                 axial_stiffness = axial_stiffness,
@@ -219,7 +221,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     end
 
     # Bridle connections and pulleys
-    pulleys = SymbolicAWEModels.Pulley[]
+    pulleys = Pulley[]
     if haskey(data, "bridle_connections")
         headers = Symbol.(String.(data["bridle_connections"]["headers"]))
         for (row_idx, row) in enumerate(data["bridle_connections"]["data"])
@@ -239,10 +241,10 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 haskey(raw_to_idx, ck) || (@warn "pulley $name references missing point id $ck"; continue)
                 
                 # Create pulley with anchor points (ci, cj)
-                push!(pulleys, SymbolicAWEModels.Pulley(
+                push!(pulleys, Pulley(
                     length(pulleys) + 1,
                     (raw_to_idx[ci], raw_to_idx[cj]),
-                    SymbolicAWEModels.DYNAMIC
+                    DYNAMIC
                 ))
                 
                 # Get element properties
@@ -313,11 +315,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 end
                 
                 # Create segment from ci to cj (first half of pulley)
-                push!(segments, SymbolicAWEModels.Segment(
+                push!(segments, Segment(
                     length(segments) + 1,
                     set,
                     (raw_to_idx[ci], raw_to_idx[cj]),
-                    SymbolicAWEModels.BRIDLE;
+                    BRIDLE;
                     l0 = l0_ci_cj,
                     diameter_mm = diameter_mm,
                     axial_stiffness = k_total,
@@ -326,11 +328,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 ))
                 
                 # Create segment from cj to ck (second half of pulley)
-                push!(segments, SymbolicAWEModels.Segment(
+                push!(segments, Segment(
                     length(segments) + 1,
                     set,
                     (raw_to_idx[cj], raw_to_idx[ck]),
-                    SymbolicAWEModels.BRIDLE;
+                    BRIDLE;
                     l0 = l0_cj_ck,
                     diameter_mm = diameter_mm,
                     axial_stiffness = k_total,
@@ -366,11 +368,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     lt = lowercase(String(elem[:linktype]))
                     compression_frac = lt == "noncompressive" ? 0.0 : 0.01
                 end
-                push!(segments, SymbolicAWEModels.Segment(
+                push!(segments, Segment(
                     length(segments) + 1,
                     set,
                     (raw_to_idx[ci], raw_to_idx[cj]),
-                    SymbolicAWEModels.BRIDLE;
+                    BRIDLE;
                     l0 = l0,
                     diameter_mm = diameter_mm,
                     axial_stiffness = axial_stiffness,
@@ -386,5 +388,5 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     # This preserves the exact geometry specified in the YAML file without any rotation
     transforms = Transform[]
 
-    return SymbolicAWEModels.SystemStructure(system_name, set; points, segments, pulleys, transforms)
+    return SystemStructure(system_name, set; points, segments, pulleys, transforms)
 end

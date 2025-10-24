@@ -73,7 +73,11 @@ heading, turn rate, and tether dynamics.
 """
 function generate_simple_lin_model(sys_struct, sys, y_vec)
     @unpack wings, winches = sys_struct
-    if length(wings) == 1
+    if length(wings) == 1 && hasproperty(sys, :tether_len) && hasproperty(sys, :tether_vel) && hasproperty(sys, :tether_acc)
+        n_tethers = length(sys_struct.tethers)
+        if n_tethers < 3 || length(sys.tether_len) < 3
+            return (model=nothing, get_x=nothing, get_dx=nothing, get_y=nothing)
+        end
         x_vec = [
             sys.heading[1], sys.turn_rate[1,3],
             sys.tether_len[1], sys.tether_len[2], sys.tether_len[3],

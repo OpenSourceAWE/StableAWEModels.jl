@@ -47,23 +47,35 @@ and updates the Jacobian (`vsm_jac`) and the steady-state forces (`vsm_x`) in th
 """
 function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.integrator)
     wings = sam.sys_struct.wings
+    groups = sam.sys_struct.groups
     if length(wings) > 0
         vsm_y = prob.get_vsm_y(integ)
         for wing in wings
-            wing.vsm_y .= vsm_y[wing.idx,:]
+            wing.vsm_y .= vsm_y[wing.idx, :]
             if any(isnan.(wing.vsm_solver.sol.force))
                 wing.vsm_solver.prob = nothing
                 @warn "Resetting vsm solver."
             end
+            group_idxs = wing.group_idxs
+            total_groups = length(groups)
+            theta_idxs = isempty(group_idxs) ? nothing : (6 .+ group_idxs)
+            moment_frac = if isempty(group_idxs)
+                0.25
+            elseif total_groups >= maximum(group_idxs)
+                groups[first(group_idxs)].moment_frac
+            else
+                0.25
+            end
+
             res = VortexStepMethod.linearize(
-                wing.vsm_solver, 
-                wing.vsm_aero, 
+                wing.vsm_solver,
+                wing.vsm_aero,
                 wing.vsm_y;
-                va_idxs=1:3, 
-                omega_idxs=4:6,
-                theta_idxs=7:6+length(sam.sys_struct.groups),
-                moment_frac=sam.sys_struct.groups[1].moment_frac,
-                aero_coeffs=true
+                va_idxs = 1:3,
+                omega_idxs = 4:6,
+                theta_idxs = theta_idxs,
+                moment_frac = moment_frac,
+                aero_coeffs = true
             )
             wing.vsm_jac .= res[1]
             wing.vsm_x .= res[2]

@@ -82,6 +82,7 @@ export copy_to_simple!
 export create_ram_sys_struct
 export create_tether_sys_struct
 export create_simple_ram_sys_struct
+export create_2plate_sys_struct
 
 # --- Getter Functions ---
 export winch_force
@@ -91,6 +92,8 @@ export tether_length
 # --- Helper Functions ---
 export init_module
 export update_plot_observables!
+export animate
+export load_sys_struct_from_yaml
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -123,6 +126,8 @@ function plot end
 # Defined in ext/SymbolicAWEModelsMakieExt.jl
 function plot! end
 function update_plot_observables! end
+# Defined in ext/SymbolicAWEModelsMakieExt.jl
+function animate end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")
@@ -134,6 +139,7 @@ end
 include("system_structure.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
+include("yaml_loader.jl")
 include("predefined_structures.jl")
 include("tether_properties.jl")
 include("linearize.jl")

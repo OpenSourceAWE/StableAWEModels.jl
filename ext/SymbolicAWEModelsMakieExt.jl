@@ -8,6 +8,7 @@ using UnPack
 using LinearAlgebra
 using StaticArrays
 using Statistics
+using Printf
 using KiteUtils
 using KiteUtils: SysLog
 using SymbolicAWEModels
@@ -419,6 +420,7 @@ function Makie.plot(sys::SystemStructure, lg::SysLog;
     axes[end].xlabel = "time [s]"
     axes[end].xticklabelsvisible = true
 
+    Makie.resize_to_layout!(fig)
     return fig
 end
 
@@ -607,6 +609,189 @@ function Makie.plot(sam::SymbolicAWEModel, reltime::Real=0.0; kwargs...)
 
     # Call the SystemStructure plot function
     plot(sam.sys_struct; kwargs...)
+end
+
+"""
+    animate(sys::SystemStructure, snapshots::Dict{Int, Vector{Point}}; 
+            dt=0.05, size=(1200, 900), autoplay=false, loop=false,
+            lock_limits=true, padding=0.1, bbox=nothing)
+
+Create an interactive animation with a slider to step through time snapshots.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to animate
+- `snapshots::Dict{Int, Vector{Point}}`: Dictionary mapping step number to point snapshots
+- `dt::Float64`: Time step duration in seconds (default: 0.05)
+- `size::Tuple{Int,Int}`: Figure size (default: (1200, 900))
+- `autoplay::Bool`: Start animation automatically (default: false)
+- `loop::Bool`: Loop animation continuously (default: false)
+- `lock_limits::Bool`: Keep the same world-frame box for all frames (default: true)
+- `padding::Float64`: Add a margin around the object as a fraction of its span (default: 0.1)
+- `bbox::Union{Nothing,Tuple}`: Optionally pass your own fixed limits ((xmin,xmax), (ymin,ymax), (zmin,zmax))
+- `kwargs...`: Additional keyword arguments passed to plot!
+
+# Returns
+- A Figure with interactive slider and play/pause controls
+
+# Example
+```julia
+# During simulation, collect snapshots
+snapshots = Dict{Int, Vector{SymbolicAWEModels.Point}}()
+for step in 1:n_steps
+    snapshots[step] = deepcopy(sam.sys_struct.points)
+    next_step!(sam; dt=Δt)
+end
+
+# Create interactive animation with fixed limits
+fig = animate(sam.sys_struct, snapshots; dt=Δt, padding=0.2)
+
+# Or let it auto-fit each frame (object may appear to change size)
+fig = animate(sam.sys_struct, snapshots; dt=Δt, lock_limits=false)
+
+# Or force a specific box
+bbox = ((-20.0, 20.0), (-20.0, 20.0), (0.0, 40.0))
+fig = animate(sam.sys_struct, snapshots; dt=Δt, bbox=bbox)
+```
+"""
+function SymbolicAWEModels.animate(sys::SystemStructure, 
+                                   snapshots::Dict{Int}; 
+                                   dt=0.05,
+                                   size=(1200, 1400),
+                                   autoplay=false,
+                                   loop=false,
+                                   lock_limits::Bool=true,
+                                   padding::Float64=0.1,
+                                   bbox::Union{Nothing,Tuple{Tuple{Float64,Float64},
+                                                             Tuple{Float64,Float64},
+                                                             Tuple{Float64,Float64}}}=nothing,
+                                   kwargs...)
+    
+    # Get sorted step numbers
+    steps = sort(collect(keys(snapshots)))
+    n_frames = length(steps)
+    n_frames == 0 && error("No snapshots provided for animation")
+    
+    # Create figure with layout for controls
+    fig = Figure(size=size)
+    
+    # 3D axis for visualization
+    ax = Axis3(fig[1, 1], aspect=:equal, title="t = 0.00 s")
+    
+    # ---- compute global bounding box over all snapshots (once) ----
+    if lock_limits && isnothing(bbox)
+        xmin = ymin = zmin =  Inf
+        xmax = ymax = zmax = -Inf
+        for step in steps
+            for p in snapshots[step]
+                x, y, z = p.pos_w
+                if x < xmin; xmin = x; end;  if x > xmax; xmax = x; end
+                if y < ymin; ymin = y; end;  if y > ymax; ymax = y; end
+                if z < zmin; zmin = z; end;  if z > zmax; zmax = z; end
+            end
+        end
+        # add padding as a fraction of the span in each direction
+        dx = xmax - xmin; dy = ymax - ymin; dz = zmax - zmin
+        εx, εy, εz = padding*dx, padding*dy, padding*dz
+        bbox = ((xmin-εx, xmax+εx), (ymin-εy, ymax+εy), (zmin-εz, zmax+εz))
+    end
+    
+    # apply fixed limits (this controls perceived size)
+    if lock_limits && !isnothing(bbox)
+        limits!(ax, bbox[1], bbox[2], bbox[3])
+    end
+    
+    # Control panel layout
+    control_grid = fig[2, 1] = GridLayout()
+    
+    # Create observable for current frame index
+    frame_idx = Observable(1)
+    
+    # Create a mutable copy of the system for animation
+    anim_sys = deepcopy(sys)
+    
+    # Function to update system points from snapshot
+    function update_frame!(idx)
+        step = steps[idx]
+        pts = snapshots[step]
+        
+        # Update point positions and velocities
+        @inbounds for i in 1:min(length(pts), length(anim_sys.points))
+            anim_sys.points[i].pos_w .= pts[i].pos_w
+            anim_sys.points[i].vel_w .= pts[i].vel_w
+        end
+        
+        # Update title with current time
+        t = steps[idx] * dt
+        # Show "Initial" for step 0, otherwise show step number
+        step_label = step == 0 ? "Initial" : "Step $step"
+        ax.title = @sprintf("t = %.2f s (%s / %d steps)", t, step_label, steps[end])
+    end
+    
+    # Initial plot - start with the FIRST frame (which is step 0 if present)
+    update_frame!(1)
+    plot!(ax, anim_sys; kwargs...)
+    
+    # Create slider for frame selection
+    sl = Slider(control_grid[1, 1:3], range=1:n_frames, startvalue=1)
+    
+    # Play/Pause button
+    is_playing = Observable(autoplay)
+    play_button = Button(control_grid[2, 1], label=@lift($is_playing ? "Pause" : "Play"))
+    
+    # Step forward/backward buttons
+    step_back_button = Button(control_grid[2, 2], label="<")
+    step_forward_button = Button(control_grid[2, 3], label=">")
+    
+    # Frame counter label
+    frame_label = Label(control_grid[3, 1:3], 
+                       text=@lift("Frame: $($(frame_idx))/$n_frames"), 
+                       halign=:center)
+    
+    # Connect slider to frame updates
+    on(sl.value) do val
+        frame_idx[] = val
+        update_frame!(val)
+        # Clear and replot
+        empty!(ax)
+        # re-apply fixed limits after clearing
+        if lock_limits && !isnothing(bbox)
+            limits!(ax, bbox[1], bbox[2], bbox[3])
+        end
+        plot!(ax, anim_sys; kwargs...)
+    end
+    
+    # Play button functionality
+    on(play_button.clicks) do _
+        is_playing[] = !is_playing[]
+    end
+    
+    # Step buttons
+    on(step_back_button.clicks) do _
+        sl.value[] = max(1, frame_idx[] - 1)
+    end
+    
+    on(step_forward_button.clicks) do _
+        sl.value[] = min(n_frames, frame_idx[] + 1)
+    end
+    
+    # Animation loop
+    @async begin
+        while true
+            if is_playing[]
+                if frame_idx[] < n_frames
+                    sl.value[] = frame_idx[] + 1
+                    sleep(0.05)  # Animation speed
+                elseif loop
+                    sl.value[] = 1  # Loop back to start
+                else
+                    is_playing[] = false  # Stop at end
+                end
+            end
+            sleep(0.02)  # Check state frequently
+        end
+    end
+    
+    return fig
 end
 
 end

@@ -12,7 +12,7 @@ using SymbolicAWEModels
 using VortexStepMethod
 using LinearAlgebra
 using YAML
-using StaticArrays
+using GLMakie
 
 @info "Loading 2-plate kite model..."
 
@@ -29,8 +29,12 @@ function refresh_vsm_forces!(sam::SymbolicAWEModel)
 
     for wing in sam.sys_struct.wings
         y_state = @view vsm_y[wing.idx, :]
-        va = SVector{3, Float64}(y_state[1], y_state[2], y_state[3])
-        omega = SVector{3, Float64}(y_state[4], y_state[5], y_state[6])
+        if any(isnan, y_state[1:6])
+            @warn "Skipping VSM force refresh for wing $(wing.idx) due to NaNs in state" y_state
+            continue
+        end
+        va = [y_state[1], y_state[2], y_state[3]]
+        omega = [y_state[4], y_state[5], y_state[6]]
 
         VortexStepMethod.set_va!(wing.vsm_aero, va, omega)
 
@@ -70,8 +74,8 @@ end
 # ============= User settings =============
 const MODEL_NAME = "2plate_kite"
 const GEOM_PATH  = joinpath("data", MODEL_NAME, "struc_geometry.yaml")
-const SIM_TIME   = 10.0  # Total simulation time in seconds
-const N_PLOTS    = 3      # Number of static snapshots to render
+const SIM_TIME   = 0.5  # Total simulation time in seconds
+const N_STEPS    = 10     # Number of time steps (use small number for fast development)
 const REMAKE_CACHE = false
 # =========================================
 
@@ -83,92 +87,150 @@ else
     @warn "yaml_loader.jl not found; expecting load_sys_struct_from_yaml to be available"
 end
 
-plotly_helpers_path = joinpath(@__DIR__, "..", "plotly_plots.jl")
-if isfile(plotly_helpers_path)
-    include(plotly_helpers_path)  # provides plot3d_v3
-else
-    @warn "plotly_plots.jl not found; plotting may not work"
-end
-
 # Load settings for the 2-plate kite
 set = SymbolicAWEModels.load_settings(MODEL_NAME)
+if hasproperty(set, :c_spring) || hasproperty(set, :damping)
+    @info "Legacy tether settings still present" c_spring=(hasproperty(set, :c_spring) ? getproperty(set, :c_spring) : missing) damping=(hasproperty(set, :damping) ? getproperty(set, :damping) : missing)
+end
+@info "Tether parameters (post-load)" axial_stiffness=set.axial_stiffness axial_damping=set.axial_damping d_tether=set.d_tether cd_tether=set.cd_tether
 
-# Load system structure from YAML (not from .obj files)
-@info "Building system structure from YAML: $GEOM_PATH"
-isfile(GEOM_PATH) || error("Geometry file not found at: $GEOM_PATH")
-sys = load_sys_struct_from_yaml(GEOM_PATH; system_name=MODEL_NAME, set=set)
+# The SystemStructure factory will now call create_2plate_sys_struct()
+# which loads both structural (struc_geometry.yaml) and aerodynamic (aero_geometry.yaml) data
+@info "Creating 2-plate kite system structure..."
+sys = SymbolicAWEModels.SystemStructure(set)
+segment_props = [(idx=seg.idx, k=seg.axial_stiffness, c=seg.axial_damping, d=seg.diameter) for seg in sys.segments]
+@info "Segment mechanical properties" segment_props
 
-# Create symbolic model with aerodynamics using the YAML-loaded structure
+@info "System loaded with $(length(sys.points)) points, $(length(sys.segments)) segments, $(length(sys.wings)) wings"
+
+# Create symbolic model with the 2-plate system
 @info "Creating SymbolicAWEModel with aerodynamics..."
 sam = SymbolicAWEModel(set, sys)
 
+# Test with head-on wind
+set.upwind_dir = 0.0  
+
+# Calculate wind vector components in X,Y,Z
+upwind_rad = deg2rad(set.upwind_dir)
+# Check if wind_elevation exists in settings, default to 0.0
+wind_elev = hasfield(typeof(set), :wind_elevation) ? set.wind_elevation : 0.0
+wind_elev_rad = deg2rad(wind_elev)
+# Wind convention: 0° = North (+X), -90° = East (+Y), 90° = West (-Y), 180° = South (-X)
+wind_x = set.v_wind * cos(wind_elev_rad) * cos(upwind_rad)
+wind_y = set.v_wind * cos(wind_elev_rad) * sin(upwind_rad)
+wind_z = set.v_wind * sin(wind_elev_rad)
+
+# Print wind settings with vector components
+@info "Wind Configuration:" wind_speed=set.v_wind upwind_dir=set.upwind_dir wind_elevation=wind_elev
+@info "  → Wind direction: $(set.upwind_dir)° (0° = North/head-on, -90° = East, 90° = West, 180° = South)"
+@info "  → Wind speed: $(set.v_wind) m/s at reference height $(set.h_ref) m"
+@info "  → Wind vector: [$(round(wind_x, digits=3)), $(round(wind_y, digits=3)), $(round(wind_z, digits=3))] m/s (X, Y, Z components)"
+
 # Initialize the model
 @info "Initializing model..."
-SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE)
+SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE, lin_vsm=false)
 
 # Calculate simulation parameters
-Δt = 1.0 / max(1, hasproperty(set, :sample_freq) ? set.sample_freq : 100)
-n_steps = round(Int, SIM_TIME / Δt)
+n_steps = N_STEPS
+Δt = SIM_TIME / n_steps
 @info "Running simulation for $(SIM_TIME) seconds ($n_steps steps, Δt = $(round(Δt, digits=4)) s)..."
 
-# Determine which steps to capture for plotting (include start and end)
-num_samples = max(N_PLOTS, 2)
-snapshot_steps = unique!(sort!(round.(Int, range(0, stop=n_steps, length=num_samples))))
-snapshot_steps[1] != 0 && pushfirst!(snapshot_steps, 0)
-snapshot_steps[end] != n_steps && push!(snapshot_steps, n_steps)
+# Store snapshots for every step
+snapshots = Dict{Int, Vector{SymbolicAWEModels.Point}}(0 => deepcopy(sam.sys_struct.points))
 
-# Store snapshots
-snapshots = Dict{Int, Vector{Point}}(0 => deepcopy(sam.sys_struct.points))
+# Print initial node coordinates
+@info "Initial state (Step 0) node coordinates:"
+for (i, point) in enumerate(sam.sys_struct.points)
+    pos = point.pos_w
+    vel = point.vel_w
+    @info "  Node $i: pos=[$(round(pos[1], digits=3)), $(round(pos[2], digits=3)), $(round(pos[3], digits=3))] m, " *
+          "vel=[$(round(vel[1], digits=3)), $(round(vel[2], digits=3)), $(round(vel[3], digits=3))] m/s"
+end
 
-# Plot initial state
+## Plot initial state
 @info "Plotting initial state..."
 try
-    plot3d_v3(sam.sys_struct.points, sam.sys_struct.segments; 
-              title="2-Plate Kite - Initial State (t=0)")
+    fig = plot(sam.sys_struct)
+    display(fig)
 catch e
     @warn "Could not plot initial state: $e"
 end
 
 # Time-marching loop with coupled aerodynamics
 @info "Starting time-marching simulation with coupled aerodynamics..."
+@info "Enforcing Y-symmetry constraint (setting Y-velocities to zero)"
+@info "Number of wings in system: $(length(sam.sys_struct.wings))"
 
 for step in 1:n_steps
     t = step * Δt
 
     refresh_vsm_forces!(sam)
 
-    # Advance simulation one step using freshly computed VSM loads (linear refresh disabled)
-    next_step!(sam; dt=Δt, vsm_interval=0)
+    # Print VSM aerodynamic loads on wings
+    if !isempty(sam.sys_struct.wings)
+        @info "Step $step VSM aerodynamic loads:"
+        for wing in sam.sys_struct.wings
+            force = wing.vsm_x[1:3]
+            moment = wing.vsm_x[4:6]
+            @info "  Wing $(wing.idx): " *
+                  "Force=[$(round(force[1], digits=3)), $(round(force[2], digits=3)), $(round(force[3], digits=3))] N, " *
+                  "Moment=[$(round(moment[1], digits=3)), $(round(moment[2], digits=3)), $(round(moment[3], digits=3))] N⋅m"
+        end
+    else
+        if step == 1
+            @warn "No wings found in system structure - VSM loads not available"
+        end
+    end
 
-    # Store current state if requested for plotting
-    if step in snapshot_steps
-        snapshots[step] = deepcopy(sam.sys_struct.points)
+    # Advance simulation one step using freshly computed VSM loads (linear refresh disabled)
+    integrator_t = sam.integrator.t
+    integrator_dt = sam.integrator.dt
+    integrator_norm = norm(sam.integrator.u)
+    integrator_max = maximum(abs, sam.integrator.u)
+    @info "Integrator state before step" step integrator_t integrator_dt integrator_norm integrator_max
+    try
+        next_step!(sam; dt=Δt, vsm_interval=0)
+    catch err
+        @error "next_step! failed" step integrator_t=sam.integrator.t integrator_dt=sam.integrator.dt integrator_norm=norm(sam.integrator.u) integrator_max=maximum(abs, sam.integrator.u) exception=(err, catch_backtrace())
+        rethrow(err)
+    end
+
+    # SYMMETRY CONSTRAINT: Force Y-velocities to zero to maintain X-Z plane symmetry
+    for point in sam.sys_struct.points
+        if point.type == SymbolicAWEModels.DYNAMIC
+            point.vel_w[2] = 0.0  # Zero out Y-velocity
+        end
+    end
+
+    # Store current state for every step
+    snapshots[step] = deepcopy(sam.sys_struct.points)
+
+    # Print node coordinates for this step
+    @info "Step $step node coordinates:"
+    for (i, point) in enumerate(sam.sys_struct.points)
+        pos = point.pos_w
+        vel = point.vel_w
+        @info "  Node $i: pos=[$(round(pos[1], digits=3)), $(round(pos[2], digits=3)), $(round(pos[3], digits=3))] m, " *
+              "vel=[$(round(vel[1], digits=3)), $(round(vel[2], digits=3)), $(round(vel[3], digits=3))] m/s"
     end
 
     # Print progress periodically
-    if step % 100 == 0 || step == n_steps
+    if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
         @info "  Step $step/$n_steps (t = $(round(t, digits=2)) s / $(SIM_TIME) s)"
     end
 end
 
-# Ensure final state is captured
-snapshots[n_steps] = get(snapshots, n_steps, deepcopy(sam.sys_struct.points))
-
 captured_steps = sort!(collect(keys(snapshots)))
 
-@info "Simulation complete. Rendering $(length(captured_steps)) static plots..."
+@info "Simulation complete. Creating interactive animation with $(length(captured_steps)) frames..."
 
-for (idx, step) in enumerate(captured_steps)
-    points_snapshot = snapshots[step]
-    t = step * Δt
-    plot_title = "2-Plate Kite (Coupled Aero) – Step $(step) (t=$(round(t, digits=2)) s)"
-    try
-        plot3d_v3(points_snapshot, sam.sys_struct.segments; title=plot_title)
-        @info "  Rendered static snapshot $(idx)/$(length(captured_steps)) at step $step"
-    catch e
-        @warn "  Could not render snapshot at step $step: $e"
-    end
-end
+# Create interactive animation with slider controls
+# Using lock_limits=false to let the camera auto-fit as the kite moves
+bbox = ((-20.0, 20.0), (-20.0, 20.0), (0.0, 40.0))
+fig = animate(sam.sys_struct, snapshots; dt=Δt, autoplay=false, loop=true, bbox=bbox)
+display(fig)
+
+@info "Animation created! Use the slider to step through time, or press Play to animate."
 
 # Print final statistics
 println("\n" * "="^60)
@@ -196,6 +258,6 @@ end
 
 println("="^60)
 
-@info "Simulation complete! Created $(length(captured_steps)) static plots."
+@info "Simulation complete! Interactive animation with $(length(captured_steps)) frames ready."
 
 nothing

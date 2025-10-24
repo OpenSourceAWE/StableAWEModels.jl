@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
+
 """
     SystemStructure(set::Settings; kwargs...)
 
@@ -448,3 +449,143 @@ function create_simple_ram_sys_struct(set::Settings;
     return SystemStructure(set.physical_model, set; 
         points, groups, segments, tethers, winches, wings, transforms)
 end
+
+
+# ========================= 2-PLATE KITE CREATOR =========================
+
+"""
+    create_2plate_sys_struct(set::Settings)
+
+Create a `SystemStructure` for a rigid 2-plate kite.
+
+- Structure is loaded from `struc_geometry.yaml` (points, segments, pulleys, etc.).
+- Aerodynamics uses a rigid VSM wing; no deforming `Group`s are created.
+- A single transform orients the structure using `set.elevation`, `set.azimuth`, `set.heading`.
+
+Required `Settings` fields:
+- `physical_model == "2plate"`
+- `struc_geometry_path` (defaults to `data/<model_name>/struc_geometry.yaml`)
+
+Optional `Settings` fields:
+- `vsm_settings_path` (defaults to `data/<model_name>/vsm_settings.yaml`)
+- `mass` (used to approximate inertia if the VSM wing lacks it)
+"""
+function create_2plate_sys_struct(set::Settings)
+    model_name = hasproperty(set, :model_name) ? set.model_name : "2plate_kite"
+
+    # --------------------------- STRUCTURE --------------------------- #
+    struc_yaml = hasproperty(set, :struc_geometry_path) ? set.struc_geometry_path :
+        joinpath("data", model_name, "struc_geometry.yaml")
+    @assert isfile(struc_yaml) "Structural YAML not found: $struc_yaml"
+
+    sys_from_yaml = load_sys_struct_from_yaml(struc_yaml; system_name=model_name, set=set)
+
+    points = Point[]
+    for p in sys_from_yaml.points
+        t_idx = Int16(0)
+        push!(points, Point(p.idx, copy(p.pos_cad), p.type;
+            wing_idx=p.wing_idx,
+            vel_w=copy(p.vel_w),
+            transform_idx=t_idx,
+            mass=p.mass,
+            body_frame_damping=p.body_frame_damping,
+            world_frame_damping=p.world_frame_damping,
+            fix_sphere=p.fix_sphere))
+    end
+
+    segments = deepcopy(sys_from_yaml.segments)
+    pulleys  = deepcopy(sys_from_yaml.pulleys)
+    tethers  = deepcopy(sys_from_yaml.tethers)
+    winches  = deepcopy(sys_from_yaml.winches)
+    groups   = Group[]
+    transforms = Transform[]
+
+    total_mass = hasproperty(set, :mass) ? set.mass : 0.0
+    inertia_diag = compute_inertia_from_points(points, total_mass)
+    center_accum = zeros(3)
+    for p in points
+        center_accum .+= p.pos_cad
+    end
+    center_pos = isempty(points) ? zeros(3) : center_accum ./ length(points)
+
+    # --------------------------- AERODYNAMICS --------------------------- #
+    wings = Wing[]
+    vsm_settings_path = hasproperty(set, :vsm_settings_path) ? set.vsm_settings_path :
+        joinpath(model_name, "vsm_settings.yaml")
+    vsm_settings_file = isabspath(vsm_settings_path) ? vsm_settings_path : joinpath("data", vsm_settings_path)
+    if isfile(vsm_settings_file)
+        @info "Loading VSM settings: $(vsm_settings_file)"
+        vsm_settings = VSMSettings(vsm_settings_path)
+        vsm_wing = VortexStepMethod.Wing(vsm_settings)
+        vsm_aero = BodyAerodynamics([vsm_wing])
+        vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
+        wings = [Wing(1, vsm_aero, vsm_wing, vsm_solver, Int[], I(3), MVector{3,SimFloat}(center_pos...);
+                    transform_idx=0, inertia_diag=inertia_diag)]
+    else
+        @warn "VSM settings not found at: $(vsm_settings_file); creating structural-only system"
+    end
+
+    # --------------------------- TRANSFORM --------------------------- #
+    # Leave `transforms` empty to operate directly in the coordinates supplied by the YAML
+    # so that users can opt for a "zero transform" workflow.
+
+    return SystemStructure(set.physical_model, set;
+        points, groups, segments, pulleys, tethers, winches, wings, transforms)
+end
+
+export create_2plate_sys_struct
+
+"""
+    find_base_point_idx(points::Vector{Point}) -> Int
+
+Choose a reasonable base point for the rigid transform:
+- Prefer the first STATIC point.
+- Fallback to the last point if none are STATIC.
+"""
+function find_base_point_idx(points::Vector{Point})
+    for p in points
+        if p.type == STATIC
+            return p.idx
+        end
+    end
+    return points[end].idx
+end
+
+function first_dynamic_point_idx(points::Vector{Point})
+    for p in points
+        if p.type != STATIC
+            return p.idx
+        end
+    end
+    return points[1].idx
+end
+
+function compute_inertia_from_points(points::Vector{Point}, total_mass::Float64)
+    dyn_points = [p for p in points if p.type != STATIC]
+    if isempty(dyn_points)
+        return MVector{3, SimFloat}(ones(SimFloat, 3))
+    end
+    if total_mass <= 0
+        mass_from_points = sum(p.mass for p in dyn_points if p.mass > 0)
+        total_mass = mass_from_points > 0 ? mass_from_points : length(dyn_points)
+    end
+    mass_per_point = total_mass / length(dyn_points)
+    com = zeros(3)
+    for p in dyn_points
+        com .+= mass_per_point .* collect(p.pos_cad)
+    end
+    com ./= total_mass
+    Ixx = 0.0
+    Iyy = 0.0
+    Izz = 0.0
+    for p in dyn_points
+        rel = collect(p.pos_cad) .- com
+        x, y, z = rel
+        Ixx += mass_per_point * (y^2 + z^2)
+        Iyy += mass_per_point * (x^2 + z^2)
+        Izz += mass_per_point * (x^2 + y^2)
+    end
+    return MVector{3, SimFloat}([Ixx, Iyy, Izz])
+end
+
+get_with_default(set::Settings, sym::Symbol, default) = hasproperty(set, sym) ? getproperty(set, sym) : default

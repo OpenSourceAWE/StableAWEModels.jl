@@ -4,14 +4,14 @@
 bridle_point_node: [0.0, 0.0, 0.0]  # [x,y,z] — ground/fixed node
 
 ## Mass
-pulley_mass: 0.1   # [kg]
-kcu_mass: 8.4      # [kg]
+pulley_mass: 0.1    # [kg]
+kcu_mass: 8.4       # [kg]
 
 ## Material properties
 dyneema:
-  density: 724.0            # [kg/m³]
-  youngs_modulus: !!float 5.5e10    # [Pa] = 55 GPa
-  damping_per_stiffness: 0.0 # [/s] → c = damping_per_stiffness * k
+  density: 724.0                # [kg/m³]
+  youngs_modulus: !!float 5.5e10  # [Pa]
+  damping_per_stiffness: 0.0    # [/s] → c = damping_per_stiffness * k
 
 fixed_point_indices: [0]  # node indices fixed in space (0-based indexing)
 
@@ -20,22 +20,22 @@ fixed_point_indices: [0]  # node indices fixed in space (0-based indexing)
 ###########################
 
 wing_particles:
-  # Node positions from converged simulation (iteration 4)
   # id, x [m], y [m], z [m]
   headers: [id, x, y, z]
   data:
-    # Right chord (converged positions)
-    - [1, -2.52658787,  3.90998347, 8.63399119]   # LE_right
-    - [2, -0.56907534,  3.88818007, 8.98058423]   # TE_right
-    # Center/apex chord (converged positions)
-    - [3, -3.10388086, -0.25998045, 11.66322754]  # LE_center (apex)
-    - [4, -1.14745968, -0.25104609, 12.00319579]  # TE_center (apex)
-    # Left chord (converged positions)
-    - [5, -2.45823156, -4.29483032, 8.46964736]   # LE_left
-    - [6, -0.50150718, -4.25484541, 8.81709563]   # TE_left
+    # Right chord (kept from your right side)
+    - [1, -2.52658787,  3.90998347,  8.63399119]   # LE_right
+    - [2, -0.56907534,  3.88818007,  8.98058423]   # TE_right
+
+    # Center/apex chord placed exactly on centerline
+    - [3, -3.10388086,  0.0,         11.66322754]  # LE_center (apex)
+    - [4, -1.14745968,  0.0,         12.00319579]  # TE_center (apex)
+
+    # Left chord = mirror of right (y → -y), same x,z
+    - [5, -2.52658787, -3.90998347,  8.63399119]   # LE_left (mirrored)
+    - [6, -0.56907534, -3.88818007,  8.98058423]   # TE_left (mirrored)
 
 wing_connections:
-  # Connectivity between wing particles
   # name, ci, cj (node indices, 0-based)
   headers: [name, ci, cj]
   data:
@@ -61,65 +61,57 @@ wing_connections:
     - [diag_left_b, 4, 5]
 
 wing_elements:
-  # Structural properties for each connection (converged rest lengths)
   # name, l0 [m], k [N/m], c [N·s/m], m [kg], linktype
   headers: [name, l0, k, c, m, linktype]
   data:
-    # Chordwise struts (2m chord, stiff carbon tubes)
-    - [strut_right,  2.0, 2000.0, 0.0, 1.0, "default"]
-    - [strut_center, 2.0, 2000.0, 0.0, 1.0, "default"]
-    - [strut_left,   2.0, 2000.0, 0.0, 1.0, "default"]
+    # Keep symmetric left/right stiffness and rest lengths
+    # Chordwise struts (~2 m chord)
+    - [strut_right,  2.0,   2000.0, 0.0, 1.0, "default"]
+    - [strut_center, 2.0,   2000.0, 0.0, 1.0, "default"]
+    - [strut_left,   2.0,   2000.0, 0.0, 1.0, "default"]
 
-    # Leading-edge spar (stiff carbon tube)
-    - [le_right, 5.155, 2000.0, 0.0, 1.0, "default"]
-    - [le_left,  5.155, 2000.0, 0.0, 1.0, "default"]
+    # Leading-edge spar (center↔tips) — matched left/right
+    - [le_right, 5.00, 2000.0, 0.0, 1.0, "default"]
+    - [le_left,  5.00, 2000.0, 0.0, 1.0, "default"]
 
-    # Trailing-edge wire (flexible cable)
-    - [te_right, 5.155, 1000.0, 0.0, 0.2, "default"]
-    - [te_left,  5.155, 1000.0, 0.0, 0.2, "default"]
+    # Trailing-edge wire (center↔tips) — matched left/right
+    - [te_right, 5.00, 1000.0, 0.0, 0.2, "default"]
+    - [te_left,  5.00, 1000.0, 0.0, 0.2, "default"]
 
-    # Cross-bracing diagonals (light wire)
-    - [diag_right_a, 5.529, 1000.0, 0.0, 0.1, "default"]
-    - [diag_right_b, 5.529, 1000.0, 0.0, 0.1, "default"]
-    - [diag_left_a,  5.529, 1000.0, 0.0, 0.1, "default"]
-    - [diag_left_b,  5.529, 1000.0, 0.0, 0.1, "default"]
+    # Cross-bracing diagonals — matched left/right
+    - [diag_right_a, 5.30, 1000.0, 0.0, 0.1, "default"]
+    - [diag_right_b, 5.30, 1000.0, 0.0, 0.1, "default"]
+    - [diag_left_a,  5.30, 1000.0, 0.0, 0.1, "default"]
+    - [diag_left_b,  5.30, 1000.0, 0.0, 0.1, "default"]
 
 #############################
 ## Bridle ###################
 #############################
 
 bridle_particles:
-  # Additional bridle attachment points (if any)
-  # id, x [m], y [m], z [m]
   headers: [id, x, y, z]
-  data: []  # Empty for now - pyramid connects directly to ground
+  data: []  # none
 
 bridle_connections:
-  # Bridle lines connecting structure to ground
-  # name, ci, cj, [ck] (ck optional for pulleys)
+  # name, ci, cj
   headers: [name, ci, cj]
   data:
-    # Lines from ground (node 0) to wing tips and apex
-    - [bridle_right_le, 0, 1]   # Ground to right LE
-    - [bridle_right_te, 0, 2]   # Ground to right TE
-    - [bridle_center_le, 0, 3]  # Ground to center LE (apex)
-    - [Power Tape, 0, 4]  # Ground to center TE (apex)
-    - [bridle_left_le, 0, 5]    # Ground to left LE
-    - [bridle_left_te, 0, 6]    # Ground to left TE
+    # Ground (0) to all wing nodes
+    - [bridle_right_le,  0, 1]
+    - [bridle_right_te,  0, 2]
+    - [bridle_center_le, 0, 3]
+    - [Power Tape,       0, 4]
+    - [bridle_left_le,   0, 5]
+    - [bridle_left_te,   0, 6]
 
 bridle_elements:
-  # Bridle line properties (converged rest lengths)
   # name, l0 [m], d [m], material, linktype
   headers: [name, l0, d, material, linktype]
   data:
-    # Lines to right panel
-    - [bridle_right_le, 9.798, 0.0025, dyneema, "noncompressive"]
-    - [bridle_right_te, 9.798, 0.0025, dyneema, "noncompressive"]
-    
-    # Lines to center/apex
-    - [bridle_center_le, 12.05, 0.0025, dyneema, "noncompressive"]
-    - [Power Tape, 12.05, 0.0025, dyneema, "noncompressive"]
-    
-    # Lines to left panel
-    - [bridle_left_le, 9.798, 0.0025, dyneema, "noncompressive"]
-    - [bridle_left_te, 9.798, 0.0025, dyneema, "noncompressive"]
+    # Use equal left/right rest lengths to avoid lateral pre-bias.
+    - [bridle_right_le,  9.80, 0.0025, dyneema, "noncompressive"]
+    - [bridle_right_te,  9.80, 0.0025, dyneema, "noncompressive"]
+    - [bridle_center_le, 12.0, 0.0025, dyneema, "noncompressive"]
+    - [Power Tape,       12.0, 0.0025, dyneema, "noncompressive"]
+    - [bridle_left_le,   9.80, 0.0025, dyneema, "noncompressive"]
+    - [bridle_left_te,   9.80, 0.0025, dyneema, "noncompressive"]
