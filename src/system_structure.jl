@@ -621,6 +621,7 @@ mutable struct BaseWing <: AbstractWing
     const transform_idx::Int16
     const R_b_c::Matrix{SimFloat}
     const pos_cad::KVec3
+    const inertia_principal::KVec3
 
     # Differential variables in world frame, updated during simulation
     const Q_b_w::Vector{SimFloat}
@@ -684,7 +685,7 @@ mutable struct VSMWing <: AbstractWing
 
     # VSM aerodynamics
     vsm_aero::VortexStepMethod.BodyAerodynamics
-    vsm_wing::VortexStepMethod.RamAirWing
+    vsm_wing::VortexStepMethod.AbstractWing
     vsm_solver::VortexStepMethod.Solver
 
     # VSM state and linearization
@@ -716,7 +717,7 @@ end
 
 """
     BaseWing(idx::Int16, group_idxs::Vector{Int16}, R_b_c::Matrix{SimFloat},
-             pos_cad::KVec3; transform_idx=1, y_damping=150.0)
+             pos_cad::KVec3, inertia_principal::KVec3; transform_idx=1, y_damping=150.0)
 
 Constructs a `BaseWing` object representing a rigid body reference frame.
 
@@ -725,6 +726,7 @@ Constructs a `BaseWing` object representing a rigid body reference frame.
 - `group_idxs::Vector{Int16}`: Indices of groups attached to this wing.
 - `R_b_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
 - `pos_cad::KVec3`: Position of wing center of mass in CAD frame.
+- `inertia_principal::KVec3`: Principal moments of inertia [Ixx, Iyy, Izz] in body frame.
 
 # Keyword Arguments
 - `transform_idx::Int16=1`: Transform used for initial positioning and orientation.
@@ -733,11 +735,11 @@ Constructs a `BaseWing` object representing a rigid body reference frame.
 # Returns
 - `BaseWing`: A new base wing object.
 """
-function BaseWing(idx::Int16, group_idxs::AbstractVector, R_b_c::AbstractMatrix,
-                  pos_cad::KVec3; transform_idx=1, y_damping=150.0)
+function BaseWing(idx, group_idxs::AbstractVector, R_b_c::AbstractMatrix,
+                  pos_cad, inertia_principal; transform_idx=1, y_damping=150.0)
     return BaseWing(idx,
         # Structural information
-        group_idxs, transform_idx, R_b_c, pos_cad,
+        group_idxs, transform_idx, R_b_c, pos_cad, inertia_principal,
         # Differential variables in world frame, updated during simulation
         zeros(4), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
@@ -774,8 +776,10 @@ Constructs a `VSMWing` object with Vortex Step Method aerodynamics.
 """
 function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
                  group_idxs::AbstractVector, R_b_c::AbstractMatrix, pos_cad::AbstractVector;
-                 transform_idx=1, y_damping=150.0)
-    base = BaseWing(Int16(idx), convert(Vector{Int16}, group_idxs), R_b_c, convert(KVec3, pos_cad);
+                 transform_idx=1, y_damping=150.0, inertia_diag=nothing)
+    # Compute inertia principal from vsm_wing
+    inertia_vec = isnothing(inertia_diag) ? wing_inertia_principal(vsm_wing) : inertia_diag
+    base = BaseWing(idx, group_idxs, R_b_c, pos_cad, inertia_vec;
                     transform_idx, y_damping)
     ny = length(group_idxs)+3+3
     nx = length(group_idxs)+3+3
