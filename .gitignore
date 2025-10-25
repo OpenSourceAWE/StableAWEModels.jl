@@ -8,6 +8,9 @@
 *.xopp
 *.so
 *.so.bak
+.claude
+AGENTS.md
+CLAUDE.md
 Manifest.toml
 Manifest*.toml
 Manifest*.default

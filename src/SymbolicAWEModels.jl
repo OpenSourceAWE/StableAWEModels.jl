@@ -57,7 +57,7 @@ import ModelingToolkit.SciMLBase: successful_retcode
 #======================================================================#
 
 # --- KiteUtils ---
-export init!, next_step!, update_sys_state!, get_data_path, set_data_path, se
+export init!, next_step!, update_sys_state!, update_from_sysstate!, get_data_path, set_data_path, se
 export SysState, Settings, AbstractKiteModel
 export load_settings
 
@@ -94,6 +94,7 @@ export init_module
 export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
+export replay
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -126,8 +127,8 @@ function plot end
 # Defined in ext/SymbolicAWEModelsMakieExt.jl
 function plot! end
 function update_plot_observables! end
-# Defined in ext/SymbolicAWEModelsMakieExt.jl
 function animate end
+function replay end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")

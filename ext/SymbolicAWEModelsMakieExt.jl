@@ -14,6 +14,13 @@ using KiteUtils: SysLog
 using SymbolicAWEModels
 using VortexStepMethod
 
+# Global storage for plot observables (for time-based plotting)
+const PLOT_OBSERVABLES = Ref{Union{Nothing, NamedTuple}}(nothing)
+const PLOT_SCENE = Ref{Union{Nothing, Scene}}(nothing)
+const PLOT_TIME_TEXT = Ref{Union{Nothing, Observable}}(nothing)
+const PLOT_BACKGROUND_PANES = Ref{Union{Nothing, Vector}}(nothing)
+const PLOT_MARGIN = Ref{Float64}(10.0)
+
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 0.2,
@@ -444,11 +451,11 @@ function zoom_out!(scene, cam, plots; relmargin=0.2)
     update_cam!(scene, new_eyepos, center)
 end
 
-function Makie.plot(sys::SystemStructure; 
-                    size = (1200, 800), 
+function _plot_with_panes(sys::SystemStructure;
+                    size = (1200, 800),
                     margin = 10.0,
                     relmargin = 0.2,
-                    segment_color = :black, 
+                    segment_color = :black,
                     highlight_color = :red,
                     kwargs...)
     # Use LScene for advanced camera controls
@@ -478,6 +485,30 @@ function Makie.plot(sys::SystemStructure;
         last_hovered_idx = Ref(-1)
         zoomed_in = Ref(false)
 
+        # --- Hover Labels ---
+        # Segment index label at middle of segment
+        segment_label = Observable("")
+        segment_label_pos = Observable(Point2f(0, 0))
+        segment_label_visible = Observable(false)
+        text!(scene, segment_label, position = segment_label_pos, space = :pixel,
+              fontsize = 14, color = :white, strokecolor = :black, strokewidth = 1,
+              align = (:center, :center), visible = segment_label_visible, transparency = true)
+
+        # Point index labels at segment endpoints
+        point1_label = Observable("")
+        point1_label_pos = Observable(Point2f(0, 0))
+        point1_label_visible = Observable(false)
+        text!(scene, point1_label, position = point1_label_pos, space = :pixel,
+              fontsize = 14, color = :white, strokecolor = :black, strokewidth = 1,
+              align = (:center, :center), visible = point1_label_visible, transparency = true)
+
+        point2_label = Observable("")
+        point2_label_pos = Observable(Point2f(0, 0))
+        point2_label_visible = Observable(false)
+        text!(scene, point2_label, position = point2_label_pos, space = :pixel,
+              fontsize = 14, color = :white, strokecolor = :black, strokewidth = 1,
+              align = (:center, :center), visible = point2_label_visible, transparency = true)
+
         # --- Event Handler for Robust Hover Highlighting ---
         on(events(scene).mouseposition, priority = 2) do mp
             # This approach is more robust than `pick` for thin lines.
@@ -506,14 +537,83 @@ function Makie.plot(sys::SystemStructure;
                 num_segments = length(sys.segments)
                 new_colors = fill(to_color(segment_color), num_segments)
                 if hover_idx != -1
-                    point1 = sys.points[sys.segments[hover_idx].point_idxs[1]].idx
-                    point2 = sys.points[sys.segments[hover_idx].point_idxs[2]].idx
-                    println("Highlighting segment: $hover_idx," *
-                            " connecting point $point1 to point $point2.")
+                    seg = sys.segments[hover_idx]
+                    p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                    p2_3d = sys.points[seg.point_idxs[2]].pos_w
+
+                    # Show segment index 20px to the right of middle of segment
+                    mid_point_3d = (p1_3d + p2_3d) / 2
+                    mid_point_2d = Makie.project(scene, mid_point_3d)
+                    segment_label[] = string(hover_idx)
+                    segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+                    segment_label_visible[] = true
+
+                    # Show point indices 20px to the right of segment endpoints
+                    p1_2d = Makie.project(scene, p1_3d)
+                    p2_2d = Makie.project(scene, p2_3d)
+                    point1 = sys.points[seg.point_idxs[1]].idx
+                    point2 = sys.points[seg.point_idxs[2]].idx
+                    point1_label[] = string(point1)
+                    point1_label_pos[] = p1_2d + Point2f(20, 0)
+                    point1_label_visible[] = true
+                    point2_label[] = string(point2)
+                    point2_label_pos[] = p2_2d + Point2f(20, 0)
+                    point2_label_visible[] = true
+
                     new_colors[hover_idx] = to_color(highlight_color)
+                else
+                    segment_label_visible[] = false
+                    point1_label_visible[] = false
+                    point2_label_visible[] = false
                 end
                 seg_colors_obs[] = new_colors
                 last_hovered_idx[] = hover_idx
+            end
+        end
+
+        # --- Event Handler for Camera Movement ---
+        on(scene.camera.view, priority = 1) do _
+            # Update label positions when camera moves
+            hover_idx = last_hovered_idx[]
+            if hover_idx != -1
+                seg = sys.segments[hover_idx]
+                p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                p2_3d = sys.points[seg.point_idxs[2]].pos_w
+
+                # Update segment label position
+                mid_point_3d = (p1_3d + p2_3d) / 2
+                mid_point_2d = Makie.project(scene, mid_point_3d)
+                segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+
+                # Update point label positions
+                p1_2d = Makie.project(scene, p1_3d)
+                p2_2d = Makie.project(scene, p2_3d)
+                point1_label_pos[] = p1_2d + Point2f(20, 0)
+                point2_label_pos[] = p2_2d + Point2f(20, 0)
+            end
+        end
+
+        # --- Update label positions after zoom ---
+        on(scene.camera.view, priority = 0) do _
+            # Small delay to ensure camera update is complete
+            # This helps with label positioning after zoom operations
+            sleep(0.01)
+            hover_idx = last_hovered_idx[]
+            if hover_idx != -1
+                seg = sys.segments[hover_idx]
+                p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                p2_3d = sys.points[seg.point_idxs[2]].pos_w
+
+                # Update segment label position
+                mid_point_3d = (p1_3d + p2_3d) / 2
+                mid_point_2d = Makie.project(scene, mid_point_3d)
+                segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+
+                # Update point label positions
+                p1_2d = Makie.project(scene, p1_3d)
+                p2_2d = Makie.project(scene, p2_3d)
+                point1_label_pos[] = p1_2d + Point2f(20, 0)
+                point2_label_pos[] = p2_2d + Point2f(20, 0)
             end
         end
 
@@ -540,10 +640,48 @@ function Makie.plot(sys::SystemStructure;
                         
                         update_cam!(scene, new_eyepos, center)
                         zoomed_in[] = true
+                        
+                        # Update label positions after zoom
+                        # Small delay to ensure camera update is complete
+                        sleep(0.01)
+                        p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                        p2_3d = sys.points[seg.point_idxs[2]].pos_w
+                        
+                        # Update segment label position
+                        mid_point_3d = (p1_3d + p2_3d) / 2
+                        mid_point_2d = Makie.project(scene, mid_point_3d)
+                        segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+                        
+                        # Update point label positions
+                        p1_2d = Makie.project(scene, p1_3d)
+                        p2_2d = Makie.project(scene, p2_3d)
+                        point1_label_pos[] = p1_2d + Point2f(20, 0)
+                        point2_label_pos[] = p2_2d + Point2f(20, 0)
                     end
                 else
                     zoom_out!(scene, cam, relevant_plots; relmargin)
                     zoomed_in[] = false
+                    
+                    # Update label positions after zoom out
+                    # Small delay to ensure camera update is complete
+                    sleep(0.01)
+                    hover_idx = last_hovered_idx[]
+                    if hover_idx != -1
+                        seg = sys.segments[hover_idx]
+                        p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                        p2_3d = sys.points[seg.point_idxs[2]].pos_w
+                        
+                        # Update segment label position
+                        mid_point_3d = (p1_3d + p2_3d) / 2
+                        mid_point_2d = Makie.project(scene, mid_point_3d)
+                        segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+                        
+                        # Update point label positions
+                        p1_2d = Makie.project(scene, p1_3d)
+                        p2_2d = Makie.project(scene, p2_3d)
+                        point1_label_pos[] = p1_2d + Point2f(20, 0)
+                        point2_label_pos[] = p2_2d + Point2f(20, 0)
+                    end
                 end
                 return Consume(true) # Consume the event
             end
@@ -552,34 +690,61 @@ function Makie.plot(sys::SystemStructure;
     end
 
     # --- Calculate limits and draw background panes ---
-    xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10) # Default limits
-    if !isempty(sys.points)
-        all_x = [p.pos_w[1] for p in sys.points]
-        all_y = [p.pos_w[2] for p in sys.points]
-        all_z = [p.pos_w[3] for p in sys.points]
+    function calculate_limits(sys, margin)
+        xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10) # Default limits
+        if !isempty(sys.points)
+            all_x = [p.pos_w[1] for p in sys.points]
+            all_y = [p.pos_w[2] for p in sys.points]
+            all_z = [p.pos_w[3] for p in sys.points]
 
-        xlims_data = extrema(all_x)
-        ylims_data = extrema(all_y)
-        zlims_data = extrema(all_z)
+            xlims_data = extrema(all_x)
+            ylims_data = extrema(all_y)
+            zlims_data = extrema(all_z)
 
-        xlims = (xlims_data[1] - margin, xlims_data[2] + margin)
-        ylims = (ylims_data[1] - margin, ylims_data[2] + margin)
-        zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
+            xlims = (xlims_data[1] - margin, xlims_data[2] + margin)
+            ylims = (ylims_data[1] - margin, ylims_data[2] + margin)
+            zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
+        end
+        return xlims, ylims, zlims
     end
 
-    # Manually create background panes
+    xlims, ylims, zlims = calculate_limits(sys, margin)
+
+    # Create background panes with observables for dynamic updates
     pane_color = RGBAf(0.95, 0.95, 0.95, 0.3)
-    # XZ plane at y_max (since camera is at negative y)
-    mesh!(scene, Rect3(Vec3f(xlims[1], ylims[2], zlims[1]), Vec3f(xlims[2]-xlims[1], 0.01, zlims[2]-zlims[1])), color=pane_color)
-    # YZ plane at x_max
-    mesh!(scene, Rect3(Vec3f(xlims[2], ylims[1], zlims[1]), Vec3f(0.01, ylims[2]-ylims[1], zlims[2]-zlims[1])), color=pane_color)
-    # XY plane at z_min
-    mesh!(scene, Rect3(Vec3f(xlims[1], ylims[1], zlims[1]), Vec3f(xlims[2]-xlims[1], ylims[2]-ylims[1], 0.01)), color=pane_color)
+    pane_extent = 10000.0f0  # Large value for "infinite" extent
+
+    # XZ plane at y_max - extends far in -X and +Z directions
+    xz_pane_obs = Observable(Rect3(Vec3f(xlims[1] - pane_extent, ylims[2], zlims[1]),
+                                    Vec3f(xlims[2] - xlims[1] + pane_extent, 0.01, pane_extent)))
+    xz_pane = mesh!(scene, xz_pane_obs, color=pane_color)
+
+    # YZ plane at x_max - extends far in -Y and +Z directions
+    yz_pane_obs = Observable(Rect3(Vec3f(xlims[2], ylims[1] - pane_extent, zlims[1]),
+                                    Vec3f(0.01, ylims[2] - ylims[1] + pane_extent, pane_extent)))
+    yz_pane = mesh!(scene, yz_pane_obs, color=pane_color)
+
+    # XY plane at z_min - extends far in -X and -Y directions
+    xy_pane_obs = Observable(Rect3(Vec3f(xlims[1] - pane_extent, ylims[1] - pane_extent, zlims[1]),
+                                    Vec3f(xlims[2] - xlims[1] + pane_extent, ylims[2] - ylims[1] + pane_extent, 0.01)))
+    xy_pane = mesh!(scene, xy_pane_obs, color=pane_color)
+
+    # Store pane observables
+    pane_observables = [xz_pane_obs, yz_pane_obs, xy_pane_obs]
 
     # Set initial camera position
     update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
     zoom_out!(scene, scene.camera, relevant_plots; relmargin)
-    scene
+
+    # Return scene along with pane_observables and margin
+    # These will be used by time-based plotting
+    return scene, pane_observables, margin
+end
+
+# Public API function - returns just the scene for backward compatibility
+function Makie.plot(sys::SystemStructure; kwargs...)
+    scene, _, _ = _plot_with_panes(sys; kwargs...)
+    return scene
 end
 
 """
@@ -587,28 +752,273 @@ end
 
 Plot a SymbolicAWEModel at a specific simulation time.
 
-This is a convenience wrapper that extracts wing positions from the SAM
-and calls the SystemStructure plotting function.
+This is a convenience wrapper that calls `plot(sam.sys_struct, reltime)`.
 
 # Arguments
 - `sam::SymbolicAWEModel`: The symbolic AWE model to plot
-- `reltime::Real`: Relative time (not used for static plot, but kept for API compatibility)
+- `reltime::Real`: Simulation time. Use 0.0 to create a new plot, any other value to update existing plot.
+
+# Keyword Arguments
+All keyword arguments are passed through to `plot(::SystemStructure, ::Real)`.
+Common options include `size`, `margin`, `segment_color`, `highlight_color`, `vector_scale`, etc.
+"""
+function Makie.plot(sam::SymbolicAWEModel, reltime::Real=0.0; kwargs...)
+    # Delegate to the SystemStructure time-based plot function
+    plot(sam.sys_struct, reltime; kwargs...)
+end
+
+"""
+    Makie.plot(sys::SystemStructure, time::Real; kwargs...)
+
+Plot a SystemStructure at a specific simulation time, with automatic observable management.
+
+When `time == 0.0`, this function creates a new 3D scene with observables for dynamic updates.
+The observables are stored globally and reused for subsequent calls.
+
+When `time != 0.0`, this function updates the existing observables from the current
+SystemStructure state without creating a new scene.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to plot
+- `time::Real`: Simulation time. Use 0.0 to create a new plot, any other value to update existing plot.
 
 # Keyword Arguments
 All keyword arguments are passed through to `plot(::SystemStructure)`.
-Common options include `size`, `margin`, `segment_color`, `highlight_color`, etc.
+Common options include:
+- `size::Tuple=(1200, 800)`: Figure size in pixels
+- `margin::Real=10.0`: Margin around plot limits
+- `relmargin::Real=0.2`: Relative margin for zoom operations
+- `segment_color=:black`: Color for tether segments
+- `highlight_color=:red`: Color for highlighted segments
+- `vector_scale::Real=0.2`: Scale factor for wing orientation arrows
+- `point_color=:darkred`: Color for point markers
+- `show_points::Bool=true`: Whether to show points
+- `show_segments::Bool=true`: Whether to show segments
+- `show_orient::Bool=true`: Whether to show wing orientations
+
+# Returns
+- When `time == 0.0`: Returns the new Scene object
+- When `time != 0.0`: Returns nothing (updates existing scene)
+
+# Example
+```julia
+# Create initial plot
+scene = plot(sys_struct, 0.0)
+
+# In simulation loop, update the plot
+for i in 1:100
+    next_step!(sam)
+    plot(sys_struct, i/sample_freq)
+    sleep(0.01)
+end
+```
 """
-function Makie.plot(sam::SymbolicAWEModel, reltime::Real=0.0; kwargs...)
-    # Extract wing positions if available
-    wings = sam.sys_struct.wings
-    if length(wings) > 0
-        wing_pos = [wing.pos_w for wing in wings]
-    else
-        wing_pos = nothing
+function Makie.plot(sys::SystemStructure, time::Real;
+                    vector_scale=0.2,
+                    kwargs...)
+    # Helper function to create new plot
+    function create_new_plot()
+        # Create new plot with observables
+        segment_points_obs = Observable(Point3f[])
+        point_positions_obs = Observable(Point3f[])
+        wing_origins_obs = Observable(Point3f[])
+        wing_directions_obs = Observable(Vec3f[])
+
+        # Initialize observables from current state
+        update_plot_observables!(
+            segment_points_obs, point_positions_obs,
+            wing_origins_obs, wing_directions_obs,
+            sys; vector_scale
+        )
+
+        # Store observables globally for reuse
+        PLOT_OBSERVABLES[] = (
+            segment_points_obs = segment_points_obs,
+            point_positions_obs = point_positions_obs,
+            wing_origins_obs = wing_origins_obs,
+            wing_directions_obs = wing_directions_obs
+        )
+
+        # Create scene with observables using internal function
+        scene, pane_observables, margin = _plot_with_panes(sys;
+                    segment_points_obs,
+                    point_positions_obs,
+                    wing_origins_obs,
+                    wing_directions_obs,
+                    vector_scale,
+                    kwargs...)
+
+        # Add time display overlay
+        time_text = Observable(@sprintf("Time: %.2f s", time))
+        text!(scene, time_text, position = Point2f(20, 50), space = :pixel,
+              fontsize = 24, color = :black, align = (:left, :top))
+
+        # Store scene, time text, and pane observables globally
+        PLOT_SCENE[] = scene
+        PLOT_TIME_TEXT[] = time_text
+        PLOT_BACKGROUND_PANES[] = pane_observables
+        PLOT_MARGIN[] = margin
+
+        # Display the scene
+        display(scene)
+
+        return scene
     end
 
-    # Call the SystemStructure plot function
-    plot(sam.sys_struct; kwargs...)
+    # Check if we need to create a new plot
+    if time == 0.0
+        # User explicitly requested new plot
+        return create_new_plot()
+    else
+        # Try to update existing plot
+        if isnothing(PLOT_OBSERVABLES[]) || isnothing(PLOT_SCENE[])
+            # No plot exists, create new one
+            @warn "No plot exists. Creating new plot (call with time=0.0 to avoid this warning)."
+            return create_new_plot()
+        else
+            # Check if the scene still has an active display
+            scene = PLOT_SCENE[]
+            scene_has_display = false
+
+            # Check if scene is in any current screen
+            try
+                # In Makie, we can check the events.window_open observable
+                # If the scene has events and window_open exists, check its value
+                if hasfield(typeof(scene), :events) &&
+                   hasfield(typeof(scene.events), :window_open)
+                    scene_has_display = scene.events.window_open[]
+                else
+                    # Fallback: assume display exists (we'll create new one if update fails)
+                    scene_has_display = true
+                end
+            catch
+                # If checking fails, assume no display
+                scene_has_display = false
+            end
+
+            if !scene_has_display
+                # Display was closed, create new one
+                return create_new_plot()
+            else
+                # Update existing observables
+                obs = PLOT_OBSERVABLES[]
+                update_plot_observables!(
+                    obs.segment_points_obs, obs.point_positions_obs,
+                    obs.wing_origins_obs, obs.wing_directions_obs,
+                    sys; vector_scale
+                )
+
+                # Update time display
+                if !isnothing(PLOT_TIME_TEXT[])
+                    PLOT_TIME_TEXT[][] = @sprintf("Time: %.2f s", time)
+                end
+
+                # Update background panes
+                if !isnothing(PLOT_BACKGROUND_PANES[])
+                    panes = PLOT_BACKGROUND_PANES[]
+                    margin = PLOT_MARGIN[]
+
+                    # Recalculate limits based on current point positions
+                    xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10)
+                    if !isempty(sys.points)
+                        all_x = [p.pos_w[1] for p in sys.points]
+                        all_y = [p.pos_w[2] for p in sys.points]
+                        all_z = [p.pos_w[3] for p in sys.points]
+
+                        xlims_data = extrema(all_x)
+                        ylims_data = extrema(all_y)
+                        zlims_data = extrema(all_z)
+
+                        xlims = (xlims_data[1] - margin, xlims_data[2] + margin)
+                        ylims = (ylims_data[1] - margin, ylims_data[2] + margin)
+                        zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
+                    end
+
+                    # Update pane observables with infinite extent
+                    pane_extent = 10000.0f0
+
+                    # XZ plane at y_max - extends far in -X and +Z directions
+                    panes[1][] = Rect3(Vec3f(xlims[1] - pane_extent, ylims[2], zlims[1]),
+                                       Vec3f(xlims[2] - xlims[1] + pane_extent, 0.01, pane_extent))
+                    # YZ plane at x_max - extends far in -Y and +Z directions
+                    panes[2][] = Rect3(Vec3f(xlims[2], ylims[1] - pane_extent, zlims[1]),
+                                       Vec3f(0.01, ylims[2] - ylims[1] + pane_extent, pane_extent))
+                    # XY plane at z_min - extends far in -X and -Y directions
+                    panes[3][] = Rect3(Vec3f(xlims[1] - pane_extent, ylims[1] - pane_extent, zlims[1]),
+                                       Vec3f(xlims[2] - xlims[1] + pane_extent, ylims[2] - ylims[1] + pane_extent, 0.01))
+                end
+
+                return nothing
+            end
+        end
+    end
+end
+
+"""
+    replay(lg::SysLog, sys::SystemStructure; replay_speed=1.0, kwargs...)
+
+Replay a SysLog with real-time 3D visualization.
+    
+This function replays a recorded simulation log with 3D visualization, updating the 
+system structure at each time step according to the logged states. The replay speed 
+can be adjusted to control the visualization speed.
+    
+# Arguments
+- `lg::SysLog`: The simulation log to replay
+- `sys::SystemStructure`: The system structure matching the log's topology
+    
+# Keyword Arguments
+- `replay_speed::Real=1.0`: Replay speed factor (1.0 = real-time, 2.0 = 2x speed, etc.)
+- All other keyword arguments are passed through to the SystemStructure plot function
+    
+# Example
+```julia
+# Replay a log at 2x speed
+replay(log, sys_struct, replay_speed=2.0)
+
+# Replay with custom visualization settings
+replay(log, sys_struct, replay_speed=0.5, vector_scale=0.3)
+```
+"""
+function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
+                      replay_speed=1.0,
+                      vector_scale = 0.2,
+                      kwargs...)
+
+    # Initialize with first state and create initial plot
+    if !isempty(lg.syslog)
+        update_from_sysstate!(sys, lg.syslog[1])
+    end
+
+    # Create initial plot using plot(sys, 0.0) which sets up observables, scene, and time display
+    scene = plot(sys, 0.0; vector_scale, kwargs...)
+
+    # Replay loop
+    start_time = time()
+    for (i, ss) in enumerate(lg.syslog)
+        # Update system state from log
+        update_from_sysstate!(sys, ss)
+
+        # Update plot using plot(sys, time) which updates observables and time display
+        plot(sys, ss.time; vector_scale)
+
+        # Maintain replay speed timing
+        if replay_speed > 0 && i < length(lg.syslog)
+            next_time = lg.syslog[i+1].time
+            current_time = ss.time
+            dt = next_time - current_time
+
+            target_elapsed = (current_time - lg.syslog[1].time) / replay_speed
+            actual_elapsed = time() - start_time
+            sleep_time = max(0.0, target_elapsed - actual_elapsed)
+            sleep(sleep_time)
+        end
+
+        # Allow UI updates
+        sleep(0.001)
+    end
+
+    return scene
 end
 
 """

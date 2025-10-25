@@ -34,4 +34,5 @@ end
 
 sl, _ = sim_oscillate!(sam; dt, total_time, vsm_interval, steering_freq, steering_magnitude, 
                        bias, prn=true)
-display(plot(sam.sys_struct, sl))
+# display(plot(sam.sys_struct, sl))
+replay(sl, sam.sys_struct)

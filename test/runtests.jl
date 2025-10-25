@@ -16,10 +16,20 @@ using Test
 using SymbolicAWEModels
 
 @testset verbose = true "Testing SymbolicAWEModels..." begin
-    println("--> 1")
-    include("test_sam.jl")
-    println("--> 2")
+    println("--> Initialization")
+    include("test_initialization.jl")
+    println("--> Simulation")
+    include("test_simulation.jl")
+    println("--> Tether properties")
+    include("test_tether_properties.jl")
+    println("--> Linearization")
+    include("test_linearization.jl")
+    println("--> Serialization")
+    include("test_serialization.jl")
+    println("--> State conversion")
+    include("test_state_conversion.jl")
+    println("--> Helpers")
     include("test_helpers.jl")
-    println("--> 3")
+    println("--> Code quality")
     include("aqua.jl")
 end

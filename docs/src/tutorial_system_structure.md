@@ -64,7 +64,7 @@ transforms = [Transform(1, deg2rad(-80), 0.0, 0.0;
               rot_point_idx=points[end].idx)]
 ```
 
-From the points, segments and transform we create a [`SystemStructure(name, set)`](@ref), which can be plotted in 2d to quickly investigate if the model is correct.
+From the points, segments and transform we create a [`SystemStructure(name, set)`](@ref), which can be plotted in 3D to quickly investigate if the model is correct.
 ```julia
 sys_struct = SystemStructure("tether", set; points, segments, transforms)
 plot(sys_struct)
@@ -76,9 +76,10 @@ If the system looks good, we can easily model it, by first creating a [`Symbolic
 sam = SymbolicAWEModel(set, sys_struct)
 
 init!(sam; remake=false)
+plot(sys_struct, 0.0)  # Create initial plot
 for i in 1:80
-    plot(sam, i/set.sample_freq)
     next_step!(sam)
+    plot(sys_struct, i/set.sample_freq)  # Update plot
 end
 ```
 ![Tether during simulation](assets/tether_during_sim.png)
@@ -99,7 +100,7 @@ using WinchModels
 winches = [Winch(1, set, [1])]
 ```
 
-The 2d plot of the [`SystemStructure`](@ref) should still look the same, so we don't have to plot that. We can just create the system, and simulate it. We just need to be sure that we call plot with `t=0.0` to reset the plot.
+The plot of the [`SystemStructure`](@ref) should still look the same, so we don't have to plot that. We can just create the system, and simulate it. We call `plot(sys_struct, 0.0)` to create a new plot.
 
 ```julia
 sys_struct = SystemStructure("winch", set; points, segments, tethers, winches, transforms)
@@ -107,10 +108,11 @@ sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=false)
 ss = SysState(sam)
 
+plot(sys_struct, 0.0)  # Create initial plot
 for i in 1:80
-    plot(sam, (i-1)/set.sample_freq)
     next_step!(sam; set_values=[-20.0])
     update_sys_state!(ss, sam)
+    plot(sys_struct, i/set.sample_freq)  # Update plot
 end
 ```
 
@@ -157,7 +159,7 @@ We can then use a [`Transform`](@ref) to describe the orientation of the initial
 ```julia
 transforms = [Transform(1, -deg2rad(0.0), 0.0, 0.0; base_pos=[1.0, 0.0, 4.0], base_point_idx=1, rot_point_idx=2)]
 sys_struct = SymbolicAWEModels.SystemStructure("pulley", set; points, segments, pulleys, transforms)
-plot(sys_struct)
+plot(sys_struct, 0.0)
 ```
 
 If the plot of the [`SystemStructure`](@ref) looks good, we can continue by creating a [`SymbolicAWEModel`](@ref) and simulating through time.
@@ -165,8 +167,9 @@ If the plot of the [`SystemStructure`](@ref) looks good, we can continue by crea
 ```julia
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=false)
+plot(sys_struct, 0.0)  # Create initial plot
 for i in 1:100
-    plot(sam, i/set.sample_freq)
     next_step!(sam)
+    plot(sys_struct, i/set.sample_freq)  # Update plot
 end
 ```

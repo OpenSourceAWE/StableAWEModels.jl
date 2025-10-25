@@ -164,7 +164,7 @@ function create_4_attach_ram_sys_struct(set::Settings)
 
     vsm_aero = BodyAerodynamics([vsm_wing])
     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
-    wings = [Wing(1, vsm_aero, vsm_wing, vsm_solver, [1,2,3,4], I(3), zeros(3))]
+    wings = [VSMWing(1, vsm_aero, vsm_wing, vsm_solver, [1,2,3,4], I(3), zeros(3))]
     transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
                             base_pos= zeros(3), base_point_idx=points[end].idx, wing_idx=1)]
     
@@ -307,7 +307,7 @@ function create_ram_sys_struct(set::Settings; d_winch_pos=[zeros(3), zeros(3)])
 
     vsm_aero = BodyAerodynamics([vsm_wing])
     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
-    wings = [Wing(1, vsm_aero, vsm_wing, vsm_solver, [1,2,3,4], I(3), zeros(3))]
+    wings = [VSMWing(1, vsm_aero, vsm_wing, vsm_solver, [1,2,3,4], I(3), zeros(3))]
     transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
                                       base_pos= zeros(3), base_point_idx=points[end].idx, wing_idx=1)]
     
@@ -440,7 +440,7 @@ function create_simple_ram_sys_struct(set::Settings;
     ]
     vsm_aero = BodyAerodynamics([vsm_wing])
     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
-    wings = [Wing(1, vsm_aero, vsm_wing, vsm_solver, [1,2], I(3), zeros(3))]
+    wings = [VSMWing(1, vsm_aero, vsm_wing, vsm_solver, [1,2], I(3), zeros(3))]
     transforms = [
         Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
                 base_pos=zeros(3), base_point_idx=5, wing_idx=1)
