@@ -805,7 +805,8 @@ with existing code. New code should use `VSMWing(...)` directly.
 # Returns
 - `VSMWing`: A new VSM wing object.
 """
-function SymbolicAWEModels.Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; kwargs...)
+function SymbolicAWEModels.Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c,
+                                pos_cad; kwargs...)
     return VSMWing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; kwargs...)
 end
 

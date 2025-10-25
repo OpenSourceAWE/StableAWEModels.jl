@@ -222,12 +222,6 @@ get_set_mass(set::Settings) = set.mass
 @register_symbolic get_set_mass(set::Settings)
 get_rho_tether(set::Settings) = set.rho_tether
 @register_symbolic get_rho_tether(set::Settings)
-get_e_tether(set::Settings) = set.e_tether
-@register_symbolic get_e_tether(set::Settings)
-get_axial_damping(set::Settings) = set.axial_damping
-@register_symbolic get_axial_damping(set::Settings)
-get_axial_stiffness(set::Settings) = set.axial_stiffness
-@register_symbolic get_axial_stiffness(set::Settings)
 get_cd_tether(set::Settings) = set.cd_tether
 @register_symbolic get_cd_tether(set::Settings)
 get_v_wind(set::Settings) = set.v_wind
