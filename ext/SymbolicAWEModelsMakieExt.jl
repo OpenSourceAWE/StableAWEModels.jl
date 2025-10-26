@@ -24,11 +24,13 @@ function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 0.2,
                      show_points = true, show_segments = true, show_orient = true,
+                     show_panes = true, margin = 10.0,
                      # Optional observables for real-time updates
                      segment_points_obs = nothing,
                      point_positions_obs = nothing,
                      wing_origins_obs = nothing,
-                     wing_directions_obs = nothing)
+                     wing_directions_obs = nothing,
+                     pane_observables = nothing)
 
     plots = Dict{Symbol, Any}()
 
@@ -95,18 +97,70 @@ function Makie.plot!(ax, sys::SystemStructure;
         end
     end
 
+    # === Calculate system scale for axes and panes ===
+    xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10) # Default limits
+    if !isempty(sys.points)
+        all_x = [p.pos_w[1] for p in sys.points]
+        all_y = [p.pos_w[2] for p in sys.points]
+        all_z = [p.pos_w[3] for p in sys.points]
+
+        xlims_data = extrema(all_x)
+        ylims_data = extrema(all_y)
+        zlims_data = extrema(all_z)
+
+        xlims = (xlims_data[1] - margin, xlims_data[2] + margin)
+        ylims = (ylims_data[1] - margin, ylims_data[2] + margin)
+        zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
+    end
+
+    # Calculate characteristic length for scaling arrows
+    char_length = max(xlims[2] - xlims[1], ylims[2] - ylims[1], zlims[2] - zlims[1])
+    axis_length = char_length * 0.15
+
     # === Plot Global Axes ===
     begin
-        scale = vector_scale * 10 # Make global axes slightly larger
         origins = [Point3f(0, 0, 0), Point3f(0, 0, 0), Point3f(0, 0, 0)]
-        directions = [Vec3f(10, 0, 0), Vec3f(0, 10, 0), Vec3f(0, 0, 10)]
+        directions = [Vec3f(axis_length, 0, 0), Vec3f(0, axis_length, 0), Vec3f(0, 0, axis_length)]
         axis_colors = [:red, :green, :blue]
         plots[:global_axes] = arrows3d!(ax, origins, directions;
-                                        shaftradius=0.02,
-                                        tipradius=0.06,
-                                        tiplength=0.1,
+                                        shaftradius=axis_length*0.002,
+                                        tipradius=axis_length*0.006,
+                                        tiplength=axis_length*0.01,
                                         color=axis_colors,
                                         label="Global Axes")
+    end
+
+    # === Plot Background Panes ===
+    if show_panes
+        pane_color = RGBAf(0.95, 0.95, 0.95, 0.3)
+        pane_extent = 10000.0f0  # Large value for "infinite" extent
+
+        if isnothing(pane_observables)
+            # Static plotting: create new observables
+            xz_pane_obs = Observable(Rect3(Vec3f(xlims[1] - pane_extent, ylims[2], zlims[1]),
+                                            Vec3f(xlims[2] - xlims[1] + pane_extent, 0.01, pane_extent)))
+            yz_pane_obs = Observable(Rect3(Vec3f(xlims[2], ylims[1] - pane_extent, zlims[1]),
+                                            Vec3f(0.01, ylims[2] - ylims[1] + pane_extent, pane_extent)))
+            xy_pane_obs = Observable(Rect3(Vec3f(xlims[1] - pane_extent, ylims[1] - pane_extent, zlims[1]),
+                                            Vec3f(xlims[2] - xlims[1] + pane_extent, ylims[2] - ylims[1] + pane_extent, 0.01)))
+            plots[:pane_observables] = [xz_pane_obs, yz_pane_obs, xy_pane_obs]
+        else
+            # Dynamic plotting: use provided observables and update them
+            xz_pane_obs, yz_pane_obs, xy_pane_obs = pane_observables
+            xz_pane_obs[] = Rect3(Vec3f(xlims[1] - pane_extent, ylims[2], zlims[1]),
+                                  Vec3f(xlims[2] - xlims[1] + pane_extent, 0.01, pane_extent))
+            yz_pane_obs[] = Rect3(Vec3f(xlims[2], ylims[1] - pane_extent, zlims[1]),
+                                  Vec3f(0.01, ylims[2] - ylims[1] + pane_extent, pane_extent))
+            xy_pane_obs[] = Rect3(Vec3f(xlims[1] - pane_extent, ylims[1] - pane_extent, zlims[1]),
+                                  Vec3f(xlims[2] - xlims[1] + pane_extent, ylims[2] - ylims[1] + pane_extent, 0.01))
+            plots[:pane_observables] = pane_observables
+        end
+
+        # Create mesh plots for the panes
+        xz_pane = mesh!(ax, plots[:pane_observables][1], color=pane_color)
+        yz_pane = mesh!(ax, plots[:pane_observables][2], color=pane_color)
+        xy_pane = mesh!(ax, plots[:pane_observables][3], color=pane_color)
+        plots[:panes] = [xz_pane, yz_pane, xy_pane]
     end
 
     return plots
@@ -459,7 +513,7 @@ function _plot_with_panes(sys::SystemStructure;
                     kwargs...)
     # Use LScene for advanced camera controls
     scene = Scene(; camera=cam3d!, show_axis = false, size, zoommode = :free, samples = 16)
-    plots = plot!(scene, sys; segment_color, kwargs...)
+    plots = plot!(scene, sys; segment_color, margin, kwargs...)
     
     relevant_plots = AbstractPlot[]
     if haskey(plots, :segments)
@@ -667,48 +721,8 @@ function _plot_with_panes(sys::SystemStructure;
         end
     end
 
-    # --- Calculate limits and draw background panes ---
-    function calculate_limits(sys, margin)
-        xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10) # Default limits
-        if !isempty(sys.points)
-            all_x = [p.pos_w[1] for p in sys.points]
-            all_y = [p.pos_w[2] for p in sys.points]
-            all_z = [p.pos_w[3] for p in sys.points]
-
-            xlims_data = extrema(all_x)
-            ylims_data = extrema(all_y)
-            zlims_data = extrema(all_z)
-
-            xlims = (xlims_data[1] - margin, xlims_data[2] + margin)
-            ylims = (ylims_data[1] - margin, ylims_data[2] + margin)
-            zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
-        end
-        return xlims, ylims, zlims
-    end
-
-    xlims, ylims, zlims = calculate_limits(sys, margin)
-
-    # Create background panes with observables for dynamic updates
-    pane_color = RGBAf(0.95, 0.95, 0.95, 0.3)
-    pane_extent = 10000.0f0  # Large value for "infinite" extent
-
-    # XZ plane at y_max - extends far in -X and +Z directions
-    xz_pane_obs = Observable(Rect3(Vec3f(xlims[1] - pane_extent, ylims[2], zlims[1]),
-                                    Vec3f(xlims[2] - xlims[1] + pane_extent, 0.01, pane_extent)))
-    xz_pane = mesh!(scene, xz_pane_obs, color=pane_color)
-
-    # YZ plane at x_max - extends far in -Y and +Z directions
-    yz_pane_obs = Observable(Rect3(Vec3f(xlims[2], ylims[1] - pane_extent, zlims[1]),
-                                    Vec3f(0.01, ylims[2] - ylims[1] + pane_extent, pane_extent)))
-    yz_pane = mesh!(scene, yz_pane_obs, color=pane_color)
-
-    # XY plane at z_min - extends far in -X and -Y directions
-    xy_pane_obs = Observable(Rect3(Vec3f(xlims[1] - pane_extent, ylims[1] - pane_extent, zlims[1]),
-                                    Vec3f(xlims[2] - xlims[1] + pane_extent, ylims[2] - ylims[1] + pane_extent, 0.01)))
-    xy_pane = mesh!(scene, xy_pane_obs, color=pane_color)
-
-    # Store pane observables
-    pane_observables = [xz_pane_obs, yz_pane_obs, xy_pane_obs]
+    # Extract pane observables from plots (created by plot!())
+    pane_observables = haskey(plots, :pane_observables) ? plots[:pane_observables] : nothing
 
     # Set initial camera position
     update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
@@ -880,12 +894,13 @@ function Makie.plot(sys::SystemStructure, time::Real;
                     sys; vector_scale
                 )
 
-                # Update background panes
+                # Update background panes - pane limits are now handled in plot!() when creating
+                # For dynamic updates, we recalculate limits here to update existing panes
                 if !isnothing(PLOT_BACKGROUND_PANES[])
                     panes = PLOT_BACKGROUND_PANES[]
                     margin = PLOT_MARGIN[]
 
-                    # Recalculate limits based on current point positions
+                    # Recalculate limits based on current point positions (same logic as in plot!())
                     xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10)
                     if !isempty(sys.points)
                         all_x = [p.pos_w[1] for p in sys.points]

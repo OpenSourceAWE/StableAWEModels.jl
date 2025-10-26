@@ -34,7 +34,7 @@ else
 end
 
 # Load settings for the 2-plate kite
-set = SymbolicAWEModels.load_settings(MODEL_NAME)
+set = Settings(joinpath("data", MODEL_NAME, "system.yaml"))
 if hasproperty(set, :c_spring) || hasproperty(set, :damping)
     @info "Legacy tether settings still present" c_spring=(hasproperty(set, :c_spring) ? getproperty(set, :c_spring) : missing) damping=(hasproperty(set, :damping) ? getproperty(set, :damping) : missing)
 end
