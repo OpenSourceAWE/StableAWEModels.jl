@@ -67,6 +67,7 @@ function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=s
                 0.25
             end
 
+            @show theta_idxs
             res = VortexStepMethod.linearize(
                 wing.vsm_solver,
                 wing.vsm_aero,
@@ -77,6 +78,8 @@ function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=s
                 moment_frac = moment_frac,
                 aero_coeffs = true
             )
+            @show size(res[1])
+            @show res[1]
             wing.vsm_jac .= res[1]
             wing.vsm_x .= res[2]
         end

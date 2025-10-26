@@ -510,20 +510,20 @@ function create_2plate_sys_struct(set::Settings)
 
     # --------------------------- AERODYNAMICS --------------------------- #
     wings = Wing[]
-    vsm_settings_path = hasproperty(set, :vsm_settings_path) ? set.vsm_settings_path :
-        joinpath(model_name, "vsm_settings.yaml")
-    vsm_settings_file = isabspath(vsm_settings_path) ? vsm_settings_path : joinpath("data", vsm_settings_path)
-    if isfile(vsm_settings_file)
-        @info "Loading VSM settings: $(vsm_settings_file)"
-        vsm_settings = VSMSettings(vsm_settings_path)
-        vsm_wing = VortexStepMethod.Wing(vsm_settings)
-        vsm_aero = BodyAerodynamics([vsm_wing])
-        vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
-        wings = [Wing(1, vsm_aero, vsm_wing, vsm_solver, Int[], I(3), MVector{3,SimFloat}(center_pos...);
-                    transform_idx=0, inertia_diag=inertia_diag)]
-    else
-        @warn "VSM settings not found at: $(vsm_settings_file); creating structural-only system"
-    end
+    # vsm_settings_path = hasproperty(set, :vsm_settings_path) ? set.vsm_settings_path :
+    #     joinpath(model_name, "vsm_settings.yaml")
+    # vsm_settings_file = isabspath(vsm_settings_path) ? vsm_settings_path : joinpath("data", vsm_settings_path)
+    # if isfile(vsm_settings_file)
+    #     @info "Loading VSM settings: $(vsm_settings_file)"
+    #     vsm_settings = VSMSettings(vsm_settings_path)
+    #     vsm_wing = VortexStepMethod.Wing(vsm_settings)
+    #     vsm_aero = BodyAerodynamics([vsm_wing])
+    #     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
+    #     wings = [Wing(1, vsm_aero, vsm_wing, vsm_solver, Int[], I(3), MVector{3,SimFloat}(center_pos...);
+    #                 transform_idx=0, inertia_diag=inertia_diag)]
+    # else
+    #     @warn "VSM settings not found at: $(vsm_settings_file); creating structural-only system"
+    # end
 
     # --------------------------- TRANSFORM --------------------------- #
     # Leave `transforms` empty to operate directly in the coordinates supplied by the YAML

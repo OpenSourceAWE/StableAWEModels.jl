@@ -74,8 +74,8 @@ end
 # ============= User settings =============
 const MODEL_NAME = "2plate_kite"
 const GEOM_PATH  = joinpath("data", MODEL_NAME, "struc_geometry.yaml")
-const SIM_TIME   = 0.5  # Total simulation time in seconds
-const N_STEPS    = 10     # Number of time steps (use small number for fast development)
+const SIM_TIME   = 0.1  # Total simulation time in seconds
+const N_STEPS    = 100     # Number of time steps (use small number for fast development)
 const REMAKE_CACHE = false
 # =========================================
 
@@ -189,7 +189,7 @@ for step in 1:n_steps
     integrator_max = maximum(abs, sam.integrator.u)
     @info "Integrator state before step" step integrator_t integrator_dt integrator_norm integrator_max
     try
-        next_step!(sam; dt=Δt, vsm_interval=0)
+        next_step!(sam; dt=Δt, vsm_interval=1)
     catch err
         @error "next_step! failed" step integrator_t=sam.integrator.t integrator_dt=sam.integrator.dt integrator_norm=norm(sam.integrator.u) integrator_max=maximum(abs, sam.integrator.u) exception=(err, catch_backtrace())
         rethrow(err)
