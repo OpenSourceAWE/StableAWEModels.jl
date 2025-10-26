@@ -955,242 +955,123 @@ function Makie.plot(sys::SystemStructure, time::Real;
 end
 
 """
-    replay(lg::SysLog, sys::SystemStructure; replay_speed=1.0, kwargs...)
+    replay(lg::SysLog, sys::SystemStructure; replay_speed=1.0, autoplay=false, loop=false, kwargs...)
 
-Replay a SysLog with real-time 3D visualization.
-    
-This function replays a recorded simulation log with 3D visualization, updating the 
-system structure at each time step according to the logged states. The replay speed 
-can be adjusted to control the visualization speed.
-    
+Replay a SysLog with interactive 3D visualization and playback controls.
+
+This function creates an interactive viewer for a recorded simulation log with 3D visualization.
+The viewer includes a slider for scrubbing through time, play/pause button, and frame stepping controls.
+
 # Arguments
 - `lg::SysLog`: The simulation log to replay
 - `sys::SystemStructure`: The system structure matching the log's topology
-    
+
 # Keyword Arguments
 - `replay_speed::Real=1.0`: Replay speed factor (1.0 = real-time, 2.0 = 2x speed, etc.)
+- `autoplay::Bool=false`: Start playing automatically when opened
+- `loop::Bool=false`: Loop playback continuously
+- `vector_scale::Real=0.2`: Scale factor for wing orientation arrows
 - All other keyword arguments are passed through to the SystemStructure plot function
-    
+
+# Returns
+- A Figure with interactive controls and 3D visualization
+
 # Example
 ```julia
-# Replay a log at 2x speed
-replay(log, sys_struct, replay_speed=2.0)
+# Create interactive replay viewer
+fig = replay(log, sys_struct)
+
+# Auto-play at 2x speed with looping
+fig = replay(log, sys_struct, replay_speed=2.0, autoplay=true, loop=true)
 
 # Replay with custom visualization settings
-replay(log, sys_struct, replay_speed=0.5, vector_scale=0.3)
+fig = replay(log, sys_struct, replay_speed=0.5, vector_scale=0.3)
 ```
 """
 function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                       replay_speed=1.0,
-                      vector_scale = 0.2,
+                      autoplay=false,
+                      loop=false,
+                      vector_scale=0.2,
                       kwargs...)
 
-    # Initialize with first state and create initial plot
-    if !isempty(lg.syslog)
-        update_from_sysstate!(sys, lg.syslog[1])
-    end
+    n_frames = length(lg.syslog)
+    n_frames == 0 && error("Empty SysLog provided for replay")
+
+    # Initialize with first state
+    update_from_sysstate!(sys, lg.syslog[1])
 
     # Create initial plot using plot(sys, 0.0) which sets up observables, scene, and time display
     scene = plot(sys, 0.0; vector_scale, kwargs...)
 
-    # Replay loop
-    start_time = time()
-    for (i, ss) in enumerate(lg.syslog)
-        # Update system state from log
-        update_from_sysstate!(sys, ss)
+    # Create figure for the complete viewer
+    fig = Figure(size=(1200, 900))
 
-        # Update plot using plot(sys, time) which updates observables and time display
-        plot(sys, ss.time; vector_scale)
+    # Add the scene to the figure
+    fig[1, 1] = scene
 
-        # Maintain replay speed timing
-        if replay_speed > 0 && i < length(lg.syslog)
-            next_time = lg.syslog[i+1].time
-            current_time = ss.time
-            dt = next_time - current_time
-
-            target_elapsed = (current_time - lg.syslog[1].time) / replay_speed
-            actual_elapsed = time() - start_time
-            sleep_time = max(0.0, target_elapsed - actual_elapsed)
-            sleep(sleep_time)
-        end
-
-        # Allow UI updates
-        sleep(0.001)
-    end
-
-    return scene
-end
-
-"""
-    animate(sys::SystemStructure, snapshots::Dict{Int, Vector{Point}}; 
-            dt=0.05, size=(1200, 900), autoplay=false, loop=false,
-            lock_limits=true, padding=0.1, bbox=nothing)
-
-Create an interactive animation with a slider to step through time snapshots.
-
-# Arguments
-- `sys::SystemStructure`: The system structure to animate
-- `snapshots::Dict{Int, Vector{Point}}`: Dictionary mapping step number to point snapshots
-- `dt::Float64`: Time step duration in seconds (default: 0.05)
-- `size::Tuple{Int,Int}`: Figure size (default: (1200, 900))
-- `autoplay::Bool`: Start animation automatically (default: false)
-- `loop::Bool`: Loop animation continuously (default: false)
-- `lock_limits::Bool`: Keep the same world-frame box for all frames (default: true)
-- `padding::Float64`: Add a margin around the object as a fraction of its span (default: 0.1)
-- `bbox::Union{Nothing,Tuple}`: Optionally pass your own fixed limits ((xmin,xmax), (ymin,ymax), (zmin,zmax))
-- `kwargs...`: Additional keyword arguments passed to plot!
-
-# Returns
-- A Figure with interactive slider and play/pause controls
-
-# Example
-```julia
-# During simulation, collect snapshots
-snapshots = Dict{Int, Vector{SymbolicAWEModels.Point}}()
-for step in 1:n_steps
-    snapshots[step] = deepcopy(sam.sys_struct.points)
-    next_step!(sam; dt=Δt)
-end
-
-# Create interactive animation with fixed limits
-fig = animate(sam.sys_struct, snapshots; dt=Δt, padding=0.2)
-
-# Or let it auto-fit each frame (object may appear to change size)
-fig = animate(sam.sys_struct, snapshots; dt=Δt, lock_limits=false)
-
-# Or force a specific box
-bbox = ((-20.0, 20.0), (-20.0, 20.0), (0.0, 40.0))
-fig = animate(sam.sys_struct, snapshots; dt=Δt, bbox=bbox)
-```
-"""
-function SymbolicAWEModels.animate(sys::SystemStructure, 
-                                   snapshots::Dict{Int}; 
-                                   dt=0.05,
-                                   size=(1200, 1400),
-                                   autoplay=false,
-                                   loop=false,
-                                   lock_limits::Bool=true,
-                                   padding::Float64=0.1,
-                                   bbox::Union{Nothing,Tuple{Tuple{Float64,Float64},
-                                                             Tuple{Float64,Float64},
-                                                             Tuple{Float64,Float64}}}=nothing,
-                                   kwargs...)
-    
-    # Get sorted step numbers
-    steps = sort(collect(keys(snapshots)))
-    n_frames = length(steps)
-    n_frames == 0 && error("No snapshots provided for animation")
-    
-    # Create figure with layout for controls
-    fig = Figure(size=size)
-    
-    # 3D axis for visualization
-    ax = Axis3(fig[1, 1], aspect=:equal, title="t = 0.00 s")
-    
-    # ---- compute global bounding box over all snapshots (once) ----
-    if lock_limits && isnothing(bbox)
-        xmin = ymin = zmin =  Inf
-        xmax = ymax = zmax = -Inf
-        for step in steps
-            for p in snapshots[step]
-                x, y, z = p.pos_w
-                if x < xmin; xmin = x; end;  if x > xmax; xmax = x; end
-                if y < ymin; ymin = y; end;  if y > ymax; ymax = y; end
-                if z < zmin; zmin = z; end;  if z > zmax; zmax = z; end
-            end
-        end
-        # add padding as a fraction of the span in each direction
-        dx = xmax - xmin; dy = ymax - ymin; dz = zmax - zmin
-        εx, εy, εz = padding*dx, padding*dy, padding*dz
-        bbox = ((xmin-εx, xmax+εx), (ymin-εy, ymax+εy), (zmin-εz, zmax+εz))
-    end
-    
-    # apply fixed limits (this controls perceived size)
-    if lock_limits && !isnothing(bbox)
-        limits!(ax, bbox[1], bbox[2], bbox[3])
-    end
-    
     # Control panel layout
     control_grid = fig[2, 1] = GridLayout()
-    
+
     # Create observable for current frame index
     frame_idx = Observable(1)
-    
-    # Create a mutable copy of the system for animation
-    anim_sys = deepcopy(sys)
-    
-    # Function to update system points from snapshot
+
+    # Function to update to a specific frame
     function update_frame!(idx)
-        step = steps[idx]
-        pts = snapshots[step]
-        
-        # Update point positions and velocities
-        @inbounds for i in 1:min(length(pts), length(anim_sys.points))
-            anim_sys.points[i].pos_w .= pts[i].pos_w
-            anim_sys.points[i].vel_w .= pts[i].vel_w
-        end
-        
-        # Update title with current time
-        t = steps[idx] * dt
-        # Show "Initial" for step 0, otherwise show step number
-        step_label = step == 0 ? "Initial" : "Step $step"
-        ax.title = @sprintf("t = %.2f s (%s / %d steps)", t, step_label, steps[end])
+        ss = lg.syslog[idx]
+        update_from_sysstate!(sys, ss)
+        plot(sys, ss.time; vector_scale)
     end
-    
-    # Initial plot - start with the FIRST frame (which is step 0 if present)
-    update_frame!(1)
-    plot!(ax, anim_sys; kwargs...)
-    
+
     # Create slider for frame selection
     sl = Slider(control_grid[1, 1:3], range=1:n_frames, startvalue=1)
-    
+
     # Play/Pause button
     is_playing = Observable(autoplay)
     play_button = Button(control_grid[2, 1], label=@lift($is_playing ? "Pause" : "Play"))
-    
+
     # Step forward/backward buttons
     step_back_button = Button(control_grid[2, 2], label="<")
     step_forward_button = Button(control_grid[2, 3], label=">")
-    
-    # Frame counter label
-    frame_label = Label(control_grid[3, 1:3], 
-                       text=@lift("Frame: $($(frame_idx))/$n_frames"), 
+
+    # Frame counter and time label
+    frame_label = Label(control_grid[3, 1:3],
+                       text=@lift("Frame: $($(frame_idx))/$n_frames | Time: $(@sprintf("%.2f", lg.syslog[$(frame_idx)].time)) s | Speed: $(replay_speed)x"),
                        halign=:center)
-    
+
     # Connect slider to frame updates
     on(sl.value) do val
         frame_idx[] = val
         update_frame!(val)
-        # Clear and replot
-        empty!(ax)
-        # re-apply fixed limits after clearing
-        if lock_limits && !isnothing(bbox)
-            limits!(ax, bbox[1], bbox[2], bbox[3])
-        end
-        plot!(ax, anim_sys; kwargs...)
     end
-    
+
     # Play button functionality
     on(play_button.clicks) do _
         is_playing[] = !is_playing[]
     end
-    
+
     # Step buttons
     on(step_back_button.clicks) do _
         sl.value[] = max(1, frame_idx[] - 1)
     end
-    
+
     on(step_forward_button.clicks) do _
         sl.value[] = min(n_frames, frame_idx[] + 1)
     end
-    
-    # Animation loop
+
+    # Animation loop with replay speed
     @async begin
         while true
             if is_playing[]
                 if frame_idx[] < n_frames
                     sl.value[] = frame_idx[] + 1
-                    sleep(0.05)  # Animation speed
+                    # Calculate sleep time based on actual time difference and replay speed
+                    if frame_idx[] > 1
+                        dt = lg.syslog[frame_idx[]].time - lg.syslog[frame_idx[] - 1].time
+                        sleep(max(0.01, dt / replay_speed))
+                    else
+                        sleep(0.05)
+                    end
                 elseif loop
                     sl.value[] = 1  # Loop back to start
                 else
@@ -1200,7 +1081,7 @@ function SymbolicAWEModels.animate(sys::SystemStructure,
             sleep(0.02)  # Check state frequently
         end
     end
-    
+
     return fig
 end
 

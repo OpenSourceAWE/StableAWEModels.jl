@@ -11,6 +11,7 @@ a time-marching simulation with coupled aerodynamic-structural updates.
 using SymbolicAWEModels
 using VortexStepMethod
 using LinearAlgebra
+using Statistics
 using YAML
 using GLMakie
 
@@ -135,8 +136,12 @@ n_steps = N_STEPS
 Δt = SIM_TIME / n_steps
 @info "Running simulation for $(SIM_TIME) seconds ($n_steps steps, Δt = $(round(Δt, digits=4)) s)..."
 
-# Store snapshots for every step
-snapshots = Dict{Int, Vector{SymbolicAWEModels.Point}}(0 => deepcopy(sam.sys_struct.points))
+# Create logger for recording simulation
+using KiteUtils
+logger = Logger(length(sam.sys_struct.points), n_steps + 1)
+sys_state = SysState(sam)
+sys_state.time = 0.0
+log!(logger, sys_state)
 
 # Print initial node coordinates
 @info "Initial state (Step 0) node coordinates:"
@@ -202,8 +207,10 @@ for step in 1:n_steps
         end
     end
 
-    # Store current state for every step
-    snapshots[step] = deepcopy(sam.sys_struct.points)
+    # Log current state
+    update_sys_state!(sys_state, sam)
+    sys_state.time = t
+    log!(logger, sys_state)
 
     # Print node coordinates for this step
     @info "Step $step node coordinates:"
@@ -220,17 +227,15 @@ for step in 1:n_steps
     end
 end
 
-captured_steps = sort!(collect(keys(snapshots)))
+@info "Simulation complete. Creating interactive replay viewer with $(length(logger)) frames..."
 
-@info "Simulation complete. Creating interactive animation with $(length(captured_steps)) frames..."
-
-# Create interactive animation with slider controls
-# Using lock_limits=false to let the camera auto-fit as the kite moves
-bbox = ((-20.0, 20.0), (-20.0, 20.0), (0.0, 40.0))
-fig = animate(sam.sys_struct, snapshots; dt=Δt, autoplay=false, loop=true, bbox=bbox)
+# Create interactive replay viewer with slider controls using the logged data
+save_log(logger, "tmp_run")
+syslog = load_log("tmp_run")
+fig = replay(syslog, sam.sys_struct; autoplay=false, loop=true)
 display(fig)
 
-@info "Animation created! Use the slider to step through time, or press Play to animate."
+@info "Replay viewer created! Use the slider to step through time, or press Play to replay."
 
 # Print final statistics
 println("\n" * "="^60)
@@ -258,6 +263,6 @@ end
 
 println("="^60)
 
-@info "Simulation complete! Interactive animation with $(length(captured_steps)) frames ready."
+@info "Simulation complete! Interactive replay viewer with $(length(logger.syslog)) frames ready."
 
 nothing
