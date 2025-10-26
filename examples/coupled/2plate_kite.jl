@@ -17,66 +17,11 @@ using GLMakie
 
 @info "Loading 2-plate kite model..."
 
-# ------------------------------------------------------------------------------
-# Helper to recompute aerodynamic loads with a fresh non-linear VSM solve.
-# This bypasses the default linearised update so the coupled model always uses
-# forces consistent with the current apparent wind state.
-# ------------------------------------------------------------------------------
-function refresh_vsm_forces!(sam::SymbolicAWEModel)
-    prob = sam.prob
-    isempty(sam.sys_struct.wings) && return
-    vsm_y = prob.get_vsm_y(sam.integrator)
-    groups = sam.sys_struct.groups
-
-    for wing in sam.sys_struct.wings
-        y_state = @view vsm_y[wing.idx, :]
-        if any(isnan, y_state[1:6])
-            @warn "Skipping VSM force refresh for wing $(wing.idx) due to NaNs in state" y_state
-            continue
-        end
-        va = [y_state[1], y_state[2], y_state[3]]
-        omega = [y_state[4], y_state[5], y_state[6]]
-
-        VortexStepMethod.set_va!(wing.vsm_aero, va, omega)
-
-        n_groups_total = length(groups)
-        if n_groups_total > 0 && !isempty(wing.group_idxs)
-            twist_angles = Vector{Float64}(undef, length(wing.group_idxs))
-            for (local_idx, group_idx) in enumerate(wing.group_idxs)
-                twist_angles[local_idx] = y_state[6 + Int(group_idx)]
-            end
-            VortexStepMethod.group_deform!(wing.vsm_wing, twist_angles, nothing; smooth=false)
-            VortexStepMethod.reinit!(wing.vsm_aero; init_aero=false)
-        end
-
-        if n_groups_total > 0 && !isempty(wing.group_idxs)
-            moment_frac = groups[Int(first(wing.group_idxs))].moment_frac
-            VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero; log=false, moment_frac=moment_frac)
-        else
-            VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero; log=false)
-        end
-
-        sol = wing.vsm_solver.sol
-        wing.vsm_x[1:3] .= sol.force
-        wing.vsm_x[4:6] .= sol.moment
-        if n_groups_total > 0 && !isempty(wing.group_idxs)
-            for (local_idx, group_idx) in enumerate(wing.group_idxs)
-                wing.vsm_x[6 + local_idx] = sol.group_moment_dist[Int(group_idx)]
-            end
-        end
-        wing.vsm_jac .= 0.0
-        wing.vsm_y .= y_state
-    end
-
-    prob.set_sys(sam.integrator, sam.sys_struct)
-    return nothing
-end
-
 # ============= User settings =============
 const MODEL_NAME = "2plate_kite"
 const GEOM_PATH  = joinpath("data", MODEL_NAME, "struc_geometry.yaml")
-const SIM_TIME   = 0.1  # Total simulation time in seconds
-const N_STEPS    = 100     # Number of time steps (use small number for fast development)
+const SIM_TIME   = 10.0
+const N_STEPS    = 600
 const REMAKE_CACHE = false
 # =========================================
 
@@ -109,7 +54,7 @@ segment_props = [(idx=seg.idx, k=seg.axial_stiffness, c=seg.axial_damping, d=seg
 sam = SymbolicAWEModel(set, sys)
 
 # Test with head-on wind
-set.upwind_dir = 0.0  
+set.upwind_dir = -90.0  
 
 # Calculate wind vector components in X,Y,Z
 upwind_rad = deg2rad(set.upwind_dir)
@@ -154,12 +99,8 @@ end
 
 ## Plot initial state
 @info "Plotting initial state..."
-try
-    fig = plot(sam.sys_struct)
-    display(fig)
-catch e
-    @warn "Could not plot initial state: $e"
-end
+fig = plot(sam.sys_struct)
+display(fig)
 
 # Time-marching loop with coupled aerodynamics
 @info "Starting time-marching simulation with coupled aerodynamics..."
@@ -169,30 +110,6 @@ end
 for step in 1:n_steps
     t = step * Δt
 
-    refresh_vsm_forces!(sam)
-
-    # Print VSM aerodynamic loads on wings
-    if !isempty(sam.sys_struct.wings)
-        @info "Step $step VSM aerodynamic loads:"
-        for wing in sam.sys_struct.wings
-            force = wing.vsm_x[1:3]
-            moment = wing.vsm_x[4:6]
-            @info "  Wing $(wing.idx): " *
-                  "Force=[$(round(force[1], digits=3)), $(round(force[2], digits=3)), $(round(force[3], digits=3))] N, " *
-                  "Moment=[$(round(moment[1], digits=3)), $(round(moment[2], digits=3)), $(round(moment[3], digits=3))] N⋅m"
-        end
-    else
-        if step == 1
-            @warn "No wings found in system structure - VSM loads not available"
-        end
-    end
-
-    # Advance simulation one step using freshly computed VSM loads (linear refresh disabled)
-    integrator_t = sam.integrator.t
-    integrator_dt = sam.integrator.dt
-    integrator_norm = norm(sam.integrator.u)
-    integrator_max = maximum(abs, sam.integrator.u)
-    @info "Integrator state before step" step integrator_t integrator_dt integrator_norm integrator_max
     try
         next_step!(sam; dt=Δt, vsm_interval=1)
     catch err
@@ -200,26 +117,17 @@ for step in 1:n_steps
         rethrow(err)
     end
 
-    # SYMMETRY CONSTRAINT: Force Y-velocities to zero to maintain X-Z plane symmetry
-    for point in sam.sys_struct.points
-        if point.type == SymbolicAWEModels.DYNAMIC
-            point.vel_w[2] = 0.0  # Zero out Y-velocity
-        end
-    end
+    # # SYMMETRY CONSTRAINT: Force Y-velocities to zero to maintain X-Z plane symmetry
+    # for point in sam.sys_struct.points
+    #     if point.type == SymbolicAWEModels.DYNAMIC
+    #         point.vel_w[2] = 0.0  # Zero out Y-velocity
+    #     end
+    # end
 
     # Log current state
     update_sys_state!(sys_state, sam)
     sys_state.time = t
     log!(logger, sys_state)
-
-    # Print node coordinates for this step
-    @info "Step $step node coordinates:"
-    for (i, point) in enumerate(sam.sys_struct.points)
-        pos = point.pos_w
-        vel = point.vel_w
-        @info "  Node $i: pos=[$(round(pos[1], digits=3)), $(round(pos[2], digits=3)), $(round(pos[3], digits=3))] m, " *
-              "vel=[$(round(vel[1], digits=3)), $(round(vel[2], digits=3)), $(round(vel[3], digits=3))] m/s"
-    end
 
     # Print progress periodically
     if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
