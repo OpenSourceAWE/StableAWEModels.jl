@@ -960,7 +960,8 @@ end
 Replay a SysLog with interactive 3D visualization and playback controls.
 
 This function creates an interactive viewer for a recorded simulation log with 3D visualization.
-The viewer includes a slider for scrubbing through time, play/pause button, and frame stepping controls.
+The viewer includes an overlay UI with a slider for scrubbing through time, play/pause button,
+and frame stepping controls, all rendered as a subscene over the 3D view.
 
 # Arguments
 - `lg::SysLog`: The simulation log to replay
@@ -974,18 +975,25 @@ The viewer includes a slider for scrubbing through time, play/pause button, and 
 - All other keyword arguments are passed through to the SystemStructure plot function
 
 # Returns
-- A Figure with interactive controls and 3D visualization
+- A Scene with interactive controls overlaid on the 3D visualization
+
+# UI Controls
+- **Slider**: Drag to scrub through time
+- **Play/Pause button**: Toggle playback (green when stopped, red when playing)
+- **< button**: Step backward one frame
+- **> button**: Step forward one frame
+- **Info display**: Shows current frame, time, and playback speed
 
 # Example
 ```julia
 # Create interactive replay viewer
-fig = replay(log, sys_struct)
+scene = replay(log, sys_struct)
 
 # Auto-play at 2x speed with looping
-fig = replay(log, sys_struct, replay_speed=2.0, autoplay=true, loop=true)
+scene = replay(log, sys_struct, replay_speed=2.0, autoplay=true, loop=true)
 
 # Replay with custom visualization settings
-fig = replay(log, sys_struct, replay_speed=0.5, vector_scale=0.3)
+scene = replay(log, sys_struct, replay_speed=0.5, vector_scale=0.3)
 ```
 """
 function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
@@ -1004,14 +1012,8 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     # Create initial plot using plot(sys, 0.0) which sets up observables, scene, and time display
     scene = plot(sys, 0.0; vector_scale, kwargs...)
 
-    # Create figure for the complete viewer
-    fig = Figure(size=(1200, 900))
-
-    # Add the scene to the figure
-    fig[1, 1] = scene
-
-    # Control panel layout
-    control_grid = fig[2, 1] = GridLayout()
+    # Create pixel-space subscene for UI controls overlay
+    ui_scene = Scene(scene, px_area=scene.px_area, clear=false, camera=campixel!)
 
     # Create observable for current frame index
     frame_idx = Observable(1)
@@ -1023,40 +1025,132 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
         plot(sys, ss.time; vector_scale)
     end
 
-    # Create slider for frame selection
-    sl = Slider(control_grid[1, 1:3], range=1:n_frames, startvalue=1)
+    # UI Layout constants (pixel coordinates from bottom-left)
+    ui_height = 120
+    ui_margin = 20
+    button_height = 30
+    button_width = 80
+    slider_height = 20
+
+    # Get scene size
+    scene_width = Observable(scene.px_area[].widths[1])
+    scene_height = Observable(scene.px_area[].widths[2])
+
+    # Update scene size on resize
+    on(scene.px_area) do area
+        scene_width[] = area.widths[1]
+        scene_height[] = area.widths[2]
+    end
+
+    # --- Slider Implementation ---
+    slider_y = ui_margin + button_height + 10
+    slider_x_start = ui_margin
+    slider_width_obs = @lift($(scene_width) - 2 * ui_margin)
+
+    # Slider track
+    slider_track_rect = @lift(Rect2f(slider_x_start, slider_y, $(slider_width_obs), slider_height))
+    poly!(ui_scene, slider_track_rect, color=RGBAf(0.3, 0.3, 0.3, 0.8))
+
+    # Slider thumb position
+    slider_thumb_x = @lift(slider_x_start + ($(frame_idx) - 1) / (n_frames - 1) * $(slider_width_obs))
+    slider_thumb_pos = @lift(Point2f($(slider_thumb_x), slider_y + slider_height / 2))
+    scatter!(ui_scene, slider_thumb_pos, color=:white, markersize=15)
+
+    # Slider interaction
+    slider_dragging = Ref(false)
+    on(events(ui_scene).mousebutton) do event
+        if event.button == Mouse.left
+            mp = events(ui_scene).mouseposition[]
+            # Check if click is on slider
+            track_rect = slider_track_rect[]
+            if event.action == Mouse.press
+                if mp[2] >= track_rect.origin[2] && mp[2] <= track_rect.origin[2] + track_rect.widths[2] &&
+                   mp[1] >= track_rect.origin[1] && mp[1] <= track_rect.origin[1] + track_rect.widths[1]
+                    slider_dragging[] = true
+                    # Update frame immediately
+                    rel_pos = clamp((mp[1] - slider_x_start) / slider_width_obs[], 0.0, 1.0)
+                    new_idx = round(Int, 1 + rel_pos * (n_frames - 1))
+                    frame_idx[] = clamp(new_idx, 1, n_frames)
+                    update_frame!(frame_idx[])
+                end
+            elseif event.action == Mouse.release
+                slider_dragging[] = false
+            end
+        end
+    end
+
+    on(events(ui_scene).mouseposition) do mp
+        if slider_dragging[]
+            rel_pos = clamp((mp[1] - slider_x_start) / slider_width_obs[], 0.0, 1.0)
+            new_idx = round(Int, 1 + rel_pos * (n_frames - 1))
+            frame_idx[] = clamp(new_idx, 1, n_frames)
+            update_frame!(frame_idx[])
+        end
+    end
+
+    # --- Button Implementation ---
+    button_y = ui_margin
 
     # Play/Pause button
     is_playing = Observable(autoplay)
-    play_button = Button(control_grid[2, 1], label=@lift($is_playing ? "Pause" : "Play"))
+    play_button_x = ui_margin
+    play_button_rect = Rect2f(play_button_x, button_y, button_width, button_height)
+    play_button_color = @lift($(is_playing) ? RGBAf(0.8, 0.3, 0.3, 0.8) : RGBAf(0.3, 0.8, 0.3, 0.8))
+    poly!(ui_scene, play_button_rect, color=play_button_color)
+    play_button_label = @lift($(is_playing) ? "Pause" : "Play")
+    text!(ui_scene, play_button_label, position=Point2f(play_button_x + button_width/2, button_y + button_height/2),
+          align=(:center, :center), fontsize=14, color=:white)
 
-    # Step forward/backward buttons
-    step_back_button = Button(control_grid[2, 2], label="<")
-    step_forward_button = Button(control_grid[2, 3], label=">")
+    # Step backward button
+    step_back_x = play_button_x + button_width + 10
+    step_back_rect = Rect2f(step_back_x, button_y, button_width, button_height)
+    poly!(ui_scene, step_back_rect, color=RGBAf(0.4, 0.4, 0.4, 0.8))
+    text!(ui_scene, "<", position=Point2f(step_back_x + button_width/2, button_y + button_height/2),
+          align=(:center, :center), fontsize=14, color=:white)
 
-    # Frame counter and time label
-    frame_label = Label(control_grid[3, 1:3],
-                       text=@lift("Frame: $($(frame_idx))/$n_frames | Time: $(@sprintf("%.2f", lg.syslog[$(frame_idx)].time)) s | Speed: $(replay_speed)x"),
-                       halign=:center)
+    # Step forward button
+    step_forward_x = step_back_x + button_width + 10
+    step_forward_rect = Rect2f(step_forward_x, button_y, button_width, button_height)
+    poly!(ui_scene, step_forward_rect, color=RGBAf(0.4, 0.4, 0.4, 0.8))
+    text!(ui_scene, ">", position=Point2f(step_forward_x + button_width/2, button_y + button_height/2),
+          align=(:center, :center), fontsize=14, color=:white)
 
-    # Connect slider to frame updates
-    on(sl.value) do val
-        frame_idx[] = val
-        update_frame!(val)
-    end
+    # Info label
+    info_label_x = step_forward_x + button_width + 20
+    info_text = @lift("Frame: $($(frame_idx))/$n_frames | Time: $(@sprintf("%.2f", lg.syslog[$(frame_idx)].time)) s | Speed: $(replay_speed)x")
+    text!(ui_scene, info_text, position=Point2f(info_label_x, button_y + button_height/2),
+          align=(:left, :center), fontsize=14, color=:white, strokecolor=:black, strokewidth=1)
 
-    # Play button functionality
-    on(play_button.clicks) do _
-        is_playing[] = !is_playing[]
-    end
+    # Button click handling
+    on(events(ui_scene).mousebutton) do event
+        if event.button == Mouse.left && event.action == Mouse.press
+            mp = events(ui_scene).mouseposition[]
 
-    # Step buttons
-    on(step_back_button.clicks) do _
-        sl.value[] = max(1, frame_idx[] - 1)
-    end
+            # Check play button
+            if mp[1] >= play_button_rect.origin[1] && mp[1] <= play_button_rect.origin[1] + play_button_rect.widths[1] &&
+               mp[2] >= play_button_rect.origin[2] && mp[2] <= play_button_rect.origin[2] + play_button_rect.widths[2]
+                is_playing[] = !is_playing[]
+                return Consume(true)
+            end
 
-    on(step_forward_button.clicks) do _
-        sl.value[] = min(n_frames, frame_idx[] + 1)
+            # Check step back button
+            if mp[1] >= step_back_rect.origin[1] && mp[1] <= step_back_rect.origin[1] + step_back_rect.widths[1] &&
+               mp[2] >= step_back_rect.origin[2] && mp[2] <= step_back_rect.origin[2] + step_back_rect.widths[2]
+                new_idx = max(1, frame_idx[] - 1)
+                frame_idx[] = new_idx
+                update_frame!(new_idx)
+                return Consume(true)
+            end
+
+            # Check step forward button
+            if mp[1] >= step_forward_rect.origin[1] && mp[1] <= step_forward_rect.origin[1] + step_forward_rect.widths[1] &&
+               mp[2] >= step_forward_rect.origin[2] && mp[2] <= step_forward_rect.origin[2] + step_forward_rect.widths[2]
+                new_idx = min(n_frames, frame_idx[] + 1)
+                frame_idx[] = new_idx
+                update_frame!(new_idx)
+                return Consume(true)
+            end
+        end
     end
 
     # Animation loop with replay speed
@@ -1064,7 +1158,9 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
         while true
             if is_playing[]
                 if frame_idx[] < n_frames
-                    sl.value[] = frame_idx[] + 1
+                    new_idx = frame_idx[] + 1
+                    frame_idx[] = new_idx
+                    update_frame!(new_idx)
                     # Calculate sleep time based on actual time difference and replay speed
                     if frame_idx[] > 1
                         dt = lg.syslog[frame_idx[]].time - lg.syslog[frame_idx[] - 1].time
@@ -1073,7 +1169,8 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                         sleep(0.05)
                     end
                 elseif loop
-                    sl.value[] = 1  # Loop back to start
+                    frame_idx[] = 1
+                    update_frame!(1)
                 else
                     is_playing[] = false  # Stop at end
                 end
@@ -1082,7 +1179,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
         end
     end
 
-    return fig
+    return scene
 end
 
 end

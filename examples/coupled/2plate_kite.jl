@@ -232,8 +232,7 @@ end
 # Create interactive replay viewer with slider controls using the logged data
 save_log(logger, "tmp_run")
 syslog = load_log("tmp_run")
-fig = replay(syslog, sam.sys_struct; autoplay=false, loop=true)
-display(fig)
+scene = replay(syslog, sam.sys_struct; autoplay=false, loop=true)
 
 @info "Replay viewer created! Use the slider to step through time, or press Play to replay."
 
@@ -263,6 +262,6 @@ end
 
 println("="^60)
 
-@info "Simulation complete! Interactive replay viewer with $(length(logger.syslog)) frames ready."
+@info "Simulation complete! Interactive replay viewer with $(length(logger)) frames ready."
 
 nothing
