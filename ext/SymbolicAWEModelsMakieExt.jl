@@ -593,33 +593,9 @@ function _plot_with_panes(sys::SystemStructure;
             end
         end
 
-        # --- Update label positions after zoom ---
-        on(scene.camera.view, priority = 0) do _
-            # Small delay to ensure camera update is complete
-            # This helps with label positioning after zoom operations
-            sleep(0.01)
-            hover_idx = last_hovered_idx[]
-            if hover_idx != -1
-                seg = sys.segments[hover_idx]
-                p1_3d = sys.points[seg.point_idxs[1]].pos_w
-                p2_3d = sys.points[seg.point_idxs[2]].pos_w
-
-                # Update segment label position
-                mid_point_3d = (p1_3d + p2_3d) / 2
-                mid_point_2d = Makie.project(scene, mid_point_3d)
-                segment_label_pos[] = mid_point_2d + Point2f(20, 0)
-
-                # Update point label positions
-                p1_2d = Makie.project(scene, p1_3d)
-                p2_2d = Makie.project(scene, p2_3d)
-                point1_label_pos[] = p1_2d + Point2f(20, 0)
-                point2_label_pos[] = p2_2d + Point2f(20, 0)
-            end
-        end
-
         # --- Event Handler for Click-to-Zoom ---
         zoomed_in = Ref(false)
-        on(events(scene).mousebutton, priority = 2) do event
+        on(events(scene).mousebutton, priority = 1) do event
             if event.button == Mouse.left && event.action == Mouse.press
                 cam = scene.camera
                 if !zoomed_in[] || last_hovered_idx[] != -1
@@ -657,6 +633,8 @@ function _plot_with_panes(sys::SystemStructure;
                         p2_2d = Makie.project(scene, p2_3d)
                         point1_label_pos[] = p1_2d + Point2f(20, 0)
                         point2_label_pos[] = p2_2d + Point2f(20, 0)
+                        
+                        return Consume(true) # Consume the event
                     end
                 else
                     zoom_out!(scene, cam, relevant_plots; relmargin)
@@ -682,8 +660,9 @@ function _plot_with_panes(sys::SystemStructure;
                         point1_label_pos[] = p1_2d + Point2f(20, 0)
                         point2_label_pos[] = p2_2d + Point2f(20, 0)
                     end
+                    
+                    return Consume(true) # Consume the event
                 end
-                return Consume(true) # Consume the event
             end
             return Consume(false)
         end
@@ -815,6 +794,7 @@ end
 """
 function Makie.plot(sys::SystemStructure, time::Real;
                     vector_scale=0.2,
+                    reset_on_zero=true,
                     kwargs...)
     # Helper function to create new plot
     function create_new_plot()
@@ -866,14 +846,13 @@ function Makie.plot(sys::SystemStructure, time::Real;
     end
 
     # Check if we need to create a new plot
-    if time == 0.0
+    if time == 0.0 && reset_on_zero
         # User explicitly requested new plot
         return create_new_plot()
     else
         # Try to update existing plot
         if isnothing(PLOT_OBSERVABLES[]) || isnothing(PLOT_SCENE[])
             # No plot exists, create new one
-            @warn "No plot exists. Creating new plot (call with time=0.0 to avoid this warning)."
             return create_new_plot()
         else
             # Check if the scene still has an active display
@@ -1013,7 +992,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     scene = plot(sys, 0.0; vector_scale, kwargs...)
 
     # Create pixel-space subscene for UI controls overlay
-    ui_scene = Scene(scene, px_area=scene.px_area, clear=false, camera=campixel!)
+    ui_scene = Scene(scene, viewport=scene.viewport, clear=false, camera=campixel!)
 
     # Create observable for current frame index
     frame_idx = Observable(1)
@@ -1022,7 +1001,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     function update_frame!(idx)
         ss = lg.syslog[idx]
         update_from_sysstate!(sys, ss)
-        plot(sys, ss.time; vector_scale)
+        plot(sys, ss.time; vector_scale, reset_on_zero=false)
     end
 
     # UI Layout constants (pixel coordinates from bottom-left)
@@ -1033,11 +1012,11 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     slider_height = 20
 
     # Get scene size
-    scene_width = Observable(scene.px_area[].widths[1])
-    scene_height = Observable(scene.px_area[].widths[2])
+    scene_width = Observable(scene.viewport[].widths[1])
+    scene_height = Observable(scene.viewport[].widths[2])
 
     # Update scene size on resize
-    on(scene.px_area) do area
+    on(scene.viewport) do area
         scene_width[] = area.widths[1]
         scene_height[] = area.widths[2]
     end
@@ -1055,38 +1034,6 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     slider_thumb_x = @lift(slider_x_start + ($(frame_idx) - 1) / (n_frames - 1) * $(slider_width_obs))
     slider_thumb_pos = @lift(Point2f($(slider_thumb_x), slider_y + slider_height / 2))
     scatter!(ui_scene, slider_thumb_pos, color=:white, markersize=15)
-
-    # Slider interaction
-    slider_dragging = Ref(false)
-    on(events(ui_scene).mousebutton) do event
-        if event.button == Mouse.left
-            mp = events(ui_scene).mouseposition[]
-            # Check if click is on slider
-            track_rect = slider_track_rect[]
-            if event.action == Mouse.press
-                if mp[2] >= track_rect.origin[2] && mp[2] <= track_rect.origin[2] + track_rect.widths[2] &&
-                   mp[1] >= track_rect.origin[1] && mp[1] <= track_rect.origin[1] + track_rect.widths[1]
-                    slider_dragging[] = true
-                    # Update frame immediately
-                    rel_pos = clamp((mp[1] - slider_x_start) / slider_width_obs[], 0.0, 1.0)
-                    new_idx = round(Int, 1 + rel_pos * (n_frames - 1))
-                    frame_idx[] = clamp(new_idx, 1, n_frames)
-                    update_frame!(frame_idx[])
-                end
-            elseif event.action == Mouse.release
-                slider_dragging[] = false
-            end
-        end
-    end
-
-    on(events(ui_scene).mouseposition) do mp
-        if slider_dragging[]
-            rel_pos = clamp((mp[1] - slider_x_start) / slider_width_obs[], 0.0, 1.0)
-            new_idx = round(Int, 1 + rel_pos * (n_frames - 1))
-            frame_idx[] = clamp(new_idx, 1, n_frames)
-            update_frame!(frame_idx[])
-        end
-    end
 
     # --- Button Implementation ---
     button_y = ui_margin
@@ -1121,35 +1068,67 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     text!(ui_scene, info_text, position=Point2f(info_label_x, button_y + button_height/2),
           align=(:left, :center), fontsize=14, color=:white, strokecolor=:black, strokewidth=1)
 
-    # Button click handling
-    on(events(ui_scene).mousebutton) do event
-        if event.button == Mouse.left && event.action == Mouse.press
+    # Combined mouse event handling for slider and buttons
+    slider_dragging = Ref(false)
+
+    on(events(ui_scene).mousebutton, priority = 2) do event
+        if event.button == Mouse.left
             mp = events(ui_scene).mouseposition[]
 
-            # Check play button
-            if mp[1] >= play_button_rect.origin[1] && mp[1] <= play_button_rect.origin[1] + play_button_rect.widths[1] &&
-               mp[2] >= play_button_rect.origin[2] && mp[2] <= play_button_rect.origin[2] + play_button_rect.widths[2]
-                is_playing[] = !is_playing[]
-                return Consume(true)
-            end
+            if event.action == Mouse.press
+                # Check if click is on slider
+                track_rect = slider_track_rect[]
+                if mp[2] >= track_rect.origin[2] && mp[2] <= track_rect.origin[2] + track_rect.widths[2] &&
+                   mp[1] >= track_rect.origin[1] && mp[1] <= track_rect.origin[1] + track_rect.widths[1]
+                    slider_dragging[] = true
+                    # Update frame immediately
+                    rel_pos = clamp((mp[1] - slider_x_start) / slider_width_obs[], 0.0, 1.0)
+                    new_idx = round(Int, 1 + rel_pos * (n_frames - 1))
+                    frame_idx[] = clamp(new_idx, 1, n_frames)
+                    update_frame!(frame_idx[])
+                    return Consume(true)
+                end
+                
+                # Check play button
+                if mp[1] >= play_button_rect.origin[1] && mp[1] <= play_button_rect.origin[1] + play_button_rect.widths[1] &&
+                   mp[2] >= play_button_rect.origin[2] && mp[2] <= play_button_rect.origin[2] + play_button_rect.widths[2]
+                    is_playing[] = !is_playing[]
+                    return Consume(true)
+                end
 
-            # Check step back button
-            if mp[1] >= step_back_rect.origin[1] && mp[1] <= step_back_rect.origin[1] + step_back_rect.widths[1] &&
-               mp[2] >= step_back_rect.origin[2] && mp[2] <= step_back_rect.origin[2] + step_back_rect.widths[2]
-                new_idx = max(1, frame_idx[] - 1)
-                frame_idx[] = new_idx
-                update_frame!(new_idx)
-                return Consume(true)
-            end
+                # Check step back button
+                if mp[1] >= step_back_rect.origin[1] && mp[1] <= step_back_rect.origin[1] + step_back_rect.widths[1] &&
+                   mp[2] >= step_back_rect.origin[2] && mp[2] <= step_back_rect.origin[2] + step_back_rect.widths[2]
+                    new_idx = max(1, frame_idx[] - 1)
+                    frame_idx[] = new_idx
+                    update_frame!(new_idx)
+                    return Consume(true)
+                end
 
-            # Check step forward button
-            if mp[1] >= step_forward_rect.origin[1] && mp[1] <= step_forward_rect.origin[1] + step_forward_rect.widths[1] &&
-               mp[2] >= step_forward_rect.origin[2] && mp[2] <= step_forward_rect.origin[2] + step_forward_rect.widths[2]
-                new_idx = min(n_frames, frame_idx[] + 1)
-                frame_idx[] = new_idx
-                update_frame!(new_idx)
-                return Consume(true)
+                # Check step forward button
+                if mp[1] >= step_forward_rect.origin[1] && mp[1] <= step_forward_rect.origin[1] + step_forward_rect.widths[1] &&
+                   mp[2] >= step_forward_rect.origin[2] && mp[2] <= step_forward_rect.origin[2] + step_forward_rect.widths[2]
+                    new_idx = min(n_frames, frame_idx[] + 1)
+                    frame_idx[] = new_idx
+                    update_frame!(new_idx)
+                    return Consume(true)
+                end
+            elseif event.action == Mouse.release
+                if slider_dragging[]
+                    slider_dragging[] = false
+                    return Consume(true)
+                end
             end
+        end
+        return Consume(false)
+    end
+
+    on(events(ui_scene).mouseposition, priority=2) do mp
+        if slider_dragging[]
+            rel_pos = clamp((mp[1] - slider_x_start) / slider_width_obs[], 0.0, 1.0)
+            new_idx = round(Int, 1 + rel_pos * (n_frames - 1))
+            frame_idx[] = clamp(new_idx, 1, n_frames)
+            update_frame!(frame_idx[])
         end
     end
 
