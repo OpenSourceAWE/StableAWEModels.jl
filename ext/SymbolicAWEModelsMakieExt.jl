@@ -17,7 +17,6 @@ using VortexStepMethod
 # Global storage for plot observables (for time-based plotting)
 const PLOT_OBSERVABLES = Ref{Union{Nothing, NamedTuple}}(nothing)
 const PLOT_SCENE = Ref{Union{Nothing, Scene}}(nothing)
-const PLOT_TIME_TEXT = Ref{Union{Nothing, Observable}}(nothing)
 const PLOT_BACKGROUND_PANES = Ref{Union{Nothing, Vector}}(nothing)
 const PLOT_MARGIN = Ref{Float64}(10.0)
 
@@ -828,14 +827,8 @@ function Makie.plot(sys::SystemStructure, time::Real;
                     vector_scale,
                     kwargs...)
 
-        # Add time display overlay
-        time_text = Observable(@sprintf("Time: %.2f s", time))
-        text!(scene, time_text, position = Point2f(20, 50), space = :pixel,
-              fontsize = 24, color = :black, align = (:left, :top))
-
         # Store scene, time text, and pane observables globally
         PLOT_SCENE[] = scene
-        PLOT_TIME_TEXT[] = time_text
         PLOT_BACKGROUND_PANES[] = pane_observables
         PLOT_MARGIN[] = margin
 
@@ -886,11 +879,6 @@ function Makie.plot(sys::SystemStructure, time::Real;
                     obs.wing_origins_obs, obs.wing_directions_obs,
                     sys; vector_scale
                 )
-
-                # Update time display
-                if !isnothing(PLOT_TIME_TEXT[])
-                    PLOT_TIME_TEXT[][] = @sprintf("Time: %.2f s", time)
-                end
 
                 # Update background panes
                 if !isnothing(PLOT_BACKGROUND_PANES[])
