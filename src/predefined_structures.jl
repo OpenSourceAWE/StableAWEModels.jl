@@ -46,7 +46,7 @@ This model includes:
 - `SystemStructure`: A new `SystemStructure` object representing the detailed model.
 """
 function create_4_attach_ram_sys_struct(set::Settings)
-    vsm_wing = RamAirWing(set; prn=false)
+    vsm_wing = Wing(set; prn=false)
     points = Point[]
     groups = Group[]
     segments = Segment[]
@@ -193,7 +193,7 @@ The model features:
 - `SystemStructure`: A new `SystemStructure` object representing the "ram" model.
 """
 function create_ram_sys_struct(set::Settings; d_winch_pos=[zeros(3), zeros(3)])
-    vsm_wing = RamAirWing(set; prn=false)
+    vsm_wing = VortexStepMethod.Wing(set; prn=false)
     points = Point[]
     groups = Group[]
     segments = Segment[]
@@ -396,7 +396,7 @@ function create_simple_ram_sys_struct(set::Settings;
                                       axial_stiffness=fill(NaN, 4), 
                                       axial_damping=fill(NaN,4))
     set.segments = 1
-    vsm_wing = RamAirWing(set; prn=false)
+    vsm_wing = Wing(set; prn=false)
     gammas = [-1/2, 1/2] * vsm_wing.gamma_tip
     
     bridle_top_left = [vsm_wing.R_cad_body * (set.top_bridle_points[i] + vsm_wing.T_cad_body) for i in eachindex(set.top_bridle_points)] # cad to kite frame
@@ -485,7 +485,7 @@ end
 export create_2plate_sys_struct
 
 function create_v3_sys_struct(set::Settings)
-    model_name = hasproperty(set, :model_name) ? set.model_name : "2plate_kite"
+    model_name = hasproperty(set, :model_name) ? set.model_name : "v3"
 
     # --------------------------- STRUCTURE --------------------------- #
     struc_yaml = hasproperty(set, :struc_geometry_path) ? set.struc_geometry_path :

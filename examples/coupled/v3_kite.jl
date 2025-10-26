@@ -34,13 +34,13 @@ else
 end
 
 # Load settings for the 2-plate kite
-set = SymbolicAWEModels.load_settings(MODEL_NAME)
+set = Settings(joinpath("data", MODEL_NAME, "system.yaml"))
 if hasproperty(set, :c_spring) || hasproperty(set, :damping)
     @info "Legacy tether settings still present" c_spring=(hasproperty(set, :c_spring) ? getproperty(set, :c_spring) : missing) damping=(hasproperty(set, :damping) ? getproperty(set, :damping) : missing)
 end
 @info "Tether parameters (post-load)" axial_stiffness=set.axial_stiffness axial_damping=set.axial_damping d_tether=set.d_tether cd_tether=set.cd_tether
 
-# The SystemStructure factory will now call create_2plate_sys_struct()
+# The SystemStructure factory will now call create_v3_sys_struct()
 # which loads both structural (struc_geometry.yaml) and aerodynamic (aero_geometry.yaml) data
 @info "Creating 2-plate kite system structure..."
 sys = SymbolicAWEModels.SystemStructure(set)

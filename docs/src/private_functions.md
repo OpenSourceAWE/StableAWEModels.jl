@@ -15,7 +15,7 @@ SymbolicAWEModels.SerializedModel
 SymbolicAWEModels.SimFloat
 SymbolicAWEModels.KVec3
 SymbolicAWEModels.SVec3
-VortexStepMethod.RamAirWing
+VortexStepMethod.Wing
 SymbolicAWEModels.create_4_attach_ram_sys_struct
 SymbolicAWEModels.create_tether
 ```

@@ -79,7 +79,7 @@ end
 @info "Pulley simulation completed" steps=80
 
 # ADDING A KITE
-vsm_wing = RamAirWing(set; prn=false)
+vsm_wing = VortexStepMethod.Wing(set; prn=false)
 vsm_aero = BodyAerodynamics([vsm_wing])
 vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
 wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing, vsm_solver, [], I(3), [0.5, 0, set.l_tether+6])]
@@ -88,6 +88,5 @@ sys_struct = SystemStructure("wing", set; points, segments, tethers, winches, pu
 
 sam = SymbolicAWEModel(set, sys_struct)
 @info "Wing model created successfully"
-
 
 

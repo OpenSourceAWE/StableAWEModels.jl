@@ -46,7 +46,7 @@ SystemStructure(name, set; points, groups, segments, pulleys, tethers, winches, 
 Point
 Point(idx, pos_cad, type; wing_idx, vel_w, transform_idx, mass, body_frame_damping, world_frame_damping, fix_sphere)
 Group
-Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac)
+Group(idx, point_idxs, vsm_wing::Wing, gamma, type, moment_frac)
 Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac)
 Segment
 Segment(idx, set, point_idxs, type; l0, compression_frac, axial_stiffness, axial_damping)

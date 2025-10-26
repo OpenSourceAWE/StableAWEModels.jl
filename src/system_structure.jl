@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-    VortexStepMethod.RamAirWing(set::Settings; prn=true, kwargs...)
+    VortexStepMethod.Wing(set::Settings; prn=true, kwargs...)
 
-Create a `RamAirWing` geometry object from the settings provided.
+Create a `Wing` geometry object from the settings provided.
 
 This is a constructor helper that reads the model and foil file paths from the
-`Settings` object and initializes the `RamAirWing` object from `VortexStepMethod.jl`.
+`Settings` object and initializes the `Wing` object from `VortexStepMethod.jl`.
 """
-function VortexStepMethod.RamAirWing(set::Settings; prn=true, kwargs...)
+function VortexStepMethod.Wing(set::Settings; prn=true, kwargs...)
     # Handle relative paths within model subdirectories
     if startswith(set.model, "data/")
         obj_path = joinpath(dirname(get_data_path()), set.model)
@@ -28,74 +28,10 @@ function VortexStepMethod.RamAirWing(set::Settings; prn=true, kwargs...)
     else
         n_groups=4
     end
-    return RamAirWing(obj_path, dat_path; 
+    return VortexStepMethod.ObjWing(obj_path, dat_path; 
         mass=set.mass, crease_frac=set.crease_frac, n_groups, 
         align_to_principal=true, prn, kwargs...
     )
-end
-
-"""
-    load_settings(subdirectory::String)
-
-Load settings from a specific subdirectory in the data folder.
-
-This function temporarily creates a `system.yaml` file that points to the settings
-in the specified subdirectory, loads the settings using the KiteUtils Settings
-constructor, then cleans up the temporary file.
-
-# Arguments
-- `subdirectory::String`: Name of the subdirectory in data/ containing settings.yaml
-
-# Example
-```julia
-set = load_settings("ram_air_kite")  # Loads from data/ram_air_kite/settings.yaml
-```
-
-# Returns
-- `Settings`: A Settings object loaded from the specified subdirectory.
-"""
-function load_settings(subdirectory::String)
-    # Define paths
-    system_yaml_path = joinpath(get_data_path(), "system.yaml")
-    temp_created = false
-    
-    try
-        # Check if system.yaml already exists
-        if isfile(system_yaml_path)
-            # Backup existing file
-            backup_path = system_yaml_path * ".backup"
-            cp(system_yaml_path, backup_path; force=true)
-            temp_created = false
-        else
-            temp_created = true
-        end
-        
-        # Create temporary system.yaml content
-        yaml_content = """system:
-    sim_settings: "$subdirectory/settings.yaml"  # simulator settings
-"""
-        
-        # Write temporary system.yaml
-        write(system_yaml_path, yaml_content)
-        
-        # Load settings using KiteUtils
-        set = Settings("system.yaml")
-        
-        return set
-        
-    finally
-        # Clean up: remove or restore system.yaml
-        if temp_created
-            # Remove the temporary file we created
-            isfile(system_yaml_path) && rm(system_yaml_path)
-        else
-            # Restore the original file
-            backup_path = system_yaml_path * ".backup"
-            if isfile(backup_path)
-                mv(backup_path, system_yaml_path; force=true)
-            end
-        end
-    end
 end
 
 """
@@ -223,7 +159,7 @@ mutable struct Group
 end
 
 """
-    Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac)
+    Group(idx, point_idxs, vsm_wing::Wing, gamma, type, moment_frac)
 
 Constructs a `Group` object representing a collection of points on a kite body that share
 a common twist deformation.
@@ -255,7 +191,7 @@ The group can have two [`DynamicsType`](@ref)s:
 # Arguments
 - `idx::Int16`: Unique identifier for the group.
 - `point_idxs::Vector{Int16}`: Indices of points that move together with this group's twist.
-- `vsm_wing::RamAirWing`: Wing geometry object used to extract local chord and spanwise vectors.
+- `vsm_wing::Wing`: Wing geometry object used to extract local chord and spanwise vectors.
 - `gamma`: Spanwise parameter (typically -1 to 1) defining the group's location along the wing.
 - `type::DynamicsType`: Dynamics type (`DYNAMIC` for time-varying twist, `QUASI_STATIC` for equilibrium).
 - `moment_frac::SimFloat`: Chordwise position (0=leading edge, 1=trailing edge) about which the group rotates.
@@ -263,7 +199,7 @@ The group can have two [`DynamicsType`](@ref)s:
 # Returns
 - `Group`: A new `Group` object with twist dynamics capability.
 """
-function Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac; damping=50.0)
+function Group(idx, point_idxs, vsm_wing::Wing, gamma, type, moment_frac; damping=50.0)
     le_pos = [vsm_wing.le_interp[i](gamma) for i in 1:3]
     chord = [vsm_wing.te_interp[i](gamma) for i in 1:3] .- le_pos
     y_airf = normalize([vsm_wing.le_interp[i](gamma-0.01) for i in 1:3] - le_pos)
@@ -761,7 +697,7 @@ Constructs a `VSMWing` object with Vortex Step Method aerodynamics.
 # Arguments
 - `idx::Int16`: Unique identifier for the wing.
 - `vsm_aero`: VortexStepMethod.BodyAerodynamics object.
-- `vsm_wing`: VortexStepMethod.RamAirWing object.
+- `vsm_wing`: VortexStepMethod.Wing object.
 - `vsm_solver`: VortexStepMethod.Solver object.
 - `group_idxs::Vector{Int16}`: Indices of groups attached to this wing.
 - `R_b_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
@@ -1281,11 +1217,11 @@ function reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
 end
 
 """
-    calc_pos(wing::RamAirWing, gamma, frac)
+    calc_pos(wing::Wing, gamma, frac)
 
 Calculate a position on the kite based on spanwise (`gamma`) and chordwise (`frac`) parameters.
 """
-function calc_pos(wing::RamAirWing, gamma, frac)
+function calc_pos(wing::Wing, gamma, frac)
     le_pos = [wing.le_interp[i](gamma) for i in 1:3]
     chord = [wing.te_interp[i](gamma) for i in 1:3] .- le_pos
     pos = le_pos .+ chord .* frac
@@ -1332,11 +1268,11 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
 end
 
 """
-    cad_to_body_frame(wing::RamAirWing, pos)
+    cad_to_body_frame(wing::Wing, pos)
 
 Transform a position from the CAD frame to the wing's body frame.
 """
-function cad_to_body_frame(wing::RamAirWing, pos)
+function cad_to_body_frame(wing::Wing, pos)
     return wing.R_cad_body * (pos + wing.T_cad_body)
 end
 
