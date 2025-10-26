@@ -479,61 +479,22 @@ function create_2plate_sys_struct(set::Settings)
     @assert isfile(struc_yaml) "Structural YAML not found: $struc_yaml"
 
     sys_from_yaml = load_sys_struct_from_yaml(struc_yaml; system_name=model_name, set=set)
-
-    points = Point[]
-    for p in sys_from_yaml.points
-        t_idx = Int16(0)
-        push!(points, Point(p.idx, copy(p.pos_cad), p.type;
-            wing_idx=p.wing_idx,
-            vel_w=copy(p.vel_w),
-            transform_idx=t_idx,
-            mass=p.mass,
-            body_frame_damping=p.body_frame_damping,
-            world_frame_damping=p.world_frame_damping,
-            fix_sphere=p.fix_sphere))
-    end
-
-    segments = deepcopy(sys_from_yaml.segments)
-    pulleys  = deepcopy(sys_from_yaml.pulleys)
-    tethers  = deepcopy(sys_from_yaml.tethers)
-    winches  = deepcopy(sys_from_yaml.winches)
-    groups   = Group[]
-    transforms = Transform[]
-
-    total_mass = hasproperty(set, :mass) ? set.mass : 0.0
-    inertia_diag = compute_inertia_from_points(points, total_mass)
-    center_accum = zeros(3)
-    for p in points
-        center_accum .+= p.pos_cad
-    end
-    center_pos = isempty(points) ? zeros(3) : center_accum ./ length(points)
-
-    # --------------------------- AERODYNAMICS --------------------------- #
-    wings = Wing[]
-    # vsm_settings_path = hasproperty(set, :vsm_settings_path) ? set.vsm_settings_path :
-    #     joinpath(model_name, "vsm_settings.yaml")
-    # vsm_settings_file = isabspath(vsm_settings_path) ? vsm_settings_path : joinpath("data", vsm_settings_path)
-    # if isfile(vsm_settings_file)
-    #     @info "Loading VSM settings: $(vsm_settings_file)"
-    #     vsm_settings = VSMSettings(vsm_settings_path)
-    #     vsm_wing = VortexStepMethod.Wing(vsm_settings)
-    #     vsm_aero = BodyAerodynamics([vsm_wing])
-    #     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
-    #     wings = [Wing(1, vsm_aero, vsm_wing, vsm_solver, Int[], I(3), MVector{3,SimFloat}(center_pos...);
-    #                 transform_idx=0, inertia_diag=inertia_diag)]
-    # else
-    #     @warn "VSM settings not found at: $(vsm_settings_file); creating structural-only system"
-    # end
-
-    # --------------------------- TRANSFORM --------------------------- #
-    # Leave `transforms` empty to operate directly in the coordinates supplied by the YAML
-    # so that users can opt for a "zero transform" workflow.
-
-    return SystemStructure(set.physical_model, set;
-        points, groups, segments, pulleys, tethers, winches, wings, transforms)
+    return sys_from_yaml
 end
 
 export create_2plate_sys_struct
+
+function create_v3_sys_struct(set::Settings)
+    model_name = hasproperty(set, :model_name) ? set.model_name : "2plate_kite"
+
+    # --------------------------- STRUCTURE --------------------------- #
+    struc_yaml = hasproperty(set, :struc_geometry_path) ? set.struc_geometry_path :
+        joinpath("data", model_name, "struc_geometry.yaml")
+    @assert isfile(struc_yaml) "Structural YAML not found: $struc_yaml"
+
+    sys_from_yaml = load_sys_struct_from_yaml(struc_yaml; system_name=model_name, set=set)
+    return sys_from_yaml
+end
 
 """
     find_base_point_idx(points::Vector{Point}) -> Int

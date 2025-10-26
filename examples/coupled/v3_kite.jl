@@ -18,7 +18,7 @@ using GLMakie
 @info "Loading 2-plate kite model..."
 
 # ============= User settings =============
-const MODEL_NAME = "2plate_kite"
+const MODEL_NAME = "v3"
 const GEOM_PATH  = joinpath("data", MODEL_NAME, "struc_geometry.yaml")
 const SIM_TIME   = 10.0
 const N_STEPS    = 600
