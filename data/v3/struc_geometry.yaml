@@ -195,12 +195,12 @@ segments:
 pulleys:
   headers: [id, segment_i, segment_j, type]
   data:
-    - [1, 46, 47, DYNAMIC]  # a6 left front pulley
-    - [2, 56, 57, DYNAMIC]  # a6 left rear pulley
-    - [3, 64, 65, DYNAMIC]  # br6 right front pulley
-    - [4, 74, 75, DYNAMIC]  # br6 right rear pulley
-    - [5, 82, 83, DYNAMIC]  # M-line front pulley
-    - [6, 84, 85, DYNAMIC]  # M-line rear pulley
+    - [1, 48, 47, DYNAMIC]  # a6 left front pulley
+    - [2, 57, 58, DYNAMIC]  # a6 left rear pulley
+    - [3, 65, 66, DYNAMIC]  # br6 right front pulley
+    - [4, 75, 76, DYNAMIC]  # br6 right rear pulley
+    - [5, 83, 84, DYNAMIC]  # M-line front pulley
+    - [6, 85, 86, DYNAMIC]  # M-line rear pulley
 
 ###########################
 ## Groups #################

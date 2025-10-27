@@ -61,16 +61,11 @@ upwind_rad = deg2rad(set.upwind_dir)
 # Check if wind_elevation exists in settings, default to 0.0
 wind_elev = hasfield(typeof(set), :wind_elevation) ? set.wind_elevation : 0.0
 wind_elev_rad = deg2rad(wind_elev)
-# Wind convention: 0° = North (+X), -90° = East (+Y), 90° = West (-Y), 180° = South (-X)
-wind_x = set.v_wind * cos(wind_elev_rad) * cos(upwind_rad)
-wind_y = set.v_wind * cos(wind_elev_rad) * sin(upwind_rad)
-wind_z = set.v_wind * sin(wind_elev_rad)
 
 # Print wind settings with vector components
 @info "Wind Configuration:" wind_speed=set.v_wind upwind_dir=set.upwind_dir wind_elevation=wind_elev
 @info "  → Wind direction: $(set.upwind_dir)° (0° = North/head-on, -90° = East, 90° = West, 180° = South)"
 @info "  → Wind speed: $(set.v_wind) m/s at reference height $(set.h_ref) m"
-@info "  → Wind vector: [$(round(wind_x, digits=3)), $(round(wind_y, digits=3)), $(round(wind_z, digits=3))] m/s (X, Y, Z components)"
 
 # Initialize the model
 @info "Initializing model..."
@@ -88,15 +83,6 @@ sys_state = SysState(sam)
 sys_state.time = 0.0
 log!(logger, sys_state)
 
-# Print initial node coordinates
-@info "Initial state (Step 0) node coordinates:"
-for (i, point) in enumerate(sam.sys_struct.points)
-    pos = point.pos_w
-    vel = point.vel_w
-    @info "  Node $i: pos=[$(round(pos[1], digits=3)), $(round(pos[2], digits=3)), $(round(pos[3], digits=3))] m, " *
-          "vel=[$(round(vel[1], digits=3)), $(round(vel[2], digits=3)), $(round(vel[3], digits=3))] m/s"
-end
-
 ## Plot initial state
 @info "Plotting initial state..."
 fig = plot(sam.sys_struct)
@@ -104,7 +90,6 @@ display(fig)
 
 # Time-marching loop with coupled aerodynamics
 @info "Starting time-marching simulation with coupled aerodynamics..."
-@info "Enforcing Y-symmetry constraint (setting Y-velocities to zero)"
 @info "Number of wings in system: $(length(sam.sys_struct.wings))"
 
 for step in 1:n_steps
