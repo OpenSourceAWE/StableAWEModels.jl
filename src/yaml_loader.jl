@@ -84,10 +84,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Load points
     points = Point[]
+    yaml_id_to_idx = Dict{Int,Int}()  # Map from YAML IDs to 1-based indices
+
     if haskey(data, "points")
         point_rows = parse_table(data["points"])
-        for row in point_rows
-            idx = Int(row.id)
+        for (i, row) in enumerate(point_rows)
+            yaml_id = Int(row.id)
             pos = [Float64(row.x), Float64(row.y), Float64(row.z)]
             ptype = parse_dynamics_type(String(row.type))
             mass = Float64(row.mass)
@@ -95,7 +97,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             world_damping = Float64(row.world_damping)
 
             push!(points, Point(
-                idx,
+                i,  # Use 1-based index
                 pos,
                 ptype;
                 mass = mass,
@@ -105,6 +107,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             ))
             points[end].pos_w .= points[end].pos_cad
             points[end].vel_w .= 0.0
+
+            yaml_id_to_idx[yaml_id] = i
         end
     end
 
@@ -131,15 +135,13 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     segments = Segment[]
     if haskey(data, "segments")
         segment_rows = parse_table(data["segments"])
-        segment_counter = 1
 
-        for row in segment_rows
+        for (i, row) in enumerate(segment_rows)
             # Check if this is direct format (has 'id') or named format (has 'name')
             if haskey(row, :id)
                 # Direct format: all properties specified inline
-                idx = Int(row.id)
-                point_i = Int(row.point_i)
-                point_j = Int(row.point_j)
+                yaml_point_i = Int(row.point_i)
+                yaml_point_j = Int(row.point_j)
                 seg_type = parse_segment_type(String(row.type))
                 l0 = Float64(row.l0)
                 diameter_mm = Float64(row.diameter_mm)
@@ -149,15 +151,14 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             elseif haskey(row, :name)
                 # Named format: look up properties from segment_properties
                 name = String(row.name)
-                point_i = Int(row.point_i)
-                point_j = Int(row.point_j)
+                yaml_point_i = Int(row.point_i)
+                yaml_point_j = Int(row.point_j)
 
                 if !haskey(segment_props_dict, name)
                     error("Segment named '$name' not found in segment_properties")
                 end
 
                 props = segment_props_dict[name]
-                idx = segment_counter
                 seg_type = parse_segment_type(props[:type])
                 l0 = props[:l0]
                 diameter_mm = props[:diameter_mm]
@@ -168,8 +169,18 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 error("Segment row must have either 'id' or 'name' field")
             end
 
+            # Map YAML point IDs to 1-based indices
+            if !haskey(yaml_id_to_idx, yaml_point_i)
+                error("Segment $i references unknown point ID $yaml_point_i")
+            end
+            if !haskey(yaml_id_to_idx, yaml_point_j)
+                error("Segment $i references unknown point ID $yaml_point_j")
+            end
+            point_i = yaml_id_to_idx[yaml_point_i]
+            point_j = yaml_id_to_idx[yaml_point_j]
+
             push!(segments, Segment(
-                idx,
+                i,  # Use 1-based index
                 set,
                 (point_i, point_j),
                 seg_type;
@@ -179,7 +190,6 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 axial_damping = axial_damping,
                 compression_frac = compression_frac
             ))
-            segment_counter += 1
         end
     end
 
@@ -187,14 +197,21 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     pulleys = Pulley[]
     if haskey(data, "pulleys")
         pulley_rows = parse_table(data["pulleys"])
-        for row in pulley_rows
-            idx = Int(row.id)
+        for (i, row) in enumerate(pulley_rows)
             segment_i = Int(row.segment_i)
             segment_j = Int(row.segment_j)
             ptype = parse_dynamics_type(String(row.type))
 
+            # Validate segment indices
+            if segment_i < 1 || segment_i > length(segments)
+                error("Pulley $i references invalid segment index $segment_i (must be 1-$(length(segments)))")
+            end
+            if segment_j < 1 || segment_j > length(segments)
+                error("Pulley $i references invalid segment index $segment_j (must be 1-$(length(segments)))")
+            end
+
             push!(pulleys, Pulley(
-                idx,
+                i,  # Use 1-based index
                 (segment_i, segment_j),
                 ptype
             ))
@@ -203,7 +220,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Load groups (optional, for deformable wings)
     groups = Group[]
-    if haskey(data, "groups") && haskey(data["groups"], "data") && !isempty(data["groups"]["data"])
+    if haskey(data, "groups") && haskey(data["groups"], "data") && data["groups"]["data"] !== nothing && !isempty(data["groups"]["data"])
         # Groups would be loaded here if defined
         # This requires VSM wing instance and gamma values
         @warn "Groups defined in YAML but loading not yet implemented"
@@ -211,14 +228,14 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Load tethers (optional)
     tethers = Tether[]
-    if haskey(data, "tethers") && haskey(data["tethers"], "data") && !isempty(data["tethers"]["data"])
+    if haskey(data, "tethers") && haskey(data["tethers"], "data") && data["tethers"]["data"] !== nothing && !isempty(data["tethers"]["data"])
         # Tethers would be loaded here if defined
         @warn "Tethers defined in YAML but loading not yet implemented"
     end
 
     # Load winches (optional)
     winches = Winch[]
-    if haskey(data, "winches") && haskey(data["winches"], "data") && !isempty(data["winches"]["data"])
+    if haskey(data, "winches") && haskey(data["winches"], "data") && data["winches"]["data"] !== nothing && !isempty(data["winches"]["data"])
         # Winches would be loaded here if defined
         @warn "Winches defined in YAML but loading not yet implemented"
     end

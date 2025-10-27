@@ -1021,7 +1021,7 @@ function SystemStructure(name, set;
         transforms=Transform[],
     )
     for (i, point) in enumerate(points)
-        @assert point.idx == i
+        @assert point.idx == i "Point $(point.idx) != $i"
         # Allow transform_idx=0 (no transform) or valid transform index
         @assert point.transform_idx == 0 || point.transform_idx <= length(transforms)
     end
