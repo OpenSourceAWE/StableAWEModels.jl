@@ -244,5 +244,26 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     wings = AbstractWing[]
     transforms = Transform[]
 
+    # If no wings are provided, convert WING type points to DYNAMIC with warning
+    if isempty(wings)
+        wing_points = findall(p -> p.type == WING, points)
+        if !isempty(wing_points)
+            @warn "No wings provided but $(length(wing_points)) WING type points found. Converting to DYNAMIC."
+            for idx in wing_points
+                points[idx] = Point(
+                    points[idx].idx,
+                    points[idx].pos_cad,
+                    DYNAMIC;
+                    mass = points[idx].mass,
+                    body_frame_damping = points[idx].body_frame_damping,
+                    world_frame_damping = points[idx].world_frame_damping,
+                    transform_idx = points[idx].transform_idx
+                )
+                points[idx].pos_w .= points[idx].pos_cad
+                points[idx].vel_w .= 0.0
+            end
+        end
+    end
+
     return SystemStructure(system_name, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 end
