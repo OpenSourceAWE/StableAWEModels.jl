@@ -32,53 +32,31 @@ function parse_table(tbl)::Vector{NamedTuple}
     end
     return out
 end
-# """
-#     neutral_transform(idx::Int; points::Vector{Point}, base_point_idx::Int=1,
-#                            rot_point_idx::Int=2, base_pos::Vector{Float64}=[0.0,0.0,0.0])
-#     This enables no transformation, but still a call to the transformations
-
-# """
-# function neutral_transform(idx::Int; points, base_point_idx::Int=1,
-#                            rot_point_idx::Int=2, base_pos::AbstractVector{<:Real}=nothing)
-#     if base_pos === nothing
-#         base_pos = [0.0, 0.0, 0.0]
-#     end
-#     dir0 = points[rot_point_idx].pos_cad .- points[base_point_idx].pos_cad
-#     if norm(dir0) < 1e-12
-#         error("neutral_transform: base_point_idx and rot_point_idx coincide; pick different indices")
-#     end
-#     curr_elev   = KiteUtils.calc_elevation(dir0)
-#     curr_azim   = -KiteUtils.azimuth_east(dir0)
-#     return Transform(idx, curr_elev, curr_azim, 0.0;
-#         base_pos=base_pos, base_point_idx=base_point_idx, rot_point_idx=rot_point_idx)
-# end
-
-# Helper struct to collect raw points before reindexing
-struct RawPoint
-    raw_id::Int
-    pos::Vector{Float64}
-    type::DynamicsType
-    mass::Float64
-    body_damping::Float64
-    world_damping::Float64
-end
 
 """
         load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing)
 
-Build a `SystemStructure` from a TU Delft style structural YAML file.
+Build a `SystemStructure` from a component-based structural YAML file.
 
 # Expected top-level blocks
-- `bridle_point_node`: `[x,y,z]` location of the KCU/bridle origin (optional).
-- `wing_particles`: table with headers `[id,x,y,z]` defining wing node positions.
-- `wing_connections`: table with headers `[name,ci,cj]` describing structural members.
-- `wing_elements`: table with headers `[name,l0,k,c,m,linktype]` supplying segment properties.
-- `bridle_particles`: table with headers `[id,x,y,z]` defining bridle node positions.
-- `bridle_connections`: table with headers `[name,ci,cj,ck]`; `ck` is currently logged but unused.
-- `bridle_elements`: table with headers `[name,l0,d,material,linktype]` supplying bridle segment data.
-- Material property blocks (e.g. `dyneema`) can be specified with `youngs_modulus`, `density`, and `damping_per_stiffness`.
+- `points`: table with headers `[id,x,y,z,type,mass,body_damping,world_damping]`
+  - `type`: STATIC, DYNAMIC, WING, or QUASI_STATIC
 
-Indices are assumed to be the raw IDs given in the YAML (0-based for the optional KCU node). They are reindexed internally to satisfy `SystemStructure` requirements.
+- `segments`: table with one of two formats:
+  - Direct format: `[id,point_i,point_j,type,l0,diameter_mm,axial_stiffness,axial_damping,compression_frac]`
+  - Named format: `[name,point_i,point_j]` (requires `segment_properties` block)
+
+- `segment_properties`: (optional) table with headers `[name,type,l0,diameter_mm,axial_stiffness,axial_damping,compression_frac]`
+  - Used with named segment format for shared properties across symmetric segments
+
+- `pulleys`: table with headers `[id,segment_i,segment_j,type]`
+  - `type`: DYNAMIC or QUASI_STATIC
+
+- `groups`: (optional) table with headers `[id,point_ids,gamma,type,reference_chord_frac]`
+- `tethers`: (optional) table with headers `[id,segment_ids,ground_point_id]`
+- `winches`: (optional) table with headers `[id,tether_ids]`
+- `wings`: (optional, typically from VSM configuration)
+- `transforms`: (optional, typically from settings)
 """
 function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing())
     data = YAML.load_file(yaml_path)
@@ -86,307 +64,168 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     # Use provided settings or fall back to base settings
     set === nothing && (set = load_settings("base"))
 
-    # Collect material properties if present (e.g., dyneema block)
-    material_props = Dict{String,Dict{String,Float64}}()
-    for (name, block) in data
-        if isa(block, Dict) && haskey(block, "youngs_modulus")
-            props = Dict{String,Float64}()
-            for (k, v) in block
-                props[String(k)] = Float64(v)
-            end
-            material_props[String(name)] = props
-        end
+    # Parse string types to enums
+    function parse_dynamics_type(s::String)
+        s_upper = uppercase(s)
+        s_upper == "STATIC" && return STATIC
+        s_upper == "DYNAMIC" && return DYNAMIC
+        s_upper == "WING" && return WING
+        s_upper == "QUASI_STATIC" && return QUASI_STATIC
+        error("Unknown DynamicsType: $s")
     end
 
-    # Identify fixed point ids (stored as raw YAML ids, 0-based as documented)
-    fixed_ids = Set{Int}()
-    if haskey(data, "fixed_point_indices")
-        for idx in data["fixed_point_indices"]
-            push!(fixed_ids, Int(idx))
-        end
+    function parse_segment_type(s::String)
+        s_upper = uppercase(s)
+        s_upper == "POWER_LINE" && return POWER_LINE
+        s_upper == "STEERING_LINE" && return STEERING_LINE
+        s_upper == "BRIDLE" && return BRIDLE
+        error("Unknown SegmentType: $s")
     end
 
-    raw_points = RawPoint[]
-
-    # Optional bridle/KCU node (id 0 by convention)
-    if haskey(data, "bridle_point_node")
-        pos_vec = Float64.(data["bridle_point_node"])
-        raw_id = 0
-        ptype = raw_id in fixed_ids ? STATIC : DYNAMIC
-        mass = get(data, "kcu_mass", 0.0)
-        push!(raw_points, RawPoint(raw_id, pos_vec, ptype, Float64(mass), 0.0, 0.0))
-    end
-
-    # Wing particles
-    if haskey(data, "wing_particles")
-        headers = Symbol.(String.(data["wing_particles"]["headers"]))
-        for row in data["wing_particles"]["data"]
-            section = Dict(zip(headers, row))
-            raw_id = Int(section[:id])
-            pos_vec = [Float64(section[:x]), Float64(section[:y]), Float64(section[:z])]
-            ptype = raw_id in fixed_ids ? STATIC : DYNAMIC
-            push!(raw_points, RawPoint(raw_id, pos_vec, ptype, 0.0, 0.0, 0.0))
-        end
-    end
-
-    # Bridle particles
-    if haskey(data, "bridle_particles")
-        headers = Symbol.(String.(data["bridle_particles"]["headers"]))
-        for row in data["bridle_particles"]["data"]
-            section = Dict(zip(headers, row))
-            raw_id = Int(section[:id])
-            pos_vec = [Float64(section[:x]), Float64(section[:y]), Float64(section[:z])]
-            ptype = raw_id in fixed_ids ? STATIC : DYNAMIC
-            push!(raw_points, RawPoint(raw_id, pos_vec, ptype, 0.0, 0.0, 0.0))
-        end
-    end
-
-    # Sort raw points to ensure deterministic ordering before reindexing
-    sort!(raw_points, by = rp -> rp.raw_id)
-
-    # Reindex points sequentially while keeping a mapping from raw IDs to internal indices
+    # Load points
     points = Point[]
-    raw_to_idx = Dict{Int,Int}()
-    for rp in raw_points
-        idx = length(points) + 1
-        push!(points, Point(
-            idx,
-            rp.pos,
-            rp.type;
-            mass = rp.mass,
-            body_frame_damping = rp.body_damping,
-            world_frame_damping = rp.world_damping,
-            transform_idx = Int16(0)
-        ))
-        points[end].pos_w .= points[end].pos_cad
-        points[end].vel_w .= 0.0
-        raw_to_idx[rp.raw_id] = idx
+    if haskey(data, "points")
+        point_rows = parse_table(data["points"])
+        for row in point_rows
+            idx = Int(row.id)
+            pos = [Float64(row.x), Float64(row.y), Float64(row.z)]
+            ptype = parse_dynamics_type(String(row.type))
+            mass = Float64(row.mass)
+            body_damping = Float64(row.body_damping)
+            world_damping = Float64(row.world_damping)
+
+            push!(points, Point(
+                idx,
+                pos,
+                ptype;
+                mass = mass,
+                body_frame_damping = body_damping,
+                world_frame_damping = world_damping,
+                transform_idx = Int16(0)
+            ))
+            points[end].pos_w .= points[end].pos_cad
+            points[end].vel_w .= 0.0
+        end
     end
 
     isempty(points) && error("No points found in YAML file $(yaml_path).")
-    length(points) < 2 && error("At least two points are required to define a transform in $(yaml_path).")
 
-    # --- Segment helpers -----------------------------------------------------
-    wing_element_dict = Dict{String,Dict{Symbol,Any}}()
-    if haskey(data, "wing_elements")
-        headers = Symbol.(String.(data["wing_elements"]["headers"]))
-        for row in data["wing_elements"]["data"]
-            section = Dict(zip(headers, row))
-            wing_element_dict[String(section[:name])] = section
+    # Load segment properties dictionary (if using named segments)
+    segment_props_dict = Dict{String,Dict{Symbol,Any}}()
+    if haskey(data, "segment_properties")
+        prop_rows = parse_table(data["segment_properties"])
+        for row in prop_rows
+            name = String(row.name)
+            segment_props_dict[name] = Dict{Symbol,Any}(
+                :type => String(row.type),
+                :l0 => Float64(row.l0),
+                :diameter_mm => Float64(row.diameter_mm),
+                :axial_stiffness => Float64(row.axial_stiffness),
+                :axial_damping => Float64(row.axial_damping),
+                :compression_frac => Float64(row.compression_frac)
+            )
         end
     end
 
-    bridle_element_dict = Dict{String,Dict{Symbol,Any}}()
-    if haskey(data, "bridle_elements")
-        headers = Symbol.(String.(data["bridle_elements"]["headers"]))
-        for row in data["bridle_elements"]["data"]
-            section = Dict(zip(headers, row))
-            bridle_element_dict[String(section[:name])] = section
-        end
-    end
-
-    # --- Segments ------------------------------------------------------------
+    # Load segments
     segments = Segment[]
+    if haskey(data, "segments")
+        segment_rows = parse_table(data["segments"])
+        segment_counter = 1
 
-    # Wing structural connections
-    if haskey(data, "wing_connections")
-        headers = Symbol.(String.(data["wing_connections"]["headers"]))
-        for row in data["wing_connections"]["data"]
-            section = Dict(zip(headers, row))
-            name = String(section[:name])
-            ci = Int(section[:ci])
-            cj = Int(section[:cj])
-            haskey(raw_to_idx, ci) || (@warn "wing segment $name references missing point id $ci"; continue)
-            haskey(raw_to_idx, cj) || (@warn "wing segment $name references missing point id $cj"; continue)
-            elem = get(wing_element_dict, name, Dict{Symbol,Any}())
-            l0 = haskey(elem, :l0) ? Float64(elem[:l0]) : norm(raw_points[findfirst(rp -> rp.raw_id == ci, raw_points)].pos .- raw_points[findfirst(rp -> rp.raw_id == cj, raw_points)].pos)
-            axial_stiffness = haskey(elem, :k) ? Float64(elem[:k]) : NaN
-            axial_damping   = haskey(elem, :c) ? Float64(elem[:c]) : NaN
-            diameter_mm = DEFAULT_WING_DIAMETER_MM
-            if haskey(elem, :d)
-                diameter_mm = Float64(elem[:d]) * 1000
+        for row in segment_rows
+            # Check if this is direct format (has 'id') or named format (has 'name')
+            if haskey(row, :id)
+                # Direct format: all properties specified inline
+                idx = Int(row.id)
+                point_i = Int(row.point_i)
+                point_j = Int(row.point_j)
+                seg_type = parse_segment_type(String(row.type))
+                l0 = Float64(row.l0)
+                diameter_mm = Float64(row.diameter_mm)
+                axial_stiffness = Float64(row.axial_stiffness)
+                axial_damping = Float64(row.axial_damping)
+                compression_frac = Float64(row.compression_frac)
+            elseif haskey(row, :name)
+                # Named format: look up properties from segment_properties
+                name = String(row.name)
+                point_i = Int(row.point_i)
+                point_j = Int(row.point_j)
+
+                if !haskey(segment_props_dict, name)
+                    error("Segment named '$name' not found in segment_properties")
+                end
+
+                props = segment_props_dict[name]
+                idx = segment_counter
+                seg_type = parse_segment_type(props[:type])
+                l0 = props[:l0]
+                diameter_mm = props[:diameter_mm]
+                axial_stiffness = props[:axial_stiffness]
+                axial_damping = props[:axial_damping]
+                compression_frac = props[:compression_frac]
+            else
+                error("Segment row must have either 'id' or 'name' field")
             end
+
             push!(segments, Segment(
-                length(segments) + 1,
+                idx,
                 set,
-                (raw_to_idx[ci], raw_to_idx[cj]),
-                POWER_LINE;
+                (point_i, point_j),
+                seg_type;
                 l0 = l0,
                 diameter_mm = diameter_mm,
                 axial_stiffness = axial_stiffness,
                 axial_damping = axial_damping,
-                compression_frac = 0.01
+                compression_frac = compression_frac
+            ))
+            segment_counter += 1
+        end
+    end
+
+    # Load pulleys
+    pulleys = Pulley[]
+    if haskey(data, "pulleys")
+        pulley_rows = parse_table(data["pulleys"])
+        for row in pulley_rows
+            idx = Int(row.id)
+            segment_i = Int(row.segment_i)
+            segment_j = Int(row.segment_j)
+            ptype = parse_dynamics_type(String(row.type))
+
+            push!(pulleys, Pulley(
+                idx,
+                (segment_i, segment_j),
+                ptype
             ))
         end
     end
 
-    # Bridle connections and pulleys
-    pulleys = Pulley[]
-    if haskey(data, "bridle_connections")
-        headers = Symbol.(String.(data["bridle_connections"]["headers"]))
-        for (row_idx, row) in enumerate(data["bridle_connections"]["data"])
-            section = Dict(zip(headers, row))
-            name = String(section[:name])
-            ci = Int(section[:ci])
-            cj = Int(section[:cj])
-            haskey(raw_to_idx, ci) || (@warn "bridle segment $name references missing point id $ci"; continue)
-            haskey(raw_to_idx, cj) || (@warn "bridle segment $name references missing point id $cj"; continue)
-            
-            # Check if this is a pulley (has ck column)
-            ck = haskey(section, :ck) ? Int(section[:ck]) : nothing
-            is_pulley = ck !== nothing
-            
-            if is_pulley
-                # This is a pulley connection: ci and cj are anchor points, ck is the pulley node
-                haskey(raw_to_idx, ck) || (@warn "pulley $name references missing point id $ck"; continue)
-                
-                # Create pulley with anchor points (ci, cj)
-                push!(pulleys, Pulley(
-                    length(pulleys) + 1,
-                    (raw_to_idx[ci], raw_to_idx[cj]),
-                    DYNAMIC
-                ))
-                
-                # Get element properties
-                elem = get(bridle_element_dict, name, nothing)
-                if elem === nothing
-                    @warn "No bridle element properties found for pulley $name. Skipping."
-                    continue
-                end
-                
-                # Get total rest length from element properties
-                total_l0 = Float64(elem[:l0])
-                diameter_mm = haskey(elem, :d) ? Float64(elem[:d]) * 1000 : NaN
-                diameter_m = haskey(elem, :d) ? Float64(elem[:d]) : NaN
-                
-                # Find raw points to calculate geometric distances
-                idx_ci = findfirst(rp -> rp.raw_id == ci, raw_points)
-                idx_cj = findfirst(rp -> rp.raw_id == cj, raw_points)
-                idx_ck = findfirst(rp -> rp.raw_id == ck, raw_points)
-                
-                if idx_ci === nothing || idx_cj === nothing || idx_ck === nothing
-                    @warn "Could not find raw points for pulley $name"
-                    continue
-                end
-                
-                pos_ci = raw_points[idx_ci].pos
-                pos_cj = raw_points[idx_cj].pos
-                pos_ck = raw_points[idx_ck].pos
-                
-                # Calculate straight-line distances (like Python version)
-                len_ci_cj = norm(pos_ci - pos_cj)
-                len_cj_ck = norm(pos_cj - pos_ck)
-                len_total = len_ci_cj + len_cj_ck
-                
-                # Proportionally divide rest length based on geometric distances
-                l0_ci_cj = (len_ci_cj / len_total) * total_l0
-                l0_cj_ck = (len_cj_ck / len_total) * total_l0
-                
-                # Get material properties
-                mat_name = haskey(elem, :material) ? String(elem[:material]) : ""
-                mat_props = get(material_props, mat_name, nothing)
-                
-                # Calculate stiffness and damping based on total length (like Python)
-                E = mat_props !== nothing ? get(mat_props, "youngs_modulus", NaN) : NaN
-                damping_frac = mat_props !== nothing ? get(mat_props, "damping_per_stiffness", 0.0) : 0.0
-                
-                if !isnan(E) && !isnan(diameter_m) && total_l0 > 0
-                    area = π * (diameter_m / 2)^2
-                    # Use total_l0 for stiffness calculation (Python approach)
-                    k_total = E * area / total_l0
-                    c_total = damping_frac * k_total
-                else
-                    k_total = NaN
-                    c_total = NaN
-                end
-                
-                # Add pulley mass to the pulley node
-                pulley_mass = get(data, "pulley_mass", 0.0)
-                pulley_idx = findfirst(rp -> rp.raw_id == cj, raw_points)
-                if pulley_idx !== nothing
-                    # Note: In the current structure, mass is set during Point creation
-                    # This would need to be handled differently if mass needs to be updated
-                end
-                
-                compression_frac = 0.0
-                if haskey(elem, :linktype)
-                    lt = lowercase(String(elem[:linktype]))
-                    compression_frac = lt == "noncompressive" ? 0.0 : 0.01
-                end
-                
-                # Create segment from ci to cj (first half of pulley)
-                push!(segments, Segment(
-                    length(segments) + 1,
-                    set,
-                    (raw_to_idx[ci], raw_to_idx[cj]),
-                    BRIDLE;
-                    l0 = l0_ci_cj,
-                    diameter_mm = diameter_mm,
-                    axial_stiffness = k_total,
-                    axial_damping = c_total,
-                    compression_frac = compression_frac
-                ))
-                
-                # Create segment from cj to ck (second half of pulley)
-                push!(segments, Segment(
-                    length(segments) + 1,
-                    set,
-                    (raw_to_idx[cj], raw_to_idx[ck]),
-                    BRIDLE;
-                    l0 = l0_cj_ck,
-                    diameter_mm = diameter_mm,
-                    axial_stiffness = k_total,
-                    axial_damping = c_total,
-                    compression_frac = compression_frac
-                ))
-            else
-                # Regular bridle segment (no pulley)
-                elem = get(bridle_element_dict, name, nothing)
-                if elem === nothing
-                    @warn "No bridle element properties found for segment $name (row $row_idx). Using defaults."
-                end
-                diameter_mm = elem !== nothing && haskey(elem, :d) ? Float64(elem[:d]) * 1000 : NaN
-                l0 = elem !== nothing && haskey(elem, :l0) ? Float64(elem[:l0]) : 0.0
-                axial_stiffness = NaN
-                axial_damping = NaN
-                if elem !== nothing
-                    mat_name = haskey(elem, :material) ? String(elem[:material]) : ""
-                    mat_props = get(material_props, mat_name, nothing)
-                    if mat_props !== nothing
-                        E = get(mat_props, "youngs_modulus", NaN)
-                        damping_frac = get(mat_props, "damping_per_stiffness", 0.0)
-                        diameter_m = haskey(elem, :d) ? Float64(elem[:d]) : NaN
-                        if !isnan(E) && !isnan(diameter_m) && l0 > 0
-                            area = π * (diameter_m / 2)^2
-                            axial_stiffness = E * area / l0
-                            axial_damping = damping_frac * axial_stiffness
-                        end
-                    end
-                end
-                compression_frac = 0.0
-                if elem !== nothing && haskey(elem, :linktype)
-                    lt = lowercase(String(elem[:linktype]))
-                    compression_frac = lt == "noncompressive" ? 0.0 : 0.01
-                end
-                push!(segments, Segment(
-                    length(segments) + 1,
-                    set,
-                    (raw_to_idx[ci], raw_to_idx[cj]),
-                    BRIDLE;
-                    l0 = l0,
-                    diameter_mm = diameter_mm,
-                    axial_stiffness = axial_stiffness,
-                    axial_damping = axial_damping,
-                    compression_frac = compression_frac
-                ))
-            end
-        end
+    # Load groups (optional, for deformable wings)
+    groups = Group[]
+    if haskey(data, "groups") && haskey(data["groups"], "data") && !isempty(data["groups"]["data"])
+        # Groups would be loaded here if defined
+        # This requires VSM wing instance and gamma values
+        @warn "Groups defined in YAML but loading not yet implemented"
     end
 
-    # No transforms needed - YAML coordinates are already in world frame
-    # The reinit!() function will handle empty transforms by setting pos_w = pos_cad
-    # This preserves the exact geometry specified in the YAML file without any rotation
+    # Load tethers (optional)
+    tethers = Tether[]
+    if haskey(data, "tethers") && haskey(data["tethers"], "data") && !isempty(data["tethers"]["data"])
+        # Tethers would be loaded here if defined
+        @warn "Tethers defined in YAML but loading not yet implemented"
+    end
+
+    # Load winches (optional)
+    winches = Winch[]
+    if haskey(data, "winches") && haskey(data["winches"], "data") && !isempty(data["winches"]["data"])
+        # Winches would be loaded here if defined
+        @warn "Winches defined in YAML but loading not yet implemented"
+    end
+
+    # Wings and transforms typically come from VSM and settings
+    wings = AbstractWing[]
     transforms = Transform[]
 
-    return SystemStructure(system_name, set; points, segments, pulleys, transforms)
+    return SystemStructure(system_name, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 end
