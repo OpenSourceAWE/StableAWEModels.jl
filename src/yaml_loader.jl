@@ -8,6 +8,81 @@ DEFAULT_WING_DIAMETER_MM = 1.0
 
 # ------------------ helpers ------------------
 
+"""
+    resolve_references(row::NamedTuple, property_tables::Dict{String, Dict{String, NamedTuple}})
+
+Resolve string references in a row by looking them up in property tables.
+If a field value is a String, check if it exists as a key in any property table.
+If found, merge those properties into the current row (current row takes precedence).
+"""
+function resolve_references(row::NamedTuple, property_tables::Dict{String, Dict{String, NamedTuple}})
+    resolved = Dict{Symbol, Any}(pairs(row))
+
+    for (field, value) in pairs(row)
+        # Check if this is a string reference (unquoted strings in YAML)
+        if value isa String
+            # Try to find this reference in any property table
+            for (table_name, lookup_dict) in property_tables
+                if haskey(lookup_dict, value)
+                    # Found! Merge these properties (current row takes precedence)
+                    ref_props = lookup_dict[value]
+                    for (k, v) in pairs(ref_props)
+                        if !haskey(resolved, k) || resolved[k] === nothing
+                            resolved[k] = v
+                        end
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    return NamedTuple(resolved)
+end
+
+"""
+    calculate_derived_properties!(props::Dict{Symbol, Any})
+
+Calculate derived properties like axial_stiffness and axial_damping from material properties.
+Modifies props in-place.
+"""
+function calculate_derived_properties!(props::Dict{Symbol, Any})
+    # Calculate axial_stiffness from material properties if missing or if it's a string (material name)
+    if haskey(props, :youngs_modulus) && haskey(props, :diameter_mm) && haskey(props, :l0)
+        # Check if we need to calculate (missing, nothing, or is a string reference)
+        need_calculation = !haskey(props, :axial_stiffness) ||
+                          props[:axial_stiffness] === nothing ||
+                          props[:axial_stiffness] isa String
+
+        if need_calculation
+            d_m = Float64(props[:diameter_mm]) / 1000.0  # mm to m
+            A = π * (d_m / 2)^2
+            E = Float64(props[:youngs_modulus])
+            l0 = Float64(props[:l0])
+            props[:axial_stiffness] = E * A / l0
+        end
+    end
+
+    # Calculate axial_damping from damping coefficient if missing or is a string
+    if haskey(props, :damping_per_stiffness) && haskey(props, :axial_stiffness)
+        # Only calculate if axial_stiffness is now a number
+        if props[:axial_stiffness] isa Number
+            need_damping_calc = !haskey(props, :axial_damping) ||
+                               props[:axial_damping] === nothing ||
+                               props[:axial_damping] isa String
+
+            if need_damping_calc
+                props[:axial_damping] = Float64(props[:damping_per_stiffness]) * Float64(props[:axial_stiffness])
+            end
+        end
+    end
+
+    # Set default axial_damping if still missing
+    if !haskey(props, :axial_damping) || props[:axial_damping] === nothing || props[:axial_damping] isa String
+        props[:axial_damping] = 0.0
+    end
+end
+
 function parse_table(tbl)::Vector{NamedTuple}
     haskey(tbl, "headers") || throw(ArgumentError("table is missing `headers`"))
     haskey(tbl, "data")    || throw(ArgumentError("table is missing `data`"))
@@ -114,21 +189,40 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     isempty(points) && error("No points found in YAML file $(yaml_path).")
 
-    # Load segment properties dictionary (if using named segments)
-    segment_props_dict = Dict{String,Dict{Symbol,Any}}()
+    # Build property tables for reference resolution
+    property_tables = Dict{String, Dict{String, NamedTuple}}()
+
+    # Load materials table
+    if haskey(data, "materials")
+        materials_dict = Dict{String, NamedTuple}()
+        material_rows = parse_table(data["materials"])
+        for row in material_rows
+            name = String(row.name)
+            materials_dict[name] = row
+        end
+        property_tables["materials"] = materials_dict
+    end
+
+    # Load elements table (old-style segment properties)
+    if haskey(data, "elements")
+        elements_dict = Dict{String, NamedTuple}()
+        element_rows = parse_table(data["elements"])
+        for row in element_rows
+            name = String(row.name)
+            elements_dict[name] = row
+        end
+        property_tables["elements"] = elements_dict
+    end
+
+    # Load segment_properties table (for backward compatibility)
     if haskey(data, "segment_properties")
+        segment_props_dict = Dict{String, NamedTuple}()
         prop_rows = parse_table(data["segment_properties"])
         for row in prop_rows
             name = String(row.name)
-            segment_props_dict[name] = Dict{Symbol,Any}(
-                :type => String(row.type),
-                :l0 => Float64(row.l0),
-                :diameter_mm => Float64(row.diameter_mm),
-                :axial_stiffness => Float64(row.axial_stiffness),
-                :axial_damping => Float64(row.axial_damping),
-                :compression_frac => Float64(row.compression_frac)
-            )
+            segment_props_dict[name] = row
         end
+        property_tables["segment_properties"] = segment_props_dict
     end
 
     # Load segments
@@ -137,36 +231,45 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         segment_rows = parse_table(data["segments"])
 
         for (i, row) in enumerate(segment_rows)
-            # Check if this is direct format (has 'id') or named format (has 'name')
-            if haskey(row, :id)
-                # Direct format: all properties specified inline
-                yaml_point_i = Int(row.point_i)
-                yaml_point_j = Int(row.point_j)
-                seg_type = parse_segment_type(String(row.type))
-                l0 = Float64(row.l0)
-                diameter_mm = Float64(row.diameter_mm)
-                axial_stiffness = Float64(row.axial_stiffness)
-                axial_damping = Float64(row.axial_damping)
-                compression_frac = Float64(row.compression_frac)
-            elseif haskey(row, :name)
-                # Named format: look up properties from segment_properties
-                name = String(row.name)
-                yaml_point_i = Int(row.point_i)
-                yaml_point_j = Int(row.point_j)
+            # Resolve any references in the row
+            resolved_row = resolve_references(row, property_tables)
 
-                if !haskey(segment_props_dict, name)
-                    error("Segment named '$name' not found in segment_properties")
+            # Convert to mutable dict for derived property calculation
+            props = Dict{Symbol, Any}(pairs(resolved_row))
+
+            # Smart detection: check if axial_stiffness is directly provided as a number
+            # or if we need to calculate it from material properties
+            if haskey(props, :axial_stiffness) && props[:axial_stiffness] isa Number
+                # Direct stiffness specified - use it as-is
+                axial_stiffness = Float64(props[:axial_stiffness])
+                # Check if damping is also provided, otherwise default to 0
+                if haskey(props, :axial_damping) && props[:axial_damping] !== nothing
+                    axial_damping = Float64(props[:axial_damping])
+                else
+                    axial_damping = 0.0
                 end
-
-                props = segment_props_dict[name]
-                seg_type = parse_segment_type(props[:type])
-                l0 = props[:l0]
-                diameter_mm = props[:diameter_mm]
-                axial_stiffness = props[:axial_stiffness]
-                axial_damping = props[:axial_damping]
-                compression_frac = props[:compression_frac]
             else
-                error("Segment row must have either 'id' or 'name' field")
+                # Material-based or needs calculation from material properties
+                calculate_derived_properties!(props)
+                if !haskey(props, :axial_stiffness) || props[:axial_stiffness] === nothing
+                    error("Segment $i: Unable to determine axial_stiffness. Either provide it directly or specify material properties.")
+                end
+                axial_stiffness = Float64(props[:axial_stiffness])
+                axial_damping = Float64(props[:axial_damping])
+            end
+
+            # Extract required fields
+            yaml_point_i = Int(props[:point_i])
+            yaml_point_j = Int(props[:point_j])
+            seg_type = parse_segment_type(String(props[:type]))
+            l0 = Float64(props[:l0])
+            diameter_mm = Float64(props[:diameter_mm])
+
+            # Handle compression_frac which might be in different positions
+            if haskey(props, :compression_frac) && props[:compression_frac] !== nothing
+                compression_frac = Float64(props[:compression_frac])
+            else
+                compression_frac = 0.0
             end
 
             # Map YAML point IDs to 1-based indices
