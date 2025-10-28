@@ -124,7 +124,7 @@ segments:
 
     # Bridle segments - left front lines (non-compressive)
     - [47, 2, 26, BRIDLE, 5.686, 5.0, 21598706.25, 0.0, 0.0]  # a6 first half (pulley)
-    - [48, 26, 34, BRIDLE, 5.686, 5.0, 21598706.25, 0.0, 0.0] # a6 second half (pulley)
+    - [48, 2, 34, BRIDLE, 5.686, 5.0, 21598706.25, 0.0, 0.0] # a6 second half (pulley)
     - [49, 4, 22, BRIDLE, 2.782, 5.0, 21598706.25, 0.0, 0.0]  # A5
     - [50, 6, 22, BRIDLE, 3.253, 5.0, 21598706.25, 0.0, 0.0]  # A3
     - [51, 8, 23, BRIDLE, 3.352, 5.0, 21598706.25, 0.0, 0.0]  # A2

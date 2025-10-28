@@ -253,7 +253,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 points[idx] = Point(
                     points[idx].idx,
                     points[idx].pos_cad,
-                    DYNAMIC;
+                    STATIC;
                     mass = points[idx].mass,
                     body_frame_damping = points[idx].body_frame_damping,
                     world_frame_damping = points[idx].world_frame_damping,

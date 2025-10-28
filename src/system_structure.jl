@@ -1327,14 +1327,16 @@ function reinit!(sys_struct::SystemStructure, set::Settings)
     end
 
     for segment in segments
-        (segment.l0 ≈ 0) && (segment.l0 = norm(points[segment.point_idxs[1]].pos_cad - points[segment.point_idxs[2]].pos_cad))
+        len = norm(points[segment.point_idxs[1]].pos_cad - points[segment.point_idxs[2]].pos_cad)
+        (segment.l0 ≈ 0) && (segment.l0 = len)
+        segment.len = len
         @assert (segment.l0 > 0)
     end
 
     for pulley in pulleys
         segment1, segment2 = segments[pulley.segment_idxs[1]], segments[pulley.segment_idxs[2]]
         pulley.sum_len = segment1.l0 + segment2.l0
-        pulley.len = segment1.l0
+        pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len
         pulley.vel = 0.0
         @assert !(pulley.sum_len ≈ 0)
     end

@@ -20,8 +20,8 @@ using GLMakie
 # ============= User settings =============
 const MODEL_NAME = "v3"
 const GEOM_PATH  = joinpath("data", MODEL_NAME, "system_structure.yaml")
-const SIM_TIME   = 10.0
-const N_STEPS    = 600
+const SIM_TIME   = 0.1
+const N_STEPS    = 100
 const REMAKE_CACHE = false
 # =========================================
 
@@ -44,6 +44,7 @@ end
 # which loads both structural (struc_geometry.yaml) and aerodynamic (aero_geometry.yaml) data
 @info "Creating 2-plate kite system structure..."
 sys = SymbolicAWEModels.SystemStructure(set)
+[point.world_frame_damping = 0.1 for point in sys.points]
 segment_props = [(idx=seg.idx, k=seg.axial_stiffness, c=seg.axial_damping, d=seg.diameter) for seg in sys.segments]
 @info "Segment mechanical properties" segment_props
 
@@ -54,7 +55,7 @@ segment_props = [(idx=seg.idx, k=seg.axial_stiffness, c=seg.axial_damping, d=seg
 sam = SymbolicAWEModel(set, sys)
 
 # Test with head-on wind
-set.upwind_dir = -90.0  
+set.upwind_dir = -90.0
 
 # Calculate wind vector components in X,Y,Z
 upwind_rad = deg2rad(set.upwind_dir)
@@ -64,7 +65,7 @@ wind_elev_rad = deg2rad(wind_elev)
 
 # Print wind settings with vector components
 @info "Wind Configuration:" wind_speed=set.v_wind upwind_dir=set.upwind_dir wind_elevation=wind_elev
-@info "  → Wind direction: $(set.upwind_dir)° (0° = North/head-on, -90° = East, 90° = West, 180° = South)"
+@info "  → Wind direction: $(set.upwind_dir)° (0° = North, 90° = East, 180° = South, -90° = West)"
 @info "  → Wind speed: $(set.v_wind) m/s at reference height $(set.h_ref) m"
 
 # Initialize the model
