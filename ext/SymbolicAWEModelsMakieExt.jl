@@ -24,7 +24,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 0.2,
                      show_points = true, show_segments = true, show_orient = true,
-                     show_panes = true, margin = 10.0,
+                     show_panes = true, margin = 10.0, force_color = false,
                      # Optional observables for real-time updates
                      segment_points_obs = nothing,
                      point_positions_obs = nothing,
@@ -51,10 +51,31 @@ function Makie.plot!(ax, sys::SystemStructure;
         end
 
         num_segments = length(sys.segments)
-        seg_colors = Observable(fill(to_color(segment_color), num_segments))
+
+        # Calculate segment colors based on force if requested
+        if force_color
+            forces = [seg.force for seg in sys.segments]
+            max_force = maximum(forces)
+            min_force = minimum(forces)
+            force_range = max_force - min_force
+
+            # Map forces to colors: green (low) -> red (high)
+            seg_colors = Observable([begin
+                if force_range > 0
+                    normalized_force = (seg.force - min_force) / force_range
+                    # Interpolate from green (0,1,0) to red (1,0,0)
+                    RGBAf(normalized_force, 1.0 - normalized_force, 0.0, 1.0)
+                else
+                    to_color(segment_color)
+                end
+            end for seg in sys.segments])
+        else
+            seg_colors = Observable(fill(to_color(segment_color), num_segments))
+        end
 
         plots[:segments] = linesegments!(ax, lineseg_points, color=seg_colors,
                                          linewidth=2, label="Segments", transparency=true)
+        plots[:segment_colors_obs] = seg_colors
     end
 
     # === Plot Points ===
@@ -169,7 +190,9 @@ end
 """
     SymbolicAWEModels.update_plot_observables!(segment_points_obs, point_positions_obs,
                                                wing_origins_obs, wing_directions_obs,
-                                               sys::SystemStructure; vector_scale=0.2)
+                                               sys::SystemStructure; vector_scale=0.2,
+                                               segment_colors_obs=nothing, force_color=false,
+                                               segment_color=:black)
 
 Update Observable objects for real-time 3D visualization from a SystemStructure.
 
@@ -186,6 +209,9 @@ trigger automatic updates in any Makie plots that use them.
 
 # Keyword Arguments
 - `vector_scale::Real=0.2`: Scale factor for wing orientation arrows
+- `segment_colors_obs::Union{Observable,Nothing}=nothing`: Observable for segment colors
+- `force_color::Bool=false`: Whether to color segments by force
+- `segment_color=:black`: Default color for segments when force_color is false
 
 # Example
 ```julia
@@ -194,22 +220,26 @@ seg_obs = Observable(Point3f[])
 pts_obs = Observable(Point3f[])
 orig_obs = Observable(Point3f[])
 dir_obs = Observable(Vec3f[])
+seg_colors_obs = Observable(RGBAf[])
 
 # Create plot with observables
 scene = plot(sys_struct; segment_points_obs=seg_obs, point_positions_obs=pts_obs,
-             wing_origins_obs=orig_obs, wing_directions_obs=dir_obs)
+             wing_origins_obs=orig_obs, wing_directions_obs=dir_obs, force_color=true)
 
 # In simulation loop:
 for step in 1:steps
     next_step!(sam; ...)
-    update_plot_observables!(seg_obs, pts_obs, orig_obs, dir_obs, sam.sys_struct)
+    update_plot_observables!(seg_obs, pts_obs, orig_obs, dir_obs, sam.sys_struct;
+                            segment_colors_obs=seg_colors_obs, force_color=true)
     sleep(0.001)  # Allow Makie to process updates
 end
 ```
 """
 function SymbolicAWEModels.update_plot_observables!(segment_points_obs, point_positions_obs,
                                                      wing_origins_obs, wing_directions_obs,
-                                                     sys::SystemStructure; vector_scale=0.2)
+                                                     sys::SystemStructure; vector_scale=0.2,
+                                                     segment_colors_obs=nothing, force_color=false,
+                                                     segment_color=:black)
     # Update point positions
     if !isnothing(point_positions_obs)
         point_positions_obs[] = [Point3f(p.pos_w) for p in sys.points]
@@ -225,6 +255,24 @@ function SymbolicAWEModels.update_plot_observables!(segment_points_obs, point_po
             push!(seg_points, Point3f(p2))
         end
         segment_points_obs[] = seg_points
+    end
+
+    # Update segment colors if force_color is enabled
+    if !isnothing(segment_colors_obs) && force_color
+        forces = [seg.force for seg in sys.segments]
+        max_force = maximum(forces)
+        min_force = minimum(forces)
+        force_range = max_force - min_force
+
+        new_colors = [begin
+            if force_range > 0
+                normalized_force = (seg.force - min_force) / force_range
+                RGBAf(normalized_force, 1.0 - normalized_force, 0.0, 1.0)
+            else
+                to_color(segment_color)
+            end
+        end for seg in sys.segments]
+        segment_colors_obs[] = new_colors
     end
 
     # Update wing orientations
@@ -510,10 +558,11 @@ function _plot_with_panes(sys::SystemStructure;
                     relmargin = 0.2,
                     segment_color = :black,
                     highlight_color = :red,
+                    force_color = false,
                     kwargs...)
     # Use LScene for advanced camera controls
     scene = Scene(; camera=cam3d!, show_axis = false, size, zoommode = :free, samples = 16)
-    plots = plot!(scene, sys; segment_color, margin, kwargs...)
+    plots = plot!(scene, sys; segment_color, margin, force_color, kwargs...)
     
     relevant_plots = AbstractPlot[]
     if haskey(plots, :segments)
@@ -588,7 +637,26 @@ function _plot_with_panes(sys::SystemStructure;
             hover_idx = (min_dist < margin_px) ? closest_seg_idx : -1
             if hover_idx != last_hovered_idx[]
                 num_segments = length(sys.segments)
-                new_colors = fill(to_color(segment_color), num_segments)
+
+                # Calculate base colors (either force-based or uniform)
+                if force_color
+                    forces = [seg.force for seg in sys.segments]
+                    max_force = maximum(forces)
+                    min_force = minimum(forces)
+                    force_range = max_force - min_force
+
+                    new_colors = [begin
+                        if force_range > 0
+                            normalized_force = (seg.force - min_force) / force_range
+                            RGBAf(normalized_force, 1.0 - normalized_force, 0.0, 1.0)
+                        else
+                            to_color(segment_color)
+                        end
+                    end for seg in sys.segments]
+                else
+                    new_colors = fill(to_color(segment_color), num_segments)
+                end
+
                 if hover_idx != -1
                     seg = sys.segments[hover_idx]
                     p1_3d = sys.points[seg.point_idxs[1]].pos_w
@@ -728,14 +796,14 @@ function _plot_with_panes(sys::SystemStructure;
     update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
     zoom_out!(scene, scene.camera, relevant_plots; relmargin)
 
-    # Return scene along with pane_observables and margin
+    # Return scene along with pane_observables, margin, and plots dict
     # These will be used by time-based plotting
-    return scene, pane_observables, margin
+    return scene, pane_observables, margin, plots
 end
 
 # Public API function - returns just the scene for backward compatibility
 function Makie.plot(sys::SystemStructure; kwargs...)
-    scene, _, _ = _plot_with_panes(sys; kwargs...)
+    scene, _, _, _ = _plot_with_panes(sys; kwargs...)
     return scene
 end
 
@@ -808,6 +876,8 @@ end
 function Makie.plot(sys::SystemStructure, time::Real;
                     vector_scale=0.2,
                     reset_on_zero=true,
+                    force_color=false,
+                    segment_color=:black,
                     kwargs...)
     # Helper function to create new plot
     function create_new_plot()
@@ -824,22 +894,33 @@ function Makie.plot(sys::SystemStructure, time::Real;
             sys; vector_scale
         )
 
-        # Store observables globally for reuse
-        PLOT_OBSERVABLES[] = (
-            segment_points_obs = segment_points_obs,
-            point_positions_obs = point_positions_obs,
-            wing_origins_obs = wing_origins_obs,
-            wing_directions_obs = wing_directions_obs
-        )
-
         # Create scene with observables using internal function
-        scene, pane_observables, margin = _plot_with_panes(sys;
+        scene, pane_observables, margin, plots = _plot_with_panes(sys;
                     segment_points_obs,
                     point_positions_obs,
                     wing_origins_obs,
                     wing_directions_obs,
                     vector_scale,
+                    force_color,
+                    segment_color,
                     kwargs...)
+
+        # Get the segment colors observable from the plots if available
+        segment_colors_obs = nothing
+        if haskey(plots, :segment_colors_obs)
+            segment_colors_obs = plots[:segment_colors_obs]
+        end
+
+        # Store observables globally for reuse
+        PLOT_OBSERVABLES[] = (
+            segment_points_obs = segment_points_obs,
+            point_positions_obs = point_positions_obs,
+            wing_origins_obs = wing_origins_obs,
+            wing_directions_obs = wing_directions_obs,
+            segment_colors_obs = segment_colors_obs,
+            force_color = force_color,
+            segment_color = segment_color
+        )
 
         # Store scene, time text, and pane observables globally
         PLOT_SCENE[] = scene
@@ -891,7 +972,10 @@ function Makie.plot(sys::SystemStructure, time::Real;
                 update_plot_observables!(
                     obs.segment_points_obs, obs.point_positions_obs,
                     obs.wing_origins_obs, obs.wing_directions_obs,
-                    sys; vector_scale
+                    sys; vector_scale,
+                    segment_colors_obs=obs.segment_colors_obs,
+                    force_color=obs.force_color,
+                    segment_color=obs.segment_color
                 )
 
                 # Update background panes - pane limits are now handled in plot!() when creating
