@@ -20,8 +20,8 @@ using GLMakie
 # ============= User settings =============
 const MODEL_NAME = "v3"
 const GEOM_PATH  = joinpath("data", MODEL_NAME, "system_structure.yaml")
-const SIM_TIME   = 0.1
-const N_STEPS    = 100
+const SIM_TIME   = 10.0
+const N_STEPS    = 1000
 const REMAKE_CACHE = false
 # =========================================
 
