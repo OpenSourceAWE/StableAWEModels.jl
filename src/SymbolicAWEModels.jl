@@ -95,6 +95,7 @@ export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
 export replay
+export record
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -129,6 +130,7 @@ function plot! end
 function update_plot_observables! end
 function animate end
 function replay end
+function record end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")
@@ -145,7 +147,6 @@ include("predefined_structures.jl")
 include("tether_properties.jl")
 include("linearize.jl")
 include("generate_system.jl")
-# include("plot_recipe.jl")  # TODO: Convert to Makie extension or remove (uses old Plots.jl)
 include("simulate.jl")
 
 function upwind_dir(v_wind_gnd)

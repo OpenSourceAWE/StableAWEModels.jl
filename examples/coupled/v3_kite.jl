@@ -1,10 +1,10 @@
-# Copyright (c) 2025 2-Plate Kite Coupled Simulation
+# Copyright (c) 2025 Jelle Poland, Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
 """
-2-Plate Kite Coupled Aerodynamic-Structural Simulation
+TU Delft V3 Kite Coupled Aerodynamic-Structural Simulation
 
-This example loads the 2-plate kite model with aerodynamics and runs
+This example loads the v3 kite model with aerodynamics and runs
 a time-marching simulation with coupled aerodynamic-structural updates.
 """
 
@@ -15,7 +15,7 @@ using Statistics
 using YAML
 using GLMakie
 
-@info "Loading 2-plate kite model..."
+@info "Loading v3 kite model..."
 
 # ============= User settings =============
 const MODEL_NAME = "v3"
@@ -33,7 +33,7 @@ else
     @warn "yaml_loader.jl not found; expecting load_sys_struct_from_yaml to be available"
 end
 
-# Load settings for the 2-plate kite
+# Load settings for the v3 kite
 set = Settings(joinpath("data", MODEL_NAME, "system.yaml"))
 if hasproperty(set, :c_spring) || hasproperty(set, :damping)
     @info "Legacy tether settings still present" c_spring=(hasproperty(set, :c_spring) ? getproperty(set, :c_spring) : missing) damping=(hasproperty(set, :damping) ? getproperty(set, :damping) : missing)
@@ -42,7 +42,7 @@ end
 
 # The SystemStructure factory will now call create_v3_sys_struct()
 # which loads both structural (struc_geometry.yaml) and aerodynamic (aero_geometry.yaml) data
-@info "Creating 2-plate kite system structure..."
+@info "Creating v3 kite system structure..."
 sys = SymbolicAWEModels.SystemStructure(set)
 [point.world_frame_damping = 0.1 for point in sys.points]
 segment_props = [(idx=seg.idx, k=seg.axial_stiffness, c=seg.axial_damping, d=seg.diameter) for seg in sys.segments]
@@ -50,7 +50,7 @@ segment_props = [(idx=seg.idx, k=seg.axial_stiffness, c=seg.axial_damping, d=seg
 
 @info "System loaded with $(length(sys.points)) points, $(length(sys.segments)) segments, $(length(sys.wings)) wings"
 
-# Create symbolic model with the 2-plate system
+# Create symbolic model with the v3 system
 @info "Creating SymbolicAWEModel with aerodynamics..."
 sam = SymbolicAWEModel(set, sys)
 
@@ -84,10 +84,10 @@ sys_state = SysState(sam)
 sys_state.time = 0.0
 log!(logger, sys_state)
 
-## Plot initial state
-@info "Plotting initial state..."
-fig = plot(sam.sys_struct)
-display(fig)
+## Plot initial state (user must display if desired)
+@info "Creating initial plot..."
+scene = plot(sam.sys_struct)
+display(scene)
 
 # Time-marching loop with coupled aerodynamics
 @info "Starting time-marching simulation with coupled aerodynamics..."
@@ -120,6 +120,7 @@ end
 save_log(logger, "tmp_run")
 syslog = load_log("tmp_run")
 scene = replay(syslog, sam.sys_struct; autoplay=false, loop=true)
+display(scene)
 
 @info "Replay viewer created! Use the slider to step through time, or press Play to replay."
 

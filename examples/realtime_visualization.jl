@@ -5,17 +5,17 @@
 Real-Time 3D Visualization Example with Keyboard Control
 
 This example demonstrates how to create a custom simulation loop with real-time
-3D visualization and interactive keyboard control using the time-based plot() API.
+3D visualization and interactive keyboard control using Makie's plot/plot! API.
 
 Key features:
-- Real-time 3D updates using plot(sys_struct, time)
+- Real-time 3D updates using plot!(sys_struct) to mutate observables
 - Interactive keyboard control: Arrow keys for steering
   - Left Arrow:  Turn left   [0.0, -mag, mag]
   - Right Arrow: Turn right  [0.0, mag, -mag]
   - Down Arrow:  Power       [0.0, -mag, -mag]
   - Up Arrow:    Depower     [0.0, mag, mag]
   - ESC:         Stop simulation
-- Automatic time display and background pane updates
+- Automatic background pane updates
 - Proper sleep timing to maintain real-time speed
 - Interactive camera control during simulation (hover, click-to-zoom)
 - Configurable visualization frame rate
@@ -68,9 +68,10 @@ num_winches = length(sys_struct.winches)
 
 println("Creating 3D visualization window...")
 
-# Create initial 3D plot using time-based API (time=0.0)
-# This automatically creates observables and sets up the scene
-scene = plot(sys_struct, 0.0; vector_scale, size=(1400, 900))
+# Create initial 3D plot with observables (following standard Makie pattern)
+# plot() creates the scene and sets up observables for later updates via plot!()
+scene = plot(sys_struct; vector_scale, size=(1400, 900))
+display(scene)
 
 # Add progress text overlay and keyboard instructions
 progress_text = Observable("Progress: 0%")
@@ -199,10 +200,9 @@ for step in 1:steps
 
     # Update visualization
     if step % plot_interval == 0
-        # Update plot using time-based API
-        # This automatically updates observables, time display, and background panes
-        plot(sys_struct, t; vector_scale)
-        display(scene)
+        # Update plot using mutating API (following standard Makie pattern)
+        # plot!() updates observables and background panes
+        plot!(sys_struct; vector_scale)
 
         # Update progress text overlay
         progress_text[] = @sprintf("Progress: %d%%", round(Int, 100 * step / steps))
