@@ -654,14 +654,19 @@ mutable struct VSMWing <: AbstractWing
     const point_to_panels::Union{Nothing, Dict{Int16, Vector{Tuple{Int16, Float64}}}}
     const wing_segments::Union{Nothing, Vector{Tuple{Int16, Int16}}}  # [(le_point_idx, te_point_idx), ...]
 
-    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments)
-        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments)
+    # Orientation reference points for REFINE wings (Nothing for QUATERNION wings)
+    # Used to calculate R_b_w from structural deformation
+    const x_ref_points::Union{Nothing, Tuple{Int16, Int16}}  # Two points defining X (chord/forward) direction
+    const y_ref_points::Union{Nothing, Tuple{Int16, Int16}}  # Two points defining Y (span) direction
+
+    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments, x_ref_points, y_ref_points)
+        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments, x_ref_points, y_ref_points)
     end
 end
 
 # Delegate property access to base wing for VSMWing
 function Base.getproperty(wing::VSMWing, sym::Symbol)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments, :x_ref_points, :y_ref_points)
         return getfield(wing, sym)
     else
         return getproperty(getfield(wing, :base), sym)
@@ -669,7 +674,7 @@ function Base.getproperty(wing::VSMWing, sym::Symbol)
 end
 
 function Base.setproperty!(wing::VSMWing, sym::Symbol, value)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments, :x_ref_points, :y_ref_points)
         setfield!(wing, sym, value)
     else
         setproperty!(getfield(wing, :base), sym, value)
@@ -744,16 +749,22 @@ function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
                  transform_idx=1, y_damping=150.0, inertia_diag=nothing,
                  wing_type::WingType=QUATERNION,
                  point_to_panels::Union{Nothing, Dict{Int16, Vector{Tuple{Int16, Float64}}}}=nothing,
-                 wing_segments::Union{Nothing, Vector{Tuple{Int16, Int16}}}=nothing)
+                 wing_segments::Union{Nothing, Vector{Tuple{Int16, Int16}}}=nothing,
+                 x_ref_points::Union{Nothing, Tuple{Int16, Int16}}=nothing,
+                 y_ref_points::Union{Nothing, Tuple{Int16, Int16}}=nothing)
 
     # Validation
     if wing_type == REFINE
         @assert length(group_idxs) == 0 "REFINE wings cannot have groups"
         @assert !isnothing(point_to_panels) "REFINE wings require point_to_panels mapping"
         @assert !isnothing(wing_segments) "REFINE wings require wing_segments (LE/TE pairs)"
+        @assert !isnothing(x_ref_points) "REFINE wings require x_ref_points for orientation tracking"
+        @assert !isnothing(y_ref_points) "REFINE wings require y_ref_points for orientation tracking"
     else
         @assert isnothing(point_to_panels) "QUATERNION wings should not have point_to_panels"
         @assert isnothing(wing_segments) "QUATERNION wings should not have wing_segments"
+        @assert isnothing(x_ref_points) "QUATERNION wings should not have x_ref_points"
+        @assert isnothing(y_ref_points) "QUATERNION wings should not have y_ref_points"
     end
 
     # Compute inertia principal from vsm_wing
@@ -778,7 +789,7 @@ function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
 
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
                    zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny),
-                   point_to_panels, wing_segments)
+                   point_to_panels, wing_segments, x_ref_points, y_ref_points)
 end
 
 """

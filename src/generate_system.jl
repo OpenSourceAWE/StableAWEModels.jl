@@ -871,7 +871,7 @@ function force_eqs!(
 
     # Return aero_force_point_b if REFINE wings exist, otherwise nothing
     aero_force_point_b_ret = has_refine_wings ? aero_force_point_b : nothing
-    return eqs, defaults, guesses, tether_wing_force, tether_wing_moment, aero_force_point_b_ret
+    return eqs, defaults, guesses, tether_wing_force, tether_wing_moment, aero_force_point_b_ret, pos, vel, acc
 end
 
 """
@@ -895,7 +895,8 @@ This function builds the equations for:
 function wing_eqs!(
     s, eqs, psys, pset, defaults;
     tether_wing_force, tether_wing_moment, aero_force_b,
-    aero_moment_b, ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing
+    aero_moment_b, ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing,
+    pos, vel, acc
 )
     wings = s.sys_struct.wings
 
@@ -930,8 +931,49 @@ function wing_eqs!(
     ]
 
     for wing in wings
-        # Skip REFINE wings - they don't have rigid body dynamics
+        # REFINE wings don't have rigid body dynamics, but we can calculate their
+        # orientation and position from structural point positions
         if wing.wing_type == REFINE
+            # Calculate R_b_w from reference points defining X and Y directions
+            # X direction: chord/forward (from two points along chord)
+            # Y direction: span (from two points across span)
+            # Z = X × Y, then Y = Z × X for orthonormality
+
+            x_p1, x_p2 = wing.x_ref_points  # Point indices defining X direction
+            y_p1, y_p2 = wing.y_ref_points  # Point indices defining Y direction
+
+            # Calculate wing position as centroid of all WING-type points for this wing
+            wing_point_idxs = [p.idx for p in s.sys_struct.points if p.type == WING && p.wing_idx == wing.idx]
+            n_wing_points = length(wing_point_idxs)
+
+            # Build sum manually for symbolic arrays
+            pos_sum = zeros(Num, 3)
+            vel_sum = zeros(Num, 3)
+            acc_sum = zeros(Num, 3)
+            for idx in wing_point_idxs
+                pos_sum .+= pos[:, idx]
+                vel_sum .+= vel[:, idx]
+                acc_sum .+= acc[:, idx]
+            end
+
+            eqs = [
+                eqs
+                # Calculate orientation from reference segments
+                wing_pos[wing.idx, :] ~ pos_sum / n_wing_points
+                wing_vel[wing.idx, :] ~ vel_sum / n_wing_points
+                wing_acc[wing.idx, :] ~ acc_sum / n_wing_points
+
+                # Build rotation matrix from structural geometry
+                # X direction (normalized)
+                vec(R_b_w[wing.idx, :, 1]) .~ sym_normalize(pos[:, x_p2] - pos[:, x_p1])
+                # Y temp direction (not necessarily orthogonal yet)
+                # Z = X × Y_temp (normal to wing plane)
+                vec(R_b_w[wing.idx, :, 3]) .~ sym_normalize(
+                    R_b_w[wing.idx, :, 1] × sym_normalize(pos[:, y_p2] - pos[:, y_p1])
+                )
+                # Y = Z × X (ensure orthogonality)
+                vec(R_b_w[wing.idx, :, 2]) .~ R_b_w[wing.idx, :, 3] × R_b_w[wing.idx, :, 1]
+            ]
             continue
         end
 
@@ -1159,20 +1201,41 @@ function scalar_eqs!(
             rotate_around_z(rotate_around_x([0, -1, 0], wind_elevation), -upwind_dir)
     ]
     for wing in wings
-        eqs = [
-            eqs
-            e_x[wing.idx, :] ~ R_b_w[wing.idx, :, 1]
-            e_y[wing.idx, :] ~ R_b_w[wing.idx, :, 2]
-            e_z[wing.idx, :] ~ R_b_w[wing.idx, :, 3]
-            wind_vel_wing[wing.idx, :] ~
-                calc_wind_factor(s.am, max(wing_pos[wing.idx, 3], 1.0), pset) *
-                wind_vec_gnd
-            wind_disturb[wing.idx, :] ~ get_wind_disturb(psys, wing.idx)
-            va_wing[wing.idx, :] ~
-                wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :] +
-                wind_disturb[wing.idx, :]
-            va_wing_b[wing.idx, :] ~ R_b_w[wing.idx, :, :]' * va_wing[wing.idx, :]
-        ]
+        # REFINE wings now have R_b_w, wing_pos, wing_vel calculated from structural geometry
+        # But they don't have ω_b, α_b (no rotational dynamics)
+        if wing.wing_type == REFINE
+            # Extract basis vectors from calculated R_b_w
+            # Calculate wind at wing centroid position
+            eqs = [
+                eqs
+                e_x[wing.idx, :] ~ R_b_w[wing.idx, :, 1]
+                e_y[wing.idx, :] ~ R_b_w[wing.idx, :, 2]
+                e_z[wing.idx, :] ~ R_b_w[wing.idx, :, 3]
+                wind_vel_wing[wing.idx, :] ~
+                    calc_wind_factor(s.am, max(wing_pos[wing.idx, 3], 1.0), pset) *
+                    wind_vec_gnd
+                wind_disturb[wing.idx, :] ~ get_wind_disturb(psys, wing.idx)
+                va_wing[wing.idx, :] ~
+                    wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :] +
+                    wind_disturb[wing.idx, :]
+                va_wing_b[wing.idx, :] ~ R_b_w[wing.idx, :, :]' * va_wing[wing.idx, :]
+            ]
+        else
+            eqs = [
+                eqs
+                e_x[wing.idx, :] ~ R_b_w[wing.idx, :, 1]
+                e_y[wing.idx, :] ~ R_b_w[wing.idx, :, 2]
+                e_z[wing.idx, :] ~ R_b_w[wing.idx, :, 3]
+                wind_vel_wing[wing.idx, :] ~
+                    calc_wind_factor(s.am, max(wing_pos[wing.idx, 3], 1.0), pset) *
+                    wind_vec_gnd
+                wind_disturb[wing.idx, :] ~ get_wind_disturb(psys, wing.idx)
+                va_wing[wing.idx, :] ~
+                    wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :] +
+                    wind_disturb[wing.idx, :]
+                va_wing_b[wing.idx, :] ~ R_b_w[wing.idx, :, :]' * va_wing[wing.idx, :]
+            ]
+        end
     end
     @variables begin
         # Kinematic quantities
@@ -1194,51 +1257,92 @@ function scalar_eqs!(
     end
 
     for wing in wings
-        x, y, z = wing_pos[wing.idx, :]
-        has_groups = !isempty(wing.group_idxs)
-        if has_groups
-            half_len = wing.group_idxs[1] + length(wing.group_idxs) ÷ 2 - 1
+        # REFINE wings have wing_pos, wing_vel, wing_acc, R_b_w from structural geometry
+        # But they don't have ω_b, α_b (no rotational dynamics)
+        if wing.wing_type == REFINE
+            x, y, z = wing_pos[wing.idx, :]
+            eqs = [
+                eqs
+                vec(R_v_w[wing.idx, :, :]) .~
+                    vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
+                vec(R_t_w[wing.idx, :, :]) .~
+                    vec(sym_calc_R_t_w(wing_pos[wing.idx, :]))
+                heading[wing.idx] ~
+                    calc_heading(R_t_w[wing.idx, :, :], R_v_w[wing.idx, :, :])
+                # Rotational quantities are zero (no rigid body rotation)
+                turn_rate[wing.idx, :] ~ zeros(3)
+                turn_acc[wing.idx, :] ~ zeros(3)
+                # Translational kinematics use actual centroid motion
+                distance[wing.idx] ~ norm(wing_pos[wing.idx, :])
+                distance_vel[wing.idx] ~
+                    wing_vel[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
+                distance_acc[wing.idx] ~
+                    wing_acc[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
+                elevation[wing.idx] ~ KiteUtils.calc_elevation(wing_pos[wing.idx, :])
+                elevation_vel[wing.idx] ~
+                    dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 1]) /
+                    distance[wing.idx]
+                elevation_acc[wing.idx] ~
+                    dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 1]) /
+                    distance[wing.idx]
+                azimuth[wing.idx] ~ KiteUtils.azimuth_east(wing_pos[wing.idx, :])
+                azimuth_vel[wing.idx] ~
+                    dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
+                azimuth_acc[wing.idx] ~
+                    dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
+                course[wing.idx] ~
+                    atan(-azimuth_vel[wing.idx], elevation_vel[wing.idx])
+                # Angle of attack from apparent wind
+                angle_of_attack[wing.idx] ~
+                    calc_angle_of_attack(va_wing_b[wing.idx, :])
+            ]
+        else
+            x, y, z = wing_pos[wing.idx, :]
+            has_groups = !isempty(wing.group_idxs)
+            if has_groups
+                half_len = wing.group_idxs[1] + length(wing.group_idxs) ÷ 2 - 1
+            end
+
+            eqs = [
+                eqs
+                vec(R_v_w[wing.idx, :, :]) .~
+                    vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
+                vec(R_t_w[wing.idx, :, :]) .~
+                    vec(sym_calc_R_t_w(wing_pos[wing.idx, :]))
+                heading[wing.idx] ~
+                    calc_heading(R_t_w[wing.idx, :, :], R_v_w[wing.idx, :, :])
+                turn_rate[wing.idx, :] ~
+                    R_v_w[wing.idx, :, :]' *
+                    (R_b_w[wing.idx, :, :] * ω_b[wing.idx, :])
+                turn_acc[wing.idx, :] ~
+                    R_v_w[wing.idx, :, :]' *
+                    (R_b_w[wing.idx, :, :] * α_b[wing.idx, :])
+                distance[wing.idx] ~ norm(wing_pos[wing.idx, :])
+                distance_vel[wing.idx] ~
+                    wing_vel[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
+                distance_acc[wing.idx] ~
+                    wing_acc[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
+
+                elevation[wing.idx] ~ KiteUtils.calc_elevation(wing_pos[wing.idx, :])
+                elevation_vel[wing.idx] ~
+                    dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 1]) /
+                    distance[wing.idx]
+                elevation_acc[wing.idx] ~
+                    dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 1]) /
+                    distance[wing.idx]
+                azimuth[wing.idx] ~ KiteUtils.azimuth_east(wing_pos[wing.idx, :])
+                azimuth_vel[wing.idx] ~
+                    dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
+                azimuth_acc[wing.idx] ~
+                    dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
+                course[wing.idx] ~
+                    atan(-azimuth_vel[wing.idx], elevation_vel[wing.idx])
+
+                angle_of_attack[wing.idx] ~
+                    calc_angle_of_attack(va_wing_b[wing.idx, :]) +
+                    (has_groups ? 0.5 * twist_angle[half_len] + 0.5 * twist_angle[half_len + 1] : 0)
+            ]
         end
-
-        eqs = [
-            eqs
-            vec(R_v_w[wing.idx, :, :]) .~
-                vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
-            vec(R_t_w[wing.idx, :, :]) .~
-                vec(sym_calc_R_t_w(wing_pos[wing.idx, :]))
-            heading[wing.idx] ~
-                calc_heading(R_t_w[wing.idx, :, :], R_v_w[wing.idx, :, :])
-            turn_rate[wing.idx, :] ~
-                R_v_w[wing.idx, :, :]' *
-                (R_b_w[wing.idx, :, :] * ω_b[wing.idx, :])
-            turn_acc[wing.idx, :] ~
-                R_v_w[wing.idx, :, :]' *
-                (R_b_w[wing.idx, :, :] * α_b[wing.idx, :])
-            distance[wing.idx] ~ norm(wing_pos[wing.idx, :])
-            distance_vel[wing.idx] ~
-                wing_vel[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
-            distance_acc[wing.idx] ~
-                wing_acc[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
-
-            elevation[wing.idx] ~ KiteUtils.calc_elevation(wing_pos[wing.idx, :])
-            elevation_vel[wing.idx] ~
-                dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 1]) /
-                distance[wing.idx]
-            elevation_acc[wing.idx] ~
-                dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 1]) /
-                distance[wing.idx]
-            azimuth[wing.idx] ~ KiteUtils.azimuth_east(wing_pos[wing.idx, :])
-            azimuth_vel[wing.idx] ~
-                dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
-            azimuth_acc[wing.idx] ~
-                dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
-            course[wing.idx] ~
-                atan(-azimuth_vel[wing.idx], elevation_vel[wing.idx])
-
-            angle_of_attack[wing.idx] ~
-                calc_angle_of_attack(va_wing_b[wing.idx, :]) +
-                (has_groups ? 0.5 * twist_angle[half_len] + 0.5 * twist_angle[half_len + 1] : 0)
-        ]
     end
     return eqs
 end
@@ -1518,7 +1622,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     end
 
     # Build tether and bridle system equations
-    eqs, defaults, guesses, tether_wing_force, tether_wing_moment, aero_force_point_b = force_eqs!(
+    eqs, defaults, guesses, tether_wing_force, tether_wing_moment, aero_force_point_b, pos, vel, acc = force_eqs!(
         s, system, psys, pset, eqs, defaults, guesses;
         R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment,
         twist_angle, twist_ω, set_values, fix_wing
@@ -1545,7 +1649,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     eqs, defaults = wing_eqs!(
         s, eqs, psys, pset, defaults;
         tether_wing_force, tether_wing_moment, aero_force_b, aero_moment_b,
-        ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing
+        ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing,
+        pos, vel, acc
     )
     # Build scalar kinematic and apparent wind equations
     eqs = scalar_eqs!(

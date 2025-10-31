@@ -402,6 +402,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 # Build panel-to-point force lumping mapping
                 point_to_panels = build_point_to_panel_mapping(wing_point_objs, vsm_aero)
 
+                # Identify reference points for orientation tracking
+                # Use first wing segment for X direction (chord), mid-span segment for Y direction (span)
+                x_ref_points = wing_segments[1]  # First LE-TE pair defines forward (X) direction
+                mid_idx = length(wing_segments) ÷ 2
+                y_ref_points = (wing_segments[1][1], wing_segments[mid_idx][1])  # Two LE points for span (Y) direction
+
                 # Create REFINE VSMWing (no groups)
                 wing = VSMWing(
                     wing_id,
@@ -415,9 +421,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     y_damping=150.0,
                     wing_type=REFINE,
                     point_to_panels=point_to_panels,
-                    wing_segments=wing_segments
+                    wing_segments=wing_segments,
+                    x_ref_points=x_ref_points,
+                    y_ref_points=y_ref_points
                 )
                 @info "  ✓ REFINE wing created: $(length(wing_point_objs)) structural points, $(length(vsm_aero.panels)) VSM panels"
+                @info "     Orientation references: X=$(x_ref_points), Y=$(y_ref_points)"
             elseif wing_type == QUATERNION
                 # QUATERNION wing: Rigid body with group dynamics
                 # For now, assume no groups (would need to be specified in YAML)
