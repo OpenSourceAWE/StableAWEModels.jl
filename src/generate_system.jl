@@ -321,8 +321,6 @@ function force_eqs!(
             eqs
             point_mass[point.idx] ~ mass
             disturb_force[:, point.idx] ~ get_disturb(psys, point.idx)
-            point_force[:, point.idx] ~
-                F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
         ]
 
         if point.type == WING
@@ -368,6 +366,13 @@ function force_eqs!(
                 ]
 
             else  # QUATERNION wing (current implementation)
+                # Define point_force for QUATERNION wing points
+                eqs = [
+                    eqs
+                    point_force[:, point.idx] ~
+                        F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
+                ]
+
                 found = 0
                 group = nothing
                 for group_ in groups
@@ -428,13 +433,23 @@ function force_eqs!(
                 ]
             end
         elseif point.type == STATIC
+            # Define point_force for STATIC points
             eqs = [
                 eqs
+                point_force[:, point.idx] ~
+                    F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
                 pos[:, point.idx] ~ get_pos_w(psys, point.idx)
                 vel[:, point.idx] ~ zeros(3)
                 acc[:, point.idx] ~ zeros(3)
             ]
         elseif point.type == DYNAMIC
+            # Define point_force for DYNAMIC points
+            eqs = [
+                eqs
+                point_force[:, point.idx] ~
+                    F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
+            ]
+
             if length(wings) > 0
                 body_frame_damp_vec = get_body_frame_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
             else
@@ -462,8 +477,11 @@ function force_eqs!(
                 [vel[j, point.idx] => get_vel_w(psys, point.idx)[j] for j = 1:3]
             ]
         elseif point.type == QUASI_STATIC
+            # Define point_force for QUASI_STATIC points
             eqs = [
                 eqs
+                point_force[:, point.idx] ~
+                    F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
                 vel[:, point.idx] ~ zeros(3)
                 acc[:, point.idx] ~ zeros(3)
                 # For a quasi-static point, the net force must be zero. This becomes
@@ -618,6 +636,8 @@ function force_eqs!(
         ]
 
         # Check if both endpoints are WING points (structural segments within REFINE wings)
+        # Only skip aerodynamic drag for segments between two WING points
+        # Bridle segments attached to WING points should still have drag
         p1_obj = points[p1]
         p2_obj = points[p2]
         is_wing_structural_segment = (p1_obj.type == WING && p2_obj.type == WING)
@@ -729,7 +749,8 @@ function force_eqs!(
                     ) * app_perp_vel[:, segment.idx]
             ]
         else
-            # For wing structural segments, set drag force to zero
+            # For wing structural segments, only define drag_force (set to zero)
+            # Don't define other aerodynamic variables - they're unused and would create extra equations
             eqs = [
                 eqs
                 drag_force[:, segment.idx] ~ zeros(3)
