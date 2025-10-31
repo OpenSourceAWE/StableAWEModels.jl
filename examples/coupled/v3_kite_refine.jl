@@ -32,7 +32,8 @@ const REMAKE_CACHE = false
 # =========================================
 
 # Load settings for the v3 kite
-set = Settings(joinpath("data", MODEL_NAME, "system.yaml"))
+set_data_path("data/v3")
+set = Settings("system.yaml")
 if hasproperty(set, :c_spring) || hasproperty(set, :damping)
     @info "Legacy tether settings still present" c_spring=(hasproperty(set, :c_spring) ? getproperty(set, :c_spring) : missing) damping=(hasproperty(set, :damping) ? getproperty(set, :damping) : missing)
 end

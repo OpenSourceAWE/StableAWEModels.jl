@@ -617,6 +617,11 @@ function force_eqs!(
             ]
         ]
 
+        # Check if both endpoints are WING points (structural segments within REFINE wings)
+        p1_obj = points[p1]
+        p2_obj = points[p2]
+        is_wing_structural_segment = (p1_obj.type == WING && p2_obj.type == WING)
+
         in_pulley = 0
         for pulley in pulleys
             if segment.idx == pulley.segment_idxs[1]
@@ -695,28 +700,41 @@ function force_eqs!(
             )
             spring_force_vec[:, segment.idx] ~
                 spring_force[segment.idx] * unit_vec[:, segment.idx]
-
-            # Aerodynamic drag force on the tether segment
-            height[segment.idx] ~ max(0.0, 0.5 * (pos[:, p1][3] + pos[:, p2][3]))
-            segment_vel[:, segment.idx] ~ 0.5 * (vel[:, p1] + vel[:, p2])
-            segment_rho[segment.idx] ~ calc_rho(s.am, height[segment.idx])
-            wind_vel[:, segment.idx] ~
-                calc_wind_factor(s.am, max(height[segment.idx], 1.0), pset) *
-                wind_vec_gnd
-            va[:, segment.idx] ~
-                wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
-            area[segment.idx] ~
-                len[segment.idx] * get_diameter(psys, segment.idx)
-            app_perp_vel[:, segment.idx] ~
-                va[:, segment.idx] -
-                (va[:, segment.idx] ⋅ unit_vec[:, segment.idx]) *
-                unit_vec[:, segment.idx]
-            drag_force[:, segment.idx] ~
-                (
-                    0.5 * segment_rho[segment.idx] * get_cd_tether(pset) *
-                    norm(va[:, segment.idx]) * area[segment.idx]
-                ) * app_perp_vel[:, segment.idx]
         ]
+
+        # Skip aerodynamic drag for structural segments within REFINE wings
+        # (those segments connect WING points and get forces from VSM panels instead)
+        if !is_wing_structural_segment
+            eqs = [
+                eqs
+                # Aerodynamic drag force on the tether segment
+                height[segment.idx] ~ max(0.0, 0.5 * (pos[:, p1][3] + pos[:, p2][3]))
+                segment_vel[:, segment.idx] ~ 0.5 * (vel[:, p1] + vel[:, p2])
+                segment_rho[segment.idx] ~ calc_rho(s.am, height[segment.idx])
+                wind_vel[:, segment.idx] ~
+                    calc_wind_factor(s.am, max(height[segment.idx], 1.0), pset) *
+                    wind_vec_gnd
+                va[:, segment.idx] ~
+                    wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
+                area[segment.idx] ~
+                    len[segment.idx] * get_diameter(psys, segment.idx)
+                app_perp_vel[:, segment.idx] ~
+                    va[:, segment.idx] -
+                    (va[:, segment.idx] ⋅ unit_vec[:, segment.idx]) *
+                    unit_vec[:, segment.idx]
+                drag_force[:, segment.idx] ~
+                    (
+                        0.5 * segment_rho[segment.idx] * get_cd_tether(pset) *
+                        norm(va[:, segment.idx]) * area[segment.idx]
+                    ) * app_perp_vel[:, segment.idx]
+            ]
+        else
+            # For wing structural segments, set drag force to zero
+            eqs = [
+                eqs
+                drag_force[:, segment.idx] ~ zeros(3)
+            ]
+        end
     end
 
     # ==================== PULLEYS ==================== #
@@ -880,20 +898,27 @@ function wing_eqs!(
     aero_moment_b, ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing
 )
     wings = s.sys_struct.wings
-    @variables begin
-        # Intermediate variables for dynamics
-        wing_acc_b(t)[eachindex(wings), 1:3]
-        α_b_damped(t)[eachindex(wings), 1:3]
-        ω_b_stable(t)[eachindex(wings), 1:3]
-        # Orientation states
-        Q_b_w(t)[eachindex(wings), 1:4]
-        Q_vel(t)[eachindex(wings), 1:4]
-        # Forces, moments, and other properties
-        moment_b(t)[eachindex(wings), 1:3]
-        moment_tether_wing(t)[eachindex(wings), 1:3]
-        force_tether_wing(t)[eachindex(wings), 1:3]
-        wing_mass(t)[eachindex(wings)]
-        fix_wing_sphere(t)[eachindex(wings)]
+
+    # Check if we have any QUATERNION wings (REFINE wings don't need rigid body dynamics)
+    has_quaternion = any(w.wing_type == QUATERNION for w in wings)
+
+    # Only declare quaternion dynamics variables if we have QUATERNION wings
+    if has_quaternion
+        @variables begin
+            # Intermediate variables for dynamics
+            wing_acc_b(t)[eachindex(wings), 1:3]
+            α_b_damped(t)[eachindex(wings), 1:3]
+            ω_b_stable(t)[eachindex(wings), 1:3]
+            # Orientation states
+            Q_b_w(t)[eachindex(wings), 1:4]
+            Q_vel(t)[eachindex(wings), 1:4]
+            # Forces, moments, and other properties
+            moment_b(t)[eachindex(wings), 1:3]
+            moment_tether_wing(t)[eachindex(wings), 1:3]
+            force_tether_wing(t)[eachindex(wings), 1:3]
+            wing_mass(t)[eachindex(wings)]
+            fix_wing_sphere(t)[eachindex(wings)]
+        end
     end
 
     # Skew-symmetric matrix for quaternion kinematics
@@ -905,6 +930,11 @@ function wing_eqs!(
     ]
 
     for wing in wings
+        # Skip REFINE wings - they don't have rigid body dynamics
+        if wing.wing_type == REFINE
+            continue
+        end
+
         I_b = wing.inertia_principal
         axis = sym_normalize(wing_pos[wing.idx, :])
         axis_b = R_b_w[wing.idx, :, :]' * axis
@@ -1251,12 +1281,14 @@ function linear_vsm_eqs!(
         return eqs, guesses
     end
 
-    # Check for REFINE wings
+    # Check for REFINE and QUATERNION wings
     has_refine = any(w.wing_type == REFINE for w in wings)
+    has_quaternion = any(w.wing_type == QUATERNION for w in wings)
 
     # Compute maximum dimensions across all wings
     # ny = dimension of VSM input state for QUATERNION wings: [va(3), ω(3), twist(n_groups)]
-    ny_quaternion = 3 + length(wings[1].group_idxs) + 3
+    # Only compute if we have QUATERNION wings
+    ny_quaternion = has_quaternion ? 3 + length(wings[1].group_idxs) + 3 : 0
 
     # nx = dimension of VSM output (forces/moments for QUATERNION, panel forces for REFINE)
     nx_values = Int[]
@@ -1272,19 +1304,26 @@ function linear_vsm_eqs!(
     end
     nx_max = maximum(nx_values)
 
+    # Declare VSM output forces for all wings (used by both REFINE and QUATERNION)
     @variables begin
-        # VSM linearization variables (QUATERNION wings only)
-        # Linearization: F(state) ≈ F(state₀) + ∂F/∂state|_{state₀} * (state - state₀)
-        # where state = [va_wing_b, ω_b, twist_angles] and F = [forces, moments]
-        vsm_input_state(t)[eachindex(wings), 1:ny_quaternion]        # Current input state
-        vsm_input_state_delta(t)[eachindex(wings), 1:ny_quaternion]  # Δstate for linearization
-        vsm_input_state_prev(t)[eachindex(wings), 1:ny_quaternion]   # State at linearization point
-        vsm_output_force_prev(t)[eachindex(wings), 1:nx_max]         # Forces at linearization point
-        force_jacobian(t)[eachindex(wings), 1:nx_max, 1:ny_quaternion]  # ∂F/∂state Jacobian matrix
+        vsm_output_force_prev(t)[eachindex(wings), 1:nx_max]  # Panel forces (REFINE) or [forces, moments] (QUATERNION)
+    end
 
-        # Aerodynamic quantities (both wing types)
-        q_inf(t)[eachindex(wings)]                      # Dynamic pressure
-        no_scale_aero_force_b(t)[eachindex(wings), 1:3]  # Unscaled force before q_inf scaling
+    # Declare linearization variables only for QUATERNION wings
+    if has_quaternion
+        @variables begin
+            # VSM linearization variables (QUATERNION wings only)
+            # Linearization: F(state) ≈ F(state₀) + ∂F/∂state|_{state₀} * (state - state₀)
+            # where state = [va_wing_b, ω_b, twist_angles] and F = [forces, moments]
+            vsm_input_state(t)[eachindex(wings), 1:ny_quaternion]        # Current input state
+            vsm_input_state_delta(t)[eachindex(wings), 1:ny_quaternion]  # Δstate for linearization
+            vsm_input_state_prev(t)[eachindex(wings), 1:ny_quaternion]   # State at linearization point
+            force_jacobian(t)[eachindex(wings), 1:nx_max, 1:ny_quaternion]  # ∂F/∂state Jacobian matrix
+
+            # Aerodynamic quantities (QUATERNION wings only)
+            q_inf(t)[eachindex(wings)]                      # Dynamic pressure
+            no_scale_aero_force_b(t)[eachindex(wings), 1:3]  # Unscaled force before q_inf scaling
+        end
     end
 
     for wing in wings
