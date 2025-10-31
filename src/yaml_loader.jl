@@ -343,15 +343,114 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         @warn "Winches defined in YAML but loading not yet implemented"
     end
 
-    # Wings and transforms typically come from VSM and settings
+    # Parse wing type
+    function parse_wing_type(s::String)
+        s_upper = uppercase(s)
+        s_upper == "REFINE" && return REFINE
+        s_upper == "QUATERNION" && return QUATERNION
+        error("Unknown WingType: $s")
+    end
+
+    # Load wings (optional)
     wings = AbstractWing[]
+    wings_defined = false
+    if haskey(data, "wings") && haskey(data["wings"], "data") && data["wings"]["data"] !== nothing && !isempty(data["wings"]["data"])
+        wing_rows = parse_table(data["wings"])
+        wings_defined = true
+
+        for row in wing_rows
+            wing_id = Int(row.id)
+            wing_type = parse_wing_type(String(row.type))
+
+            # Get point IDs for this wing
+            yaml_point_ids = Vector{Int}(row.point_ids)
+            wing_point_idxs = [yaml_id_to_idx[pid] for pid in yaml_point_ids]
+            wing_point_objs = [points[idx] for idx in wing_point_idxs]
+
+            # Validate that the points exist and are WING type
+            for idx in wing_point_idxs
+                if points[idx].type != WING
+                    error("Wing $wing_id references point $idx which is not of type WING")
+                end
+                # Set wing_idx on the point
+                points[idx] = Point(
+                    points[idx].idx,
+                    points[idx].pos_cad,
+                    points[idx].type;
+                    wing_idx = Int16(wing_id),
+                    mass = points[idx].mass,
+                    body_frame_damping = points[idx].body_frame_damping,
+                    world_frame_damping = points[idx].world_frame_damping,
+                    transform_idx = points[idx].transform_idx
+                )
+                points[idx].pos_w .= points[idx].pos_cad
+                points[idx].vel_w .= 0.0
+            end
+
+            # Create VSM wing from settings
+            @info "Creating VSM wing $wing_id of type $wing_type..."
+            vsm_wing = VortexStepMethod.Wing(set; prn=false)
+            vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
+            vsm_solver = VortexStepMethod.Solver(vsm_aero; solver_type=VortexStepMethod.NONLIN, atol=2e-8, rtol=2e-8)
+
+            # Create wing based on type
+            if wing_type == REFINE
+                # REFINE wing: Direct panel forces to structural points
+                # Identify wing segments (LE/TE pairs)
+                wing_segments = identify_wing_segments(wing_point_objs)
+
+                # Build panel-to-point force lumping mapping
+                point_to_panels = build_point_to_panel_mapping(wing_point_objs, vsm_aero)
+
+                # Create REFINE VSMWing (no groups)
+                wing = VSMWing(
+                    wing_id,
+                    vsm_aero,
+                    vsm_wing,
+                    vsm_solver,
+                    Int16[],  # No groups for REFINE
+                    vsm_wing.R_cad_body,
+                    vsm_wing.T_cad_body;
+                    transform_idx=1,
+                    y_damping=150.0,
+                    wing_type=REFINE,
+                    point_to_panels=point_to_panels,
+                    wing_segments=wing_segments
+                )
+                @info "  ✓ REFINE wing created: $(length(wing_point_objs)) structural points, $(length(vsm_aero.panels)) VSM panels"
+            elseif wing_type == QUATERNION
+                # QUATERNION wing: Rigid body with group dynamics
+                # For now, assume no groups (would need to be specified in YAML)
+                group_idxs = Int16[]
+
+                wing = VSMWing(
+                    wing_id,
+                    vsm_aero,
+                    vsm_wing,
+                    vsm_solver,
+                    group_idxs,
+                    vsm_wing.R_cad_body,
+                    vsm_wing.T_cad_body;
+                    transform_idx=1,
+                    y_damping=150.0,
+                    wing_type=QUATERNION
+                )
+                @info "  ✓ QUATERNION wing created with $(length(group_idxs)) groups"
+            else
+                error("Unsupported wing type: $wing_type")
+            end
+
+            push!(wings, wing)
+        end
+    end
+
     transforms = Transform[]
 
-    # If no wings are provided, convert WING type points to DYNAMIC with warning
-    if isempty(wings)
+    # If no wings are provided, convert WING type points to STATIC with warning
+    if !wings_defined
         wing_points = findall(p -> p.type == WING, points)
         if !isempty(wing_points)
-            @warn "No wings provided but $(length(wing_points)) WING type points found. Converting to DYNAMIC."
+            @warn "No wings provided but $(length(wing_points)) WING type points found. Converting to STATIC."
             for idx in wing_points
                 points[idx] = Point(
                     points[idx].idx,

@@ -483,6 +483,7 @@ function create_2plate_sys_struct(set::Settings)
 end
 
 export create_2plate_sys_struct
+export create_v3_refine_sys_struct
 
 function create_v3_sys_struct(set::Settings)
     model_name = hasproperty(set, :model_name) ? set.model_name : "v3"
@@ -550,3 +551,4 @@ function compute_inertia_from_points(points::Vector{Point}, total_mass::Float64)
 end
 
 get_with_default(set::Settings, sym::Symbol, default) = hasproperty(set, sym) ? getproperty(set, sym) : default
+

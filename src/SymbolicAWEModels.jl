@@ -69,6 +69,7 @@ export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Tran
 # Enums
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
+export WingType, QUATERNION, REFINE
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_oscillate!, sim_turn!, sim_reposition!
@@ -140,6 +141,7 @@ function __init__()
 end
 
 include("system_structure.jl")
+include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
 include("yaml_loader.jl")

@@ -22,8 +22,8 @@ solver:
     relaxation: 0.6        # relaxation factor of inner linear Newton solver, needed for quasi-steady solver
 
 kite:
-    model: "ram_air_kite/ram_air_kite_body.obj"     # 3D model of the kite
-    foil_file: "ram_air_kite/ram_air_kite_foil.dat" # filename for the foil shape
+    model: "ram_air_kite_body.obj"     # 3D model of the kite
+    foil_file: "ram_air_kite_foil.dat" # filename for the foil shape
     physical_model: "ram"            # name of the kite model to use (KPS3, KPS4 or SymbolicAWEModel)
     top_bridle_points:                      # top bridle points that are not on the kite body in CAD frame
         - [0.290199, 0.784697, -2.61305]

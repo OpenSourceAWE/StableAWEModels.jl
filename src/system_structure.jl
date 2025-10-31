@@ -6,30 +6,34 @@
 
 Create a `Wing` geometry object from the settings provided.
 
-This is a constructor helper that reads the model and foil file paths from the
-`Settings` object and initializes the `Wing` object from `VortexStepMethod.jl`.
+This constructor checks for an `aero_geometry.yaml` file in the model directory.
+If found, it uses `VortexStepMethod.Wing(geometry_file)` to load the wing from YAML.
+Otherwise, it falls back to loading from .obj and .dat files.
+
+This is a constructor helper that reads geometry from the `Settings` object
+and initializes the `Wing` object from `VortexStepMethod.jl`.
 """
 function VortexStepMethod.Wing(set::Settings; prn=true, kwargs...)
-    # Handle relative paths within model subdirectories
-    if startswith(set.model, "data/")
-        obj_path = joinpath(dirname(get_data_path()), set.model)
-    else
-        obj_path = joinpath(get_data_path(), set.model)
+    # Check for aero_geometry.yaml in the model directory
+    model_dir = get_data_path()
+    aero_geom_path = joinpath(model_dir, "aero_geometry.yaml")
+
+    if isfile(aero_geom_path)
+        # Use YAML-based wing constructor
+        prn && @info "Loading wing from aero_geometry.yaml: $aero_geom_path"
+        return VortexStepMethod.Wing(aero_geom_path; prn, kwargs...)
     end
-    
-    if startswith(set.foil_file, "data/")
-        dat_path = joinpath(dirname(get_data_path()), set.foil_file)
-    else
-        dat_path = joinpath(get_data_path(), set.foil_file)
-    end
-    
+
+    # Fallback: load from .obj and .dat files (legacy path)
+    prn && @info "No aero_geometry.yaml found, using .obj/.dat files"
+
     if set.physical_model == "simple_ram"
         n_groups=2
     else
         n_groups=4
     end
-    return VortexStepMethod.ObjWing(obj_path, dat_path; 
-        mass=set.mass, crease_frac=set.crease_frac, n_groups, 
+    return VortexStepMethod.ObjWing(joinpath(model_dir, set.model), joinpath(model_dir, set.foil_file);
+        mass=set.mass, crease_frac=set.crease_frac, n_groups,
         align_to_principal=true, prn, kwargs...
     )
 end
@@ -66,6 +70,22 @@ Enumeration for the dynamic model governing a point's motion.
     QUASI_STATIC
     WING
     STATIC
+end
+
+"""
+    WingType `QUATERNION` `REFINE`
+
+Enumeration for the aerodynamic model type of a wing.
+
+# Elements
+- `QUATERNION`: Wing uses quaternion-based rigid body dynamics with twist groups.
+  Aerodynamic forces/moments are applied to the wing center of mass.
+- `REFINE`: Wing uses refined per-panel forces directly applied to structural points.
+  VSM panel forces are lumped to WING-type points with no rigid body constraint.
+"""
+@enum WingType begin
+    QUATERNION
+    REFINE
 end
 
 """
@@ -558,6 +578,7 @@ mutable struct BaseWing <: AbstractWing
     const R_b_c::Matrix{SimFloat}
     const pos_cad::KVec3
     const inertia_principal::KVec3
+    const wing_type::WingType
 
     # Differential variables in world frame, updated during simulation
     const Q_b_w::Vector{SimFloat}
@@ -629,14 +650,18 @@ mutable struct VSMWing <: AbstractWing
     const vsm_x::Vector{SimFloat}
     const vsm_jac::Matrix{SimFloat}
 
-    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac)
-        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac)
+    # REFINE-specific fields (Nothing for QUATERNION wings)
+    const point_to_panels::Union{Nothing, Dict{Int16, Vector{Tuple{Int16, Float64}}}}
+    const wing_segments::Union{Nothing, Vector{Tuple{Int16, Int16}}}  # [(le_point_idx, te_point_idx), ...]
+
+    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments)
+        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments)
     end
 end
 
 # Delegate property access to base wing for VSMWing
 function Base.getproperty(wing::VSMWing, sym::Symbol)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments)
         return getfield(wing, sym)
     else
         return getproperty(getfield(wing, :base), sym)
@@ -644,7 +669,7 @@ function Base.getproperty(wing::VSMWing, sym::Symbol)
 end
 
 function Base.setproperty!(wing::VSMWing, sym::Symbol, value)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments)
         setfield!(wing, sym, value)
     else
         setproperty!(getfield(wing, :base), sym, value)
@@ -653,7 +678,7 @@ end
 
 """
     BaseWing(idx::Int16, group_idxs::Vector{Int16}, R_b_c::Matrix{SimFloat},
-             pos_cad::KVec3, inertia_principal::KVec3; transform_idx=1, y_damping=150.0)
+             pos_cad::KVec3, inertia_principal::KVec3; transform_idx=1, y_damping=150.0, wing_type=QUATERNION)
 
 Constructs a `BaseWing` object representing a rigid body reference frame.
 
@@ -667,15 +692,16 @@ Constructs a `BaseWing` object representing a rigid body reference frame.
 # Keyword Arguments
 - `transform_idx::Int16=1`: Transform used for initial positioning and orientation.
 - `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
+- `wing_type::WingType=QUATERNION`: Wing aerodynamic model type.
 
 # Returns
 - `BaseWing`: A new base wing object.
 """
 function BaseWing(idx, group_idxs::AbstractVector, R_b_c::AbstractMatrix,
-                  pos_cad, inertia_principal; transform_idx=1, y_damping=150.0)
+                  pos_cad, inertia_principal; transform_idx=1, y_damping=150.0, wing_type::WingType=QUATERNION)
     return BaseWing(idx,
         # Structural information
-        group_idxs, transform_idx, R_b_c, pos_cad, inertia_principal,
+        group_idxs, transform_idx, R_b_c, pos_cad, inertia_principal, wing_type,
         # Differential variables in world frame, updated during simulation
         zeros(4), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
@@ -690,7 +716,8 @@ end
 
 """
     VSMWing(idx::Int16, vsm_aero, vsm_wing, vsm_solver, group_idxs::Vector{Int16},
-            R_b_c::Matrix{SimFloat}, pos_cad::KVec3; transform_idx=1, y_damping=150.0)
+            R_b_c::Matrix{SimFloat}, pos_cad::KVec3; transform_idx=1, y_damping=150.0,
+            wing_type=QUATERNION, point_to_panels=nothing)
 
 Constructs a `VSMWing` object with Vortex Step Method aerodynamics.
 
@@ -706,21 +733,52 @@ Constructs a `VSMWing` object with Vortex Step Method aerodynamics.
 # Keyword Arguments
 - `transform_idx::Int16=1`: Transform used for initial positioning and orientation.
 - `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
+- `wing_type::WingType=QUATERNION`: Wing aerodynamic model type.
+- `point_to_panels::Union{Nothing, Dict}=nothing`: Panel force lumping map (REFINE only).
 
 # Returns
 - `VSMWing`: A new VSM wing object.
 """
 function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
                  group_idxs::AbstractVector, R_b_c::AbstractMatrix, pos_cad::AbstractVector;
-                 transform_idx=1, y_damping=150.0, inertia_diag=nothing)
+                 transform_idx=1, y_damping=150.0, inertia_diag=nothing,
+                 wing_type::WingType=QUATERNION,
+                 point_to_panels::Union{Nothing, Dict{Int16, Vector{Tuple{Int16, Float64}}}}=nothing,
+                 wing_segments::Union{Nothing, Vector{Tuple{Int16, Int16}}}=nothing)
+
+    # Validation
+    if wing_type == REFINE
+        @assert length(group_idxs) == 0 "REFINE wings cannot have groups"
+        @assert !isnothing(point_to_panels) "REFINE wings require point_to_panels mapping"
+        @assert !isnothing(wing_segments) "REFINE wings require wing_segments (LE/TE pairs)"
+    else
+        @assert isnothing(point_to_panels) "QUATERNION wings should not have point_to_panels"
+        @assert isnothing(wing_segments) "QUATERNION wings should not have wing_segments"
+    end
+
     # Compute inertia principal from vsm_wing
     inertia_vec = isnothing(inertia_diag) ? wing_inertia_principal(vsm_wing) : inertia_diag
     base = BaseWing(idx, group_idxs, R_b_c, pos_cad, inertia_vec;
-                    transform_idx, y_damping)
-    ny = length(group_idxs)+3+3
-    nx = length(group_idxs)+3+3
+                    transform_idx, y_damping, wing_type)
+
+    # Size vsm state vectors based on wing type
+    if wing_type == REFINE
+        # REFINE: NO linearization - only store panel forces
+        #         nx = 3*n_panels (panel forces: [fx_1, fy_1, fz_1, fx_2, ...])
+        #         ny = 0 (no linearization)
+        #         vsm_jac is empty (no Jacobian)
+        # Get panels from vsm_aero (panels are stored in BodyAerodynamics, not Wing)
+        nx = 3 * length(vsm_aero.panels)
+        ny = 0
+    else
+        # QUATERNION: ny = 6 + n_groups (va + omega + twists), nx = 6 + n_groups (forces + moments + group_moments)
+        ny = length(group_idxs) + 3 + 3
+        nx = length(group_idxs) + 3 + 3
+    end
+
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
-                   zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny))
+                   zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny),
+                   point_to_panels, wing_segments)
 end
 
 """
@@ -751,7 +809,7 @@ function SymbolicAWEModels.Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs,
 end
 
 function wing_inertia_principal(vsm_wing)
-    if hasproperty(vsm_wing, :inertia_tensor)
+    if hasproperty(vsm_wing, :inertia_tensor) && size(vsm_wing.inertia_tensor) == (3, 3)
         diag_vals = diag(vsm_wing.inertia_tensor)
         return MVector{3, SimFloat}(diag_vals)
     end
@@ -1343,8 +1401,11 @@ function reinit!(sys_struct::SystemStructure, set::Settings)
 
     reinit!(transforms, sys_struct)
     for wing in wings
-        wing.vsm_y .= 0.0
-        wing.vsm_y[1:3] .= wing.R_b_w' * [set.v_wind, 0., 0.]
+        # Only initialize vsm_y for QUATERNION wings (REFINE wings have ny=0)
+        if wing.wing_type != REFINE && length(wing.vsm_y) >= 3
+            wing.vsm_y .= 0.0
+            wing.vsm_y[1:3] .= wing.R_b_w' * [set.v_wind, 0., 0.]
+        end
     end
 
     return nothing

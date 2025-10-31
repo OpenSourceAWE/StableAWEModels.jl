@@ -264,6 +264,9 @@ function force_eqs!(
     tether_wing_force = zeros(Num, length(wings), 3)
     tether_wing_moment = zeros(Num, length(wings), 3)
 
+    # Check if we have any REFINE wings (need aero force per point)
+    has_refine_wings = any(wing.wing_type == REFINE for wing in wings)
+
     @variables begin
         # Point states
         pos(t)[1:3, eachindex(points)]
@@ -283,6 +286,14 @@ function force_eqs!(
         spring_force_vec(t)[1:3, eachindex(segments)]
         drag_force(t)[1:3, eachindex(segments)]
         l0(t)[eachindex(segments)]
+    end
+
+    # REFINE-specific variables: per-point aero forces in body frame
+    # (No segment twists - no linearization for REFINE wings)
+    if has_refine_wings
+        @variables begin
+            aero_force_point_b(t)[eachindex(points), 1:3]
+        end
     end
 
     # ==================== POINTS ==================== #
@@ -315,64 +326,107 @@ function force_eqs!(
         ]
 
         if point.type == WING
-            found = 0
-            group = nothing
-            for group_ in groups
-                if point.idx in group_.point_idxs
-                    group = group_
-                    found += 1
-                end
-            end
-            !(found in [0, 1]) && error(
-                "Kite point number $(point.idx) is part of $found groups, " *
-                "and should be part of exactly 0 or 1 groups.",
-            )
+            # Find the wing for this point
+            wing = wings[point.wing_idx]
 
-            if found == 1
-                found = 0
-                wing = nothing
-                for wing_ in wings
-                    if group.idx in wing_.group_idxs
-                        wing = wing_
-                        found += 1
-                    end
-                end
-                !(found == 1) && error(
-                    "Kite group number $(group.idx) is part of $found wings, " *
-                    "and should be part of exactly 1 wing.",
-                )
+            if wing.wing_type == REFINE
+                # REFINE wing: Points are DYNAMIC and receive lumped panel forces
+                # Similar to DYNAMIC points but with aero forces included
+
+                # Add aerodynamic forces (calculated in linear_vsm_eqs!)
+                aero_force_w = R_b_w[wing.idx, :, :] * aero_force_point_b[point.idx, :]
 
                 eqs = [
                     eqs
-                    fixed_pos[:, point.idx] ~ get_le_pos(psys, group.idx)
-                    chord_b[:, point.idx] ~
-                        get_pos_b(psys, point.idx) .- fixed_pos[:, point.idx]
-                    normal[:, point.idx] ~ chord_b[:, point.idx] × group.y_airf
-                    pos_b[:, point.idx] ~
-                        fixed_pos[:, point.idx] .+
-                        cos(twist_angle[group.idx]) * chord_b[:, point.idx] -
-                        sin(twist_angle[group.idx]) * normal[:, point.idx]
+                    point_force[:, point.idx] ~
+                        F + aero_force_w + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
                 ]
-            elseif found == 0
-                eqs = [eqs; pos_b[:, point.idx] ~ get_pos_b(psys, point.idx)]
-            end
-            eqs = [
-                eqs
-                tether_r[:, point.idx] ~ pos[:, point.idx] -
-                                        wing_pos[point.wing_idx, :]
-            ]
-            tether_wing_moment[point.wing_idx, :] .+=
-                tether_r[:, point.idx] × point_force[:, point.idx]
-            tether_wing_force[point.wing_idx, :] .+= point_force[:, point.idx]
 
-            eqs = [
-                eqs
-                pos[:, point.idx] ~
-                    wing_pos[point.wing_idx, :] +
-                    R_b_w[point.wing_idx, :, :] * pos_b[:, point.idx]
-                vel[:, point.idx] ~ zeros(3)
-                acc[:, point.idx] ~ zeros(3)
-            ]
+                # Damping terms
+                body_frame_damp_vec = get_body_frame_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
+                world_frame_damp_vec = get_world_frame_damping(psys, point.idx) * vel[:, point.idx]
+
+                # DYNAMIC point equations
+                axis = sym_normalize(pos[:, point.idx])
+                eqs = [
+                    eqs
+                    fix_point_sphere[point.idx] ~ get_fix_point_sphere(psys, point.idx)
+                    D(pos[:, point.idx]) ~ ifelse.(fix_point_sphere[point.idx]==true,
+                                                    vel[:, point.idx] ⋅ axis * axis,
+                                                    vel[:, point.idx]
+                                            )
+                    D(vel[:, point.idx]) ~ ifelse.(fix_point_sphere[point.idx]==true,
+                                                    acc[:, point.idx] ⋅ axis * axis,
+                                                    acc[:, point.idx]
+                                            )
+                    acc[:, point.idx] ~ point_force[:, point.idx] ./ mass - body_frame_damp_vec - world_frame_damp_vec
+                ]
+                defaults = [
+                    defaults
+                    [pos[j, point.idx] => get_pos_w(psys, point.idx)[j] for j = 1:3]
+                    [vel[j, point.idx] => get_vel_w(psys, point.idx)[j] for j = 1:3]
+                ]
+
+            else  # QUATERNION wing (current implementation)
+                found = 0
+                group = nothing
+                for group_ in groups
+                    if point.idx in group_.point_idxs
+                        group = group_
+                        found += 1
+                    end
+                end
+                !(found in [0, 1]) && error(
+                    "Kite point number $(point.idx) is part of $found groups, " *
+                    "and should be part of exactly 0 or 1 groups.",
+                )
+
+                if found == 1
+                    found = 0
+                    wing = nothing
+                    for wing_ in wings
+                        if group.idx in wing_.group_idxs
+                            wing = wing_
+                            found += 1
+                        end
+                    end
+                    !(found == 1) && error(
+                        "Kite group number $(group.idx) is part of $found wings, " *
+                        "and should be part of exactly 1 wing.",
+                    )
+
+                    eqs = [
+                        eqs
+                        fixed_pos[:, point.idx] ~ get_le_pos(psys, group.idx)
+                        chord_b[:, point.idx] ~
+                            get_pos_b(psys, point.idx) .- fixed_pos[:, point.idx]
+                        normal[:, point.idx] ~ chord_b[:, point.idx] × group.y_airf
+                        pos_b[:, point.idx] ~
+                            fixed_pos[:, point.idx] .+
+                            cos(twist_angle[group.idx]) * chord_b[:, point.idx] -
+                            sin(twist_angle[group.idx]) * normal[:, point.idx]
+                    ]
+                elseif found == 0
+                    eqs = [eqs; pos_b[:, point.idx] ~ get_pos_b(psys, point.idx)]
+                end
+                eqs = [
+                    eqs
+                    tether_r[:, point.idx] ~ pos[:, point.idx] -
+                                            wing_pos[point.wing_idx, :]
+                ]
+                tether_wing_moment[point.wing_idx, :] .+=
+                    tether_r[:, point.idx] × point_force[:, point.idx]
+                tether_wing_force[point.wing_idx, :] .+= point_force[:, point.idx]
+
+                eqs = [
+                    eqs
+                    pos[:, point.idx] ~
+                        wing_pos[point.wing_idx, :] +
+                        R_b_w[point.wing_idx, :, :] * pos_b[:, point.idx]
+                    vel[:, point.idx] ~ zeros(3)
+                    acc[:, point.idx] ~ zeros(3)
+                ]
+            end
         elseif point.type == STATIC
             eqs = [
                 eqs
@@ -426,6 +480,9 @@ function force_eqs!(
             error("Unknown point type: $(typeof(point))")
         end
     end
+
+    # REFINE wings do not use segment twist calculations
+    # (no linearization, forces come directly from nonlinear VSM)
 
     # ==================== GROUPS ==================== #
     if length(groups) > 0
@@ -794,7 +851,9 @@ function force_eqs!(
         ]
     end
 
-    return eqs, defaults, guesses, tether_wing_force, tether_wing_moment
+    # Return aero_force_point_b if REFINE wings exist, otherwise nothing
+    aero_force_point_b_ret = has_refine_wings ? aero_force_point_b : nothing
+    return eqs, defaults, guesses, tether_wing_force, tether_wing_moment, aero_force_point_b_ret
 end
 
 """
@@ -1184,70 +1243,165 @@ aerodynamic forces w.r.t. the state variables is provided via symbolic parameter
 function linear_vsm_eqs!(
     s, eqs, guesses, psys;
     aero_force_b, aero_moment_b, group_aero_moment,
-    twist_angle, va_wing_b, wing_pos, ω_b, R_v_w
+    twist_angle, va_wing_b, wing_pos, ω_b, R_v_w,
+    aero_force_point_b=nothing  # REFINE-specific parameter
 )
-    @unpack groups, wings = s.sys_struct
+    @unpack groups, wings, points = s.sys_struct
     if length(wings) == 0
         return eqs, guesses
     end
 
-    ny = 3 + length(wings[1].group_idxs) + 3
-    nx = 3 + 3 + length(wings[1].group_idxs)
+    # Check for REFINE wings
+    has_refine = any(w.wing_type == REFINE for w in wings)
+
+    # Compute maximum dimensions across all wings
+    # ny = dimension of VSM input state for QUATERNION wings: [va(3), ω(3), twist(n_groups)]
+    ny_quaternion = 3 + length(wings[1].group_idxs) + 3
+
+    # nx = dimension of VSM output (forces/moments for QUATERNION, panel forces for REFINE)
+    nx_values = Int[]
+    for wing in wings
+        if wing.wing_type == REFINE
+            # REFINE: Store per-panel forces [fx_1, fy_1, fz_1, fx_2, ...]
+            n_panels = length(wing.vsm_aero.panels)
+            push!(nx_values, 3 * n_panels)
+        else
+            # QUATERNION: Store [aero_force(3), aero_moment(3), group_moments(n_groups)]
+            push!(nx_values, 3 + 3 + length(wing.group_idxs))
+        end
+    end
+    nx_max = maximum(nx_values)
 
     @variables begin
-        # VSM state vectors and Jacobian
-        y(t)[eachindex(wings), 1:ny]
-        dy(t)[eachindex(wings), 1:ny]
-        last_y(t)[eachindex(wings), 1:ny]
-        last_x(t)[eachindex(wings), 1:nx]
-        vsm_jac(t)[eachindex(wings), 1:nx, 1:ny]
-        # Aerodynamic quantities
-        q_inf(t)[eachindex(wings)]
-        no_scale_aero_force_b(t)[eachindex(wings), 1:3]
+        # VSM linearization variables (QUATERNION wings only)
+        # Linearization: F(state) ≈ F(state₀) + ∂F/∂state|_{state₀} * (state - state₀)
+        # where state = [va_wing_b, ω_b, twist_angles] and F = [forces, moments]
+        vsm_input_state(t)[eachindex(wings), 1:ny_quaternion]        # Current input state
+        vsm_input_state_delta(t)[eachindex(wings), 1:ny_quaternion]  # Δstate for linearization
+        vsm_input_state_prev(t)[eachindex(wings), 1:ny_quaternion]   # State at linearization point
+        vsm_output_force_prev(t)[eachindex(wings), 1:nx_max]         # Forces at linearization point
+        force_jacobian(t)[eachindex(wings), 1:nx_max, 1:ny_quaternion]  # ∂F/∂state Jacobian matrix
+
+        # Aerodynamic quantities (both wing types)
+        q_inf(t)[eachindex(wings)]                      # Dynamic pressure
+        no_scale_aero_force_b(t)[eachindex(wings), 1:3]  # Unscaled force before q_inf scaling
     end
 
     for wing in wings
-        area = wing.vsm_aero.projected_area
-        force_b = no_scale_aero_force_b[wing.idx, :]
-        wind_direction_b = sym_normalize(va_wing_b[wing.idx, :])
-        drag_force_b = (force_b ⋅ wind_direction_b) * wind_direction_b
-        eqs = [
-            eqs
-            q_inf[wing.idx] ~
-                0.5 * calc_rho(s.am, wing_pos[wing.idx, 3]) *
-                norm(va_wing_b[wing.idx, :])^2
-            [last_y[wing.idx, iy] ~ get_vsm_y(psys, wing.idx, iy) for iy = 1:ny]
-            [last_x[wing.idx, ix] ~ get_vsm_x(psys, wing.idx, ix) for ix = 1:nx]
-            [
-                vsm_jac[wing.idx, ix, iy] ~
-                    get_vsm_jac(psys, wing.idx, ix, iy) for ix = 1:nx for
-                iy = 1:ny
-            ]
-            y[wing.idx, :] ~ [
-                va_wing_b[wing.idx, :]
-                ω_b[wing.idx, :]
-                twist_angle[wing.group_idxs]
-            ]
-            dy[wing.idx, :] ~ y[wing.idx, :] - last_y[wing.idx, :]
-            # Linearized force and moment calculation
-            [
-                force_b
-                aero_moment_b[wing.idx, :]
-                group_aero_moment[wing.group_idxs]
-            ] ~
-                q_inf[wing.idx] *
-                area *
-                (last_x[wing.idx, :] + vsm_jac[wing.idx, :, :] * dy[wing.idx, :])
-            # Apply additional drag fraction
-            aero_force_b[wing.idx, :] ~
-                force_b + drag_force_b * (get_drag_frac(psys, wing.idx) - 1)
-        ]
+        if wing.wing_type == REFINE
+            # ==================== REFINE WING: Direct Panel Forces ====================
+            # REFINE wings apply VSM panel forces directly to structural points without
+            # linearization. Each VSM panel contributes to nearby structural points via
+            # inverse distance weighting.
+            #
+            # Storage: vsm_output_force_prev[wing.idx, 1:nx_refine] stores per-panel forces
+            #          as [fx_1, fy_1, fz_1, fx_2, fy_2, fz_2, ...]
+            #
+            # NO linearization: Forces come from full nonlinear VSM solve each timestep.
+            # (Linearization would be prohibitively expensive with many structural DOFs)
 
-        if s.set.quasi_static
-            guesses = [
-                guesses
-                [y[wing.idx, iy] => get_vsm_y(psys, wing.idx, iy) for iy = 1:ny]
+            n_panels = length(wing.vsm_aero.panels)
+            nx_refine = 3 * n_panels
+
+            # Retrieve current panel forces from VSM solution
+            eqs = [
+                eqs
+                [vsm_output_force_prev[wing.idx, ix] ~ get_vsm_x(psys, wing.idx, ix) for ix = 1:nx_refine]
             ]
+
+            # Lump panel forces to structural WING points
+            wing_points = [p for p in points if p.type == WING && p.wing_idx == wing.idx]
+
+            for point in wing_points
+                # Weighted sum of forces from nearby panels (weights precomputed in wing.point_to_panels)
+                lumped_force_b = zeros(Num, 3)
+
+                for (panel_idx, weight) in wing.point_to_panels[point.idx]
+                    panel_force_start = 3*(panel_idx-1) + 1
+                    for i in 1:3
+                        force_idx = panel_force_start + i - 1
+                        lumped_force_b[i] += weight * vsm_output_force_prev[wing.idx, force_idx]
+                    end
+                end
+
+                eqs = [
+                    eqs
+                    aero_force_point_b[point.idx, :] ~ lumped_force_b
+                ]
+            end
+
+        else
+            # ==================== QUATERNION WING: Linearized Aerodynamics ====================
+            # QUATERNION wings use first-order Taylor expansion to approximate aerodynamic forces:
+            #
+            #   F(state) ≈ F(state₀) + ∂F/∂state|_{state₀} * (state - state₀)
+            #
+            # Where:
+            #   state = [va_wing_b(3), ω_b(3), twist_angle(n_groups)]  ← VSM inputs
+            #   F = [aero_force(3), aero_moment(3), group_moments(n_groups)]  ← VSM outputs
+            #   state₀ = previous linearization point (updated periodically by VSM solve)
+            #   ∂F/∂state = Jacobian matrix (computed by VSM via finite differences)
+            #
+            # This allows efficient force updates without re-solving the full VSM system every timestep.
+
+            area = wing.vsm_aero.projected_area
+            force_b = no_scale_aero_force_b[wing.idx, :]
+            wind_direction_b = sym_normalize(va_wing_b[wing.idx, :])
+            drag_force_b = (force_b ⋅ wind_direction_b) * wind_direction_b
+
+            # Dimensions for this wing
+            nx_quat = 3 + 3 + length(wing.group_idxs)
+
+            eqs = [
+                eqs
+                # Dynamic pressure for force scaling
+                q_inf[wing.idx] ~
+                    0.5 * calc_rho(s.am, wing_pos[wing.idx, 3]) *
+                    norm(va_wing_b[wing.idx, :])^2
+
+                # Load linearization data from VSM (state₀, F₀, ∂F/∂state)
+                [vsm_input_state_prev[wing.idx, iy] ~ get_vsm_y(psys, wing.idx, iy) for iy = 1:ny_quaternion]
+                [vsm_output_force_prev[wing.idx, ix] ~ get_vsm_x(psys, wing.idx, ix) for ix = 1:nx_quat]
+                [
+                    force_jacobian[wing.idx, ix, iy] ~
+                        get_vsm_jac(psys, wing.idx, ix, iy) for ix = 1:nx_quat for
+                    iy = 1:ny_quaternion
+                ]
+
+                # Current input state for linearization
+                vsm_input_state[wing.idx, :] ~ [
+                    va_wing_b[wing.idx, :]        # Apparent wind velocity in body frame
+                    ω_b[wing.idx, :]              # Angular velocity in body frame
+                    twist_angle[wing.group_idxs]  # Wing group twist angles
+                ]
+
+                # State deviation from linearization point: Δstate = state - state₀
+                vsm_input_state_delta[wing.idx, :] ~ vsm_input_state[wing.idx, :] - vsm_input_state_prev[wing.idx, :]
+
+                # ===== LINEARIZED FORCE CALCULATION =====
+                # F ≈ F₀ + ∂F/∂state * Δstate
+                # Then scale by dynamic pressure and wing area
+                [
+                    force_b
+                    aero_moment_b[wing.idx, :]
+                    group_aero_moment[wing.group_idxs]
+                ] ~
+                    q_inf[wing.idx] *
+                    area *
+                    (vsm_output_force_prev[wing.idx, 1:nx_quat] +
+                     force_jacobian[wing.idx, 1:nx_quat, :] * vsm_input_state_delta[wing.idx, :])
+
+                # Apply additional drag correction factor
+                aero_force_b[wing.idx, :] ~
+                    force_b + drag_force_b * (get_drag_frac(psys, wing.idx) - 1)
+            ]
+
+            if s.set.quasi_static
+                guesses = [
+                    guesses
+                    [vsm_input_state[wing.idx, iy] => get_vsm_y(psys, wing.idx, iy) for iy = 1:ny_quaternion]
+                ]
+            end
         end
     end
     return eqs, guesses
@@ -1276,7 +1430,24 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     defaults = Pair{Num,Any}[]
     guesses = Pair{Num,Any}[]
 
-    @unpack wings, groups, winches = system
+    @unpack wings, groups, winches, points = system
+
+    # Validation for REFINE wings
+    for wing in wings
+        if wing.wing_type == REFINE
+            # REFINE wings cannot have groups
+            @assert length(wing.group_idxs) == 0 "REFINE wing $(wing.idx) cannot have groups"
+            @assert !isnothing(wing.point_to_panels) "REFINE wing $(wing.idx) missing point_to_panels mapping"
+
+            # Verify all WING points for this wing are in the mapping
+            wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
+            for point_idx in wing_point_idxs
+                @assert haskey(wing.point_to_panels, point_idx) "REFINE wing $(wing.idx) missing mapping for point $(point_idx)"
+            end
+
+            prn && println("✓ REFINE wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(length(wing.vsm_aero.panels)) panels")
+        end
+    end
 
     @parameters begin
         psys::SystemStructure = system
@@ -1308,17 +1479,29 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     end
 
     # Build tether and bridle system equations
-    eqs, defaults, guesses, tether_wing_force, tether_wing_moment = force_eqs!(
+    eqs, defaults, guesses, tether_wing_force, tether_wing_moment, aero_force_point_b = force_eqs!(
         s, system, psys, pset, eqs, defaults, guesses;
         R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment,
         twist_angle, twist_ω, set_values, fix_wing
     )
     # Build linearized aerodynamic equations
-    eqs, guesses = linear_vsm_eqs!(
-        s, eqs, guesses, psys;
-        aero_force_b, R_v_w, aero_moment_b, group_aero_moment,
-        twist_angle, va_wing_b, wing_pos, ω_b
-    )
+    # Check if we need aero_force_point_b (for REFINE wings)
+    has_refine_wings = any(wing.wing_type == REFINE for wing in wings)
+    if has_refine_wings
+        # aero_force_point_b was already defined in force_eqs!
+        eqs, guesses = linear_vsm_eqs!(
+            s, eqs, guesses, psys;
+            aero_force_b, R_v_w, aero_moment_b, group_aero_moment,
+            twist_angle, va_wing_b, wing_pos, ω_b,
+            aero_force_point_b=aero_force_point_b
+        )
+    else
+        eqs, guesses = linear_vsm_eqs!(
+            s, eqs, guesses, psys;
+            aero_force_b, R_v_w, aero_moment_b, group_aero_moment,
+            twist_angle, va_wing_b, wing_pos, ω_b
+        )
+    end
     # Build wing rigid body dynamics equations
     eqs, defaults = wing_eqs!(
         s, eqs, psys, pset, defaults;

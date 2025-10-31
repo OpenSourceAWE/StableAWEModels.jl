@@ -261,13 +261,16 @@ winches:
 ## Wings ##################
 ###########################
 # Wing aerodynamic bodies
-# Note: Wing configuration comes from VSM settings
+# headers: [id, type, point_ids]
+# type: REFINE or QUATERNION
+# point_ids: List of WING-type points (for REFINE: must be LE/TE pairs)
 
 wings:
-  headers: [id, type]
+  headers: [id, type, point_ids]
   data:
-    # Wings are typically created from VSM configuration
-    # rather than YAML structure definition
+    # REFINE wing: VSM panel forces lumped directly to structural points
+    # Points 2-21 form 10 LE/TE segment pairs (2,3), (4,5), ..., (20,21)
+    - [1, REFINE, [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]]
 
 ###########################
 ## Transforms #############
