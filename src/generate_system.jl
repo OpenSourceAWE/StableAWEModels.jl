@@ -45,7 +45,7 @@ Convert a 3x3 rotation matrix `R` to a quaternion (scalar-first format [w, x, y,
 This implementation is based on the method that avoids division by zero.
 """
 function rotation_matrix_to_quaternion(R)
-    tr_ = tr(R)
+    tr_ = R[1, 1] + R[2, 2] + R[3, 3]
 
     if tr_ > 0
         S = sqrt(tr_ + 1.0) * 2
@@ -75,6 +75,18 @@ function rotation_matrix_to_quaternion(R)
 
     return [w, x, y, z]
 end
+
+# Component accessors for symbolic registration
+rotation_matrix_to_quaternion_w(R) = rotation_matrix_to_quaternion(R)[1]
+rotation_matrix_to_quaternion_x(R) = rotation_matrix_to_quaternion(R)[2]
+rotation_matrix_to_quaternion_y(R) = rotation_matrix_to_quaternion(R)[3]
+rotation_matrix_to_quaternion_z(R) = rotation_matrix_to_quaternion(R)[4]
+
+# Register component functions as symbolic
+@register_symbolic rotation_matrix_to_quaternion_w(R::AbstractMatrix)
+@register_symbolic rotation_matrix_to_quaternion_x(R::AbstractMatrix)
+@register_symbolic rotation_matrix_to_quaternion_y(R::AbstractMatrix)
+@register_symbolic rotation_matrix_to_quaternion_z(R::AbstractMatrix)
 
 function calc_wind_factor(am::AtmosphericModel, height, set::Settings)
     if set.profile_law == 0
@@ -924,23 +936,21 @@ function wing_eqs!(
     # Check if we have any QUATERNION wings (REFINE wings don't need rigid body dynamics)
     has_quaternion = any(w.wing_type == QUATERNION for w in wings)
 
-    # Only declare quaternion dynamics variables if we have QUATERNION wings
-    if has_quaternion
-        @variables begin
-            # Intermediate variables for dynamics
-            wing_acc_b(t)[eachindex(wings), 1:3]
-            α_b_damped(t)[eachindex(wings), 1:3]
-            ω_b_stable(t)[eachindex(wings), 1:3]
-            # Orientation states
-            Q_b_w(t)[eachindex(wings), 1:4]
-            Q_vel(t)[eachindex(wings), 1:4]
-            # Forces, moments, and other properties
-            moment_b(t)[eachindex(wings), 1:3]
-            moment_tether_wing(t)[eachindex(wings), 1:3]
-            force_tether_wing(t)[eachindex(wings), 1:3]
-            wing_mass(t)[eachindex(wings)]
-            fix_wing_sphere(t)[eachindex(wings)]
-        end
+    # Always declare quaternion variables (REFINE wings will compute Q_b_w from R_b_w)
+    @variables begin
+        # Intermediate variables for dynamics (only used for QUATERNION wings)
+        wing_acc_b(t)[eachindex(wings), 1:3]
+        α_b_damped(t)[eachindex(wings), 1:3]
+        ω_b_stable(t)[eachindex(wings), 1:3]
+        # Orientation states (all wings)
+        Q_b_w(t)[eachindex(wings), 1:4]
+        Q_vel(t)[eachindex(wings), 1:4]
+        # Forces, moments, and other properties
+        moment_b(t)[eachindex(wings), 1:3]
+        moment_tether_wing(t)[eachindex(wings), 1:3]
+        force_tether_wing(t)[eachindex(wings), 1:3]
+        wing_mass(t)[eachindex(wings)]
+        fix_wing_sphere(t)[eachindex(wings)]
     end
 
     # Skew-symmetric matrix for quaternion kinematics
@@ -994,6 +1004,27 @@ function wing_eqs!(
                 )
                 # Y = Z × X (ensure orthogonality)
                 vec(R_b_w[wing.idx, :, 2]) .~ R_b_w[wing.idx, :, 3] × R_b_w[wing.idx, :, 1]
+            ]
+
+            # Convert rotation matrix to quaternion for REFINE wings
+            R_wing = R_b_w[wing.idx, :, :]
+            eqs = [
+                eqs
+                Q_b_w[wing.idx, 1] ~ rotation_matrix_to_quaternion_w(R_wing)
+                Q_b_w[wing.idx, 2] ~ rotation_matrix_to_quaternion_x(R_wing)
+                Q_b_w[wing.idx, 3] ~ rotation_matrix_to_quaternion_y(R_wing)
+                Q_b_w[wing.idx, 4] ~ rotation_matrix_to_quaternion_z(R_wing)
+                Q_vel[wing.idx, :] ~ zeros(4)  # REFINE wings have no quaternion velocity (orientation from geometry)
+                # Set moment and force variables to zero (unused for REFINE, but needed for getters)
+                moment_b[wing.idx, :] ~ zeros(3)
+                moment_tether_wing[wing.idx, :] ~ zeros(3)
+                force_tether_wing[wing.idx, :] ~ zeros(3)
+                wing_mass[wing.idx] ~ 0.0  # Mass is distributed to WING points, not centralized
+                fix_wing_sphere[wing.idx] ~ false
+                # Set intermediate dynamics variables to zero (unused for REFINE)
+                wing_acc_b[wing.idx, :] ~ zeros(3)
+                α_b_damped[wing.idx, :] ~ zeros(3)
+                ω_b_stable[wing.idx, :] ~ zeros(3)
             ]
             continue
         end

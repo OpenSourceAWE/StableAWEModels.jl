@@ -16,6 +16,8 @@ using Test
 using SymbolicAWEModels
 
 @testset verbose = true "Testing SymbolicAWEModels..." begin
+    println("--> Quaternion conversions")
+    include("test_quaternion_conversions.jl")
     println("--> Initialization")
     include("test_initialization.jl")
     println("--> Simulation")
