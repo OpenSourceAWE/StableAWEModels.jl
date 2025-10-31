@@ -32,7 +32,15 @@ function generate_prob_getters(sys_struct, sys)
             sys.angle_of_attack
         ])
         get_wing_state = getu(sys, wing_vars)
-        get_vsm_y = getu(sys, sys.y)
+
+        # vsm_input_state only exists for QUATERNION wings (not REFINE)
+        # Check if any wing is QUATERNION type before trying to access it
+        has_quaternion = any(w.wing_type == QUATERNION for w in sys_struct.wings)
+        if has_quaternion
+            get_vsm_y = getu(sys, sys.vsm_input_state)
+        else
+            get_vsm_y = nothing
+        end
     end
     if length(segments) > 0; get_segment_state = getu(sys, c.([sys.spring_force, sys.len])); end
     if length(groups) > 0; get_group_state = getu(sys, c.([sys.twist_angle, sys.twist_ω, sys.group_tether_force, sys.group_tether_moment, sys.group_aero_moment])); end

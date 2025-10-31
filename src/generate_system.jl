@@ -1015,7 +1015,7 @@ function wing_eqs!(
                 Q_b_w[wing.idx, 3] ~ rotation_matrix_to_quaternion_y(R_wing)
                 Q_b_w[wing.idx, 4] ~ rotation_matrix_to_quaternion_z(R_wing)
                 Q_vel[wing.idx, :] ~ zeros(4)  # REFINE wings have no quaternion velocity (orientation from geometry)
-                # Set moment and force variables to zero (unused for REFINE, but needed for getters)
+                # Set variables to zero that are only used for QUATERNION rigid body dynamics
                 moment_b[wing.idx, :] ~ zeros(3)
                 moment_tether_wing[wing.idx, :] ~ zeros(3)
                 force_tether_wing[wing.idx, :] ~ zeros(3)
@@ -1025,6 +1025,7 @@ function wing_eqs!(
                 wing_acc_b[wing.idx, :] ~ zeros(3)
                 α_b_damped[wing.idx, :] ~ zeros(3)
                 ω_b_stable[wing.idx, :] ~ zeros(3)
+                # aero_force_b and aero_moment_b will be set in linear_vsm_eqs!
             ]
             continue
         end
@@ -1322,6 +1323,8 @@ function scalar_eqs!(
                 heading[wing.idx] ~
                     calc_heading(R_t_w[wing.idx, :, :], R_v_w[wing.idx, :, :])
                 # Rotational quantities are zero (no rigid body rotation)
+                ω_b[wing.idx, :] ~ zeros(3)
+                α_b[wing.idx, :] ~ zeros(3)
                 turn_rate[wing.idx, :] ~ zeros(3)
                 turn_acc[wing.idx, :] ~ zeros(3)
                 # Translational kinematics use actual centroid motion
@@ -1524,6 +1527,13 @@ function linear_vsm_eqs!(
                     aero_force_point_b[point.idx, :] ~ lumped_force_b
                 ]
             end
+
+            # Set centralized aero variables to zero (REFINE wings distribute forces to points)
+            eqs = [
+                eqs
+                aero_force_b[wing.idx, :] ~ zeros(3)
+                aero_moment_b[wing.idx, :] ~ zeros(3)
+            ]
 
         else
             # ==================== QUATERNION WING: Linearized Aerodynamics ====================

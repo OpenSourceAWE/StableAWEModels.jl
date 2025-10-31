@@ -49,6 +49,10 @@ function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=s
     wings = sam.sys_struct.wings
     groups = sam.sys_struct.groups
     if length(wings) > 0
+        # get_vsm_y is nothing for REFINE-only systems (no linearization needed)
+        if isnothing(prob.get_vsm_y)
+            return nothing
+        end
         vsm_y = prob.get_vsm_y(integ)
         for wing in wings
             wing.vsm_y .= vsm_y[wing.idx, :]
