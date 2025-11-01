@@ -27,7 +27,7 @@ points:
   headers: [id, x, y, z, type, mass, body_damping, world_damping]
   data:
     # KCU / Ground attachment point
-    - [1, 0.0, 0.0, 0.0, DYNAMIC, 8.4, 0.0, 0.0]
+    - [1, 0.0, 0.0, 0.0, STATIC, 8.4, 0.0, 0.0]
 
     # Wing particles - leading edge and trailing edge points
     - [2, -0.16686417, 4.07190711, 8.25938552, WING, 0.0, 0.0, 0.0]

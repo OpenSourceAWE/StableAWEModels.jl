@@ -344,6 +344,8 @@ This is the main entry point for setting up the model. It handles:
 - `create_control_func::Bool`: Whether to generate the control functions.
 - `lin_vsm::Bool`: Whether to linearize the aerodynamics using the
                    Vortex Step Method (VSM) after initialization.
+- `pulley_init_method::Symbol=:proportional`: Method for initializing pulley lengths.
+  Use `:proportional` (default, accurate) or `:first_segment` (main branch legacy).
 
 # Returns
 - The initialized `ODEIntegrator`.
@@ -355,7 +357,8 @@ function init!(sam::SymbolicAWEModel;
     create_prob::Bool=true,
     create_lin_prob::Bool=true,
     create_control_func::Bool=false,
-    lin_vsm::Bool=true
+    lin_vsm::Bool=true,
+    pulley_init_method::Symbol=:proportional
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
     time = @elapsed begin
@@ -415,7 +418,7 @@ function init!(sam::SymbolicAWEModel;
             serialize(model_path, sam.serialized_model)
         end
 
-        reinit!(sam.sys_struct, sam.set)
+        reinit!(sam.sys_struct, sam.set; pulley_init_method)
         create_prob && !isnothing(sam.prob) && reinit!(sam, sam.prob, solver; adaptive, reload, lin_vsm)
         create_lin_prob && !isnothing(sam.lin_prob) && reinit!(sam, sam.lin_prob)
     end

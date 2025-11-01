@@ -84,6 +84,7 @@ wind_elev_rad = deg2rad(wind_elev)
 # Initialize the model
 # NOTE: REFINE wings do NOT use linearization (too expensive with many structural DOFs)
 @info "Initializing model without VSM linearization..."
+sam.sys_struct.wind_elevation = deg2rad(20.0)
 SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE, lin_vsm=false)
 
 # Calculate simulation parameters

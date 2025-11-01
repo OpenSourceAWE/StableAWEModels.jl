@@ -32,7 +32,11 @@ function VortexStepMethod.Wing(set::Settings; prn=true, kwargs...)
     else
         n_groups=4
     end
-    return VortexStepMethod.ObjWing(joinpath(model_dir, set.model), joinpath(model_dir, set.foil_file);
+
+    obj_path = joinpath(model_dir, set.model)
+    dat_path = joinpath(model_dir, set.foil_file)
+
+    return VortexStepMethod.ObjWing(obj_path, dat_path;
         mass=set.mass, crease_frac=set.crease_frac, n_groups,
         align_to_principal=true, prn, kwargs...
     )
@@ -338,11 +342,13 @@ function Segment(idx, set, point_idxs, type;
     # Compute axial_damping if not provided
     if isnan(axial_damping)
         # Use rel_damping if available, otherwise compute from axial_damping/axial_stiffness ratio
-        if hasfield(typeof(set), :rel_damping)
+        if hasproperty(set, :rel_damping) && set.rel_damping != 0.0
             axial_damping = set.rel_damping * axial_stiffness
-        elseif hasfield(typeof(set), :axial_damping) && hasfield(typeof(set), :axial_stiffness)
+        elseif hasproperty(set, :axial_damping) && hasproperty(set, :axial_stiffness) &&
+                set.axial_damping != 0.0
             axial_damping = (set.axial_damping / set.axial_stiffness) * axial_stiffness
         else
+            @warn "Axial damping is zero!"
             axial_damping = 0.0  # fallback if no damping info available
         end
     end
@@ -1088,6 +1094,7 @@ function SystemStructure(name, set;
         winches=Winch[],
         wings=AbstractWing[],
         transforms=Transform[],
+        pulley_init_method::Symbol=:proportional,
     )
     for (i, point) in enumerate(points)
         @assert point.idx == i "Point $(point.idx) != $i"
@@ -1137,7 +1144,7 @@ function SystemStructure(name, set;
     set.physical_model = name
     sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
         winches, wings, transforms, y, x, jac, zeros(KVec3), 0.0, false, false)
-    reinit!(sys_struct, set)
+    reinit!(sys_struct, set; pulley_init_method)
     return sys_struct
 end
 
@@ -1362,15 +1369,22 @@ function find_axis_point(P, l, v=[0,0,1])
 end
 
 """
-    reinit!(sys_struct::SystemStructure, set::Settings)
+    reinit!(sys_struct::SystemStructure, set::Settings; pulley_init_method=:proportional)
 
 Re-initialize a `SystemStructure` from a `Settings` object.
 
 This function resets various component states (e.g., winch lengths, group twists,
 pulley positions) to their initial values as defined in the `Settings` object. It
 is typically called before starting a new simulation run.
+
+# Keyword Arguments
+- `pulley_init_method::Symbol=:proportional`: Method for initializing pulley.len
+  - `:proportional`: Use ratio based on current segment lengths (v3-kite default)
+    `pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len`
+  - `:first_segment`: Use first segment's unstretched length (main branch method)
+    `pulley.len = segment1.l0`
 """
-function reinit!(sys_struct::SystemStructure, set::Settings)
+function reinit!(sys_struct::SystemStructure, set::Settings; pulley_init_method::Symbol=:proportional)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     for segment in segments
@@ -1405,7 +1419,21 @@ function reinit!(sys_struct::SystemStructure, set::Settings)
     for pulley in pulleys
         segment1, segment2 = segments[pulley.segment_idxs[1]], segments[pulley.segment_idxs[2]]
         pulley.sum_len = segment1.l0 + segment2.l0
-        pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len
+
+        # Initialize pulley.len based on chosen method
+        # NOTE: This affects steady-state solver convergence and results!
+        if pulley_init_method == :proportional
+            # v3-kite method: proportional to current segment lengths
+            # More accurate for asymmetric bridle configurations
+            pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len
+        elseif pulley_init_method == :first_segment
+            # main branch (legacy) method: use first segment's unstretched length
+            # Simpler but may cause initial imbalance in pulley systems
+            pulley.len = segment1.l0
+        else
+            error("Unknown pulley_init_method: $pulley_init_method. Use :proportional or :first_segment")
+        end
+
         pulley.vel = 0.0
         @assert !(pulley.sum_len ≈ 0)
     end
