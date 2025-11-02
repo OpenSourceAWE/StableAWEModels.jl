@@ -973,27 +973,8 @@ function wing_eqs!(
             x_p1, x_p2 = wing.x_ref_points  # Point indices defining X direction
             y_p1, y_p2 = wing.y_ref_points  # Point indices defining Y direction
 
-            # Calculate wing position as centroid of all WING-type points for this wing
-            wing_point_idxs = [p.idx for p in s.sys_struct.points if p.type == WING && p.wing_idx == wing.idx]
-            n_wing_points = length(wing_point_idxs)
-
-            # Build sum manually for symbolic arrays
-            pos_sum = zeros(Num, 3)
-            vel_sum = zeros(Num, 3)
-            acc_sum = zeros(Num, 3)
-            for idx in wing_point_idxs
-                pos_sum .+= pos[:, idx]
-                vel_sum .+= vel[:, idx]
-                acc_sum .+= acc[:, idx]
-            end
-
             eqs = [
                 eqs
-                # Calculate orientation from reference segments
-                wing_pos[wing.idx, :] ~ pos_sum / n_wing_points
-                wing_vel[wing.idx, :] ~ vel_sum / n_wing_points
-                wing_acc[wing.idx, :] ~ acc_sum / n_wing_points
-
                 # Build rotation matrix from structural geometry
                 # X direction (normalized)
                 vec(R_b_w[wing.idx, :, 1]) .~ sym_normalize(pos[:, x_p2] - pos[:, x_p1])
@@ -1004,6 +985,16 @@ function wing_eqs!(
                 )
                 # Y = Z × X (ensure orthogonality)
                 vec(R_b_w[wing.idx, :, 2]) .~ R_b_w[wing.idx, :, 3] × R_b_w[wing.idx, :, 1]
+
+                # Calculate wing position (KCU) from reference point
+                # This ensures VSM panels align with structural points
+                # Using transformation: pos_w = pos_ref - R_b_w * pos_b_ref
+                # where pos_b_ref is the reference point position in body frame (relative to KCU)
+                wing_pos[wing.idx, :] ~ pos[:, x_p1] - R_b_w[wing.idx, :, :] * get_pos_b(psys, x_p1)
+
+                # Use reference point velocity and acceleration
+                wing_vel[wing.idx, :] ~ vel[:, x_p1]
+                wing_acc[wing.idx, :] ~ acc[:, x_p1]
             ]
 
             # Convert rotation matrix to quaternion for REFINE wings
@@ -1133,7 +1124,6 @@ function wing_eqs!(
             defaults
             [Q_b_w[wing.idx, i] => get_Q_b_w(psys, wing.idx)[i] for i = 1:4]
             [ω_b[wing.idx, i] => get_ω_b(psys, wing.idx)[i] for i = 1:3]
-            # [α_b[wing.idx, i] => 0.0 for i = 1:3]
             [wing_pos[wing.idx, i] => get_wing_pos_w(psys, wing.idx)[i] for i = 1:3]
             [wing_vel[wing.idx, i] => get_wing_vel_w(psys, wing.idx)[i] for i = 1:3]
         ]

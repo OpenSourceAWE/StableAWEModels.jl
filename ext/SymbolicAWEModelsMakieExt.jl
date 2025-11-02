@@ -55,6 +55,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                      wing_colors = Makie.wong_colors(), vector_scale = 0.2,
                      show_points = true, show_segments = true, show_orient = true,
                      show_panes = true, margin = 10.0, force_color = false,
+                     plot_vsm = true,
                      # Optional observables for real-time updates
                      segment_points_obs = nothing,
                      point_positions_obs = nothing,
@@ -112,7 +113,6 @@ function Makie.plot!(ax, sys::SystemStructure;
         if isnothing(wing_origins_obs) || isnothing(wing_directions_obs)
             # Static plotting: create separate arrows for each wing
             plots[:wings] = []
-            plots[:vsm] = []
             for (i, wing) in enumerate(sys.wings)
                 wing_pos = Point3f(wing.pos_w)
                 R = wing.R_b_w
@@ -123,14 +123,23 @@ function Makie.plot!(ax, sys::SystemStructure;
                 axis_colors = [:red, :green, :blue]
                 p = arrows3d!(ax, origins, directions, color=axis_colors, label="Wing $i Axes")
                 push!(plots[:wings], p)
-                p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w)
-                push!(plots[:vsm], p)
             end
         else
             # Dynamic plotting: single arrows plot with observables
             axis_colors = repeat([:red, :green, :blue], length(sys.wings))
             plots[:wings] = arrows3d!(ax, wing_origins_obs, wing_directions_obs,
                                      color=axis_colors)
+        end
+    end
+
+    # === Plot VSM Aerodynamics ===
+    # VSM panels are static geometry (only position/orientation changes)
+    # so we plot them once regardless of whether observables are used
+    if plot_vsm && !isempty(sys.wings)
+        plots[:vsm] = []
+        for (i, wing) in enumerate(sys.wings)
+            p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w)
+            push!(plots[:vsm], p)
         end
     end
 

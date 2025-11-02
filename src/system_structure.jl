@@ -1249,15 +1249,9 @@ function SystemStructure(name, set;
             wing_points = [points[idx]
                 for idx in wing_point_idxs]
 
-            # Calculate pos_cad as centroid if zero
-            if iszero(wing.pos_cad)
-                if !isempty(wing_point_idxs)
-                    wing.pos_cad .= sum(
-                        points[idx].pos_cad
-                        for idx in wing_point_idxs
-                    ) / length(wing_point_idxs)
-                end
-            end
+            # For REFINE wings, pos_cad should be user-specified (KCU position)
+            # or default to vsm_wing.T_cad_body (set in VSMWing constructor)
+            # DO NOT calculate as centroid - that would misalign VSM panels
 
             # Identify wing segments (LE/TE pairs)
             if isnothing(wing.wing_segments)
@@ -1542,7 +1536,7 @@ configurations and throws assertions for definite errors.
 
 ## Point Validations
 - NaN mass (error)
-- Negative mass (error)
+- Negative mass (warning)
 - NaN position (error)
 
 ## Wing Validations
@@ -1578,11 +1572,10 @@ function validate_sys_struct(sys_struct::SystemStructure)
             error("Point #$(point.idx) has NaN mass")
         end
 
-        # Note: Points can have zero mass - segment masses are added separately
-        # Only check for negative mass (definitely wrong)
+        # Warn about negative mass (physically nonsensical but still works)
         if point.mass < 0
-            error("Point #$(point.idx) has negative mass $(point.mass) kg. " *
-                  "Mass must be non-negative.")
+            @warn "Point #$(point.idx) has negative mass $(point.mass) kg. " *
+                  "This is physically nonsensical."
         end
 
         # Check for NaN position
