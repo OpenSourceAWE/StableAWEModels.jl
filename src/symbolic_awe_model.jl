@@ -424,7 +424,7 @@ function next_step!(sam::SymbolicAWEModel; set_values=nothing, dt=1/sam.set.samp
         prob.set_set_values(sam.integrator, set_values)
     end
     if vsm_interval != 0 && sam.iter % vsm_interval == 0
-        sam.t_vsm = @elapsed linearize_vsm!(sam, sam.prob)
+        sam.t_vsm = @elapsed update_vsm!(sam, sam.prob)
     end
     
     sam.t_0 = sam.integrator.t

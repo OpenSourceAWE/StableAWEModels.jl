@@ -132,36 +132,35 @@ function extract_panel_forces_to_vsm_state!(wing::VSMWing)
 end
 
 """
-    update_vsm_panels_from_structure!(wing::VSMWing, points::Vector{Point})
+    update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
 
-Update VSM wing panel LE/TE positions from structural point positions using smooth
+Update VSM wing section LE/TE positions from structural point positions using smooth
 inverse distance weighting interpolation.
 
-This creates two-way coupling: structural deformation → VSM panel positions → aero forces.
+This creates two-way coupling: structural deformation → VSM wing sections → panels regenerated → aero forces.
+
+Follows VortexStepMethod's deform! pattern: modify sections, then call reinit! to rebuild panels.
 
 # Arguments
 - `wing::VSMWing`: Wing with REFINE type
 - `points::Vector{Point}`: All structural points (will filter for WING type)
 """
-function update_vsm_panels_from_structure!(wing::VSMWing, points::Vector{Point})
-    @assert wing.wing_type == REFINE "Can only update panels for REFINE wings"
+function update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
+    @assert wing.wing_type == REFINE "Can only update wing geometry for REFINE wings"
 
     # Get structural WING points for this wing
     wing_points = [p for p in points if p.type == WING && p.wing_idx == wing.idx]
 
     isempty(wing_points) && return  # No structural points to update from
 
-    # Get panels from vsm_aero (panels are stored in BodyAerodynamics, not Wing)
-    panels = wing.vsm_aero.panels
-
-    # For each VSM panel, update LE and TE positions from nearby structural points
-    for (panel_idx, panel) in enumerate(panels)
-        # Panel center in CAD frame (for distance calculation, average of 4 corners)
-        panel_center_cad = 0.25 * (panel.LE_point_1 + panel.LE_point_2 +
-                                   panel.TE_point_1 + panel.TE_point_2)
+    # Update each wing section from nearby structural points
+    # Sections define the wing geometry; panels are derived from sections
+    for section in wing.vsm_wing.sections
+        # Find section center in CAD frame for distance calculation
+        section_center_cad = 0.5 * (section.LE_point + section.TE_point)
 
         # Find 3 nearest structural points
-        distances = [norm(panel_center_cad - p.pos_cad) for p in wing_points]
+        distances = [norm(section_center_cad - p.pos_cad) for p in wing_points]
         nearest_indices = sortperm(distances)[1:min(3, length(distances))]
 
         # Inverse distance weighting
@@ -173,15 +172,13 @@ function update_vsm_panels_from_structure!(wing::VSMWing, points::Vector{Point})
         displacement = sum(weights[i] * (wing_points[nearest_indices[i]].pos_w - wing_points[nearest_indices[i]].pos_cad)
                           for i in 1:length(nearest_indices))
 
-        # Update panel positions: CAD position + smooth displacement
-        panel.LE_point_1 .= panel.LE_point_1 + displacement
-        panel.LE_point_2 .= panel.LE_point_2 + displacement
-        panel.TE_point_1 .= panel.TE_point_1 + displacement
-        panel.TE_point_2 .= panel.TE_point_2 + displacement
+        # Update section LE and TE positions (sections are mutable)
+        # This follows the deform! pattern: modify sections directly, no reinit! on wing
+        section.LE_point .+= displacement
+        section.TE_point .+= displacement
     end
 
-    # Reinitialize VSM geometry (updates panel properties from new positions)
-    VortexStepMethod.reinit!(wing.vsm_aero; init_aero=false)
-
+    # Do NOT call reinit! on wing - only modify sections!
+    # body_aero.reinit! will update panels from modified sections (called in update_vsm!)
     return nothing
 end

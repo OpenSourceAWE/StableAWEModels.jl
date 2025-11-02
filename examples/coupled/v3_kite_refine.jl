@@ -87,6 +87,9 @@ wind_elev_rad = deg2rad(wind_elev)
 sam.sys_struct.wind_elevation = deg2rad(20.0)
 SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE, lin_vsm=false)
 
+
+#TODO: check if the le te is correct
+
 # Calculate simulation parameters
 n_steps = N_STEPS
 Δt = SIM_TIME / n_steps

@@ -1094,7 +1094,6 @@ function SystemStructure(name, set;
         winches=Winch[],
         wings=AbstractWing[],
         transforms=Transform[],
-        pulley_init_method::Symbol=:proportional,
     )
     for (i, point) in enumerate(points)
         @assert point.idx == i "Point $(point.idx) != $i"
@@ -1124,6 +1123,19 @@ function SystemStructure(name, set;
     end
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
+        # For REFINE wings, if pos_cad is zero,
+        # calculate as centroid of structural points
+        if wing.wing_type == REFINE &&
+           iszero(wing.pos_cad)
+            wing_point_idxs = collect(keys(
+                wing.point_to_panels))
+            if !isempty(wing_point_idxs)
+                wing.pos_cad .= sum(
+                    points[idx].pos_cad
+                    for idx in wing_point_idxs
+                ) / length(wing_point_idxs)
+            end
+        end
     end
     for (i, transform) in enumerate(transforms)
         @assert transform.idx == i
@@ -1144,7 +1156,7 @@ function SystemStructure(name, set;
     set.physical_model = name
     sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
         winches, wings, transforms, y, x, jac, zeros(KVec3), 0.0, false, false)
-    reinit!(sys_struct, set; pulley_init_method)
+    reinit!(sys_struct, set)
     return sys_struct
 end
 
@@ -1208,13 +1220,15 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
         # ==================== ROTATE ==================== #
         curr_rot_pos = get_rot_pos(transform, wings, points)
         curr_R_t_w = calc_R_t_w(curr_rot_pos - base_pos)
-        transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation), -transform.azimuth)
+        transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation),
+                                        -transform.azimuth)
         R_t_w = calc_R_t_w(transform_pos)
 
         for point in points
             if point.transform_idx == transform.idx
                 vec = point.pos_w - base_pos
-                point.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
+                point.pos_w .= base_pos +
+                    apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
             end
             if point.type == WING
                 wing = wings[point.wing_idx]
@@ -1377,14 +1391,10 @@ This function resets various component states (e.g., winch lengths, group twists
 pulley positions) to their initial values as defined in the `Settings` object. It
 is typically called before starting a new simulation run.
 
-# Keyword Arguments
-- `pulley_init_method::Symbol=:proportional`: Method for initializing pulley.len
-  - `:proportional`: Use ratio based on current segment lengths (v3-kite default)
-    `pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len`
-  - `:first_segment`: Use first segment's unstretched length (main branch method)
-    `pulley.len = segment1.l0`
+Pulley lengths are initialized proportionally based on current segment lengths:
+`pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len`
 """
-function reinit!(sys_struct::SystemStructure, set::Settings; pulley_init_method::Symbol=:proportional)
+function reinit!(sys_struct::SystemStructure, set::Settings)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     for segment in segments
@@ -1420,19 +1430,9 @@ function reinit!(sys_struct::SystemStructure, set::Settings; pulley_init_method:
         segment1, segment2 = segments[pulley.segment_idxs[1]], segments[pulley.segment_idxs[2]]
         pulley.sum_len = segment1.l0 + segment2.l0
 
-        # Initialize pulley.len based on chosen method
-        # NOTE: This affects steady-state solver convergence and results!
-        if pulley_init_method == :proportional
-            # v3-kite method: proportional to current segment lengths
-            # More accurate for asymmetric bridle configurations
-            pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len
-        elseif pulley_init_method == :first_segment
-            # main branch (legacy) method: use first segment's unstretched length
-            # Simpler but may cause initial imbalance in pulley systems
-            pulley.len = segment1.l0
-        else
-            error("Unknown pulley_init_method: $pulley_init_method. Use :proportional or :first_segment")
-        end
+        # Initialize pulley.len proportional to current segment lengths
+        # More accurate for asymmetric bridle configurations
+        pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len
 
         pulley.vel = 0.0
         @assert !(pulley.sum_len ≈ 0)

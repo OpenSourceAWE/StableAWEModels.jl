@@ -84,28 +84,47 @@ function calculate_derived_properties!(props::Dict{Symbol, Any})
 end
 
 function parse_table(tbl)::Vector{NamedTuple}
-    haskey(tbl, "headers") || throw(ArgumentError("table is missing `headers`"))
-    haskey(tbl, "data")    || throw(ArgumentError("table is missing `data`"))
-    headers = String.(tbl["headers"])
+    haskey(tbl, "data") || throw(ArgumentError("table is missing `data`"))
+
     rows = tbl["data"]
-    out = NamedTuple[]
-    for (k, row) in enumerate(rows)
-        # skip empty or comment rows
-        if isempty(row) || (isa(row[1], String) && startswith(row[1], "#"))
-            continue
+    isempty(rows) && return NamedTuple[]
+
+    # Check format: if first row is a Dict, use dict format; if Array, use header format
+    first_row = first(rows)
+
+    if first_row isa AbstractDict
+        # Dict format: each row is already a dict with named keys
+        # Convert each dict to a NamedTuple
+        out = NamedTuple[]
+        for row in rows
+            nt = NamedTuple{Tuple(Symbol.(keys(row)))}(Tuple(values(row)))
+            push!(out, nt)
         end
-        # allow missing trailing columns (fill with nothing)
-        if length(row) < length(headers)
-            row = vcat(row, fill(nothing, length(headers) - length(row)))
+        return out
+    else
+        # Array format: requires headers
+        haskey(tbl, "headers") || throw(ArgumentError("table with array rows requires `headers`"))
+        headers = String.(tbl["headers"])
+
+        out = NamedTuple[]
+        for (k, row) in enumerate(rows)
+            # skip empty or comment rows
+            if isempty(row) || (isa(row[1], String) && startswith(row[1], "#"))
+                continue
+            end
+            # allow missing trailing columns (fill with nothing)
+            if length(row) < length(headers)
+                row = vcat(row, fill(nothing, length(headers) - length(row)))
+            end
+            if length(row) > length(headers)
+                @warn "Skipping row $k in table: has $(length(row)) values, expected $(length(headers)). Row: $row"
+                continue
+            end
+            nt = NamedTuple{Tuple(Symbol.(headers))}(Tuple(row))
+            push!(out, nt)
         end
-        if length(row) > length(headers)
-            @warn "Skipping row $k in table: has $(length(row)) values, expected $(length(headers)). Row: $row"
-            continue
-        end
-        nt = NamedTuple{Tuple(Symbol.(headers))}(Tuple(row))
-        push!(out, nt)
+        return out
     end
-    return out
 end
 
 """
@@ -178,7 +197,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 mass = mass,
                 body_frame_damping = body_damping,
                 world_frame_damping = world_damping,
-                transform_idx = Int16(0)
+                transform_idx = Int16(1)
             ))
             points[end].pos_w .= points[end].pos_cad
             points[end].vel_w .= 0.0
@@ -403,10 +422,29 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 point_to_panels = build_point_to_panel_mapping(wing_point_objs, vsm_aero)
 
                 # Identify reference points for orientation tracking
-                # Use first wing segment for X direction (chord), mid-span segment for Y direction (span)
-                x_ref_points = wing_segments[1]  # First LE-TE pair defines forward (X) direction
-                mid_idx = length(wing_segments) ÷ 2
-                y_ref_points = (wing_segments[1][1], wing_segments[mid_idx][1])  # Two LE points for span (Y) direction
+                # Read from YAML if provided, otherwise auto-detect
+                if haskey(row, :x_ids) && !isnothing(row.x_ids)
+                    # User-specified X reference points (chord direction)
+                    yaml_x_ids = Vector{Int}(row.x_ids)
+                    x_ref_points = Tuple(Int16(yaml_id_to_idx[xid]) for xid in yaml_x_ids)
+                    @info "  Using user-specified X reference points: YAML IDs $yaml_x_ids -> internal $(x_ref_points)"
+                else
+                    # Auto-detect: Use first wing segment for X direction (chord)
+                    x_ref_points = wing_segments[1]  # First LE-TE pair defines forward (X) direction
+                    @info "  Auto-detected X reference points: $(x_ref_points)"
+                end
+
+                if haskey(row, :y_ids) && !isnothing(row.y_ids)
+                    # User-specified Y reference points (span direction)
+                    yaml_y_ids = Vector{Int}(row.y_ids)
+                    y_ref_points = Tuple(Int16(yaml_id_to_idx[yid]) for yid in yaml_y_ids)
+                    @info "  Using user-specified Y reference points: YAML IDs $yaml_y_ids -> internal $(y_ref_points)"
+                else
+                    # Auto-detect: Use two LE points for span (Y) direction
+                    mid_idx = length(wing_segments) ÷ 2
+                    y_ref_points = (wing_segments[1][1], wing_segments[mid_idx][1])  # Two LE points for span (Y) direction
+                    @info "  Auto-detected Y reference points: $(y_ref_points)"
+                end
 
                 # Create REFINE VSMWing (no groups)
                 wing = VSMWing(
@@ -426,7 +464,6 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     y_ref_points=y_ref_points
                 )
                 @info "  ✓ REFINE wing created: $(length(wing_point_objs)) structural points, $(length(vsm_aero.panels)) VSM panels"
-                @info "     Orientation references: X=$(x_ref_points), Y=$(y_ref_points)"
             elseif wing_type == QUATERNION
                 # QUATERNION wing: Rigid body with group dynamics
                 # For now, assume no groups (would need to be specified in YAML)
@@ -453,7 +490,55 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
+    # Load transforms (optional)
     transforms = Transform[]
+    if haskey(data, "transforms") && haskey(data["transforms"], "data") && data["transforms"]["data"] !== nothing && !isempty(data["transforms"]["data"])
+        transform_rows = parse_table(data["transforms"])
+
+        for row in transform_rows
+            transform_id = Int16(row.id)
+            elevation = Float64(row.elevation)
+            azimuth = Float64(row.azimuth)
+            heading = Float64(row.heading)
+
+            # Parse optional base_pos (can be provided as separate x,y,z or as array)
+            base_pos = if haskey(row, :base_pos) && !isnothing(row.base_pos)
+                # Array format: base_pos: [x, y, z]
+                KVec3(row.base_pos...)
+            elseif haskey(row, :base_pos_x) && !isnothing(row.base_pos_x)
+                # Separate components: base_pos_x, base_pos_y, base_pos_z
+                KVec3(Float64(row.base_pos_x), Float64(row.base_pos_y), Float64(row.base_pos_z))
+            else
+                nothing
+            end
+
+            # Parse optional indices
+            base_point_idx = haskey(row, :base_point_idx) && !isnothing(row.base_point_idx) ?
+                Int16(yaml_id_to_idx[Int(row.base_point_idx)]) : nothing
+            wing_idx = haskey(row, :wing_idx) && !isnothing(row.wing_idx) ?
+                Int16(row.wing_idx) : nothing
+            rot_point_idx = haskey(row, :rot_point_idx) && !isnothing(row.rot_point_idx) ?
+                Int16(yaml_id_to_idx[Int(row.rot_point_idx)]) : nothing
+            base_transform_idx = haskey(row, :base_transform_idx) && !isnothing(row.base_transform_idx) ?
+                Int16(row.base_transform_idx) : nothing
+
+            # Create Transform
+            transform = Transform(
+                transform_id,
+                elevation,
+                azimuth,
+                heading;
+                base_point_idx = base_point_idx,
+                base_pos = base_pos,
+                base_transform_idx = base_transform_idx,
+                wing_idx = wing_idx,
+                rot_point_idx = rot_point_idx
+            )
+
+            push!(transforms, transform)
+            @info "  ✓ Transform $transform_id created: elevation=$(elevation)°, azimuth=$(azimuth)°, heading=$(heading)°"
+        end
+    end
 
     # If no wings are provided, convert WING type points to STATIC with warning
     if !wings_defined

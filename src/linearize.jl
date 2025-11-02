@@ -36,30 +36,47 @@ function find_steady_state!(sam::SymbolicAWEModel;
 end
 
 """
-    linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
+    update_vsm!(s::SymbolicAWEModel, integ=s.integrator)
 
-Update the linearized aerodynamic model from the Vortex Step Method (VSM).
+Update the aerodynamic model from the Vortex Step Method (VSM).
 
-This function takes the current kinematic state of the wing (apparent wind, angular
-velocity, twist angles), linearizes the VSM aerodynamics around this operating point,
-and updates the Jacobian (`vsm_jac`) and the steady-state forces (`vsm_x`) in the
-`SystemStructure`. This is typically called periodically during a simulation.
+This function updates the VSM aerodynamics for all wings, with wing-type-specific behavior:
+
+**For QUATERNION wings:**
+- Takes the current kinematic state (apparent wind, angular velocity, twist angles)
+- Linearizes the VSM aerodynamics around this operating point
+- Updates the Jacobian (`vsm_jac`) and steady-state forces (`vsm_x`)
+
+**For REFINE wings:**
+- Updates VSM panel positions from current structural deformation
+- Solves the full nonlinear VSM system
+- Extracts per-panel forces to `vsm_x`
+
+This is typically called periodically during simulation based on the `vsm_interval` parameter.
 """
-function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.integrator)
+function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.integrator)
     wings = sam.sys_struct.wings
     groups = sam.sys_struct.groups
-    if length(wings) > 0
-        # get_vsm_y is nothing for REFINE-only systems (no linearization needed)
-        if isnothing(prob.get_vsm_y)
-            return nothing
-        end
+    points = sam.sys_struct.points
+
+    if length(wings) == 0
+        return nothing
+    end
+
+    # Handle QUATERNION wings (linearization approach)
+    has_quaternion_wings = any(w.wing_type == QUATERNION for w in wings)
+    if has_quaternion_wings && !isnothing(prob.get_vsm_y)
         vsm_y = prob.get_vsm_y(integ)
+
         for wing in wings
+            wing.wing_type != QUATERNION && continue
+
             wing.vsm_y .= vsm_y[wing.idx, :]
             if any(isnan.(wing.vsm_solver.sol.force))
                 wing.vsm_solver.prob = nothing
                 @warn "Resetting vsm solver."
             end
+
             group_idxs = wing.group_idxs
             total_groups = length(groups)
             theta_idxs = isempty(group_idxs) ? nothing : (6 .+ group_idxs)
@@ -85,8 +102,33 @@ function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=s
             wing.vsm_jac .= res[1]
             wing.vsm_x .= res[2]
         end
-        prob.set_sys(integ, sam.sys_struct)
     end
+
+    # Handle REFINE wings (full nonlinear solve)
+    has_refine_wings = any(w.wing_type == REFINE for w in wings)
+    if has_refine_wings
+        for wing in wings
+            wing.wing_type != REFINE && continue
+
+            # Update VSM wing sections from structural deformation
+            # (modifies sections in place, like deform!)
+            update_vsm_wing_from_structure!(wing, points)
+
+            # Update body aerodynamics with the deformed wing sections
+            # (panels regenerated from modified sections)
+            VortexStepMethod.reinit!(wing.vsm_aero; init_aero=false)
+
+            # Solve full nonlinear VSM (updates wing.vsm_solver.sol in-place)
+            VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero; log=false)
+
+            # Extract per-panel forces to vsm_x
+            extract_panel_forces_to_vsm_state!(wing)
+        end
+    end
+
+    # Update system structure with new VSM state for all wing types
+    prob.set_sys(integ, sam.sys_struct)
+
     nothing
 end
 

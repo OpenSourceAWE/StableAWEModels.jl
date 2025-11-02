@@ -64,7 +64,7 @@ SymbolicAWEModels.scalar_eqs!
 SymbolicAWEModels.wing_eqs!
 SymbolicAWEModels.linear_vsm_eqs!
 SymbolicAWEModels.force_eqs!
-SymbolicAWEModels.linearize_vsm!
+SymbolicAWEModels.update_vsm!
 SymbolicAWEModels.jacobian
 SymbolicAWEModels.load_serialized_model!
 SymbolicAWEModels.maybe_create_lin_prob!

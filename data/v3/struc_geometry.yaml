@@ -266,20 +266,32 @@ winches:
 # point_ids: List of WING-type points (for REFINE: must be LE/TE pairs)
 
 wings:
-  headers: [id, type, point_ids]
   data:
     # REFINE wing: VSM panel forces lumped directly to structural points
     # Points 2-21 form 10 LE/TE segment pairs (2,3), (4,5), ..., (20,21)
-    - [1, REFINE, [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]]
+    - id: 1
+      type: REFINE
+      point_ids: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
+      x_ids: [12, 13]  # Center LE-TE pair for X-axis (chord direction)
+      y_ids: [12, 10]  # Center and left LE points for Y-axis (span direction)
 
 ###########################
 ## Transforms #############
 ###########################
 # Spatial transformations for initial positioning
-# headers: [id, elevation, azimuth, heading, base_pos, base_point_idx, wing_idx]
+# Each transform defines orientation (elevation, azimuth, heading) relative to a base point
+# Required fields: id, elevation, azimuth, heading
+# Must provide either (wing_idx OR rot_point_idx) AND (base_pos + base_point_idx OR base_transform_idx)
 
 transforms:
-  headers: [id, elevation, azimuth, heading, base_pos_x, base_pos_y, base_pos_z, base_point_idx]
   data:
-    # Transforms are typically set from settings (elevation, azimuth, heading)
-    # rather than structure definition
+    # Main transform for v3 kite wing
+    - id: 1
+      elevation: 70.0       # Elevation angle from ground (degrees)
+      azimuth: 0.0          # Azimuth angle, 0 = downwind (degrees)
+      heading: 0.0          # Kite heading/yaw (degrees)
+      wing_idx: 1           # Transform applies to wing 1
+      base_pos_x: 0.0       # Base position X (at KCU/ground point)
+      base_pos_y: 0.0       # Base position Y
+      base_pos_z: 0.0       # Base position Z
+      base_point_idx: 1     # Reference to point 1 (KCU/ground attachment)
