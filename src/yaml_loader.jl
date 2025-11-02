@@ -9,6 +9,41 @@ DEFAULT_WING_DIAMETER_MM = 1.0
 # ------------------ helpers ------------------
 
 """
+    get_field_or_nothing(::Type{T}, row::NamedTuple,
+                         field::Symbol) where T
+
+Convert field to type T if present, otherwise return nothing.
+
+# Examples
+```julia
+get_field_or_nothing(Int16, row, :idx)  # -> Int16 or nothing
+get_field_or_nothing(Tuple{Int16,Int16}, row, :pair)
+    # -> (Int16, Int16) or nothing
+```
+"""
+function get_field_or_nothing(::Type{T}, row::NamedTuple,
+                               field::Symbol) where T
+    if !haskey(row, field) || isnothing(row[field])
+        return nothing
+    end
+    return convert_to_type(T, row[field])
+end
+
+"""
+    convert_to_type(::Type{T}, value) where T
+
+Convert value to type T. Handles special cases like Tuples.
+"""
+convert_to_type(::Type{T}, value) where T = T(value)
+
+# Special handling for Tuple types
+function convert_to_type(
+        ::Type{Tuple{T,T}}, value) where T
+    vec = Vector{Int}(value)
+    return (T(vec[1]), T(vec[2]))
+end
+
+"""
     resolve_references(row::NamedTuple, property_tables::Dict{String, Dict{String, NamedTuple}})
 
 Resolve string references in a row by looking them up in property tables.
@@ -89,7 +124,8 @@ function parse_table(tbl)::Vector{NamedTuple}
     rows = tbl["data"]
     isempty(rows) && return NamedTuple[]
 
-    # Check format: if first row is a Dict, use dict format; if Array, use header format
+    # Check format: if first row is a Dict,
+    # use dict format; if Array, use header format
     first_row = first(rows)
 
     if first_row isa AbstractDict
@@ -97,27 +133,33 @@ function parse_table(tbl)::Vector{NamedTuple}
         # Convert each dict to a NamedTuple
         out = NamedTuple[]
         for row in rows
-            nt = NamedTuple{Tuple(Symbol.(keys(row)))}(Tuple(values(row)))
+            nt = NamedTuple{Tuple(Symbol.(keys(row)))}(
+                Tuple(values(row)))
             push!(out, nt)
         end
         return out
     else
         # Array format: requires headers
-        haskey(tbl, "headers") || throw(ArgumentError("table with array rows requires `headers`"))
+        haskey(tbl, "headers") ||
+            throw(ArgumentError(
+                "table with array rows requires `headers`"))
         headers = String.(tbl["headers"])
 
         out = NamedTuple[]
         for (k, row) in enumerate(rows)
             # skip empty or comment rows
-            if isempty(row) || (isa(row[1], String) && startswith(row[1], "#"))
+            if isempty(row) ||
+               (isa(row[1], String) && startswith(row[1], "#"))
                 continue
             end
             # allow missing trailing columns (fill with nothing)
             if length(row) < length(headers)
-                row = vcat(row, fill(nothing, length(headers) - length(row)))
+                row = vcat(row, fill(nothing,
+                    length(headers) - length(row)))
             end
             if length(row) > length(headers)
-                @warn "Skipping row $k in table: has $(length(row)) values, expected $(length(headers)). Row: $row"
+                @warn "Skipping row $k: has $(length(row)) " *
+                      "values, expected $(length(headers))."
                 continue
             end
             nt = NamedTuple{Tuple(Symbol.(headers))}(Tuple(row))
@@ -128,13 +170,82 @@ function parse_table(tbl)::Vector{NamedTuple}
 end
 
 """
+    call_yaml_constructor(Constructor, row::NamedTuple,
+        args_spec, kwargs_spec; mappings=Dict())
+
+Generic YAML-to-constructor caller. Extracts positional
+args and kwargs from YAML row and calls constructor.
+
+# Arguments
+- `Constructor`: Constructor function to call
+- `row::NamedTuple`: Parsed YAML row
+- `args_spec::Vector{Symbol}`: Names for positional args
+- `kwargs_spec::Vector{Symbol}`: Names for kwargs
+
+# Keyword Arguments
+- `mappings::Dict{Symbol, Function}`: Mapping functions
+  that take the row and return the arg value
+
+# Example
+```julia
+row = (idx=1, x=0.0, y=0.0, z=0.0, type="STATIC")
+point = call_yaml_constructor(Point, row,
+    [:idx, :pos_cad, :type],  # positional args
+    [:mass, :wing_idx];       # kwargs
+    mappings=Dict(
+        :pos_cad => r -> [Float64(r.x),
+            Float64(r.y), Float64(r.z)],
+        :type => r -> parse_dynamics_type(
+            String(r.type))
+    ))
+```
+"""
+function call_yaml_constructor(
+        Constructor,
+        row::NamedTuple,
+        args_spec::Vector{Symbol},
+        kwargs_spec::Vector;
+        mappings::Dict{Symbol, <:Function}=
+            Dict{Symbol, Function}())
+
+    # Extract positional arguments
+    args = []
+    for arg_name in args_spec
+        if haskey(mappings, arg_name)
+            push!(args, mappings[arg_name](row))
+        elseif haskey(row, arg_name)
+            push!(args, row[arg_name])
+        else
+            error("Missing required arg $arg_name")
+        end
+    end
+
+    # Extract keyword arguments (only if present)
+    kwargs = Dict{Symbol, Any}()
+    for kwarg_name in kwargs_spec
+        if haskey(mappings, kwarg_name)
+            kwargs[kwarg_name] = mappings[kwarg_name](row)
+        elseif haskey(row, kwarg_name) &&
+               !isnothing(row[kwarg_name])
+            kwargs[kwarg_name] = row[kwarg_name]
+        end
+    end
+
+    return Constructor(args...; kwargs...)
+end
+
+"""
         load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing)
 
 Build a `SystemStructure` from a component-based structural YAML file.
 
+**IMPORTANT**: All indices (points, segments, etc.) must be sequential
+starting from 1 with no gaps.
+
 # Expected top-level blocks
 - `points`: table with headers `[id,x,y,z,type,mass,body_damping,world_damping]`
   - `type`: STATIC, DYNAMIC, WING, or QUASI_STATIC
+  - `id` must be sequential: 1, 2, 3, ...
 
 - `segments`: table with one of two formats:
   - Direct format: `[id,point_i,point_j,type,l0,diameter_mm,axial_stiffness,axial_damping,compression_frac]`
@@ -178,35 +289,34 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Load points
     points = Point[]
-    yaml_id_to_idx = Dict{Int,Int}()  # Map from YAML IDs to 1-based indices
 
     if haskey(data, "points")
         point_rows = parse_table(data["points"])
         for (i, row) in enumerate(point_rows)
-            yaml_id = Int(row.id)
-            pos = [Float64(row.x), Float64(row.y), Float64(row.z)]
-            ptype = parse_dynamics_type(String(row.type))
-            mass = Float64(row.mass)
-            body_damping = Float64(row.body_damping)
-            world_damping = Float64(row.world_damping)
+            # Verify sequential indexing
+            @assert Int(row.idx) == i
+                "Point indices must be sequential: " *
+                "expected $i, got $(row.idx)"
 
-            push!(points, Point(
-                i,  # Use 1-based index
-                pos,
-                ptype;
-                mass = mass,
-                body_frame_damping = body_damping,
-                world_frame_damping = world_damping,
-                transform_idx = Int16(1)
-            ))
-            points[end].pos_w .= points[end].pos_cad
-            points[end].vel_w .= 0.0
+            # Create Point using generic constructor
+            point = call_yaml_constructor(Point, row,
+                [:idx, :pos_cad, :type],
+                [:wing_idx, :transform_idx, :mass,
+                 :body_frame_damping, :world_frame_damping];
+                mappings=Dict(
+                    :pos_cad => r -> KVec3(r.pos_cad...),
+                    :type => r -> parse_dynamics_type(
+                        String(r.type))
+                ))
 
-            yaml_id_to_idx[yaml_id] = i
+            point.pos_w .= point.pos_cad
+            point.vel_w .= 0.0
+            push!(points, point)
         end
     end
 
-    isempty(points) && error("No points found in YAML file $(yaml_path).")
+    isempty(points) &&
+        error("No points found in YAML file $(yaml_path).")
 
     # Build property tables for reference resolution
     property_tables = Dict{String, Dict{String, NamedTuple}}()
@@ -250,68 +360,28 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         segment_rows = parse_table(data["segments"])
 
         for (i, row) in enumerate(segment_rows)
-            # Resolve any references in the row
+            # Resolve references and calculate derived properties
             resolved_row = resolve_references(row, property_tables)
-
-            # Convert to mutable dict for derived property calculation
             props = Dict{Symbol, Any}(pairs(resolved_row))
+            calculate_derived_properties!(props)
 
-            # Smart detection: check if axial_stiffness is directly provided as a number
-            # or if we need to calculate it from material properties
-            if haskey(props, :axial_stiffness) && props[:axial_stiffness] isa Number
-                # Direct stiffness specified - use it as-is
-                axial_stiffness = Float64(props[:axial_stiffness])
-                # Check if damping is also provided, otherwise default to 0
-                if haskey(props, :axial_damping) && props[:axial_damping] !== nothing
-                    axial_damping = Float64(props[:axial_damping])
-                else
-                    axial_damping = 0.0
-                end
-            else
-                # Material-based or needs calculation from material properties
-                calculate_derived_properties!(props)
-                if !haskey(props, :axial_stiffness) || props[:axial_stiffness] === nothing
-                    error("Segment $i: Unable to determine axial_stiffness. Either provide it directly or specify material properties.")
-                end
-                axial_stiffness = Float64(props[:axial_stiffness])
-                axial_damping = Float64(props[:axial_damping])
-            end
+            # Convert back to NamedTuple for constructor
+            resolved_row = NamedTuple(props)
 
-            # Extract required fields
-            yaml_point_i = Int(props[:point_i])
-            yaml_point_j = Int(props[:point_j])
-            seg_type = parse_segment_type(String(props[:type]))
-            l0 = Float64(props[:l0])
-            diameter_mm = Float64(props[:diameter_mm])
+            # Create Segment using generic constructor
+            segment = call_yaml_constructor(Segment, resolved_row,
+                [:idx, :set, :point_idxs, :type],
+                [:l0, :diameter_mm, :axial_stiffness,
+                 :axial_damping, :compression_frac];
+                mappings=Dict(
+                    :set => r -> set,
+                    :point_idxs => r -> (Int(r.point_i),
+                        Int(r.point_j)),
+                    :type => r -> parse_segment_type(
+                        String(r.type))
+                ))
 
-            # Handle compression_frac which might be in different positions
-            if haskey(props, :compression_frac) && props[:compression_frac] !== nothing
-                compression_frac = Float64(props[:compression_frac])
-            else
-                compression_frac = 0.0
-            end
-
-            # Map YAML point IDs to 1-based indices
-            if !haskey(yaml_id_to_idx, yaml_point_i)
-                error("Segment $i references unknown point ID $yaml_point_i")
-            end
-            if !haskey(yaml_id_to_idx, yaml_point_j)
-                error("Segment $i references unknown point ID $yaml_point_j")
-            end
-            point_i = yaml_id_to_idx[yaml_point_i]
-            point_j = yaml_id_to_idx[yaml_point_j]
-
-            push!(segments, Segment(
-                i,  # Use 1-based index
-                set,
-                (point_i, point_j),
-                seg_type;
-                l0 = l0,
-                diameter_mm = diameter_mm,
-                axial_stiffness = axial_stiffness,
-                axial_damping = axial_damping,
-                compression_frac = compression_frac
-            ))
+            push!(segments, segment)
         end
     end
 
@@ -320,46 +390,77 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     if haskey(data, "pulleys")
         pulley_rows = parse_table(data["pulleys"])
         for (i, row) in enumerate(pulley_rows)
-            segment_i = Int(row.segment_i)
-            segment_j = Int(row.segment_j)
-            ptype = parse_dynamics_type(String(row.type))
-
-            # Validate segment indices
-            if segment_i < 1 || segment_i > length(segments)
-                error("Pulley $i references invalid segment index $segment_i (must be 1-$(length(segments)))")
-            end
-            if segment_j < 1 || segment_j > length(segments)
-                error("Pulley $i references invalid segment index $segment_j (must be 1-$(length(segments)))")
-            end
-
-            push!(pulleys, Pulley(
-                i,  # Use 1-based index
-                (segment_i, segment_j),
-                ptype
-            ))
+            pulley = call_yaml_constructor(Pulley, row,
+                [:idx, :segment_idxs, :type],
+                [];
+                mappings=Dict(
+                    :segment_idxs => r -> (Int(r.segment_i),
+                        Int(r.segment_j)),
+                    :type => r -> parse_dynamics_type(String(r.type))
+                ))
+            push!(pulleys, pulley)
         end
     end
 
     # Load groups (optional, for deformable wings)
     groups = Group[]
-    if haskey(data, "groups") && haskey(data["groups"], "data") && data["groups"]["data"] !== nothing && !isempty(data["groups"]["data"])
-        # Groups would be loaded here if defined
-        # This requires VSM wing instance and gamma values
-        @warn "Groups defined in YAML but loading not yet implemented"
+    if haskey(data, "groups") &&
+       haskey(data["groups"], "data") &&
+       data["groups"]["data"] !== nothing &&
+       !isempty(data["groups"]["data"])
+        group_rows = parse_table(data["groups"])
+
+        for (i, row) in enumerate(group_rows)
+            group = call_yaml_constructor(Group, row,
+                [:idx, :point_idxs, :gamma, :type,
+                 :moment_frac],
+                [:damping];
+                mappings=Dict(
+                    :point_idxs => r ->
+                        Vector{Int}(r.point_ids),
+                    :type => r -> parse_dynamics_type(
+                        String(r.type))
+                ))
+            push!(groups, group)
+        end
     end
 
     # Load tethers (optional)
     tethers = Tether[]
-    if haskey(data, "tethers") && haskey(data["tethers"], "data") && data["tethers"]["data"] !== nothing && !isempty(data["tethers"]["data"])
-        # Tethers would be loaded here if defined
-        @warn "Tethers defined in YAML but loading not yet implemented"
+    if haskey(data, "tethers") &&
+       haskey(data["tethers"], "data") &&
+       data["tethers"]["data"] !== nothing &&
+       !isempty(data["tethers"]["data"])
+        tether_rows = parse_table(data["tethers"])
+        for (i, row) in enumerate(tether_rows)
+            tether = call_yaml_constructor(Tether, row,
+                [:idx, :segment_idxs, :winch_idx],
+                [];
+                mappings=Dict(
+                    :segment_idxs => r -> Vector{Int16}(r.segment_idxs),
+                    :winch_idx => r -> Int16(r.winch_idx)
+                ))
+            push!(tethers, tether)
+        end
     end
 
     # Load winches (optional)
     winches = Winch[]
-    if haskey(data, "winches") && haskey(data["winches"], "data") && data["winches"]["data"] !== nothing && !isempty(data["winches"]["data"])
-        # Winches would be loaded here if defined
-        @warn "Winches defined in YAML but loading not yet implemented"
+    if haskey(data, "winches") &&
+       haskey(data["winches"], "data") &&
+       data["winches"]["data"] !== nothing &&
+       !isempty(data["winches"]["data"])
+        winch_rows = parse_table(data["winches"])
+        for (i, row) in enumerate(winch_rows)
+            winch = call_yaml_constructor(Winch, row,
+                [:idx, :set, :tether_idxs],
+                [:tether_len, :tether_vel, :brake];
+                mappings=Dict(
+                    :set => r -> set,
+                    :tether_idxs => r -> Vector{Int16}(r.tether_idxs)
+                ))
+            push!(winches, winch)
+        end
     end
 
     # Parse wing type
@@ -372,194 +473,71 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Load wings (optional)
     wings = AbstractWing[]
-    wings_defined = false
-    if haskey(data, "wings") && haskey(data["wings"], "data") && data["wings"]["data"] !== nothing && !isempty(data["wings"]["data"])
+    if haskey(data, "wings") &&
+       haskey(data["wings"], "data") &&
+       data["wings"]["data"] !== nothing &&
+       !isempty(data["wings"]["data"])
         wing_rows = parse_table(data["wings"])
-        wings_defined = true
 
-        for row in wing_rows
-            wing_id = Int(row.id)
-            wing_type = parse_wing_type(String(row.type))
-
-            # Get point IDs for this wing
-            yaml_point_ids = Vector{Int}(row.point_ids)
-            wing_point_idxs = [yaml_id_to_idx[pid] for pid in yaml_point_ids]
-            wing_point_objs = [points[idx] for idx in wing_point_idxs]
-
-            # Validate that the points exist and are WING type
-            for idx in wing_point_idxs
-                if points[idx].type != WING
-                    error("Wing $wing_id references point $idx which is not of type WING")
-                end
-                # Set wing_idx on the point
-                points[idx] = Point(
-                    points[idx].idx,
-                    points[idx].pos_cad,
-                    points[idx].type;
-                    wing_idx = Int16(wing_id),
-                    mass = points[idx].mass,
-                    body_frame_damping = points[idx].body_frame_damping,
-                    world_frame_damping = points[idx].world_frame_damping,
-                    transform_idx = points[idx].transform_idx
-                )
-                points[idx].pos_w .= points[idx].pos_cad
-                points[idx].vel_w .= 0.0
-            end
-
-            # Create VSM wing from settings
-            @info "Creating VSM wing $wing_id of type $wing_type..."
-            vsm_wing = VortexStepMethod.Wing(set; prn=false)
-            vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
-            vsm_solver = VortexStepMethod.Solver(vsm_aero; solver_type=VortexStepMethod.NONLIN, atol=2e-8, rtol=2e-8)
-
-            # Create wing based on type
-            if wing_type == REFINE
-                # REFINE wing: Direct panel forces to structural points
-                # Identify wing segments (LE/TE pairs)
-                wing_segments = identify_wing_segments(wing_point_objs)
-
-                # Build panel-to-point force lumping mapping
-                point_to_panels = build_point_to_panel_mapping(wing_point_objs, vsm_aero)
-
-                # Identify reference points for orientation tracking
-                # Read from YAML if provided, otherwise auto-detect
-                if haskey(row, :x_ids) && !isnothing(row.x_ids)
-                    # User-specified X reference points (chord direction)
-                    yaml_x_ids = Vector{Int}(row.x_ids)
-                    x_ref_points = Tuple(Int16(yaml_id_to_idx[xid]) for xid in yaml_x_ids)
-                    @info "  Using user-specified X reference points: YAML IDs $yaml_x_ids -> internal $(x_ref_points)"
-                else
-                    # Auto-detect: Use first wing segment for X direction (chord)
-                    x_ref_points = wing_segments[1]  # First LE-TE pair defines forward (X) direction
-                    @info "  Auto-detected X reference points: $(x_ref_points)"
-                end
-
-                if haskey(row, :y_ids) && !isnothing(row.y_ids)
-                    # User-specified Y reference points (span direction)
-                    yaml_y_ids = Vector{Int}(row.y_ids)
-                    y_ref_points = Tuple(Int16(yaml_id_to_idx[yid]) for yid in yaml_y_ids)
-                    @info "  Using user-specified Y reference points: YAML IDs $yaml_y_ids -> internal $(y_ref_points)"
-                else
-                    # Auto-detect: Use two LE points for span (Y) direction
-                    mid_idx = length(wing_segments) ÷ 2
-                    y_ref_points = (wing_segments[1][1], wing_segments[mid_idx][1])  # Two LE points for span (Y) direction
-                    @info "  Auto-detected Y reference points: $(y_ref_points)"
-                end
-
-                # Create REFINE VSMWing (no groups)
-                wing = VSMWing(
-                    wing_id,
-                    vsm_aero,
-                    vsm_wing,
-                    vsm_solver,
-                    Int16[],  # No groups for REFINE
-                    vsm_wing.R_cad_body,
-                    vsm_wing.T_cad_body;
-                    transform_idx=1,
-                    y_damping=150.0,
-                    wing_type=REFINE,
-                    point_to_panels=point_to_panels,
-                    wing_segments=wing_segments,
-                    x_ref_points=x_ref_points,
-                    y_ref_points=y_ref_points
-                )
-                @info "  ✓ REFINE wing created: $(length(wing_point_objs)) structural points, $(length(vsm_aero.panels)) VSM panels"
-            elseif wing_type == QUATERNION
-                # QUATERNION wing: Rigid body with group dynamics
-                # For now, assume no groups (would need to be specified in YAML)
-                group_idxs = Int16[]
-
-                wing = VSMWing(
-                    wing_id,
-                    vsm_aero,
-                    vsm_wing,
-                    vsm_solver,
-                    group_idxs,
-                    vsm_wing.R_cad_body,
-                    vsm_wing.T_cad_body;
-                    transform_idx=1,
-                    y_damping=150.0,
-                    wing_type=QUATERNION
-                )
-                @info "  ✓ QUATERNION wing created with $(length(group_idxs)) groups"
-            else
-                error("Unsupported wing type: $wing_type")
-            end
-
+        for (i, row) in enumerate(wing_rows)
+            wing = call_yaml_constructor(VSMWing, row,
+                [:idx, :set, :group_idxs],
+                [:transform_idx, :y_damping, :wing_type,
+                 :x_ref_points, :y_ref_points];
+                mappings=Dict(
+                    :set => r -> set,
+                    :group_idxs => r -> Int16[],
+                    :wing_type => r ->
+                        parse_wing_type(String(r.type)),
+                    :x_ref_points => r ->
+                        get_field_or_nothing(
+                            Tuple{Int16,Int16}, r, :x_ref_points),
+                    :y_ref_points => r ->
+                        get_field_or_nothing(
+                            Tuple{Int16,Int16}, r, :y_ref_points)
+                ))
             push!(wings, wing)
         end
     end
 
     # Load transforms (optional)
     transforms = Transform[]
-    if haskey(data, "transforms") && haskey(data["transforms"], "data") && data["transforms"]["data"] !== nothing && !isempty(data["transforms"]["data"])
+    if haskey(data, "transforms") &&
+       haskey(data["transforms"], "data") &&
+       data["transforms"]["data"] !== nothing &&
+       !isempty(data["transforms"]["data"])
         transform_rows = parse_table(data["transforms"])
 
         for row in transform_rows
-            transform_id = Int16(row.id)
-            elevation = Float64(row.elevation)
-            azimuth = Float64(row.azimuth)
-            heading = Float64(row.heading)
-
-            # Parse optional base_pos (can be provided as separate x,y,z or as array)
-            base_pos = if haskey(row, :base_pos) && !isnothing(row.base_pos)
-                # Array format: base_pos: [x, y, z]
-                KVec3(row.base_pos...)
-            elseif haskey(row, :base_pos_x) && !isnothing(row.base_pos_x)
-                # Separate components: base_pos_x, base_pos_y, base_pos_z
-                KVec3(Float64(row.base_pos_x), Float64(row.base_pos_y), Float64(row.base_pos_z))
-            else
-                nothing
-            end
-
-            # Parse optional indices
-            base_point_idx = haskey(row, :base_point_idx) && !isnothing(row.base_point_idx) ?
-                Int16(yaml_id_to_idx[Int(row.base_point_idx)]) : nothing
-            wing_idx = haskey(row, :wing_idx) && !isnothing(row.wing_idx) ?
-                Int16(row.wing_idx) : nothing
-            rot_point_idx = haskey(row, :rot_point_idx) && !isnothing(row.rot_point_idx) ?
-                Int16(yaml_id_to_idx[Int(row.rot_point_idx)]) : nothing
-            base_transform_idx = haskey(row, :base_transform_idx) && !isnothing(row.base_transform_idx) ?
-                Int16(row.base_transform_idx) : nothing
-
-            # Create Transform
-            transform = Transform(
-                transform_id,
-                elevation,
-                azimuth,
-                heading;
-                base_point_idx = base_point_idx,
-                base_pos = base_pos,
-                base_transform_idx = base_transform_idx,
-                wing_idx = wing_idx,
-                rot_point_idx = rot_point_idx
-            )
-
+            transform = call_yaml_constructor(Transform, row,
+                [:idx, :elevation, :azimuth, :heading],
+                [:base_point_idx, :base_pos,
+                 :base_transform_idx, :wing_idx, :rot_point_idx];
+                mappings=Dict(
+                    :elevation => r -> deg2rad(r.elevation),
+                    :azimuth => r -> deg2rad(r.azimuth),
+                    :heading => r -> deg2rad(r.heading),
+                    :base_pos => r -> KVec3(r.base_pos...),
+                    :base_point_idx => r ->
+                        Int16(r.base_point_idx),
+                    :rot_point_idx => r ->
+                        get_field_or_nothing(Int16, r,
+                            :rot_point_idx),
+                    :wing_idx => r ->
+                        get_field_or_nothing(Int16, r, :wing_idx)
+                ))
             push!(transforms, transform)
-            @info "  ✓ Transform $transform_id created: elevation=$(elevation)°, azimuth=$(azimuth)°, heading=$(heading)°"
+            elev_deg = rad2deg(transform.elevation)
+            azim_deg = rad2deg(transform.azimuth)
+            head_deg = rad2deg(transform.heading)
+            @info "  ✓ Transform $(transform.idx) created: " *
+                  "elevation=$(elev_deg)°, " *
+                  "azimuth=$(azim_deg)°, heading=$(head_deg)°"
         end
     end
 
-    # If no wings are provided, convert WING type points to STATIC with warning
-    if !wings_defined
-        wing_points = findall(p -> p.type == WING, points)
-        if !isempty(wing_points)
-            @warn "No wings provided but $(length(wing_points)) WING type points found. Converting to STATIC."
-            for idx in wing_points
-                points[idx] = Point(
-                    points[idx].idx,
-                    points[idx].pos_cad,
-                    STATIC;
-                    mass = points[idx].mass,
-                    body_frame_damping = points[idx].body_frame_damping,
-                    world_frame_damping = points[idx].world_frame_damping,
-                    transform_idx = points[idx].transform_idx
-                )
-                points[idx].pos_w .= points[idx].pos_cad
-                points[idx].vel_w .= 0.0
-            end
-        end
-    end
-
-    return SystemStructure(system_name, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
+    # SystemStructure constructor now handles WING→STATIC
+    # conversion when no wings are defined
+    return SystemStructure(system_name, set; points, groups,
+        segments, pulleys, tethers, winches, wings, transforms)
 end

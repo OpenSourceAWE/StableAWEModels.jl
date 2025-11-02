@@ -19,56 +19,76 @@ materials:
 ###########################
 ## Points #################
 ###########################
-# Points are the mass particles in the system
-# headers: [id, x, y, z, type, mass, body_damping, world_damping]
+# Point(idx, pos_cad, type; wing_idx=1, transform_idx=1,
+#       mass=0.0, body_frame_damping=0.0,
+#       world_frame_damping=0.0)
 # type: STATIC, DYNAMIC, WING, QUASI_STATIC
+# pos_cad is a 3-element array [x, y, z]
 
 points:
-  headers: [id, x, y, z, type, mass, body_damping, world_damping]
+  headers: [idx, pos_cad, type, wing_idx, transform_idx,
+            mass, body_frame_damping, world_frame_damping]
   data:
     # KCU / Ground attachment point
-    - [1, 0.0, 0.0, 0.0, STATIC, 8.4, 0.0, 0.0]
+    - [1, [0.0, 0.0, 0.0], STATIC, 1, 1, 8.4, 0.0, 0.0]
 
-    # Wing particles - leading edge and trailing edge points
-    - [2, -0.16686417, 4.07190711, 8.25938552, WING, 0.0, 0.0, 0.0]
-    - [3, 0.8950856, 4.23504033, 8.28564737, WING, 0.0, 0.0, 0.0]
-    - [4, -0.66385373, 3.97158462, 9.10345727, WING, 0.0, 0.0, 0.0]
-    - [5, 0.84466799, 4.04893109, 9.16869541, WING, 0.0, 0.0, 0.0]
-    - [6, -1.00179344, 3.13938093, 10.08117033, WING, 0.0, 0.0, 0.0]
-    - [7, 0.95411064, 3.19044693, 10.20618443, WING, 0.0, 0.0, 0.0]
-    - [8, -1.11933902, 1.96778538, 10.69146438, WING, 0.0, 0.0, 0.0]
-    - [9, 1.03150699, 1.98490264, 10.81013669, WING, 0.0, 0.0, 0.0]
-    - [10, -1.16537227, 0.67379745, 10.96630823, WING, 0.0, 0.0, 0.0]
-    - [11, 1.09790203, 0.6605361, 11.06585663, WING, 0.0, 0.0, 0.0]
-    - [12, -1.16537227, -0.67379745, 10.96630823, WING, 0.0, 0.0, 0.0]
-    - [13, 1.09790203, -0.6605361, 11.06585663, WING, 0.0, 0.0, 0.0]
-    - [14, -1.11933902, -1.96778538, 10.69146438, WING, 0.0, 0.0, 0.0]
-    - [15, 1.03150699, -1.98490264, 10.81013669, WING, 0.0, 0.0, 0.0]
-    - [16, -1.00179344, -3.13938093, 10.08117033, WING, 0.0, 0.0, 0.0]
-    - [17, 0.95411064, -3.19044693, 10.20618443, WING, 0.0, 0.0, 0.0]
-    - [18, -0.66385373, -3.97158462, 9.10345727, WING, 0.0, 0.0, 0.0]
-    - [19, 0.84466799, -4.04893109, 9.16869541, WING, 0.0, 0.0, 0.0]
-    - [20, -0.16686417, -4.07190711, 8.25938552, WING, 0.0, 0.0, 0.0]
-    - [21, 0.8950856, -4.23504033, 8.28564737, WING, 0.0, 0.0, 0.0]
+    # Wing particles (LE/TE pairs)
+    - [2, [-0.16686417, 4.07190711, 8.25938552], WING]
+    - [3, [0.8950856, 4.23504033, 8.28564737], WING]
+    - [4, [-0.66385373, 3.97158462, 9.10345727], WING]
+    - [5, [0.84466799, 4.04893109, 9.16869541], WING]
+    - [6, [-1.00179344, 3.13938093, 10.08117033], WING]
+    - [7, [0.95411064, 3.19044693, 10.20618443], WING]
+    - [8, [-1.11933902, 1.96778538, 10.69146438], WING]
+    - [9, [1.03150699, 1.98490264, 10.81013669], WING]
+    - [10, [-1.16537227, 0.67379745, 10.96630823], WING]
+    - [11, [1.09790203, 0.6605361, 11.06585663], WING]
+    - [12, [-1.16537227, -0.67379745, 10.96630823], WING]
+    - [13, [1.09790203, -0.6605361, 11.06585663], WING]
+    - [14, [-1.11933902, -1.96778538, 10.69146438], WING]
+    - [15, [1.03150699, -1.98490264, 10.81013669], WING]
+    - [16, [-1.00179344, -3.13938093, 10.08117033], WING]
+    - [17, [0.95411064, -3.19044693, 10.20618443], WING]
+    - [18, [-0.66385373, -3.97158462, 9.10345727], WING]
+    - [19, [0.84466799, -4.04893109, 9.16869541], WING]
+    - [20, [-0.16686417, -4.07190711, 8.25938552], WING]
+    - [21, [0.8950856, -4.23504033, 8.28564737], WING]
 
-    # Bridle particles - attachment and convergence points
-    - [22, -0.67653494, 2.10580567, 7.08413599, DYNAMIC, 0.0, 1.0, 0.0]
-    - [23, -0.79196791, 1.01882151, 7.57069579, DYNAMIC, 0.0, 1.0, 0.0]
-    - [24, -0.79196791, -1.01882151, 7.57069579, DYNAMIC, 0.0, 1.0, 0.0]
-    - [25, -0.67653494, -2.10580567, 7.08413599, DYNAMIC, 0.0, 1.0, 0.0]
-    - [26, -0.46444477, 0.77505128, 4.23316161, DYNAMIC, 0.0, 1.0, 0.0]
-    - [27, -0.46444477, -0.77505128, 4.23316161, DYNAMIC, 0.0, 1.0, 0.0]
-    - [28, 0.54344694, 1.57655435, 5.91086207, DYNAMIC, 0.0, 1.0, 0.0]
-    - [29, 0.62960591, 0.92728966, 6.64639402, DYNAMIC, 0.0, 1.0, 0.0]
-    - [30, 0.62960591, -0.92728966, 6.64639402, DYNAMIC, 0.0, 1.0, 0.0]
-    - [31, 0.54344694, -1.57655435, 5.91086207, DYNAMIC, 0.0, 1.0, 0.0]
-    - [32, 0.39092886, 0.71221536, 4.26118728, DYNAMIC, 0.0, 1.0, 0.0]
-    - [33, 0.39092886, -0.71221536, 4.26118728, DYNAMIC, 0.0, 1.0, 0.0]
-    - [34, 0.30679124, 0.49235914, 3.39885672, DYNAMIC, 0.1, 1.0, 0.0]
-    - [35, 0.28625931, 0.0, 3.19030736, DYNAMIC, 0.1, 1.0, 0.0]
-    - [36, 0.30679124, -0.49235914, 3.39885672, DYNAMIC, 0.1, 1.0, 0.0]
-    - [37, 0.13269336, 0.23394851, 1.48060245, DYNAMIC, 0.1, 1.0, 0.0]
-    - [38, 0.13269336, -0.23394851, 1.48060245, DYNAMIC, 0.1, 1.0, 0.0]
+    # Bridle particles - body_frame_damping for stability
+    - [22, [-0.67653494, 2.10580567, 7.08413599], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [23, [-0.79196791, 1.01882151, 7.57069579], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [24, [-0.79196791, -1.01882151, 7.57069579], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [25, [-0.67653494, -2.10580567, 7.08413599], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [26, [-0.46444477, 0.77505128, 4.23316161], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [27, [-0.46444477, -0.77505128, 4.23316161], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [28, [0.54344694, 1.57655435, 5.91086207], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [29, [0.62960591, 0.92728966, 6.64639402], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [30, [0.62960591, -0.92728966, 6.64639402], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [31, [0.54344694, -1.57655435, 5.91086207], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [32, [0.39092886, 0.71221536, 4.26118728], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [33, [0.39092886, -0.71221536, 4.26118728], DYNAMIC,
+        1, 1, 0.0, 1.0, 0.0]
+    - [34, [0.30679124, 0.49235914, 3.39885672], DYNAMIC,
+        1, 1, 0.1, 1.0, 0.0]
+    - [35, [0.28625931, 0.0, 3.19030736], DYNAMIC,
+        1, 1, 0.1, 1.0, 0.0]
+    - [36, [0.30679124, -0.49235914, 3.39885672], DYNAMIC,
+        1, 1, 0.1, 1.0, 0.0]
+    - [37, [0.13269336, 0.23394851, 1.48060245], DYNAMIC,
+        1, 1, 0.1, 1.0, 0.0]
+    - [38, [0.13269336, -0.23394851, 1.48060245], DYNAMIC,
+        1, 1, 0.1, 1.0, 0.0]
 
 ###########################
 ## Segments ###############
@@ -84,7 +104,7 @@ points:
 # type: POWER_LINE, STEERING_LINE, BRIDLE
 
 segments:
-  headers: [id, point_i, point_j, type, l0, diameter_mm, axial_stiffness, compression_frac]
+  headers: [idx, point_i, point_j, type, l0, diameter_mm, axial_stiffness, compression_frac]
   data:
     # Wing structural elements - leading edge tubes (hardcoded stiffness, not dyneema)
     - [1, 2, 4, POWER_LINE, 0.984642, 1.0, 2000.0, 0.01]
@@ -211,7 +231,7 @@ segments:
 # type: DYNAMIC, QUASI_STATIC
 
 pulleys:
-  headers: [id, segment_i, segment_j, type]
+  headers: [idx, segment_i, segment_j, type]
   data:
     - [1, 48, 47, DYNAMIC]  # a6 left front pulley
     - [2, 57, 58, DYNAMIC]  # a6 left rear pulley
@@ -228,7 +248,7 @@ pulleys:
 # type: DYNAMIC, QUASI_STATIC
 
 groups:
-  headers: [id, point_ids, gamma, type, reference_chord_frac]
+  headers: [idx, point_ids, gamma, type, reference_chord_frac]
   data:
     # Note: groups would be defined here if using deformable wing model
     # For a rigid structure, this can be empty or omitted
@@ -242,7 +262,7 @@ groups:
 # This is typically handled by the simulation setup rather than structure definition
 
 tethers:
-  headers: [id, segment_ids, ground_point_id]
+  headers: [idx, segment_ids, ground_point_id]
   data:
     # Tethers would be added here
 
@@ -253,7 +273,7 @@ tethers:
 # headers: [id, tether_ids]
 
 winches:
-  headers: [id, tether_ids]
+  headers: [idx, tether_ids]
   data:
     # Winches would be defined here if needed
 
@@ -267,13 +287,14 @@ winches:
 
 wings:
   data:
-    # REFINE wing: VSM panel forces lumped directly to structural points
-    # Points 2-21 form 10 LE/TE segment pairs (2,3), (4,5), ..., (20,21)
-    - id: 1
+    # REFINE wing: VSM panel forces lumped to structural points
+    # Points 2-21 form 10 LE/TE segment pairs (2,3), ..., (20,21)
+    - idx: 1
       type: REFINE
-      point_ids: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
-      x_ids: [12, 13]  # Center LE-TE pair for X-axis (chord direction)
-      y_ids: [12, 10]  # Center and left LE points for Y-axis (span direction)
+      point_ids: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+        13, 14, 15, 16, 17, 18, 19, 20, 21]
+      x_ref_points: [12, 13]  # Center LE-TE for X (chord)
+      y_ref_points: [12, 10]  # Center/left LE for Y (span)
 
 ###########################
 ## Transforms #############
@@ -286,12 +307,10 @@ wings:
 transforms:
   data:
     # Main transform for v3 kite wing
-    - id: 1
+    - idx: 1
       elevation: 70.0       # Elevation angle from ground (degrees)
       azimuth: 0.0          # Azimuth angle, 0 = downwind (degrees)
       heading: 0.0          # Kite heading/yaw (degrees)
       wing_idx: 1           # Transform applies to wing 1
-      base_pos_x: 0.0       # Base position X (at KCU/ground point)
-      base_pos_y: 0.0       # Base position Y
-      base_pos_z: 0.0       # Base position Z
+      base_pos: [0.0, 0.0, 0.0] # Base position (at KCU/ground point)
       base_point_idx: 1     # Reference to point 1 (KCU/ground attachment)

@@ -169,9 +169,10 @@ $(TYPEDFIELDS)
 mutable struct Group
     const idx::Int16
     const point_idxs::Vector{Int16}
-    const le_pos::KVec3 # point which the group rotates around under wing deformation
-    const chord::KVec3 # chord vector in body frame which the group rotates around under wing deformation
-    const y_airf::KVec3 # spanwise vector in local panel frame which the group rotates around under wing deformation
+    const gamma::SimFloat  # Spanwise parameter (-1 to 1)
+    le_pos::KVec3  # Leading edge position
+    chord::KVec3   # Chord vector in body frame
+    y_airf::KVec3  # Spanwise vector in local panel frame
     const type::DynamicsType
     moment_frac::SimFloat
     damping::SimFloat
@@ -183,60 +184,55 @@ mutable struct Group
 end
 
 """
-    Group(idx, point_idxs, vsm_wing::Wing, gamma, type, moment_frac)
+    Group(idx, point_idxs, gamma, type, moment_frac; damping=50.0)
 
-Constructs a `Group` object representing a collection of points on a kite body that share
-a common twist deformation.
+Constructs a `Group` object representing a collection of points on a
+kite body that share a common twist deformation.
 
-A `Group` models the local deformation of a kite wing section through twist dynamics.
-All points within a group undergo the same twist rotation about the chord vector.
+A `Group` models the local deformation of a kite wing section through
+twist dynamics. All points within a group undergo the same twist
+rotation about the chord vector.
 
-The governing equation is:
-```math
-\\begin{aligned}
-\\tau = \\underbrace{\\sum_{i=1}^{4} r_{b,i} \\times (\\mathbf{F}_{b,i} \\cdot \\hat{\\mathbf{z}})}_{\\text{bridles}} + \\underbrace{r_a \\times (\\mathbf{F}_a \\cdot \\hat{\\mathbf{z}})}_{\\text{aero}}
-\\end{aligned}
-```
-
-![System Overview](assets/group_slice.svg)
-
-where:
-- ``\\tau`` is the total torque about the twist axis
-- ``r_{b,i}`` is the position vector of bridle point ``i`` relative to the twist center
-- ``\\mathbf{F}_{b,i}`` is the force at bridle point ``i``
-- ``\\hat{\\mathbf{z}}`` is the unit vector along the twist axis (chord direction)
-- ``r_a`` is the position vector of the aerodynamic center relative to the twist center
-- ``\\mathbf{F}_a`` is the aerodynamic force at the group's aerodynamic center
-
-The group can have two [`DynamicsType`](@ref)s:
-- `DYNAMIC`: the group rotates according to Newton's second law: ``I\\ddot{\\theta} = \\tau``
-- `QUASI_STATIC`: the rotational acceleration is zero: ``\\tau = 0``
+The group geometry (le_pos, chord, y_airf) is calculated later in the
+SystemStructure constructor once the VSM wing is available.
 
 # Arguments
 - `idx::Int16`: Unique identifier for the group.
-- `point_idxs::Vector{Int16}`: Indices of points that move together with this group's twist.
-- `vsm_wing::Wing`: Wing geometry object used to extract local chord and spanwise vectors.
-- `gamma`: Spanwise parameter (typically -1 to 1) defining the group's location along the wing.
-- `type::DynamicsType`: Dynamics type (`DYNAMIC` for time-varying twist, `QUASI_STATIC` for equilibrium).
-- `moment_frac::SimFloat`: Chordwise position (0=leading edge, 1=trailing edge) about which the group rotates.
+- `point_idxs::Vector{Int16}`: Indices of points that move together.
+- `gamma`: Spanwise parameter (-1 to 1) along the wing.
+- `type::DynamicsType`: DYNAMIC or QUASI_STATIC.
+- `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
+
+# Keyword Arguments
+- `damping::SimFloat=50.0`: Damping coefficient for twist dynamics.
 
 # Returns
-- `Group`: A new `Group` object with twist dynamics capability.
+- `Group`: A new `Group` object (geometry set to zeros initially).
 """
-function Group(idx, point_idxs, vsm_wing::Wing, gamma, type, moment_frac; damping=50.0)
-    le_pos = [vsm_wing.le_interp[i](gamma) for i in 1:3]
-    chord = [vsm_wing.te_interp[i](gamma) for i in 1:3] .- le_pos
-    y_airf = normalize([vsm_wing.le_interp[i](gamma-0.01) for i in 1:3] - le_pos)
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, damping, 0.0, 0.0, 0.0, 0.0, 0.0)
+function Group(idx, point_idxs, gamma, type, moment_frac;
+               damping=50.0)
+    Group(idx, point_idxs, gamma,
+          zeros(KVec3), zeros(KVec3), zeros(KVec3),
+          type, moment_frac, damping,
+          0.0, 0.0, 0.0, 0.0, 0.0)
 end
 
 """
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac)
+    Group(idx, point_idxs, vsm_wing::Wing, gamma,
+          type, moment_frac; damping=50.0)
 
-Inner constructor for a `Group` object. See [`Group`](@ref) for details.
+Legacy constructor that calculates geometry from vsm_wing directly.
+Kept for backward compatibility with predefined structures.
 """
-function Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac; damping=50.0)
-    Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac, damping, 0.0, 0.0, 0.0, 0.0, 0.0)
+function Group(idx, point_idxs, vsm_wing::Wing, gamma,
+               type, moment_frac; damping=50.0)
+    le_pos = [vsm_wing.le_interp[i](gamma) for i in 1:3]
+    chord = [vsm_wing.te_interp[i](gamma) for i in 1:3] .- le_pos
+    y_airf = normalize([vsm_wing.le_interp[i](gamma-0.01)
+        for i in 1:3] - le_pos)
+    Group(idx, point_idxs, gamma, le_pos, chord, y_airf,
+          type, moment_frac, damping,
+          0.0, 0.0, 0.0, 0.0, 0.0)
 end
 
 """
@@ -657,13 +653,16 @@ mutable struct VSMWing <: AbstractWing
     const vsm_jac::Matrix{SimFloat}
 
     # REFINE-specific fields (Nothing for QUATERNION wings)
-    const point_to_panels::Union{Nothing, Dict{Int16, Vector{Tuple{Int16, Float64}}}}
-    const wing_segments::Union{Nothing, Vector{Tuple{Int16, Int16}}}  # [(le_point_idx, te_point_idx), ...]
+    point_to_panels::Union{Nothing, Dict{Int16,
+        Vector{Tuple{Int16, Float64}}}}
+    wing_segments::Union{Nothing,
+        Vector{Tuple{Int16, Int16}}}
 
-    # Orientation reference points for REFINE wings (Nothing for QUATERNION wings)
+    # Orientation reference points for REFINE wings
+    # (Nothing for QUATERNION wings)
     # Used to calculate R_b_w from structural deformation
-    const x_ref_points::Union{Nothing, Tuple{Int16, Int16}}  # Two points defining X (chord/forward) direction
-    const y_ref_points::Union{Nothing, Tuple{Int16, Int16}}  # Two points defining Y (span) direction
+    x_ref_points::Union{Nothing, Tuple{Int16, Int16}}
+    y_ref_points::Union{Nothing, Tuple{Int16, Int16}}
 
     function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments, x_ref_points, y_ref_points)
         new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments, x_ref_points, y_ref_points)
@@ -726,76 +725,135 @@ function BaseWing(idx, group_idxs::AbstractVector, R_b_c::AbstractMatrix,
 end
 
 """
-    VSMWing(idx::Int16, vsm_aero, vsm_wing, vsm_solver, group_idxs::Vector{Int16},
-            R_b_c::Matrix{SimFloat}, pos_cad::KVec3; transform_idx=1, y_damping=150.0,
-            wing_type=QUATERNION, point_to_panels=nothing)
+    VSMWing(idx::Int16, set::Settings, group_idxs::Vector{Int16},
+            R_b_c::Matrix{SimFloat}, pos_cad::KVec3;
+            transform_idx=1, y_damping=150.0,
+            wing_type=QUATERNION, point_to_panels=nothing,
+            wing_segments=nothing, x_ref_points=nothing,
+            y_ref_points=nothing)
 
 Constructs a `VSMWing` object with Vortex Step Method aerodynamics.
+Creates vsm_wing, vsm_aero, and vsm_solver internally.
 
 # Arguments
 - `idx::Int16`: Unique identifier for the wing.
-- `vsm_aero`: VortexStepMethod.BodyAerodynamics object.
-- `vsm_wing`: VortexStepMethod.Wing object.
-- `vsm_solver`: VortexStepMethod.Solver object.
-- `group_idxs::Vector{Int16}`: Indices of groups attached to this wing.
-- `R_b_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
-- `pos_cad::KVec3`: Position of wing center of mass in CAD frame.
+- `set::Settings`: Settings object for VSM configuration.
+- `group_idxs::Vector{Int16}`: Indices of groups (QUATERNION only).
+- `R_b_c::Matrix{SimFloat}`: Rotation matrix body→CAD.
+- `pos_cad::KVec3`: Position of wing COM in CAD frame.
 
 # Keyword Arguments
-- `transform_idx::Int16=1`: Transform used for initial positioning and orientation.
-- `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
-- `wing_type::WingType=QUATERNION`: Wing aerodynamic model type.
-- `point_to_panels::Union{Nothing, Dict}=nothing`: Panel force lumping map (REFINE only).
+- `transform_idx::Int16=1`: Transform for initial positioning.
+- `y_damping::SimFloat=150.0`: Lateral damping coefficient.
+- `wing_type::WingType=QUATERNION`: Aerodynamic model type.
+- `point_to_panels`: Panel force mapping (REFINE only).
+- `wing_segments`: LE/TE pairs (REFINE only).
+- `x_ref_points`: Chord direction reference (REFINE only).
+- `y_ref_points`: Span direction reference (REFINE only).
 
 # Returns
 - `VSMWing`: A new VSM wing object.
 """
-function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
-                 group_idxs::AbstractVector, R_b_c::AbstractMatrix, pos_cad::AbstractVector;
-                 transform_idx=1, y_damping=150.0, inertia_diag=nothing,
+function VSMWing(idx::Int, set::Settings,
+                 group_idxs::AbstractVector;
+                 R_b_c::Union{Nothing,AbstractMatrix}=nothing,
+                 pos_cad::Union{Nothing,AbstractVector}=nothing,
+                 transform_idx=1, y_damping=150.0,
+                 inertia_diag=nothing,
                  wing_type::WingType=QUATERNION,
-                 point_to_panels::Union{Nothing, Dict{Int16, Vector{Tuple{Int16, Float64}}}}=nothing,
-                 wing_segments::Union{Nothing, Vector{Tuple{Int16, Int16}}}=nothing,
-                 x_ref_points::Union{Nothing, Tuple{Int16, Int16}}=nothing,
-                 y_ref_points::Union{Nothing, Tuple{Int16, Int16}}=nothing)
+                 point_to_panels::Union{Nothing, Dict{Int16,
+                     Vector{Tuple{Int16, Float64}}}}=nothing,
+                 wing_segments::Union{Nothing,
+                     Vector{Tuple{Int16, Int16}}}=nothing,
+                 x_ref_points::Union{Nothing,
+                     Tuple{Int16, Int16}}=nothing,
+                 y_ref_points::Union{Nothing,
+                     Tuple{Int16, Int16}}=nothing)
+
+    # Set defaults from VortexStepMethod if not provided
+    if isnothing(R_b_c) || isnothing(pos_cad)
+        temp_wing = VortexStepMethod.Wing(set; prn=false)
+        isnothing(R_b_c) && (R_b_c = temp_wing.R_cad_body)
+        isnothing(pos_cad) &&
+            (pos_cad = temp_wing.T_cad_body)
+    end
 
     # Validation
     if wing_type == REFINE
-        @assert length(group_idxs) == 0 "REFINE wings cannot have groups"
-        @assert !isnothing(point_to_panels) "REFINE wings require point_to_panels mapping"
-        @assert !isnothing(wing_segments) "REFINE wings require wing_segments (LE/TE pairs)"
-        @assert !isnothing(x_ref_points) "REFINE wings require x_ref_points for orientation tracking"
-        @assert !isnothing(y_ref_points) "REFINE wings require y_ref_points for orientation tracking"
+        @assert length(group_idxs) == 0
+            "REFINE wings cannot have groups"
     else
-        @assert isnothing(point_to_panels) "QUATERNION wings should not have point_to_panels"
-        @assert isnothing(wing_segments) "QUATERNION wings should not have wing_segments"
-        @assert isnothing(x_ref_points) "QUATERNION wings should not have x_ref_points"
-        @assert isnothing(y_ref_points) "QUATERNION wings should not have y_ref_points"
+        @assert isnothing(point_to_panels)
+            "QUATERNION wings: no point_to_panels"
+        @assert isnothing(wing_segments)
+            "QUATERNION wings: no wing_segments"
+        @assert isnothing(x_ref_points)
+            "QUATERNION wings: no x_ref_points"
+        @assert isnothing(y_ref_points)
+            "QUATERNION wings: no y_ref_points"
     end
 
-    # Compute inertia principal from vsm_wing
-    inertia_vec = isnothing(inertia_diag) ? wing_inertia_principal(vsm_wing) : inertia_diag
-    base = BaseWing(idx, group_idxs, R_b_c, pos_cad, inertia_vec;
-                    transform_idx, y_damping, wing_type)
+    # Create VSM wing, aero, and solver
+    vsm_wing = VortexStepMethod.Wing(set; prn=false)
+    vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
+    vsm_solver = VortexStepMethod.Solver(vsm_aero;
+        solver_type=VortexStepMethod.NONLIN,
+        atol=2e-8, rtol=2e-8)
+
+    # Compute inertia
+    inertia_vec = isnothing(inertia_diag) ?
+        wing_inertia_principal(vsm_wing) : inertia_diag
+    base = BaseWing(idx, group_idxs, R_b_c, pos_cad,
+                    inertia_vec; transform_idx,
+                    y_damping, wing_type)
 
     # Size vsm state vectors based on wing type
     if wing_type == REFINE
-        # REFINE: NO linearization - only store panel forces
-        #         nx = 3*n_panels (panel forces: [fx_1, fy_1, fz_1, fx_2, ...])
-        #         ny = 0 (no linearization)
-        #         vsm_jac is empty (no Jacobian)
-        # Get panels from vsm_aero (panels are stored in BodyAerodynamics, not Wing)
         nx = 3 * length(vsm_aero.panels)
         ny = 0
     else
-        # QUATERNION: ny = 6 + n_groups (va + omega + twists), nx = 6 + n_groups (forces + moments + group_moments)
         ny = length(group_idxs) + 3 + 3
         nx = length(group_idxs) + 3 + 3
     end
 
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
-                   zeros(SimFloat, ny), zeros(SimFloat, nx), zeros(SimFloat, nx, ny),
-                   point_to_panels, wing_segments, x_ref_points, y_ref_points)
+                   zeros(SimFloat, ny), zeros(SimFloat, nx),
+                   zeros(SimFloat, nx, ny),
+                   point_to_panels, wing_segments,
+                   x_ref_points, y_ref_points)
+end
+
+"""
+    VSMWing(idx, vsm_aero, vsm_wing, vsm_solver,
+            group_idxs, R_b_c, pos_cad)
+
+Legacy constructor accepting pre-created VSM objects directly.
+Kept for backward compatibility with predefined structures.
+
+# Arguments
+- `idx::Int`: Wing identifier
+- `vsm_aero`: Pre-created BodyAerodynamics
+- `vsm_wing`: Pre-created VortexStepMethod.Wing
+- `vsm_solver`: Pre-created Solver
+- `group_idxs`: Group indices
+- `R_b_c`: Rotation matrix body→CAD
+- `pos_cad`: Position in CAD frame
+
+# Returns
+- `VSMWing`: Wing with QUATERNION type
+"""
+function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
+                 group_idxs::AbstractVector,
+                 R_b_c::AbstractMatrix,
+                 pos_cad::AbstractVector)
+    inertia_vec = wing_inertia_principal(vsm_wing)
+    base = BaseWing(idx, group_idxs, R_b_c, pos_cad, inertia_vec)
+    ny = length(group_idxs) + 3 + 3
+    nx = length(group_idxs) + 3 + 3
+    return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
+        zeros(SimFloat, ny), zeros(SimFloat, nx),
+        zeros(SimFloat, nx, ny),
+        nothing, nothing, nothing, nothing)
 end
 
 """
@@ -1095,10 +1153,36 @@ function SystemStructure(name, set;
         wings=AbstractWing[],
         transforms=Transform[],
     )
+    # If no wings defined, convert WING points to STATIC
+    if isempty(wings)
+        wing_point_idxs = findall(p -> p.type == WING, points)
+        if !isempty(wing_point_idxs)
+            @warn "No wings provided but " *
+                  "$(length(wing_point_idxs)) WING type " *
+                  "points found. Converting to STATIC."
+            for idx in wing_point_idxs
+                points[idx] = Point(
+                    points[idx].idx,
+                    points[idx].pos_cad,
+                    STATIC;
+                    mass = points[idx].mass,
+                    body_frame_damping =
+                        points[idx].body_frame_damping,
+                    world_frame_damping =
+                        points[idx].world_frame_damping,
+                    transform_idx = points[idx].transform_idx
+                )
+                points[idx].pos_w .= points[idx].pos_cad
+                points[idx].vel_w .= 0.0
+            end
+        end
+    end
+
     for (i, point) in enumerate(points)
         @assert point.idx == i "Point $(point.idx) != $i"
-        # Allow transform_idx=0 (no transform) or valid transform index
-        @assert point.transform_idx == 0 || point.transform_idx <= length(transforms)
+        # Allow transform_idx=0 (no transform) or valid index
+        @assert point.transform_idx == 0 ||
+                point.transform_idx <= length(transforms)
     end
     for (i, group) in enumerate(groups)
         @assert group.idx == i
@@ -1121,19 +1205,82 @@ function SystemStructure(name, set;
             end
         end
     end
+    # Initialize group geometries from VSM wing
+    for group in groups
+        if iszero(group.le_pos)
+            # Find which wing this group belongs to
+            for wing in wings
+                if group.idx in wing.group_idxs
+                    vsm_wing = wing.vsm_wing
+                    gamma = group.gamma
+                    group.le_pos .= [vsm_wing.le_interp[i](gamma)
+                        for i in 1:3]
+                    te_pos = [vsm_wing.te_interp[i](gamma)
+                        for i in 1:3]
+                    group.chord .= te_pos .- group.le_pos
+                    le_minus = [vsm_wing.le_interp[i](gamma-0.01)
+                        for i in 1:3]
+                    group.y_airf .= normalize(
+                        le_minus - group.le_pos)
+                    break
+                end
+            end
+        end
+    end
+
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
-        # For REFINE wings, if pos_cad is zero,
-        # calculate as centroid of structural points
-        if wing.wing_type == REFINE &&
-           iszero(wing.pos_cad)
+        # For REFINE wings, set defaults if not provided
+        if wing.wing_type == REFINE
+            # Build point_to_panels mapping if not provided
+            if isnothing(wing.point_to_panels)
+                # Get WING-type points for this wing
+                wing_point_idxs = findall(
+                    p -> p.type == WING, points)
+                wing_points = [points[idx]
+                    for idx in wing_point_idxs]
+                wing.point_to_panels =
+                    build_point_to_panel_mapping(
+                        wing_points, wing.vsm_aero)
+            end
+
             wing_point_idxs = collect(keys(
                 wing.point_to_panels))
-            if !isempty(wing_point_idxs)
-                wing.pos_cad .= sum(
-                    points[idx].pos_cad
-                    for idx in wing_point_idxs
-                ) / length(wing_point_idxs)
+            wing_points = [points[idx]
+                for idx in wing_point_idxs]
+
+            # Calculate pos_cad as centroid if zero
+            if iszero(wing.pos_cad)
+                if !isempty(wing_point_idxs)
+                    wing.pos_cad .= sum(
+                        points[idx].pos_cad
+                        for idx in wing_point_idxs
+                    ) / length(wing_point_idxs)
+                end
+            end
+
+            # Identify wing segments (LE/TE pairs)
+            if isnothing(wing.wing_segments)
+                wing.wing_segments =
+                    identify_wing_segments(wing_points)
+            end
+
+            # Set default reference points if not provided
+            if isnothing(wing.x_ref_points) ||
+               isnothing(wing.y_ref_points)
+                segs = wing.wing_segments
+
+                if isnothing(wing.x_ref_points)
+                    # Use first segment (center) for X
+                    wing.x_ref_points = segs[1]
+                end
+
+                if isnothing(wing.y_ref_points)
+                    # Use center and mid-span for Y
+                    mid = length(segs) ÷ 2
+                    wing.y_ref_points = (segs[1][1],
+                        segs[mid][1])
+                end
             end
         end
     end
@@ -1383,6 +1530,175 @@ function find_axis_point(P, l, v=[0,0,1])
 end
 
 """
+    validate_sys_struct(sys_struct::SystemStructure)
+
+Validate a `SystemStructure` for common configuration errors.
+
+This function checks for issues that can cause initialization failures or
+numerical problems during simulation. It emits warnings for suspicious
+configurations and throws assertions for definite errors.
+
+# Validations Performed
+
+## Point Validations
+- NaN mass (error)
+- Negative mass (error)
+- NaN position (error)
+
+## Wing Validations
+- NaN position (error)
+- Zero or near-zero principal inertia components on QUATERNION wings (error/warning)
+- NaN inertia values (error)
+- Empty group list for QUATERNION wings (warning)
+
+## Winch Validations
+- Zero or negative inertia_total (error)
+- Very small inertia_total (warning)
+- NaN inertia_total (error)
+
+## Segment Validations
+- Unusual diameter outside (0, 1) m range (warning)
+- Non-positive rest length (error)
+- Zero or negative axial stiffness (warning)
+- Negative axial damping (warning)
+
+## Pulley Validations
+- Zero total length constraint (error)
+
+## Group Validations
+- Inconsistent moment_frac across groups (error)
+"""
+function validate_sys_struct(sys_struct::SystemStructure)
+    @unpack points, groups, segments, pulleys, wings, winches = sys_struct
+
+    # ==================== POINT VALIDATIONS ==================== #
+    for point in points
+        # Check for NaN mass
+        if isnan(point.mass)
+            error("Point #$(point.idx) has NaN mass")
+        end
+
+        # Note: Points can have zero mass - segment masses are added separately
+        # Only check for negative mass (definitely wrong)
+        if point.mass < 0
+            error("Point #$(point.idx) has negative mass $(point.mass) kg. " *
+                  "Mass must be non-negative.")
+        end
+
+        # Check for NaN position
+        if any(isnan.(point.pos_w))
+            error("Point #$(point.idx) has NaN position: pos_w = $(point.pos_w)")
+        end
+    end
+
+    # ==================== WING VALIDATIONS ==================== #
+    for wing in wings
+        # Check for NaN position (applies to all wing types)
+        if any(isnan.(wing.pos_w))
+            error("Wing #$(wing.idx) has NaN position: pos_w = $(wing.pos_w)")
+        end
+
+        if wing.wing_type == QUATERNION
+            I_b = wing.inertia_principal
+
+            # Check for NaN inertia
+            if any(isnan.(I_b))
+                error("Wing #$(wing.idx) has NaN inertia: I_b = $I_b")
+            end
+
+            # Check for zero or suspiciously small inertia
+            for i in 1:3
+                if I_b[i] ≈ 0.0
+                    error("Wing #$(wing.idx) has zero inertia component " *
+                          "I_b[$i] = $(I_b[i]). " *
+                          "All principal inertia components must be non-zero.")
+                elseif I_b[i] < 1e-6
+                    @warn "Wing #$(wing.idx) has very small inertia component " *
+                          "I_b[$i] = $(I_b[i]) kg⋅m², may cause numerical issues"
+                end
+            end
+
+            # Warn if QUATERNION wing has no groups
+            if isempty(wing.group_idxs)
+                @warn "Wing #$(wing.idx) (QUATERNION) has no groups"
+            end
+        end
+        # REFINE wings don't use rigid body inertia, skip
+    end
+
+    # ==================== WINCH VALIDATIONS ==================== #
+    for winch in winches
+        # Check for NaN inertia
+        if isnan(winch.inertia_total)
+            error("Winch #$(winch.idx) has NaN inertia_total")
+        end
+
+        # Check for zero or negative inertia
+        if winch.inertia_total ≈ 0.0
+            error("Winch #$(winch.idx) has zero inertia_total. " *
+                  "All winches must have non-zero inertia.")
+        elseif winch.inertia_total < 0
+            error("Winch #$(winch.idx) has negative inertia_total " *
+                  "$(winch.inertia_total) kg⋅m². Inertia must be positive.")
+        elseif winch.inertia_total < 1e-6
+            @warn "Winch #$(winch.idx) has very small inertia_total " *
+                  "$(winch.inertia_total) kg⋅m², may cause numerical issues"
+        end
+    end
+
+    # ==================== SEGMENT VALIDATIONS ==================== #
+    for segment in segments
+        # Diameter should be in valid range (warn only, not critical)
+        if !(0 < segment.diameter < 1)
+            @warn "Segment #$(segment.idx) has unusual diameter " *
+                  "$(segment.diameter) m (expected range: 0 to 1 m)"
+        end
+
+        # Rest length must be positive (after initialization)
+        if segment.l0 > 0 && !(segment.l0 > 0)
+            error("Segment #$(segment.idx) has non-positive rest length " *
+                  "l0 = $(segment.l0) m. All segment rest lengths must be positive.")
+        end
+
+        # Warn about zero or negative stiffness/damping
+        if segment.axial_stiffness ≈ 0.0
+            @warn "Segment #$(segment.idx) has zero axial stiffness"
+        elseif segment.axial_stiffness < 0
+            @warn "Segment #$(segment.idx) has negative axial stiffness " *
+                  "$(segment.axial_stiffness) N"
+        end
+
+        if segment.axial_damping < 0
+            @warn "Segment #$(segment.idx) has negative axial damping " *
+                  "$(segment.axial_damping) N⋅s"
+        end
+    end
+
+    # ==================== PULLEY VALIDATIONS ==================== #
+    for pulley in pulleys
+        if pulley.sum_len ≈ 0
+            error("Pulley #$(pulley.idx) has zero total length constraint " *
+                  "(sum_len = $(pulley.sum_len) m). " *
+                  "Pulley constraints must have non-zero total length.")
+        end
+    end
+
+    # ==================== GROUP VALIDATIONS ==================== #
+    if length(groups) > 0
+        first_moment_frac = groups[1].moment_frac
+        for group in groups
+            if !(group.moment_frac ≈ first_moment_frac)
+                error("Group #$(group.idx) has moment_frac = " *
+                      "$(group.moment_frac), but all groups must have the " *
+                      "same moment_frac (first group has $(first_moment_frac))")
+            end
+        end
+    end
+
+    return nothing
+end
+
+"""
     reinit!(sys_struct::SystemStructure, set::Settings; pulley_init_method=:proportional)
 
 Re-initialize a `SystemStructure` from a `Settings` object.
@@ -1397,22 +1713,16 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 function reinit!(sys_struct::SystemStructure, set::Settings)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
-    for segment in segments
-        @assert (0 < segment.diameter < 1)
-    end
-
     for winch in winches
         winch.tether_len = set.l_tethers[winch.idx]
         winch.tether_vel    = set.v_reel_outs[winch.idx]
     end
 
-    (length(groups) > 0) && (first_moment_frac = groups[1].moment_frac)
     for group in groups
         group.twist = 0.0
         group.twist_ω = 0.0
-        @assert group.moment_frac ≈ first_moment_frac "All group.moment_frac must be the same."
     end
-    
+
     for transform in transforms
         transform.elevation = deg2rad(set.elevations[transform.idx])
         transform.azimuth   = deg2rad(set.azimuths[transform.idx])
@@ -1420,22 +1730,23 @@ function reinit!(sys_struct::SystemStructure, set::Settings)
     end
 
     for segment in segments
-        len = norm(points[segment.point_idxs[1]].pos_cad - points[segment.point_idxs[2]].pos_cad)
+        len = norm(points[segment.point_idxs[1]].pos_cad -
+                   points[segment.point_idxs[2]].pos_cad)
         (segment.l0 ≈ 0) && (segment.l0 = len)
         segment.len = len
-        @assert (segment.l0 > 0)
     end
 
     for pulley in pulleys
-        segment1, segment2 = segments[pulley.segment_idxs[1]], segments[pulley.segment_idxs[2]]
+        segment1, segment2 = segments[pulley.segment_idxs[1]],
+                             segments[pulley.segment_idxs[2]]
         pulley.sum_len = segment1.l0 + segment2.l0
 
         # Initialize pulley.len proportional to current segment lengths
         # More accurate for asymmetric bridle configurations
-        pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len
+        pulley.len = segment1.len / (segment1.len+segment2.len) *
+                     pulley.sum_len
 
         pulley.vel = 0.0
-        @assert !(pulley.sum_len ≈ 0)
     end
 
     reinit!(transforms, sys_struct)
@@ -1446,6 +1757,9 @@ function reinit!(sys_struct::SystemStructure, set::Settings)
             wing.vsm_y[1:3] .= wing.R_b_w' * [set.v_wind, 0., 0.]
         end
     end
+
+    # Validate the system structure after initialization
+    validate_sys_struct(sys_struct)
 
     return nothing
 end

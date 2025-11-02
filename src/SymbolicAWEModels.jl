@@ -104,44 +104,6 @@ set_zero_subnormals(true)       # required to avoid drastic slow down on Intel C
 #                    CUSTOM DISPLAY METHODS
 #======================================================================#
 
-"""
-    Base.show(io::IO, set::KiteUtils.Settings)
-
-Compact display for Settings objects to avoid screen overflow.
-Shows only key parameters instead of all fields.
-"""
-function Base.show(io::IO, set::KiteUtils.Settings)
-    print(io, "Settings(")
-
-    # Show only the most important fields
-    fields_to_show = []
-
-    # Physical model info
-    if hasproperty(set, :model_name)
-        push!(fields_to_show, "model=$(repr(set.model_name))")
-    end
-
-    # Wind parameters
-    if hasproperty(set, :v_wind)
-        push!(fields_to_show, "v_wind=$(set.v_wind)")
-    end
-    if hasproperty(set, :upwind_dir)
-        push!(fields_to_show, "upwind_dir=$(set.upwind_dir)")
-    end
-
-    # Kite mass
-    if hasproperty(set, :mass)
-        push!(fields_to_show, "mass=$(set.mass)")
-    end
-
-    # Tether properties
-    if hasproperty(set, :axial_stiffness)
-        push!(fields_to_show, "k_tether=$(set.axial_stiffness)")
-    end
-
-    print(io, join(fields_to_show, ", "))
-    print(io, ", ...)")
-end
 
 #======================================================================#
 #                       TYPE DEFINITIONS

@@ -1133,6 +1133,7 @@ function wing_eqs!(
             defaults
             [Q_b_w[wing.idx, i] => get_Q_b_w(psys, wing.idx)[i] for i = 1:4]
             [ω_b[wing.idx, i] => get_ω_b(psys, wing.idx)[i] for i = 1:3]
+            # [α_b[wing.idx, i] => 0.0 for i = 1:3]
             [wing_pos[wing.idx, i] => get_wing_pos_w(psys, wing.idx)[i] for i = 1:3]
             [wing_vel[wing.idx, i] => get_wing_vel_w(psys, wing.idx)[i] for i = 1:3]
         ]
