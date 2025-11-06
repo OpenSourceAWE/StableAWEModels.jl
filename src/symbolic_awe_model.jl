@@ -423,9 +423,6 @@ function next_step!(sam::SymbolicAWEModel; set_values=nothing, dt=1/sam.set.samp
     if (!isnothing(set_values)) 
         prob.set_set_values(sam.integrator, set_values)
     end
-    if vsm_interval != 0 && sam.iter % vsm_interval == 0
-        sam.t_vsm = @elapsed update_vsm!(sam, sam.prob)
-    end
     
     sam.t_0 = sam.integrator.t
     sam.t_step = @elapsed OrdinaryDiffEqCore.step!(sam.integrator, dt, true)
@@ -435,6 +432,9 @@ function next_step!(sam::SymbolicAWEModel; set_values=nothing, dt=1/sam.set.samp
     @assert successful_retcode(sam.integrator.sol)
     sam.iter += 1
     update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    if vsm_interval != 0 && sam.iter % vsm_interval == 0
+        sam.t_vsm = @elapsed update_vsm!(sam, sam.prob)
+    end
     return nothing
 end
 

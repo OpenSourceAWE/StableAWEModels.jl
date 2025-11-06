@@ -176,7 +176,7 @@ function compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
     end
 
     # Clamp to reasonable range [0, 1]
-    @show x_cp cm cl
+    @show x_cp
     x_cp = clamp(x_cp, 0.0, 1.0)
 
     # Split lift between LE and TE using moment equilibrium
@@ -317,17 +317,21 @@ end
 """
     update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
 
-Update VSM section points (LE/TE) from structural point displacements using 1:1 mapping.
+Update VSM section points (LE/TE) directly from structural point positions using 1:1 mapping.
 
 This creates two-way coupling: structural deformation → VSM sections → aero forces.
 
 # Algorithm
 Uses direct 1:1 correspondence between structural points and VSM section points:
 1. For each structural WING point:
-   - Calculate current position in body frame: curr_pos_b = R_b_w' * (pos_w - origin)
-   - Calculate displacement: diff_pos_b = curr_pos_b - point.pos_b (reference set in reinit!)
+   - Calculate current position in body frame: pos_b = R_b_w' * (pos_w - origin)
    - Find corresponding VSM section point (LE or TE) via wing.point_to_vsm_point
-   - Update VSM point: vsm_point = non_deformed_vsm_point + diff_pos_b
+   - Set VSM section point directly: section.LE_point = pos_b (or TE_point)
+
+# Notes
+- Section points are stored in body frame coordinates
+- `wing.R_b_w` and `wing.pos_w` are updated each timestep from structural geometry (symbolic equations)
+- To get world coordinates: `world_pos = wing.R_b_w * section.LE_point + wing.pos_w`
 
 # Arguments
 - `wing::VSMWing`: Wing with REFINE type
@@ -335,15 +339,6 @@ Uses direct 1:1 correspondence between structural points and VSM section points:
 """
 function update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
     @assert wing.wing_type == REFINE "Can only update wing geometry for REFINE wings"
-
-    # Initialize non_deformed_sections if not already set
-    # These store the original undeformed geometry
-    if isempty(wing.vsm_wing.non_deformed_sections)
-        wing.vsm_wing.non_deformed_sections = [Section() for _ in 1:length(wing.vsm_wing.sections)]
-        for (i, section) in enumerate(wing.vsm_wing.sections)
-            VortexStepMethod.reinit!(wing.vsm_wing.non_deformed_sections[i], section)
-        end
-    end
 
     # Get current R_b_w and origin from wing state
     # (These are updated during simulation from structural geometry)
@@ -355,20 +350,16 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
         point = points[point_idx]
 
         # Calculate current position in body frame
-        curr_pos_b = R_b_w' * (point.pos_w - origin)
+        pos_b = R_b_w' * (point.pos_w - origin)
 
-        # Calculate displacement from initial position
-        diff_pos_b = curr_pos_b - point.pos_b
-
-        # Get the section and its non-deformed reference
+        # Get the section
         section = wing.vsm_wing.sections[section_idx]
-        non_deformed = wing.vsm_wing.non_deformed_sections[section_idx]
 
-        # Update the appropriate section point (LE or TE)
+        # Set section point directly to body frame position
         if le_or_te == :LE
-            section.LE_point .= non_deformed.LE_point .+ diff_pos_b
+            section.LE_point .= pos_b
         else  # :TE
-            section.TE_point .= non_deformed.TE_point .+ diff_pos_b
+            section.TE_point .= pos_b
         end
     end
 

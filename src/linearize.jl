@@ -113,7 +113,6 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
             # Update VSM wing sections from structural deformation
             # (modifies sections in place, like deform!)
             update_vsm_wing_from_structure!(wing, points)
-            @show wing.va_b wing.R_b_w
 
             # Update body aerodynamics with the deformed wing sections
             # (panels regenerated from modified sections)
@@ -127,9 +126,6 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
             distribute_panel_forces_to_points!(wing, points)
         end
     end
-
-    # Update system structure with new VSM state for all wing types
-    prob.set_sys(integ, sam.sys_struct)
 
     nothing
 end
