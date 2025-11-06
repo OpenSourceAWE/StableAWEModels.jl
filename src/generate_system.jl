@@ -201,6 +201,8 @@ get_body_frame_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].body_
 @register_symbolic get_body_frame_damping(sys::SystemStructure, idx::Int16)
 get_world_frame_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].world_frame_damping
 @register_symbolic get_world_frame_damping(sys::SystemStructure, idx::Int16)
+get_point_aero_force(sys::SystemStructure, idx::Int16, component::Int) = sys.points[idx].aero_force[component]
+@register_symbolic get_point_aero_force(sys::SystemStructure, idx::Int16, component::Int)
 get_brake(sys::SystemStructure, idx::Int16) = sys.winches[idx].brake
 @register_symbolic get_brake(sys::SystemStructure, idx::Int16)
 get_fix_point_sphere(sys::SystemStructure, idx::Int16) =
@@ -977,11 +979,16 @@ function wing_eqs!(
             # Y direction: spanwise (from two points across span)
             # Z direction: normal to wing (from two points defining normal, e.g. LE-TE)
             # X = Y × Z (chord direction, ensures right-handed system)
+            #
+            # NOTE: This symbolic implementation must match calc_refine_wing_frame() in
+            # system_structure.jl. Both calculate R_b_w from the same reference points.
+            # If you modify this logic, update calc_refine_wing_frame() as well!
 
             z_p1, z_p2 = wing.z_ref_points  # Point indices (or vectors to average)
             y_p1, y_p2 = wing.y_ref_points
 
             # Get positions (with averaging if vectors provided)
+            # Equivalent to get_ref_position_from_points() in system_structure.jl
             pos_z1 = get_ref_position(pos, z_p1)
             pos_z2 = get_ref_position(pos, z_p2)
             pos_y1 = get_ref_position(pos, y_p1)
@@ -990,6 +997,7 @@ function wing_eqs!(
             eqs = [
                 eqs
                 # Build rotation matrix from structural geometry
+                # (Same algorithm as calc_refine_wing_frame)
                 # Z direction (normal to wing, normalized)
                 vec(R_b_w[wing.idx, :, 3]) .~ sym_normalize(pos_z2 - pos_z1)
                 # Y temp direction (not necessarily orthogonal yet)
@@ -1509,24 +1517,17 @@ function linear_vsm_eqs!(
                 [vsm_output_force_prev[wing.idx, ix] ~ get_vsm_x(psys, wing.idx, ix) for ix = 1:nx_refine]
             ]
 
-            # Lump panel forces to structural WING points
+            # REFINE wings: aero forces computed in Julia and stored in point.aero_force
+            # (computed by distribute_panel_forces_to_points! after VSM solve)
+            # Just read the pre-computed forces from point struct
             wing_points = [p for p in points if p.type == WING && p.wing_idx == wing.idx]
 
             for point in wing_points
-                # Weighted sum of forces from nearby panels (weights precomputed in wing.point_to_panels)
-                lumped_force_b = zeros(Num, 3)
-
-                for (panel_idx, weight) in wing.point_to_panels[point.idx]
-                    panel_force_start = 3*(panel_idx-1) + 1
-                    for i in 1:3
-                        force_idx = panel_force_start + i - 1
-                        lumped_force_b[i] += weight * vsm_output_force_prev[wing.idx, force_idx]
-                    end
-                end
-
                 eqs = [
                     eqs
-                    aero_force_point_b[point.idx, :] ~ lumped_force_b
+                    # Read pre-computed aero force from point.aero_force
+                    aero_force_point_b[point.idx, :] ~
+                        [get_point_aero_force(psys, point.idx, i) for i in 1:3]
                 ]
             end
 
@@ -1644,15 +1645,19 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
         if wing.wing_type == REFINE
             # REFINE wings cannot have groups
             @assert length(wing.group_idxs) == 0 "REFINE wing $(wing.idx) cannot have groups"
-            @assert !isnothing(wing.point_to_panels) "REFINE wing $(wing.idx) missing point_to_panels mapping"
+            @assert !isnothing(wing.point_to_vsm_point) "REFINE wing $(wing.idx) missing point_to_vsm_point mapping"
 
             # Verify all WING points for this wing are in the mapping
             wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
             for point_idx in wing_point_idxs
-                @assert haskey(wing.point_to_panels, point_idx) "REFINE wing $(wing.idx) missing mapping for point $(point_idx)"
+                @assert haskey(wing.point_to_vsm_point, point_idx) "REFINE wing $(wing.idx) missing mapping for point $(point_idx)"
             end
 
-            prn && println("✓ REFINE wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(length(wing.vsm_aero.panels)) panels")
+            # Verify 1:1 correspondence: n_structural_points == 2 * n_sections
+            n_sections = length(wing.vsm_wing.sections)
+            @assert length(wing_point_idxs) == 2 * n_sections "REFINE wing $(wing.idx): expected $(2*n_sections) points for $(n_sections) sections, got $(length(wing_point_idxs))"
+
+            prn && println("✓ REFINE wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")
         end
     end
 

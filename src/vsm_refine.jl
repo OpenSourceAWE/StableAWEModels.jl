@@ -49,83 +49,266 @@ function identify_wing_segments(wing_points::Vector{Point})
 end
 
 """
-    build_point_to_panel_mapping(wing_points::Vector{Point}, vsm_aero::VortexStepMethod.BodyAerodynamics)
+    build_point_to_vsm_point_mapping(wing_points::Vector{Point}, vsm_wing::VortexStepMethod.AbstractWing)
 
-Build a mapping from structural wing points to VSM panels for force lumping.
+Build 1:1 mapping from structural WING points to VSM wing section points (LE/TE) using closest-point distance.
 
-Each structural point receives forces from nearby VSM panels, weighted by inverse distance.
-Returns a Dict mapping point_idx => [(panel_idx, weight), ...].
+For each VSM section point (LE/TE), finds the closest structural point in CAD frame.
+
+# Constraint
+Requires: `length(wing_points) == 2 * length(vsm_wing.sections)`
 
 # Arguments
-- `wing_points::Vector{Point}`: Structural WING-type points from struc_geometry.yaml
-- `vsm_aero::VortexStepMethod.BodyAerodynamics`: VSM aerodynamics with panel geometry
+- `wing_points::Vector{Point}`: Structural WING-type points
+- `vsm_wing::VortexStepMethod.AbstractWing`: VSM wing with sections
 
 # Returns
-- `Dict{Int16, Vector{Tuple{Int16, Float64}}}`: Mapping point_idx -> [(panel_idx, weight), ...]
+- `Dict{Int16, Tuple{Int16, Symbol}}`: Mapping structural_point_idx -> (section_idx, :LE or :TE)
+
+# Algorithm
+1. For each section in vsm_wing.sections:
+   - Find closest unused structural point to section.LE_point → assign to (section_idx, :LE)
+   - Find closest unused structural point to section.TE_point → assign to (section_idx, :TE)
+2. Distance measured in CAD/body frame using norm(point.pos_cad - section_point)
 """
-function build_point_to_panel_mapping(
+function build_point_to_vsm_point_mapping(
     wing_points::Vector{Point},
-    vsm_aero::VortexStepMethod.BodyAerodynamics
+    vsm_wing::VortexStepMethod.AbstractWing
 )
-    point_to_panels = Dict{Int16, Vector{Tuple{Int16, Float64}}}()
+    n_points = length(wing_points)
+    n_sections = length(vsm_wing.sections)
 
-    # Get panels from BodyAerodynamics (panels are stored at the body level, not per wing)
-    panels = vsm_aero.panels
-
-    for point in wing_points
-        # Find distances from this point to all panel centers
-        panel_distances = Tuple{Int16, Float64}[]
-
-        for (panel_idx, panel) in enumerate(panels)
-            # Panel center position in body frame (average of 4 corner points)
-            panel_center = 0.25 * (panel.LE_point_1 + panel.LE_point_2 +
-                                   panel.TE_point_1 + panel.TE_point_2)
-
-            # Distance from structural point to panel center
-            dist = norm(point.pos_cad - panel_center)
-            push!(panel_distances, (Int16(panel_idx), dist))
-        end
-
-        # Sort by distance and keep 3 nearest panels
-        sort!(panel_distances, by=x->x[2])
-        n_nearest = min(3, length(panel_distances))
-        nearest = panel_distances[1:n_nearest]
-
-        # Inverse distance weighting (normalized)
-        weights = [1.0/d for (_, d) in nearest]
-        total_weight = sum(weights)
-        weights ./= total_weight
-
-        # Store mapping
-        point_to_panels[point.idx] = [(idx, w) for ((idx, _), w) in zip(nearest, weights)]
+    # Validate 1:1 correspondence constraint
+    if n_points != 2 * n_sections
+        error("REFINE wing requires n_structural_points ($(n_points)) == " *
+              "2 * n_vsm_sections ($(n_sections))")
     end
 
-    return point_to_panels
+    point_to_vsm_point = Dict{Int16, Tuple{Int16, Symbol}}()
+    used_points = Set{Int16}()
+
+    for (section_idx, section) in enumerate(vsm_wing.sections)
+        # Map LE_point to closest unused structural point
+        le_pos = section.LE_point
+        min_dist = Inf
+        closest_le_idx = wing_points[1].idx
+
+        for point in wing_points
+            if point.idx in used_points
+                continue  # Already assigned
+            end
+            dist = norm(point.pos_cad - le_pos)
+            if dist < min_dist
+                min_dist = dist
+                closest_le_idx = point.idx
+            end
+        end
+
+        point_to_vsm_point[closest_le_idx] = (Int16(section_idx), :LE)
+        push!(used_points, closest_le_idx)
+
+        # Map TE_point to closest unused structural point
+        te_pos = section.TE_point
+        min_dist = Inf
+        closest_te_idx = wing_points[1].idx
+
+        for point in wing_points
+            if point.idx in used_points
+                continue  # Already assigned
+            end
+            dist = norm(point.pos_cad - te_pos)
+            if dist < min_dist
+                min_dist = dist
+                closest_te_idx = point.idx
+            end
+        end
+
+        point_to_vsm_point[closest_te_idx] = (Int16(section_idx), :TE)
+        push!(used_points, closest_te_idx)
+    end
+
+    return point_to_vsm_point
 end
 
 """
-    extract_panel_forces_to_vsm_state!(wing::VSMWing)
+    compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
 
-Extract per-panel 3D forces from VSM solution and store in wing.vsm_x for linearization.
+Compute leading-edge and trailing-edge forces from aerodynamic coefficients.
 
-The VSM solver provides `f_body_3D::Matrix{Float64}` with shape [3, n_panels], containing
-the force vector (in body frame) for each panel. This function flattens this into the
-vsm_x vector as: [fx_1, fy_1, fz_1, fx_2, fy_2, fz_2, ...].
+Given a panel with aerodynamic coefficients at quarter-chord, this function:
+1. Calculates total lift and drag forces using dynamic pressure
+2. Uses pitching moment to determine center of pressure location
+3. Splits forces between LE and TE to satisfy moment equilibrium
+
+# Arguments
+- `panel`: VSM Panel with geometry (x_airf, y_airf, z_airf, chord, width, va)
+- `cl`: Lift coefficient [-]
+- `cd`: Drag coefficient [-]
+- `cm`: Pitching moment coefficient at quarter-chord [-]
+- `density`: Air density [kg/m³]
+- `v_a_mag`: Apparent velocity magnitude [m/s]
+
+# Returns
+- `(F_LE, F_TE)`: Tuple of 3D force vectors at leading edge and trailing edge [N]
+
+# Algorithm
+1. Dynamic pressure: q = 0.5 × ρ × v_a²
+2. Total forces: L = cl × q × chord × width, D = cd × q × chord × width
+3. Center of pressure (normalized): x_cp = 0.25 + cm/cl
+4. Lift split: L_LE = L × (1 - x_cp), L_TE = L × x_cp
+5. Drag split: D_LE = D/2, D_TE = D/2
+6. Force directions from panel geometry and apparent wind
+"""
+function compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
+    # Dynamic pressure
+    q = 0.5 * density * v_a_mag^2
+
+    # Total lift and drag magnitudes
+    L_total = cl * q * panel.chord * panel.width
+    D_total = cd * q * panel.chord * panel.width
+
+    # Center of pressure location (normalized by chord)
+    # x_cp = 0.25 (quarter-chord) + cm/cl (moment arm)
+    x_cp = if abs(cl) > 1e-6
+        0.25 + cm / cl
+    else
+        0.25  # Default to quarter-chord if no lift
+    end
+
+    # Clamp to reasonable range [0, 1]
+    @show x_cp cm cl
+    x_cp = clamp(x_cp, 0.0, 1.0)
+
+    # Split lift between LE and TE using moment equilibrium
+    # Moment about LE: L_TE × chord = L_total × (x_cp × chord)
+    L_TE = L_total * x_cp
+    L_LE = L_total * (1.0 - x_cp)
+
+    # Split drag equally
+    D_LE = D_total / 2.0
+    D_TE = D_total / 2.0
+
+    # Compute force directions in body frame
+    # Apparent wind direction
+    v_a_norm = panel.va / (norm(panel.va) + 1e-12)
+
+    # Lift direction: perpendicular to apparent wind and spanwise axis
+    lift_dir = cross(v_a_norm, panel.y_airf)
+    lift_dir_mag = norm(lift_dir)
+    if lift_dir_mag > 1e-12
+        lift_dir = lift_dir / lift_dir_mag
+    else
+        # Fallback to z_airf if cross product is degenerate
+        lift_dir = panel.z_airf
+    end
+
+    # Drag direction: opposite to apparent wind
+    drag_dir = -v_a_norm
+
+    # Combine lift and drag components at LE and TE
+    F_LE = L_LE * lift_dir + D_LE * drag_dir
+    F_TE = L_TE * lift_dir + D_TE * drag_dir
+
+    return (F_LE, F_TE)
+end
+
+"""
+    distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point})
+
+Distribute VSM panel forces to structural points using coefficient-based LE/TE force splitting.
+
+After VSM solve, computes LE and TE forces from aerodynamic coefficients (cl, cd, cm)
+for each panel, then distributes to section points accounting for spanwise neighbors.
+
+# Algorithm
+1. Initialize all WING point aero_forces to zero
+2. Initialize section force accumulators (one per section, for LE and TE)
+3. For each panel (connecting sections i and i+1):
+   - Get cl, cd, cm from VSM solution
+   - Call compute_panel_le_te_forces() to get LE and TE forces
+   - Accumulate to adjacent sections (spanwise averaging):
+     * Section i gets 50% of panel forces
+     * Section i+1 gets 50% of panel forces
+4. Map accumulated section forces to structural points via point_to_vsm_point
+
+# Spanwise Distribution
+- Interior sections receive contributions from two adjacent panels
+- Edge sections (first/last) receive from one panel only (100% weight)
 
 # Arguments
 - `wing::VSMWing`: Wing with REFINE type and solved VSM state
+- `points::Vector{Point}`: All structural points (will filter for WING type)
 """
-function extract_panel_forces_to_vsm_state!(wing::VSMWing)
-    @assert wing.wing_type == REFINE "Can only extract panel forces for REFINE wings"
+function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point})
+    @assert wing.wing_type == REFINE "Can only distribute forces for REFINE wings"
 
-    # Get panel forces from VSM solution: f_body_3D is [3, n_panels]
-    n_panels = size(wing.vsm_solver.sol.f_body_3D, 2)
+    # Get VSM solution data
+    cl_array = wing.vsm_solver.sol.cl_array
+    cd_array = wing.vsm_solver.sol.cd_array
+    cm_array = wing.vsm_solver.sol.cm_array
+    density = wing.vsm_solver.density
+    panels = wing.vsm_aero.panels
+    n_panels = length(panels)
+    n_sections = length(wing.vsm_wing.sections)
 
-    # Flatten into vsm_x: [fx_1, fy_1, fz_1, fx_2, ...]
+    # Initialize all WING point forces to zero
+    for point in points
+        if point.type == WING && point.wing_idx == wing.idx
+            point.aero_force .= 0.0
+        end
+    end
+
+    # Build inverse mapping: (section_idx, :LE/:TE) -> point_idx
+    vsm_point_to_struct = Dict{Tuple{Int16, Symbol}, Int16}()
+    for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
+        vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
+    end
+
+    # Initialize section force accumulators
+    # section_forces[i] = (LE_force, TE_force) for section i
+    section_forces = [(zeros(3), zeros(3)) for _ in 1:n_sections]
+
+    # Distribute panel forces to sections (spanwise averaging)
     for panel_idx in 1:n_panels
-        wing.vsm_x[3*(panel_idx-1) + 1] = wing.vsm_solver.sol.f_body_3D[1, panel_idx]
-        wing.vsm_x[3*(panel_idx-1) + 2] = wing.vsm_solver.sol.f_body_3D[2, panel_idx]
-        wing.vsm_x[3*(panel_idx-1) + 3] = wing.vsm_solver.sol.f_body_3D[3, panel_idx]
+        panel = panels[panel_idx]
+        cl = cl_array[panel_idx]
+        cd = cd_array[panel_idx]
+        cm = cm_array[panel_idx]
+        v_a_mag = norm(panel.va)
+
+        # Compute LE and TE forces for this panel
+        F_LE, F_TE = compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
+
+        # Panel i connects sections i and i+1
+        section_i_idx = panel_idx
+        section_i_plus_1_idx = panel_idx + 1
+
+        # Distribute 50% to each adjacent section
+        # (Edge panels will naturally get 100% since they only appear once)
+        section_forces[section_i_idx][1] .+= F_LE / 2.0
+        section_forces[section_i_idx][2] .+= F_TE / 2.0
+
+        section_forces[section_i_plus_1_idx][1] .+= F_LE / 2.0
+        section_forces[section_i_plus_1_idx][2] .+= F_TE / 2.0
+    end
+
+    # Map section forces to structural points
+    for section_idx in 1:n_sections
+        F_LE_section, F_TE_section = section_forces[section_idx]
+
+        # Find structural points corresponding to this section's LE and TE
+        le_key = (Int16(section_idx), :LE)
+        te_key = (Int16(section_idx), :TE)
+
+        if haskey(vsm_point_to_struct, le_key)
+            point_idx = vsm_point_to_struct[le_key]
+            points[point_idx].aero_force .+= F_LE_section
+        end
+
+        if haskey(vsm_point_to_struct, te_key)
+            point_idx = vsm_point_to_struct[te_key]
+            points[point_idx].aero_force .+= F_TE_section
+        end
     end
 
     return nothing
@@ -134,12 +317,17 @@ end
 """
     update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
 
-Update VSM wing section LE/TE positions from structural point positions using smooth
-inverse distance weighting interpolation.
+Update VSM section points (LE/TE) from structural point displacements using 1:1 mapping.
 
-This creates two-way coupling: structural deformation → VSM wing sections → panels regenerated → aero forces.
+This creates two-way coupling: structural deformation → VSM sections → aero forces.
 
-Follows VortexStepMethod's deform! pattern: modify sections, then call reinit! to rebuild panels.
+# Algorithm
+Uses direct 1:1 correspondence between structural points and VSM section points:
+1. For each structural WING point:
+   - Calculate current position in body frame: curr_pos_b = R_b_w' * (pos_w - origin)
+   - Calculate displacement: diff_pos_b = curr_pos_b - point.pos_b (reference set in reinit!)
+   - Find corresponding VSM section point (LE or TE) via wing.point_to_vsm_point
+   - Update VSM point: vsm_point = non_deformed_vsm_point + diff_pos_b
 
 # Arguments
 - `wing::VSMWing`: Wing with REFINE type
@@ -148,12 +336,8 @@ Follows VortexStepMethod's deform! pattern: modify sections, then call reinit! t
 function update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
     @assert wing.wing_type == REFINE "Can only update wing geometry for REFINE wings"
 
-    # Get structural WING points for this wing
-    wing_points = [p for p in points if p.type == WING && p.wing_idx == wing.idx]
-
-    isempty(wing_points) && return  # No structural points to update from
-
     # Initialize non_deformed_sections if not already set
+    # These store the original undeformed geometry
     if isempty(wing.vsm_wing.non_deformed_sections)
         wing.vsm_wing.non_deformed_sections = [Section() for _ in 1:length(wing.vsm_wing.sections)]
         for (i, section) in enumerate(wing.vsm_wing.sections)
@@ -161,37 +345,34 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
         end
     end
 
-    # Update each wing section from nearby structural points
-    for (section, non_deformed_section) in zip(wing.vsm_wing.sections, wing.vsm_wing.non_deformed_sections)
-        # Find section center in CAD frame (body frame at t=0)
-        section_center_cad = 0.5 * (non_deformed_section.LE_point + non_deformed_section.TE_point)
+    # Get current R_b_w and origin from wing state
+    # (These are updated during simulation from structural geometry)
+    R_b_w = wing.R_b_w
+    origin = wing.pos_w
 
-        # Find 3 nearest structural points (using CAD positions)
-        distances = [norm(section_center_cad - p.pos_cad) for p in wing_points]
-        nearest_indices = sortperm(distances)[1:min(3, length(distances))]
+    # Update each VSM section point directly from its corresponding structural point
+    for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
+        point = points[point_idx]
 
-        # Inverse distance weighting
-        weights = [1.0/distances[i] for i in nearest_indices]
-        total_weight = sum(weights)
-        weights ./= total_weight
+        # Calculate current position in body frame
+        curr_pos_b = R_b_w' * (point.pos_w - origin)
 
-        # Calculate weighted average position in WORLD frame
-        pos_w_weighted = sum(weights[i] * wing_points[nearest_indices[i]].pos_w
-                            for i in 1:length(nearest_indices))
+        # Calculate displacement from initial position
+        diff_pos_b = curr_pos_b - point.pos_b
 
-        # Transform to BODY frame: pos_b = R_b_w' * (pos_w - wing.pos_w)
-        pos_b = wing.R_b_w' * (pos_w_weighted - wing.pos_w)
+        # Get the section and its non-deformed reference
+        section = wing.vsm_wing.sections[section_idx]
+        non_deformed = wing.vsm_wing.non_deformed_sections[section_idx]
 
-        # Calculate displacement in BODY frame from original CAD position
-        displacement_b = pos_b - section_center_cad
-
-        # Update section LE and TE positions in BODY frame
-        # Using non_deformed sections as reference (no accumulation)
-        section.LE_point .= non_deformed_section.LE_point .+ displacement_b
-        section.TE_point .= non_deformed_section.TE_point .+ displacement_b
+        # Update the appropriate section point (LE or TE)
+        if le_or_te == :LE
+            section.LE_point .= non_deformed.LE_point .+ diff_pos_b
+        else  # :TE
+            section.TE_point .= non_deformed.TE_point .+ diff_pos_b
+        end
     end
 
     # Do NOT call reinit! on wing - only modify sections!
-    # body_aero.reinit! will update panels from modified sections (called in update_vsm!)
+    # body_aero reinit! will update panels from modified sections (called in update_vsm!)
     return nothing
 end

@@ -44,8 +44,8 @@ condition:
 # Define wing geometry files and discretization parameters
 wings:
     - name: V3_Kite                    # Wing identifier for output labeling
-      geometry_file: data/TUDELFT_V3_KITE/aero_geometry.yaml
-      n_panels: 36                     # Total number of panels along wingspan
+      geometry_file: data/v3/aero_geometry.yaml
+      n_panels: 9                     # Total number of panels along wingspan
       n_groups: 1                      # Number of panel groups (must divide n_panels)
       spanwise_panel_distribution: LINEAR    # Panel spacing algorithm
       spanwise_direction: [0.0, 1.0, 0.0]   # Unit vector defining wingspan direction

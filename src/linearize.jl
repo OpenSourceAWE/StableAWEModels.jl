@@ -50,7 +50,7 @@ This function updates the VSM aerodynamics for all wings, with wing-type-specifi
 **For REFINE wings:**
 - Updates VSM panel positions from current structural deformation
 - Solves the full nonlinear VSM system
-- Extracts per-panel forces to `vsm_x`
+- Distributes panel forces to structural points via `point.aero_force`
 
 This is typically called periodically during simulation based on the `vsm_interval` parameter.
 """
@@ -113,16 +113,18 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
             # Update VSM wing sections from structural deformation
             # (modifies sections in place, like deform!)
             update_vsm_wing_from_structure!(wing, points)
+            @show wing.va_b wing.R_b_w
 
             # Update body aerodynamics with the deformed wing sections
             # (panels regenerated from modified sections)
             VortexStepMethod.reinit!(wing.vsm_aero; init_aero=false)
+            set_va!(wing.vsm_aero, wing.va_b)
 
             # Solve full nonlinear VSM (updates wing.vsm_solver.sol in-place)
             VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero; log=false)
 
-            # Extract per-panel forces to vsm_x
-            extract_panel_forces_to_vsm_state!(wing)
+            # Distribute panel forces to structural points
+            distribute_panel_forces_to_points!(wing, points)
         end
     end
 

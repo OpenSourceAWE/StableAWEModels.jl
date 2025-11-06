@@ -16,12 +16,13 @@ and initializes the `Wing` object from `VortexStepMethod.jl`.
 function VortexStepMethod.Wing(set::Settings; prn=true, kwargs...)
     # Check for aero_geometry.yaml in the model directory
     model_dir = get_data_path()
-    aero_geom_path = joinpath(model_dir, "aero_geometry.yaml")
+    vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
 
-    if isfile(aero_geom_path)
+    if isfile(vsm_set_path)
         # Use YAML-based wing constructor
-        prn && @info "Loading wing from aero_geometry.yaml: $aero_geom_path"
-        return VortexStepMethod.Wing(aero_geom_path; prn, kwargs...)
+        prn && @info "Loading wing from aero_geometry.yaml: $vsm_set_path"
+        return VortexStepMethod.Wing(VSMSettings(vsm_set_path; data_prefix=false);
+                                     kwargs...)
     end
 
     # Fallback: load from .obj and .dat files (legacy path)
@@ -109,6 +110,7 @@ mutable struct Point
     const vel_w::KVec3 # vel in world frame
     const disturb::KVec3 # disturbing force
     const force::KVec3
+    const aero_force::KVec3 # aerodynamic force in body frame (for REFINE WING points)
     const type::DynamicsType
     mass::SimFloat
     body_frame_damping::SimFloat
@@ -156,7 +158,7 @@ function Point(idx, pos_cad, type;
     mass=0.0, body_frame_damping=0.0, world_frame_damping=0.0, fix_sphere=false
 )
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
-        vel_w, zeros(KVec3), zeros(KVec3), type, mass, body_frame_damping, world_frame_damping, fix_sphere)
+        vel_w, zeros(KVec3), zeros(KVec3), zeros(KVec3), type, mass, body_frame_damping, world_frame_damping, fix_sphere)
 end
 
 """
@@ -653,8 +655,7 @@ mutable struct VSMWing <: AbstractWing
     const vsm_jac::Matrix{SimFloat}
 
     # REFINE-specific fields (Nothing for QUATERNION wings)
-    point_to_panels::Union{Nothing, Dict{Int16,
-        Vector{Tuple{Int16, Float64}}}}
+    point_to_vsm_point::Union{Nothing, Dict{Int16, Tuple{Int16, Symbol}}}
     wing_segments::Union{Nothing,
         Vector{Tuple{Int16, Int16}}}
 
@@ -674,14 +675,14 @@ mutable struct VSMWing <: AbstractWing
     # Defines wing.pos_w = pos[:, origin_idx] to track structural deformation
     origin_idx::Union{Nothing, Int16}
 
-    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments, z_ref_points, y_ref_points, origin_idx)
-        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments, z_ref_points, y_ref_points, origin_idx)
+    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx)
+        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx)
     end
 end
 
 # Delegate property access to base wing for VSMWing
 function Base.getproperty(wing::VSMWing, sym::Symbol)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx)
         return getfield(wing, sym)
     else
         return getproperty(getfield(wing, :base), sym)
@@ -689,7 +690,7 @@ function Base.getproperty(wing::VSMWing, sym::Symbol)
 end
 
 function Base.setproperty!(wing::VSMWing, sym::Symbol, value)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx)
         setfield!(wing, sym, value)
     else
         setproperty!(getfield(wing, :base), sym, value)
@@ -738,7 +739,7 @@ end
     VSMWing(idx::Int16, set::Settings, group_idxs::Vector{Int16},
             R_b_c::Matrix{SimFloat}, pos_cad::KVec3;
             transform_idx=1, y_damping=150.0,
-            wing_type=QUATERNION, point_to_panels=nothing,
+            wing_type=QUATERNION, point_to_vsm_point=nothing,
             wing_segments=nothing, x_ref_points=nothing,
             y_ref_points=nothing)
 
@@ -756,7 +757,7 @@ Creates vsm_wing, vsm_aero, and vsm_solver internally.
 - `transform_idx::Int16=1`: Transform for initial positioning.
 - `y_damping::SimFloat=150.0`: Lateral damping coefficient.
 - `wing_type::WingType=QUATERNION`: Aerodynamic model type.
-- `point_to_panels`: Panel force mapping (REFINE only).
+- `point_to_vsm_point`: 1:1 structural point to VSM point mapping (REFINE only).
 - `wing_segments`: LE/TE pairs (REFINE only).
 - `x_ref_points`: Chord direction reference (REFINE only).
 - `y_ref_points`: Span direction reference (REFINE only).
@@ -771,8 +772,7 @@ function VSMWing(idx::Int, set::Settings,
                  transform_idx=1, y_damping=150.0,
                  inertia_diag=nothing,
                  wing_type::WingType=QUATERNION,
-                 point_to_panels::Union{Nothing, Dict{Int16,
-                     Vector{Tuple{Int16, Float64}}}}=nothing,
+                 point_to_vsm_point::Union{Nothing, Dict{Int16, Tuple{Int16, Symbol}}}=nothing,
                  wing_segments::Union{Nothing,
                      Vector{Tuple{Int16, Int16}}}=nothing,
                  z_ref_points::Union{Nothing,
@@ -796,8 +796,8 @@ function VSMWing(idx::Int, set::Settings,
         @assert !isnothing(origin_idx)
             "REFINE wings require origin_idx to define KCU position"
     else
-        @assert isnothing(point_to_panels)
-            "QUATERNION wings: no point_to_panels"
+        @assert isnothing(point_to_vsm_point)
+            "QUATERNION wings: no point_to_vsm_point"
         @assert isnothing(wing_segments)
             "QUATERNION wings: no wing_segments"
         @assert isnothing(z_ref_points)
@@ -834,7 +834,7 @@ function VSMWing(idx::Int, set::Settings,
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
                    zeros(SimFloat, ny), zeros(SimFloat, nx),
                    zeros(SimFloat, nx, ny),
-                   point_to_panels, wing_segments,
+                   point_to_vsm_point, wing_segments,
                    z_ref_points, y_ref_points, origin_idx)
 end
 
@@ -868,7 +868,7 @@ function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, ny), zeros(SimFloat, nx),
         zeros(SimFloat, nx, ny),
-        nothing, nothing, nothing, nothing, nothing)
+        nothing, nothing, nothing, nothing, nothing, nothing)
 end
 
 """
@@ -1248,20 +1248,20 @@ function SystemStructure(name, set;
         @assert wing.idx == i
         # For REFINE wings, set defaults if not provided
         if wing.wing_type == REFINE
-            # Build point_to_panels mapping if not provided
-            if isnothing(wing.point_to_panels)
+            # Build point_to_vsm_point mapping if not provided
+            if isnothing(wing.point_to_vsm_point)
                 # Get WING-type points for this wing
                 wing_point_idxs = findall(
-                    p -> p.type == WING, points)
+                    p -> p.type == WING && p.wing_idx == wing.idx, points)
                 wing_points = [points[idx]
                     for idx in wing_point_idxs]
-                wing.point_to_panels =
-                    build_point_to_panel_mapping(
-                        wing_points, wing.vsm_aero)
+                wing.point_to_vsm_point =
+                    build_point_to_vsm_point_mapping(
+                        wing_points, wing.vsm_wing)
             end
 
             wing_point_idxs = collect(keys(
-                wing.point_to_panels))
+                wing.point_to_vsm_point))
             wing_points = [points[idx]
                 for idx in wing_point_idxs]
 
@@ -1409,7 +1409,11 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
             end
             if point.type == WING
                 wing = wings[point.wing_idx]
-                point.pos_b .= wing.R_b_c' * (point.pos_cad - wing.pos_cad) # TODO: test this
+                # For QUATERNION wings, calculate pos_b from CAD geometry
+                # For REFINE wings, pos_b will be calculated after all transforms are complete
+                if wing.wing_type != REFINE
+                    point.pos_b .= wing.R_b_c' * (point.pos_cad - wing.pos_cad)
+                end
             end
         end
         for wing in wings
@@ -1421,6 +1425,34 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
                     R_b_w[:, i] .= apply_heading(wing.R_b_c[:, i], R_t_w, curr_R_t_w, transform.heading)
                 end
                 wing.R_b_w = R_b_w
+            end
+        end
+    end
+
+    # Calculate pos_b for REFINE wing points after all transforms are complete
+    # This stores the initial body-frame positions for displacement tracking
+    for wing in wings
+        if wing.wing_type == REFINE
+            # Calculate initial R_b_w and origin from structural geometry
+            R_b_w, origin = calc_refine_wing_frame(
+                points,
+                wing.z_ref_points,
+                wing.y_ref_points,
+                wing.origin_idx
+            )
+
+            # Store R_b_w in wing (used for plotting and VSM updates)
+            wing.R_b_w = R_b_w
+
+            # Update wing.pos_w to match origin (KCU position)
+            wing.pos_w .= origin
+
+            # Calculate and store pos_b for all WING points of this wing
+            for point in points
+                if point.type == WING && point.wing_idx == wing.idx
+                    # Transform to body frame: pos_b = R_b_w' * (pos_w - origin)
+                    point.pos_b .= R_b_w' * (point.pos_w - origin)
+                end
             end
         end
     end
@@ -1490,6 +1522,84 @@ function reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
             end
         end
     end
+end
+
+"""
+    get_ref_position_from_points(points::Vector{Point}, ref::Int16)
+    get_ref_position_from_points(points::Vector{Point}, refs::Vector{Int16})
+
+Helper to get position (single point or average of multiple).
+Used for REFINE wing reference point calculations.
+"""
+get_ref_position_from_points(points::Vector{Point}, ref::Int16) = points[ref].pos_w
+function get_ref_position_from_points(points::Vector{Point}, refs::Vector{Int16})
+    n = length(refs)
+    return sum(points[idx].pos_w for idx in refs) / n
+end
+
+"""
+    calc_refine_wing_frame(points::Vector{Point}, z_ref_points, y_ref_points, origin_idx)
+
+Calculate R_b_w rotation matrix and origin position for a REFINE wing from structural point positions.
+
+This function implements the same R_b_w calculation logic as used in `generate_system.jl`
+for REFINE wings, ensuring consistency between initialization (`reinit!`) and simulation
+(symbolic equations).
+
+# Algorithm
+1. Extract reference point positions (with averaging if vectors provided)
+2. Calculate Z-axis (normal to wing): normalized vector from z_p1 to z_p2
+3. Calculate X-axis (chord direction): Y_temp × Z, where Y_temp is from y_p1 to y_p2
+4. Calculate Y-axis (spanwise): Z × X (ensures orthogonality and right-handed system)
+5. Extract origin position from origin_idx point
+
+# Arguments
+- `points::Vector{Point}`: All structural points (must have pos_w initialized)
+- `z_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}`:
+  Reference points defining Z-axis (normal direction)
+- `y_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}`:
+  Reference points defining Y-axis (spanwise direction)
+- `origin_idx::Int16`: Point index defining wing origin (KCU position)
+
+# Returns
+- `R_b_w::Matrix{SimFloat}`: 3x3 rotation matrix from body frame to world frame
+- `origin::KVec3`: Origin position in world frame
+"""
+function calc_refine_wing_frame(
+    points::Vector{Point},
+    z_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}},
+    y_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}},
+    origin_idx::Int16
+)
+    # Extract reference point positions (with averaging if vectors provided)
+    z_p1, z_p2 = z_ref_points
+    y_p1, y_p2 = y_ref_points
+
+    pos_z1 = get_ref_position_from_points(points, z_p1)
+    pos_z2 = get_ref_position_from_points(points, z_p2)
+    pos_y1 = get_ref_position_from_points(points, y_p1)
+    pos_y2 = get_ref_position_from_points(points, y_p2)
+
+    # Build rotation matrix from structural geometry
+    # Z direction (normal to wing, normalized)
+    z_axis = normalize(pos_z2 - pos_z1)
+
+    # Y temp direction (not necessarily orthogonal yet)
+    y_temp = normalize(pos_y2 - pos_y1)
+
+    # X = Y_temp × Z (chord direction, orthogonal to Z)
+    x_axis = normalize(y_temp × z_axis)
+
+    # Y = Z × X (ensure orthogonality and right-handed system)
+    y_axis = z_axis × x_axis
+
+    # Construct rotation matrix [x y z]
+    R_b_w = hcat(x_axis, y_axis, z_axis)
+
+    # Extract origin position
+    origin = points[origin_idx].pos_w
+
+    return R_b_w, origin
 end
 
 """
@@ -1737,7 +1847,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
 end
 
 """
-    reinit!(sys_struct::SystemStructure, set::Settings; pulley_init_method=:proportional)
+    reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0=false, remake_vsm=false)
 
 Re-initialize a `SystemStructure` from a `Settings` object.
 
@@ -1747,8 +1857,14 @@ is typically called before starting a new simulation run.
 
 Pulley lengths are initialized proportionally based on current segment lengths:
 `pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len`
+
+# Keyword Arguments
+- `ignore_l0::Bool=false`: If true, recalculate segment rest lengths from current positions
+- `remake_vsm::Bool=false`: If true, recreate VSM wing, aerodynamics, and solver from settings.
+  This is useful after modifying aero_geometry.yaml or other VSM-related configuration files.
+  For REFINE wings, also rebuilds the point_to_vsm_point mapping.
 """
-function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=false)
+function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=false, remake_vsm::Bool=false)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     for winch in winches
@@ -1788,11 +1904,63 @@ function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=fal
     end
 
     reinit!(transforms, sys_struct)
+
+    # Recreate VSM wing and aero if requested
+    if remake_vsm
+        for wing in wings
+            # Recreate VSM wing from settings
+            wing.vsm_wing = VortexStepMethod.Wing(set; prn=false)
+            wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
+            wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero;
+                solver_type=VortexStepMethod.NONLIN,
+                atol=2e-8, rtol=2e-8)
+
+            # For REFINE wings, rebuild point_to_vsm_point mapping
+            if wing.wing_type == REFINE && !isnothing(wing.point_to_vsm_point)
+                wing_point_idxs = collect(keys(wing.point_to_vsm_point))
+                wing_points = [points[idx] for idx in wing_point_idxs]
+                wing.point_to_vsm_point =
+                    build_point_to_vsm_point_mapping(wing_points, wing.vsm_wing)
+            end
+        end
+    end
+
+    # Calculate ground-level wind vector with direction rotations
+    # Matches symbolic equations in generate_system.jl:1259-1264
+    upwind_dir = deg2rad(set.upwind_dir)
+    wind_elevation = sys_struct.wind_elevation
+    wind_scale_gnd = set.v_wind
+
+    # Base wind vector: [0, -1, 0] points upwind
+    wind_vec_base = [0.0, -1.0, 0.0]
+    # Rotate by elevation around x-axis (vertical tilt)
+    wind_vec_elevated = rotate_around_x(wind_vec_base, wind_elevation)
+    # Rotate by upwind direction around z-axis (negative for convention)
+    wind_vec_rotated = rotate_around_z(wind_vec_elevated, -upwind_dir)
+    # Scale by ground wind speed
+    wind_vec_gnd = max(wind_scale_gnd, 1e-6) * wind_vec_rotated
+
     for wing in wings
-        # Only initialize vsm_y for QUATERNION wings (REFINE wings have ny=0)
-        if wing.wing_type != REFINE && length(wing.vsm_y) >= 3
-            wing.vsm_y .= 0.0
-            wing.vsm_y[1:3] .= wing.R_b_w' * [set.v_wind, 0., 0.]
+        # Calculate wind at wing height using atmospheric model
+        # Matches symbolic equations in generate_system.jl:1277-1278
+        wing_height = max(wing.pos_w[3], 1.0)  # z-component, minimum 1m
+        wind_factor = calc_wind_factor(AtmosphericModel(set), wing_height, set)
+        wing.v_wind .= wind_factor * wind_vec_gnd
+
+        if wing.wing_type == REFINE
+            # Initialize apparent wind in body frame for REFINE wings
+            # va_wing = wind_vel - wing_vel + wind_disturb
+            # va_b = R_b_w' * va_wing
+            # At initialization: wing_vel typically 0, wind_disturb typically 0
+            va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
+            @show va_wing_w wing.R_b_w
+            wing.va_b .= wing.R_b_w' * va_wing_w
+        else
+            # Initialize vsm_y for QUATERNION wings (REFINE wings have ny=0)
+            if length(wing.vsm_y) >= 3
+                wing.vsm_y .= 0.0
+                wing.vsm_y[1:3] .= wing.R_b_w' * [set.v_wind, 0., 0.]
+            end
         end
     end
 

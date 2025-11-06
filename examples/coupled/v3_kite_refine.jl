@@ -27,14 +27,13 @@ using GLMakie
 # ============= User settings =============
 const MODEL_NAME = "v3"
 const SIM_TIME   = 0.1
-const N_STEPS    = 10
+const N_STEPS    = 100
 const REMAKE_CACHE = false
 # =========================================
 
 # Load settings for the v3 kite
 set_data_path("data/v3")
 set = Settings("system.yaml")
-set.v_wind = 0.0
 if hasproperty(set, :c_spring) || hasproperty(set, :damping)
     @info "Legacy tether settings still present" c_spring=(hasproperty(set, :c_spring) ? getproperty(set, :c_spring) : missing) damping=(hasproperty(set, :damping) ? getproperty(set, :damping) : missing)
 end
@@ -85,8 +84,7 @@ wind_elev_rad = deg2rad(wind_elev)
 # Initialize the model
 # NOTE: REFINE wings do NOT use linearization (too expensive with many structural DOFs)
 @info "Initializing model without VSM linearization..."
-sam.sys_struct.wind_elevation = deg2rad(20.0)
-SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE, lin_vsm=false, ignore_l0=true)
+SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE)
 
 
 #TODO: check if the le te is correct

@@ -297,7 +297,7 @@ transforms:
   data:
     # Main transform for v3 kite wing
     - idx: 1
-      elevation: 90.0       # Elevation angle from ground (degrees)
+      elevation: 80.0       # Elevation angle from ground (degrees)
       azimuth: 0.0          # Azimuth angle, 0 = downwind (degrees)
       heading: 0.0          # Kite heading/yaw (degrees)
       wing_idx: 1           # Transform applies to wing 1
