@@ -209,7 +209,7 @@ segments:
     - [88, 35, 1, BRIDLE, 3.129, 2.0, dyneema, 0.0]  # Power Tape
     - [89, 38, 1, BRIDLE, 1.506, 2.0, dyneema, 0.0]  # Steering Tape
 
-    - [90, 38, 39, BRIDLE, 1.0, 2.0, dyneema, 0.0]
+    - [90, 1, 39, BRIDLE, 1.0, 2.0, dyneema, 0.0]
 
 ###########################
 ## Pulleys ################
@@ -281,8 +281,9 @@ wings:
       type: REFINE
       point_ids: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
         13, 14, 15, 16, 17, 18, 19, 20, 21]
-      x_ref_points: [12, 13]  # Center LE-TE for X (chord)
-      y_ref_points: [12, 10]  # Center/left LE for Y (span)
+      z_ref_points: [1, [12, 11]]  # KCU to LE for Z (normal)
+      y_ref_points: [12, 10]  # Center LE for Y (span)
+      origin_idx: 1 # Index of the kite origin point
 
 ###########################
 ## Transforms #############
@@ -296,7 +297,7 @@ transforms:
   data:
     # Main transform for v3 kite wing
     - idx: 1
-      elevation: 70.0       # Elevation angle from ground (degrees)
+      elevation: 90.0       # Elevation angle from ground (degrees)
       azimuth: 0.0          # Azimuth angle, 0 = downwind (degrees)
       heading: 0.0          # Kite heading/yaw (degrees)
       wing_idx: 1           # Transform applies to wing 1

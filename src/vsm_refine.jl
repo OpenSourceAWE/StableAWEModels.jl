@@ -153,13 +153,20 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
 
     isempty(wing_points) && return  # No structural points to update from
 
-    # Update each wing section from nearby structural points
-    # Sections define the wing geometry; panels are derived from sections
-    for section in wing.vsm_wing.sections
-        # Find section center in CAD frame for distance calculation
-        section_center_cad = 0.5 * (section.LE_point + section.TE_point)
+    # Initialize non_deformed_sections if not already set
+    if isempty(wing.vsm_wing.non_deformed_sections)
+        wing.vsm_wing.non_deformed_sections = [Section() for _ in 1:length(wing.vsm_wing.sections)]
+        for (i, section) in enumerate(wing.vsm_wing.sections)
+            VortexStepMethod.reinit!(wing.vsm_wing.non_deformed_sections[i], section)
+        end
+    end
 
-        # Find 3 nearest structural points
+    # Update each wing section from nearby structural points
+    for (section, non_deformed_section) in zip(wing.vsm_wing.sections, wing.vsm_wing.non_deformed_sections)
+        # Find section center in CAD frame (body frame at t=0)
+        section_center_cad = 0.5 * (non_deformed_section.LE_point + non_deformed_section.TE_point)
+
+        # Find 3 nearest structural points (using CAD positions)
         distances = [norm(section_center_cad - p.pos_cad) for p in wing_points]
         nearest_indices = sortperm(distances)[1:min(3, length(distances))]
 
@@ -168,14 +175,20 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
         total_weight = sum(weights)
         weights ./= total_weight
 
-        # Calculate weighted average displacement from CAD to current world position
-        displacement = sum(weights[i] * (wing_points[nearest_indices[i]].pos_w - wing_points[nearest_indices[i]].pos_cad)
-                          for i in 1:length(nearest_indices))
+        # Calculate weighted average position in WORLD frame
+        pos_w_weighted = sum(weights[i] * wing_points[nearest_indices[i]].pos_w
+                            for i in 1:length(nearest_indices))
 
-        # Update section LE and TE positions (sections are mutable)
-        # This follows the deform! pattern: modify sections directly, no reinit! on wing
-        section.LE_point .+= displacement
-        section.TE_point .+= displacement
+        # Transform to BODY frame: pos_b = R_b_w' * (pos_w - wing.pos_w)
+        pos_b = wing.R_b_w' * (pos_w_weighted - wing.pos_w)
+
+        # Calculate displacement in BODY frame from original CAD position
+        displacement_b = pos_b - section_center_cad
+
+        # Update section LE and TE positions in BODY frame
+        # Using non_deformed sections as reference (no accumulation)
+        section.LE_point .= non_deformed_section.LE_point .+ displacement_b
+        section.TE_point .= non_deformed_section.TE_point .+ displacement_b
     end
 
     # Do NOT call reinit! on wing - only modify sections!

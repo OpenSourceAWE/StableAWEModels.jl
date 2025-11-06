@@ -263,7 +263,7 @@ starting from 1 with no gaps.
 - `wings`: (optional, typically from VSM configuration)
 - `transforms`: (optional, typically from settings)
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing())
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing(), ignore_l0::Bool=false)
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
@@ -471,6 +471,22 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         error("Unknown WingType: $s")
     end
 
+    # Parse reference points (can be single point or vector of points to average)
+    # Examples: [12, 13], [12, [13, 14]], [[11, 12], [13, 14]]
+    function parse_ref_points(row, field)
+        !hasfield(typeof(row), field) && return nothing
+        val = getfield(row, field)
+        val === nothing && return nothing
+
+        # Parse [a, b] or [a, [b, c]]
+        @assert length(val) == 2 "ref_points must have 2 elements"
+
+        p1 = val[1] isa Vector ? Int16.(val[1]) : Int16(val[1])
+        p2 = val[2] isa Vector ? Int16.(val[2]) : Int16(val[2])
+
+        return (p1, p2)
+    end
+
     # Load wings (optional)
     wings = AbstractWing[]
     if haskey(data, "wings") &&
@@ -483,18 +499,18 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             wing = call_yaml_constructor(VSMWing, row,
                 [:idx, :set, :group_idxs],
                 [:transform_idx, :y_damping, :wing_type,
-                 :x_ref_points, :y_ref_points];
+                 :z_ref_points, :y_ref_points, :origin_idx];
                 mappings=Dict(
                     :set => r -> set,
                     :group_idxs => r -> Int16[],
                     :wing_type => r ->
                         parse_wing_type(String(r.type)),
-                    :x_ref_points => r ->
-                        get_field_or_nothing(
-                            Tuple{Int16,Int16}, r, :x_ref_points),
+                    :z_ref_points => r ->
+                        parse_ref_points(r, :z_ref_points),
                     :y_ref_points => r ->
-                        get_field_or_nothing(
-                            Tuple{Int16,Int16}, r, :y_ref_points)
+                        parse_ref_points(r, :y_ref_points),
+                    :origin_idx => r ->
+                        get_field_or_nothing(Int16, r, :origin_idx)
                 ))
             push!(wings, wing)
         end
@@ -539,5 +555,5 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     # SystemStructure constructor now handles WING→STATIC
     # conversion when no wings are defined
     return SystemStructure(system_name, set; points, groups,
-        segments, pulleys, tethers, winches, wings, transforms)
+        segments, pulleys, tethers, winches, wings, transforms, ignore_l0)
 end

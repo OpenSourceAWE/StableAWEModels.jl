@@ -355,7 +355,8 @@ function init!(sam::SymbolicAWEModel;
     create_prob::Bool=true,
     create_lin_prob::Bool=true,
     create_control_func::Bool=false,
-    lin_vsm::Bool=true
+    lin_vsm::Bool=true,
+    ignore_l0::Bool=false
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
     time = @elapsed begin
@@ -415,7 +416,7 @@ function init!(sam::SymbolicAWEModel;
             serialize(model_path, sam.serialized_model)
         end
 
-        reinit!(sam.sys_struct, sam.set)
+        reinit!(sam.sys_struct, sam.set; ignore_l0=ignore_l0)
         create_prob && !isnothing(sam.prob) && reinit!(sam, sam.prob, solver; adaptive, reload, lin_vsm)
         create_lin_prob && !isnothing(sam.lin_prob) && reinit!(sam, sam.lin_prob)
     end

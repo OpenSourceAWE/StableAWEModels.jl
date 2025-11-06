@@ -661,17 +661,27 @@ mutable struct VSMWing <: AbstractWing
     # Orientation reference points for REFINE wings
     # (Nothing for QUATERNION wings)
     # Used to calculate R_b_w from structural deformation
-    x_ref_points::Union{Nothing, Tuple{Int16, Int16}}
-    y_ref_points::Union{Nothing, Tuple{Int16, Int16}}
+    # Can specify single point or vector of points to average:
+    #   (12, 13) - point 12 to point 13
+    #   (12, [13, 14]) - point 12 to average of points 13,14
+    #   ([11, 12], [13, 14]) - average of 11,12 to average of 13,14
+    # Z-axis: Normal to wing plane, Y-axis: Spanwise, X = Y × Z (chord)
+    z_ref_points::Union{Nothing, Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}
+    y_ref_points::Union{Nothing, Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}
 
-    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments, x_ref_points, y_ref_points)
-        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments, x_ref_points, y_ref_points)
+    # KCU origin point for REFINE wings
+    # (Nothing for QUATERNION wings)
+    # Defines wing.pos_w = pos[:, origin_idx] to track structural deformation
+    origin_idx::Union{Nothing, Int16}
+
+    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments, z_ref_points, y_ref_points, origin_idx)
+        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_panels, wing_segments, z_ref_points, y_ref_points, origin_idx)
     end
 end
 
 # Delegate property access to base wing for VSMWing
 function Base.getproperty(wing::VSMWing, sym::Symbol)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments, :x_ref_points, :y_ref_points)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx)
         return getfield(wing, sym)
     else
         return getproperty(getfield(wing, :base), sym)
@@ -679,7 +689,7 @@ function Base.getproperty(wing::VSMWing, sym::Symbol)
 end
 
 function Base.setproperty!(wing::VSMWing, sym::Symbol, value)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments, :x_ref_points, :y_ref_points)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_panels, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx)
         setfield!(wing, sym, value)
     else
         setproperty!(getfield(wing, :base), sym, value)
@@ -765,10 +775,11 @@ function VSMWing(idx::Int, set::Settings,
                      Vector{Tuple{Int16, Float64}}}}=nothing,
                  wing_segments::Union{Nothing,
                      Vector{Tuple{Int16, Int16}}}=nothing,
-                 x_ref_points::Union{Nothing,
-                     Tuple{Int16, Int16}}=nothing,
+                 z_ref_points::Union{Nothing,
+                     Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}=nothing,
                  y_ref_points::Union{Nothing,
-                     Tuple{Int16, Int16}}=nothing)
+                     Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}=nothing,
+                 origin_idx::Union{Nothing, Int16}=nothing)
 
     # Set defaults from VortexStepMethod if not provided
     if isnothing(R_b_c) || isnothing(pos_cad)
@@ -782,15 +793,19 @@ function VSMWing(idx::Int, set::Settings,
     if wing_type == REFINE
         @assert length(group_idxs) == 0
             "REFINE wings cannot have groups"
+        @assert !isnothing(origin_idx)
+            "REFINE wings require origin_idx to define KCU position"
     else
         @assert isnothing(point_to_panels)
             "QUATERNION wings: no point_to_panels"
         @assert isnothing(wing_segments)
             "QUATERNION wings: no wing_segments"
-        @assert isnothing(x_ref_points)
-            "QUATERNION wings: no x_ref_points"
+        @assert isnothing(z_ref_points)
+            "QUATERNION wings: no z_ref_points"
         @assert isnothing(y_ref_points)
             "QUATERNION wings: no y_ref_points"
+        @assert isnothing(origin_idx)
+            "QUATERNION wings don't use origin_idx"
     end
 
     # Create VSM wing, aero, and solver
@@ -820,7 +835,7 @@ function VSMWing(idx::Int, set::Settings,
                    zeros(SimFloat, ny), zeros(SimFloat, nx),
                    zeros(SimFloat, nx, ny),
                    point_to_panels, wing_segments,
-                   x_ref_points, y_ref_points)
+                   z_ref_points, y_ref_points, origin_idx)
 end
 
 """
@@ -853,7 +868,7 @@ function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, ny), zeros(SimFloat, nx),
         zeros(SimFloat, nx, ny),
-        nothing, nothing, nothing, nothing)
+        nothing, nothing, nothing, nothing, nothing)
 end
 
 """
@@ -1152,6 +1167,7 @@ function SystemStructure(name, set;
         winches=Winch[],
         wings=AbstractWing[],
         transforms=Transform[],
+        ignore_l0::Bool=false,
     )
     # If no wings defined, convert WING points to STATIC
     if isempty(wings)
@@ -1260,17 +1276,17 @@ function SystemStructure(name, set;
             end
 
             # Set default reference points if not provided
-            if isnothing(wing.x_ref_points) ||
+            if isnothing(wing.z_ref_points) ||
                isnothing(wing.y_ref_points)
                 segs = wing.wing_segments
 
-                if isnothing(wing.x_ref_points)
-                    # Use first segment (center) for X
-                    wing.x_ref_points = segs[1]
+                if isnothing(wing.z_ref_points)
+                    # Use first segment (center LE-TE) for Z (normal)
+                    wing.z_ref_points = segs[1]
                 end
 
                 if isnothing(wing.y_ref_points)
-                    # Use center and mid-span for Y
+                    # Use center LE and mid-span LE for Y (spanwise)
                     mid = length(segs) ÷ 2
                     wing.y_ref_points = (segs[1][1],
                         segs[mid][1])
@@ -1298,6 +1314,16 @@ function SystemStructure(name, set;
     sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
         winches, wings, transforms, y, x, jac, zeros(KVec3), 0.0, false, false)
     reinit!(sys_struct, set)
+
+    # Recalculate segment rest lengths from current positions if requested
+    if ignore_l0
+        for segment in sys_struct.segments
+            p1 = sys_struct.points[segment.point_idxs[1]]
+            p2 = sys_struct.points[segment.point_idxs[2]]
+            segment.l0 = norm(p2.pos_w - p1.pos_w)
+        end
+    end
+
     return sys_struct
 end
 
@@ -1360,7 +1386,17 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
 
         # ==================== ROTATE ==================== #
         curr_rot_pos = get_rot_pos(transform, wings, points)
-        curr_R_t_w = calc_R_t_w(curr_rot_pos - base_pos)
+        rel_pos = curr_rot_pos - base_pos
+
+        # Check if wing and base are aligned (avoid division by zero)
+        if norm(rel_pos) < 1e-6
+            @warn "Transform #$(transform.idx): Wing and base positions are aligned at $(base_pos). " *
+                  "Using identity rotation matrix (no rotation applied)."
+            curr_R_t_w = Matrix(1.0I, 3, 3)  # Identity matrix
+        else
+            curr_R_t_w = calc_R_t_w(rel_pos)
+        end
+
         transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation),
                                         -transform.azimuth)
         R_t_w = calc_R_t_w(transform_pos)
@@ -1416,7 +1452,16 @@ function reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
 
         # Calculate the current orientation in spherical coordinates
         curr_rel_pos = rot_pos - base_pos
-        curr_R_t_w = calc_R_t_w(curr_rel_pos)
+
+        # Check if wing and base are aligned (avoid division by zero)
+        if norm(curr_rel_pos) < 1e-6
+            @warn "Transform #$(transform.idx): Wing and base positions are aligned at $(base_pos). " *
+                  "Using identity rotation matrix (no rotation applied)."
+            curr_R_t_w = Matrix(1.0I, 3, 3)  # Identity matrix
+        else
+            curr_R_t_w = calc_R_t_w(curr_rel_pos)
+        end
+
         transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation), -transform.azimuth)
         R_t_w = calc_R_t_w(transform_pos)
 
@@ -1703,7 +1748,7 @@ is typically called before starting a new simulation run.
 Pulley lengths are initialized proportionally based on current segment lengths:
 `pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len`
 """
-function reinit!(sys_struct::SystemStructure, set::Settings)
+function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=false)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     for winch in winches
@@ -1753,6 +1798,15 @@ function reinit!(sys_struct::SystemStructure, set::Settings)
 
     # Validate the system structure after initialization
     validate_sys_struct(sys_struct)
+
+    # Recalculate segment rest lengths from current positions if requested
+    if ignore_l0
+        for segment in segments
+            p1 = points[segment.point_idxs[1]]
+            p2 = points[segment.point_idxs[2]]
+            segment.l0 = norm(p2.pos_w - p1.pos_w)
+        end
+    end
 
     return nothing
 end

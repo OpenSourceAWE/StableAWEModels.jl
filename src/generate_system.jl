@@ -961,40 +961,51 @@ function wing_eqs!(
         ω[3] ω[2] -ω[1] 0
     ]
 
+    # Helper to get position (single point or average of multiple)
+    # Used for REFINE wing reference points
+    get_ref_position(pos, ref::Int16) = pos[:, ref]
+    function get_ref_position(pos, refs::Vector{Int16})
+        n = length(refs)
+        return sum(pos[:, idx] for idx in refs) / n
+    end
+
     for wing in wings
         # REFINE wings don't have rigid body dynamics, but we can calculate their
         # orientation and position from structural point positions
         if wing.wing_type == REFINE
-            # Calculate R_b_w from reference points defining X and Y directions
-            # X direction: chord/forward (from two points along chord)
-            # Y direction: span (from two points across span)
-            # Z = X × Y, then Y = Z × X for orthonormality
+            # Calculate R_b_w from reference points defining Y and Z directions
+            # Y direction: spanwise (from two points across span)
+            # Z direction: normal to wing (from two points defining normal, e.g. LE-TE)
+            # X = Y × Z (chord direction, ensures right-handed system)
 
-            x_p1, x_p2 = wing.x_ref_points  # Point indices defining X direction
-            y_p1, y_p2 = wing.y_ref_points  # Point indices defining Y direction
+            z_p1, z_p2 = wing.z_ref_points  # Point indices (or vectors to average)
+            y_p1, y_p2 = wing.y_ref_points
+
+            # Get positions (with averaging if vectors provided)
+            pos_z1 = get_ref_position(pos, z_p1)
+            pos_z2 = get_ref_position(pos, z_p2)
+            pos_y1 = get_ref_position(pos, y_p1)
+            pos_y2 = get_ref_position(pos, y_p2)
 
             eqs = [
                 eqs
                 # Build rotation matrix from structural geometry
-                # X direction (normalized)
-                vec(R_b_w[wing.idx, :, 1]) .~ sym_normalize(pos[:, x_p2] - pos[:, x_p1])
+                # Z direction (normal to wing, normalized)
+                vec(R_b_w[wing.idx, :, 3]) .~ sym_normalize(pos_z2 - pos_z1)
                 # Y temp direction (not necessarily orthogonal yet)
-                # Z = X × Y_temp (normal to wing plane)
-                vec(R_b_w[wing.idx, :, 3]) .~ sym_normalize(
-                    R_b_w[wing.idx, :, 1] × sym_normalize(pos[:, y_p2] - pos[:, y_p1])
+                # X = Y_temp × Z (chord direction, orthogonal to Z)
+                vec(R_b_w[wing.idx, :, 1]) .~ sym_normalize(
+                    sym_normalize(pos_y2 - pos_y1) × R_b_w[wing.idx, :, 3]
                 )
-                # Y = Z × X (ensure orthogonality)
+                # Y = Z × X (ensure orthogonality and right-handed system)
                 vec(R_b_w[wing.idx, :, 2]) .~ R_b_w[wing.idx, :, 3] × R_b_w[wing.idx, :, 1]
 
-                # Calculate wing position (KCU) from reference point
-                # This ensures VSM panels align with structural points
-                # Using transformation: pos_w = pos_ref - R_b_w * pos_b_ref
-                # where pos_b_ref is the reference point position in body frame (relative to KCU)
-                wing_pos[wing.idx, :] ~ pos[:, x_p1] - R_b_w[wing.idx, :, :] * get_pos_b(psys, x_p1)
-
-                # Use reference point velocity and acceleration
-                wing_vel[wing.idx, :] ~ vel[:, x_p1]
-                wing_acc[wing.idx, :] ~ acc[:, x_p1]
+                # Define wing position from KCU origin point
+                # This ensures wing.pos_w moves with structural deformation
+                # and VSM panels (plotted at T_b_w=wing.pos_w) stay aligned
+                wing_pos[wing.idx, :] ~ pos[:, wing.origin_idx]
+                wing_vel[wing.idx, :] ~ vel[:, wing.origin_idx]
+                wing_acc[wing.idx, :] ~ acc[:, wing.origin_idx]
             ]
 
             # Convert rotation matrix to quaternion for REFINE wings
