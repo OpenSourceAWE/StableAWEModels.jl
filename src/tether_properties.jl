@@ -341,3 +341,75 @@ function step(sam::SymbolicAWEModel, steps, F_step, F_0;
     end
     return tether_lens
 end
+
+"""
+    update_segment_forces!(sys_struct::SystemStructure)
+
+Calculate and update spring forces for all segments in-place.
+
+This function computes the spring-damper forces for each segment using
+the same formulas as in `generate_system.jl`. It updates the `len` and
+`force` fields of each segment in the SystemStructure.
+
+The spring-damper force follows Hooke's law with damping:
+
+```math
+F = k(l - l_0) - c\\dot{l}
+```
+
+where:
+- `k = axial_stiffness / l` (tension) or
+  `k = compression_frac * axial_stiffness / l` (compression)
+- `l` is current length, `l_0` is unstretched length
+- `c = axial_damping / l` is damping coefficient
+- `\\dot{l} = (v₁ - v₂) ⋅ û` is extension rate
+
+# Arguments
+- `sys_struct::SystemStructure`: The system structure containing points
+  and segments.
+
+# Returns
+- `nothing`: Modifies segment.len and segment.force in-place.
+
+# Example
+```julia
+update_segment_forces!(sam.sys_struct)
+for segment in sam.sys_struct.segments
+    println("Segment \$(segment.idx): force = \$(segment.force) N")
+end
+```
+"""
+function update_segment_forces!(sys_struct::SystemStructure)
+    @unpack points, segments = sys_struct
+
+    for segment in segments
+        p1, p2 = segment.point_idxs
+
+        # Segment vector and length
+        segment_vec = points[p2].pos_w - points[p1].pos_w
+        len = norm(segment_vec)
+        unit_vec = segment_vec / len
+
+        # Relative velocity along segment
+        rel_vel = points[p1].vel_w - points[p2].vel_w
+        spring_vel = rel_vel ⋅ unit_vec
+
+        # Stiffness (handles compression)
+        if len > segment.l0
+            stiffness = segment.axial_stiffness / len
+        else
+            stiffness = segment.compression_frac *
+                        segment.axial_stiffness / len
+        end
+
+        # Damping
+        damping = segment.axial_damping / len
+
+        # Update segment fields in-place
+        segment.len = len
+        segment.force = stiffness * (len - segment.l0) -
+                        damping * spring_vel
+    end
+
+    return nothing
+end

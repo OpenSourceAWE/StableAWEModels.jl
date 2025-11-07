@@ -26,8 +26,8 @@ using GLMakie
 
 # ============= User settings =============
 const MODEL_NAME = "v3"
-const SIM_TIME   = 0.1
-const N_STEPS    = 100
+const SIM_TIME   = 0.2
+const N_STEPS    = 200
 const REMAKE_CACHE = false
 # =========================================
 
@@ -84,7 +84,10 @@ wind_elev_rad = deg2rad(wind_elev)
 # Initialize the model
 # NOTE: REFINE wings do NOT use linearization (too expensive with many structural DOFs)
 @info "Initializing model without VSM linearization..."
+[point.fix_static = true for point in sys.points if point.type == WING]
 SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE)
+next_step!(sam; dt=1.0)
+[point.fix_static = false for point in sys.points if point.type == WING]
 
 
 #TODO: check if the le te is correct

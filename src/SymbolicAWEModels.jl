@@ -78,6 +78,7 @@ export sim!, sim_oscillate!, sim_turn!, sim_reposition!
 export find_steady_state!
 export linearize!, simple_linearize!
 export copy_to_simple!
+export update_segment_forces!
 
 # --- System Structure Creators ---
 export create_ram_sys_struct

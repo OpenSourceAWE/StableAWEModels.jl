@@ -208,6 +208,9 @@ get_brake(sys::SystemStructure, idx::Int16) = sys.winches[idx].brake
 get_fix_point_sphere(sys::SystemStructure, idx::Int16) =
     sys.points[idx].fix_sphere
 @register_symbolic get_fix_point_sphere(sys::SystemStructure, idx::Int16)
+get_fix_static(sys::SystemStructure, idx::Int16) =
+    sys.points[idx].fix_static
+@register_symbolic get_fix_static(sys::SystemStructure, idx::Int16)
 get_fix_wing_sphere(sys::SystemStructure, idx::Int16) = sys.wings[idx].fix_sphere
 @register_symbolic get_fix_wing_sphere(sys::SystemStructure, idx::Int16)
 get_drag_frac(sys::SystemStructure, idx::Int16) = sys.wings[idx].drag_frac
@@ -296,6 +299,7 @@ function force_eqs!(
         normal(t)[1:3, eachindex(points)]
         pos_b(t)[1:3, eachindex(points)]
         fix_point_sphere(t)[eachindex(points)]
+        fix_static(t)[eachindex(points)]
         # Segment forces and rest length
         spring_force_vec(t)[1:3, eachindex(segments)]
         drag_force(t)[1:3, eachindex(segments)]
@@ -363,14 +367,23 @@ function force_eqs!(
                 eqs = [
                     eqs
                     fix_point_sphere[point.idx] ~ get_fix_point_sphere(psys, point.idx)
-                    D(pos[:, point.idx]) ~ ifelse.(fix_point_sphere[point.idx]==true,
-                                                    vel[:, point.idx] ⋅ axis * axis,
-                                                    vel[:, point.idx]
-                                            )
-                    D(vel[:, point.idx]) ~ ifelse.(fix_point_sphere[point.idx]==true,
-                                                    acc[:, point.idx] ⋅ axis * axis,
-                                                    acc[:, point.idx]
-                                            )
+                    fix_static[point.idx] ~ get_fix_static(psys, point.idx)
+                    D(pos[:, point.idx]) ~ ifelse.(
+                        fix_static[point.idx] == true,
+                        zeros(3),
+                        ifelse.(fix_point_sphere[point.idx]==true,
+                                vel[:, point.idx] ⋅ axis * axis,
+                                vel[:, point.idx]
+                        )
+                    )
+                    D(vel[:, point.idx]) ~ ifelse.(
+                        fix_static[point.idx] == true,
+                        zeros(3),
+                        ifelse.(fix_point_sphere[point.idx]==true,
+                                acc[:, point.idx] ⋅ axis * axis,
+                                acc[:, point.idx]
+                        )
+                    )
                     acc[:, point.idx] ~ point_force[:, point.idx] ./ mass - body_frame_damp_vec - world_frame_damp_vec
                 ]
                 defaults = [
@@ -475,14 +488,23 @@ function force_eqs!(
             eqs = [
                 eqs
                 fix_point_sphere[point.idx] ~ get_fix_point_sphere(psys, point.idx)
-                D(pos[:, point.idx]) ~  ifelse.(fix_point_sphere[point.idx]==true,
-                                                vel[:, point.idx] ⋅ axis * axis,
-                                                vel[:, point.idx]
-                                        )
-                D(vel[:, point.idx]) ~  ifelse.(fix_point_sphere[point.idx]==true,
-                                                acc[:, point.idx] ⋅ axis * axis,
-                                                acc[:, point.idx]
-                                        )
+                fix_static[point.idx] ~ get_fix_static(psys, point.idx)
+                D(pos[:, point.idx]) ~ ifelse.(
+                    fix_static[point.idx] == true,
+                    zeros(3),
+                    ifelse.(fix_point_sphere[point.idx]==true,
+                            vel[:, point.idx] ⋅ axis * axis,
+                            vel[:, point.idx]
+                    )
+                )
+                D(vel[:, point.idx]) ~ ifelse.(
+                    fix_static[point.idx] == true,
+                    zeros(3),
+                    ifelse.(fix_point_sphere[point.idx]==true,
+                            acc[:, point.idx] ⋅ axis * axis,
+                            acc[:, point.idx]
+                    )
+                )
                 acc[:, point.idx]    ~ point_force[:, point.idx] ./ mass - body_frame_damp_vec - world_frame_damp_vec
             ]
             defaults = [
@@ -496,11 +518,20 @@ function force_eqs!(
                 eqs
                 point_force[:, point.idx] ~
                     F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
+                fix_static[point.idx] ~ get_fix_static(psys, point.idx)
                 vel[:, point.idx] ~ zeros(3)
                 acc[:, point.idx] ~ zeros(3)
-                # For a quasi-static point, the net force must be zero. This becomes
-                # the algebraic equation that determines the point's position.
-                zeros(3) .~ point_force[:, point.idx]
+                # When fix_static=true: position is fixed at get_pos_w
+                # When fix_static=false: force must balance to zero
+                ifelse.(
+                    fix_static[point.idx] == true,
+                    pos[:, point.idx],
+                    point_force[:, point.idx]
+                ) .~ ifelse.(
+                    fix_static[point.idx] == true,
+                    get_pos_w(psys, point.idx),
+                    zeros(3)
+                )
             ]
             guesses = [
                 guesses

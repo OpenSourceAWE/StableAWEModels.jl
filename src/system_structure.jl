@@ -6,41 +6,40 @@
 
 Create a `Wing` geometry object from the settings provided.
 
-This constructor checks for an `aero_geometry.yaml` file in the model directory.
-If found, it uses `VortexStepMethod.Wing(geometry_file)` to load the wing from YAML.
-Otherwise, it falls back to loading from .obj and .dat files.
+This constructor checks for .obj and .dat files in the model directory.
+If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the wing.
+Otherwise, it falls back to loading from `aero_geometry.yaml`.
 
 This is a constructor helper that reads geometry from the `Settings` object
 and initializes the `Wing` object from `VortexStepMethod.jl`.
 """
 function VortexStepMethod.Wing(set::Settings; prn=true, kwargs...)
-    # Check for aero_geometry.yaml in the model directory
+    # Check for .obj and .dat files in the model directory
     model_dir = get_data_path()
-    vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
-
-    if isfile(vsm_set_path)
-        # Use YAML-based wing constructor
-        prn && @info "Loading wing from aero_geometry.yaml: $vsm_set_path"
-        return VortexStepMethod.Wing(VSMSettings(vsm_set_path; data_prefix=false);
-                                     kwargs...)
-    end
-
-    # Fallback: load from .obj and .dat files (legacy path)
-    prn && @info "No aero_geometry.yaml found, using .obj/.dat files"
-
-    if set.physical_model == "simple_ram"
-        n_groups=2
-    else
-        n_groups=4
-    end
-
     obj_path = joinpath(model_dir, set.model)
     dat_path = joinpath(model_dir, set.foil_file)
 
-    return VortexStepMethod.ObjWing(obj_path, dat_path;
-        mass=set.mass, crease_frac=set.crease_frac, n_groups,
-        align_to_principal=true, prn, kwargs...
-    )
+    if isfile(obj_path) && isfile(dat_path)
+        # Use ObjWing constructor (default path)
+        prn && @info "Loading wing from .obj/.dat files"
+
+        if set.physical_model == "simple_ram"
+            n_groups=2
+        else
+            n_groups=4
+        end
+
+        return VortexStepMethod.ObjWing(obj_path, dat_path;
+            mass=set.mass, crease_frac=set.crease_frac, n_groups,
+            align_to_principal=true, prn, kwargs...
+        )
+    end
+
+    # Fallback: load from aero_geometry.yaml
+    vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
+    prn && @info "No .obj/.dat files found, using aero_geometry.yaml: $vsm_set_path"
+    return VortexStepMethod.Wing(VSMSettings(vsm_set_path; data_prefix=false);
+                                 kwargs...)
 end
 
 """
@@ -116,6 +115,7 @@ mutable struct Point
     body_frame_damping::SimFloat
     world_frame_damping::SimFloat
     fix_sphere::Bool
+    fix_static::Bool
 end
 
 """
@@ -149,16 +149,19 @@ where:
 - `body_frame_damping::Float64=0.0`: Damping coefficient for bridle points.
 - `world_frame_damping::Float64=0.0`: Damping coefficient for world frame damping.
 - `fix_sphere::Bool=false`: If true, constrains the point to a sphere.
+- `fix_static::Bool=false`: If true, dynamically freezes the point (behaves like STATIC).
 
 # Returns
 - `Point`: A new `Point` object.
 """
 function Point(idx, pos_cad, type;
     wing_idx=1, vel_w=zeros(KVec3), transform_idx=1,
-    mass=0.0, body_frame_damping=0.0, world_frame_damping=0.0, fix_sphere=false
+    mass=0.0, body_frame_damping=0.0, world_frame_damping=0.0,
+    fix_sphere=false, fix_static=false
 )
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
-        vel_w, zeros(KVec3), zeros(KVec3), zeros(KVec3), type, mass, body_frame_damping, world_frame_damping, fix_sphere)
+        vel_w, zeros(KVec3), zeros(KVec3), zeros(KVec3), type, mass,
+        body_frame_damping, world_frame_damping, fix_sphere, fix_static)
 end
 
 """
@@ -868,7 +871,7 @@ function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, ny), zeros(SimFloat, nx),
         zeros(SimFloat, nx, ny),
-        nothing, nothing, nothing, nothing, nothing, nothing)
+        nothing, nothing, nothing, nothing, nothing)
 end
 
 """
@@ -1290,6 +1293,15 @@ function SystemStructure(name, set;
                     mid = length(segs) ÷ 2
                     wing.y_ref_points = (segs[1][1],
                         segs[mid][1])
+                end
+            end
+
+            # Distribute kite mass to WING points for REFINE wings
+            if hasproperty(set, :mass) && set.mass > 0
+                n_wing_points = length(wing_points)
+                mass_per_point = set.mass / n_wing_points
+                for point_idx in wing_point_idxs
+                    points[point_idx].mass = mass_per_point
                 end
             end
         end
@@ -2206,16 +2218,12 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         end
     end
 
-    # Update segments - set forces to NaN (not available in SysState)
-    for segment in sys.segments
-        p1 = points[segment.point_idxs[1]]
-        p2 = points[segment.point_idxs[2]]
-        segment.len = norm(p1.pos_w - p2.pos_w)
-        segment.force = NaN  # Not available in SysState
-    end
-
     # Update global wind vector
     sys.wind_vec_gnd .= ss.v_wind_gnd
+
+    # Calculate segment lengths and forces from current positions and velocities
+    # Note: velocities are set to zero, so damping term will be zero
+    update_segment_forces!(sys)
 
     return nothing
 end

@@ -176,7 +176,6 @@ function compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
     end
 
     # Clamp to reasonable range [0, 1]
-    @show x_cp
     x_cp = clamp(x_cp, 0.0, 1.0)
 
     # Split lift between LE and TE using moment equilibrium
@@ -202,8 +201,8 @@ function compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
         lift_dir = panel.z_airf
     end
 
-    # Drag direction: opposite to apparent wind
-    drag_dir = -v_a_norm
+    # Drag direction: apparent wind
+    drag_dir = v_a_norm
 
     # Combine lift and drag components at LE and TE
     F_LE = L_LE * lift_dir + D_LE * drag_dir

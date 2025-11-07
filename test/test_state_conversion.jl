@@ -158,11 +158,12 @@ using Statistics, LinearAlgebra
 
         update_from_sysstate!(sys, ss)
 
-        # Check segments have computed lengths
+        # Check segments have computed lengths and forces
         for segment in sys.segments
             @test segment.len > 0.0
-            # Force should be NaN
-            @test isnan(segment.force)
+            # Force should be computed (not NaN)
+            @test !isnan(segment.force)
+            @test isfinite(segment.force)
         end
     end
 
