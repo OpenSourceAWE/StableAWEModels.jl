@@ -141,7 +141,7 @@ Given a panel with aerodynamic coefficients at quarter-chord, this function:
 3. Splits forces between LE and TE to satisfy moment equilibrium
 
 # Arguments
-- `panel`: VSM Panel with geometry (x_airf, y_airf, z_airf, chord, width, va)
+- `panel`: VSM Panel (or group panel) with geometry (x_airf, y_airf, z_airf, chord, width, va)
 - `cl`: Lift coefficient [-]
 - `cd`: Drag coefficient [-]
 - `cm`: Pitching moment coefficient at quarter-chord [-]
@@ -158,6 +158,9 @@ Given a panel with aerodynamic coefficients at quarter-chord, this function:
 4. Lift split: L_LE = L × (1 - x_cp), L_TE = L × x_cp
 5. Drag split: D_LE = D/2, D_TE = D/2
 6. Force directions from panel geometry and apparent wind
+
+# Note
+For REFINE wings, pass the group panel which has averaged geometry and total area.
 """
 function compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
     # Dynamic pressure
@@ -214,25 +217,25 @@ end
 """
     distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point})
 
-Distribute VSM panel forces to structural points using coefficient-based LE/TE force splitting.
+Distribute VSM panel forces to structural points using group-level aerodynamic coefficients.
 
-After VSM solve, computes LE and TE forces from aerodynamic coefficients (cl, cd, cm)
-for each panel, then distributes to section points accounting for spanwise neighbors.
+After VSM solve, uses pre-computed group-level coefficients (averaged over refined panels)
+to compute LE and TE forces for each section, then distributes to structural points.
 
 # Algorithm
 1. Initialize all WING point aero_forces to zero
-2. Initialize section force accumulators (one per section, for LE and TE)
-3. For each panel (connecting sections i and i+1):
-   - Get cl, cd, cm from VSM solution
+2. For each section (which maps 1:1 to unrefined panels/groups):
+   - Get cl, cd, cm from group arrays (groups map 1:1 to unrefined panels)
+   - Get a representative panel from this group
    - Call compute_panel_le_te_forces() to get LE and TE forces
-   - Accumulate to adjacent sections (spanwise averaging):
-     * Section i gets 50% of panel forces
-     * Section i+1 gets 50% of panel forces
-4. Map accumulated section forces to structural points via point_to_vsm_point
+   - Map forces to structural points via point_to_vsm_point
 
-# Spanwise Distribution
-- Interior sections receive contributions from two adjacent panels
-- Edge sections (first/last) receive from one panel only (100% weight)
+# Mapping
+- Groups in VortexStepMethod map 1:1 to unrefined panels
+- Each unrefined panel connects two adjacent sections
+- Each group aggregates coefficients from all refined panels of that unrefined panel
+- Group coefficients are pre-averaged by the VSM solver
+- Forces are distributed 50/50 to the two sections that bound each panel
 
 # Arguments
 - `wing::VSMWing`: Wing with REFINE type and solved VSM state
@@ -241,19 +244,18 @@ for each panel, then distributes to section points accounting for spanwise neigh
 function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point})
     @assert wing.wing_type == REFINE "Can only distribute forces for REFINE wings"
 
-    # Get VSM solution data
-    cl_array = wing.vsm_solver.sol.cl_array
-    cd_array = wing.vsm_solver.sol.cd_array
-    cm_array = wing.vsm_solver.sol.cm_array
+    # Get VSM solution data - use group arrays instead of panel arrays
+    cl_group_array = wing.vsm_solver.sol.cl_group_array
+    cd_group_array = wing.vsm_solver.sol.cd_group_array
+    cm_group_array = wing.vsm_solver.sol.cm_group_array
+    groups = wing.vsm_aero.groups
     density = wing.vsm_solver.density
-    panels = wing.vsm_aero.panels
-    n_panels = length(panels)
     n_sections = length(wing.vsm_wing.sections)
 
     # Initialize all WING point forces to zero
     for point in points
         if point.type == WING && point.wing_idx == wing.idx
-            point.aero_force .= 0.0
+            point.aero_force_b .= 0.0
         end
     end
 
@@ -263,50 +265,57 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point}
         vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
     end
 
-    # Initialize section force accumulators
-    # section_forces[i] = (LE_force, TE_force) for section i
-    section_forces = [(zeros(3), zeros(3)) for _ in 1:n_sections]
+    # Number of unrefined panels = number of sections - 1
+    # Groups map 1:1 to unrefined panels for REFINE wings
+    n_unrefined_panels = n_sections - 1
 
-    # Distribute panel forces to sections (spanwise averaging)
-    for panel_idx in 1:n_panels
-        panel = panels[panel_idx]
-        cl = cl_array[panel_idx]
-        cd = cd_array[panel_idx]
-        cm = cm_array[panel_idx]
-        v_a_mag = norm(panel.va)
+    # For each unrefined panel (group), distribute forces to adjacent sections
+    for panel_idx in 1:n_unrefined_panels
+        group_idx = panel_idx  # 1:1 mapping
 
-        # Compute LE and TE forces for this panel
-        F_LE, F_TE = compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
+        # Get group-level coefficients (averaged over all refined panels in this group)
+        cl = cl_group_array[group_idx]
+        cd = cd_group_array[group_idx]
+        cm = cm_group_array[group_idx]
 
-        # Panel i connects sections i and i+1
+        # Get group panel with averaged geometry and total area
+        group_panel = groups[group_idx]
+        v_a_mag = norm(group_panel.va)
+
+        # Panel connects section i and section i+1
         section_i_idx = panel_idx
         section_i_plus_1_idx = panel_idx + 1
 
-        # Distribute 50% to each adjacent section
-        # (Edge panels will naturally get 100% since they only appear once)
-        section_forces[section_i_idx][1] .+= F_LE / 2.0
-        section_forces[section_i_idx][2] .+= F_TE / 2.0
+        # Compute LE and TE forces using group panel (has correct averaged geometry and total area)
+        F_LE, F_TE = compute_panel_le_te_forces(
+            group_panel, cl, cd, cm, density, v_a_mag
+        )
 
-        section_forces[section_i_plus_1_idx][1] .+= F_LE / 2.0
-        section_forces[section_i_plus_1_idx][2] .+= F_TE / 2.0
-    end
+        # Distribute 50% of forces to each adjacent section
+        # Section i gets 50%
+        le_key_i = (Int16(section_i_idx), :LE)
+        te_key_i = (Int16(section_i_idx), :TE)
 
-    # Map section forces to structural points
-    for section_idx in 1:n_sections
-        F_LE_section, F_TE_section = section_forces[section_idx]
-
-        # Find structural points corresponding to this section's LE and TE
-        le_key = (Int16(section_idx), :LE)
-        te_key = (Int16(section_idx), :TE)
-
-        if haskey(vsm_point_to_struct, le_key)
-            point_idx = vsm_point_to_struct[le_key]
-            points[point_idx].aero_force .+= F_LE_section
+        if haskey(vsm_point_to_struct, le_key_i)
+            point_idx = vsm_point_to_struct[le_key_i]
+            points[point_idx].aero_force_b .+= F_LE / 2.0
+        end
+        if haskey(vsm_point_to_struct, te_key_i)
+            point_idx = vsm_point_to_struct[te_key_i]
+            points[point_idx].aero_force_b .+= F_TE / 2.0
         end
 
-        if haskey(vsm_point_to_struct, te_key)
-            point_idx = vsm_point_to_struct[te_key]
-            points[point_idx].aero_force .+= F_TE_section
+        # Section i+1 gets 50%
+        le_key_i_plus_1 = (Int16(section_i_plus_1_idx), :LE)
+        te_key_i_plus_1 = (Int16(section_i_plus_1_idx), :TE)
+
+        if haskey(vsm_point_to_struct, le_key_i_plus_1)
+            point_idx = vsm_point_to_struct[le_key_i_plus_1]
+            points[point_idx].aero_force_b .+= F_LE / 2.0
+        end
+        if haskey(vsm_point_to_struct, te_key_i_plus_1)
+            point_idx = vsm_point_to_struct[te_key_i_plus_1]
+            points[point_idx].aero_force_b .+= F_TE / 2.0
         end
     end
 

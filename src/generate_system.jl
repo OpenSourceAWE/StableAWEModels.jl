@@ -201,7 +201,7 @@ get_body_frame_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].body_
 @register_symbolic get_body_frame_damping(sys::SystemStructure, idx::Int16)
 get_world_frame_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].world_frame_damping
 @register_symbolic get_world_frame_damping(sys::SystemStructure, idx::Int16)
-get_point_aero_force(sys::SystemStructure, idx::Int16, component::Int) = sys.points[idx].aero_force[component]
+get_point_aero_force(sys::SystemStructure, idx::Int16, component::Int) = sys.points[idx].aero_force_b[component]
 @register_symbolic get_point_aero_force(sys::SystemStructure, idx::Int16, component::Int)
 get_brake(sys::SystemStructure, idx::Int16) = sys.winches[idx].brake
 @register_symbolic get_brake(sys::SystemStructure, idx::Int16)
@@ -1562,10 +1562,11 @@ function linear_vsm_eqs!(
                 ]
             end
 
-            # Set centralized aero variables to zero (REFINE wings distribute forces to points)
+            # Sum point forces to get total wing aero force (for REFINE wings)
+            # Individual forces are distributed to points, but total force is sum of all point forces
             eqs = [
                 eqs
-                aero_force_b[wing.idx, :] ~ zeros(3)
+                aero_force_b[wing.idx, :] ~ sum([aero_force_point_b[p.idx, :] for p in wing_points])
                 aero_moment_b[wing.idx, :] ~ zeros(3)
             ]
 

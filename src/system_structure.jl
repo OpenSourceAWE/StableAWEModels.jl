@@ -109,7 +109,7 @@ mutable struct Point
     const vel_w::KVec3 # vel in world frame
     const disturb::KVec3 # disturbing force
     const force::KVec3
-    const aero_force::KVec3 # aerodynamic force in body frame (for REFINE WING points)
+    const aero_force_b::KVec3 # aerodynamic force in body frame (for REFINE WING points)
     const type::DynamicsType
     mass::SimFloat
     body_frame_damping::SimFloat
@@ -687,6 +687,10 @@ end
 function Base.getproperty(wing::VSMWing, sym::Symbol)
     if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx)
         return getfield(wing, sym)
+    elseif sym == :vsm_aoa
+        # Compute mean angle of attack from VSM solver solution
+        solver = getfield(wing, :vsm_solver)
+        return mean(solver.sol.alpha_array)
     else
         return getproperty(getfield(wing, :base), sym)
     end
@@ -1965,7 +1969,6 @@ function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=fal
             # va_b = R_b_w' * va_wing
             # At initialization: wing_vel typically 0, wind_disturb typically 0
             va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
-            @show va_wing_w wing.R_b_w
             wing.va_b .= wing.R_b_w' * va_wing_w
         else
             # Initialize vsm_y for QUATERNION wings (REFINE wings have ny=0)

@@ -52,15 +52,17 @@ end
 
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
-                     wing_colors = Makie.wong_colors(), vector_scale = 0.2,
+                     wing_colors = Makie.wong_colors(), vector_scale = 1.0,
                      show_points = true, show_segments = true, show_orient = true,
                      show_panes = true, margin = 10.0, force_color = false,
-                     plot_vsm = true,
+                     plot_vsm = true, plot_aero = true,
                      # Optional observables for real-time updates
                      segment_points_obs = nothing,
                      point_positions_obs = nothing,
                      wing_origins_obs = nothing,
                      wing_directions_obs = nothing,
+                     aero_force_origins_obs = nothing,
+                     aero_force_directions_obs = nothing,
                      pane_observables = nothing)
 
     plots = Dict{Symbol, Any}()
@@ -143,6 +145,63 @@ function Makie.plot!(ax, sys::SystemStructure;
         end
     end
 
+    # === Plot Aero Forces ===
+    if plot_aero
+        if isnothing(aero_force_origins_obs) || isnothing(aero_force_directions_obs)
+            # Static plotting: build aero force arrows
+            aero_origins = Point3f[]
+            aero_forces_raw = Vec3f[]
+
+            for wing in sys.wings
+                if wing.wing_type == QUATERNION
+                    # For QUATERNION wings, use wing.aero_force_b
+                    if !iszero(wing.aero_force_b)
+                        aero_force_w = wing.R_b_w * wing.aero_force_b
+                        push!(aero_origins, Point3f(wing.pos_w))
+                        push!(aero_forces_raw, Vec3f(aero_force_w))
+                    end
+                elseif wing.wing_type == SymbolicAWEModels.REFINE
+                    # For REFINE wings, plot both point forces and total wing force
+                    # Plot individual point forces
+                    for point in sys.points
+                        if point.type == WING && point.wing_idx == wing.idx
+                            if !iszero(point.aero_force_b)
+                                aero_force_w = wing.R_b_w * point.aero_force_b
+                                push!(aero_origins, Point3f(point.pos_w))
+                                push!(aero_forces_raw, Vec3f(aero_force_w))
+                            end
+                        end
+                    end
+                    # Also plot total wing aero force at wing center when vector_scale > 0
+                    if vector_scale > 0 && !iszero(wing.aero_force_b)
+                        aero_force_w = wing.R_b_w * wing.aero_force_b
+                        push!(aero_origins, Point3f(wing.pos_w))
+                        push!(aero_forces_raw, Vec3f(aero_force_w))
+                    end
+                end
+            end
+
+            if !isempty(aero_origins)
+                # Calculate adaptive force scale
+                max_force = maximum(norm.(aero_forces_raw))
+                # Scale forces to be similar size as vector_scale
+                force_scale = vector_scale / max_force
+                aero_directions = [f * force_scale for f in aero_forces_raw]
+
+                plots[:aero_forces] = arrows3d!(ax, aero_origins, aero_directions,
+                                               color=:magenta,
+                                               label="Aero Forces")
+            end
+        else
+            # Dynamic plotting: use provided observables
+            if !isempty(aero_force_origins_obs[])
+                plots[:aero_forces] = arrows3d!(ax, aero_force_origins_obs,
+                                               aero_force_directions_obs,
+                                               color=:magenta)
+            end
+        end
+    end
+
     # === Calculate system scale for axes and panes ===
     xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10) # Default limits
     if !isempty(sys.points)
@@ -215,9 +274,11 @@ end
 """
     SymbolicAWEModels.update_plot_observables!(segment_points_obs, point_positions_obs,
                                                wing_origins_obs, wing_directions_obs,
-                                               sys::SystemStructure; vector_scale=0.2,
+                                               sys::SystemStructure; vector_scale=1.0,
                                                segment_colors_obs=nothing, force_color=false,
-                                               segment_color=:black)
+                                               segment_color=:black,
+                                               aero_force_origins_obs=nothing,
+                                               aero_force_directions_obs=nothing)
 
 Update Observable objects for real-time 3D visualization from a SystemStructure.
 
@@ -229,10 +290,12 @@ Update Observable objects for real-time 3D visualization from a SystemStructure.
 - `sys::SystemStructure`: The system structure to extract data from
 
 # Keyword Arguments
-- `vector_scale::Real=0.2`: Scale factor for wing orientation arrows
+- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 - `segment_colors_obs::Union{Observable,Nothing}=nothing`: Observable for segment colors
 - `force_color::Bool=false`: Whether to color segments by force
 - `segment_color=:black`: Default color for segments when force_color is false
+- `aero_force_origins_obs::Union{Observable,Nothing}=nothing`: Observable for aero force origins
+- `aero_force_directions_obs::Union{Observable,Nothing}=nothing`: Observable for aero force directions
 
 # Example
 ```julia
@@ -258,9 +321,11 @@ end
 """
 function SymbolicAWEModels.update_plot_observables!(segment_points_obs, point_positions_obs,
                                                      wing_origins_obs, wing_directions_obs,
-                                                     sys::SystemStructure; vector_scale=0.2,
+                                                     sys::SystemStructure; vector_scale=1.0,
                                                      segment_colors_obs=nothing, force_color=false,
-                                                     segment_color=:black)
+                                                     segment_color=:black,
+                                                     aero_force_origins_obs=nothing,
+                                                     aero_force_directions_obs=nothing)
     # Update point positions
     if !isnothing(point_positions_obs)
         point_positions_obs[] = [Point3f(p.pos_w) for p in sys.points]
@@ -298,6 +363,52 @@ function SymbolicAWEModels.update_plot_observables!(segment_points_obs, point_po
         end
         wing_origins_obs[] = origins
         wing_directions_obs[] = directions
+    end
+
+    # Update aero forces
+    if !isnothing(aero_force_origins_obs) && !isnothing(aero_force_directions_obs)
+        aero_origins = Point3f[]
+        aero_forces_raw = Vec3f[]
+
+        for wing in sys.wings
+            if wing.wing_type == QUATERNION
+                # For QUATERNION wings, use wing.aero_force_b
+                if !iszero(wing.aero_force_b)
+                    aero_force_w = wing.R_b_w * wing.aero_force_b
+                    push!(aero_origins, Point3f(wing.pos_w))
+                    push!(aero_forces_raw, Vec3f(aero_force_w))
+                end
+            elseif wing.wing_type == SymbolicAWEModels.REFINE
+                # For REFINE wings, plot both point forces and total wing force
+                # Plot individual point forces
+                for point in sys.points
+                    if point.type == WING && point.wing_idx == wing.idx
+                        if !iszero(point.aero_force_b)
+                            aero_force_w = wing.R_b_w * point.aero_force_b
+                            push!(aero_origins, Point3f(point.pos_w))
+                            push!(aero_forces_raw, Vec3f(aero_force_w))
+                        end
+                    end
+                end
+                # Also plot total wing aero force at wing center when vector_scale > 0
+                if vector_scale > 0 && !iszero(wing.aero_force_b)
+                    aero_force_w = wing.R_b_w * wing.aero_force_b
+                    push!(aero_origins, Point3f(wing.pos_w))
+                    push!(aero_forces_raw, Vec3f(aero_force_w))
+                end
+            end
+        end
+
+        # Apply adaptive scaling
+        aero_directions = Vec3f[]
+        if !isempty(aero_forces_raw)
+            max_force = maximum(norm.(aero_forces_raw))
+            force_scale = vector_scale / max_force
+            aero_directions = [f * force_scale for f in aero_forces_raw]
+        end
+
+        aero_force_origins_obs[] = aero_origins
+        aero_force_directions_obs[] = aero_directions
     end
 
     return nothing
@@ -352,6 +463,7 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_heading::Bool=plot_default`: Show the panel with the kite's heading angle.
 - `plot_elevation::Bool=false`: Show the panel with the kite's elevation angle.
 - `plot_azimuth::Bool=false`: Show the panel with the kite's azimuth angle.
+- `plot_distance::Bool=false`: Show the panel with the kite distance from origin (norm of position).
 - `plot_winch_force::Bool=plot_default`: Show the panel with the winch forces.
 - `plot_set_values::Bool=false`: Show the panel with the set torque values.
 - `suffix::String=" - " * sys.name`: Suffix to append to plot labels.
@@ -377,6 +489,7 @@ function Makie.plot(sys::SystemStructure, lg::SysLog;
                     plot_tether_moment=false,
                     plot_winch_force=plot_default,
                     plot_set_values=false,
+                    plot_distance=false,
                     suffix=" - " * sys.name,
                     size=(1200, 800))
 
@@ -475,6 +588,15 @@ function Makie.plot(sys::SystemStructure, lg::SysLog;
             data = [azimuth_deg],
             labels = ["azimuth" * suffix],
             ylabel = "azimuth [°]"
+        ))
+    end
+
+    if plot_distance
+        distance = [norm(sl.pos[i]) for i in eachindex(sl.pos)]
+        push!(panels, (
+            data = [distance],
+            labels = ["distance" * suffix],
+            ylabel = "distance [m]"
         ))
     end
 
@@ -795,21 +917,26 @@ end
 
 # Public API function - creates scene with observables for dynamic updates
 function Makie.plot(sys::SystemStructure;
-                    vector_scale=0.2,
+                    vector_scale=1.0,
                     force_color=false,
                     segment_color=:black,
+                    plot_aero=true,
                     kwargs...)
     # Create new plot with observables for dynamic updates
     segment_points_obs = Observable(Point3f[])
     point_positions_obs = Observable(Point3f[])
     wing_origins_obs = Observable(Point3f[])
     wing_directions_obs = Observable(Vec3f[])
+    aero_force_origins_obs = Observable(Point3f[])
+    aero_force_directions_obs = Observable(Vec3f[])
 
     # Initialize observables from current state
     update_plot_observables!(
         segment_points_obs, point_positions_obs,
         wing_origins_obs, wing_directions_obs,
-        sys; vector_scale
+        sys; vector_scale,
+        aero_force_origins_obs,
+        aero_force_directions_obs
     )
 
     # Create scene with observables using internal function
@@ -818,9 +945,12 @@ function Makie.plot(sys::SystemStructure;
                 point_positions_obs,
                 wing_origins_obs,
                 wing_directions_obs,
+                aero_force_origins_obs,
+                aero_force_directions_obs,
                 vector_scale,
                 force_color,
                 segment_color,
+                plot_aero,
                 kwargs...)
 
     # Get the segment colors observable from the plots if available
@@ -835,6 +965,8 @@ function Makie.plot(sys::SystemStructure;
         point_positions_obs = point_positions_obs,
         wing_origins_obs = wing_origins_obs,
         wing_directions_obs = wing_directions_obs,
+        aero_force_origins_obs = aero_force_origins_obs,
+        aero_force_directions_obs = aero_force_directions_obs,
         segment_colors_obs = segment_colors_obs,
         force_color = force_color,
         segment_color = segment_color
@@ -849,7 +981,7 @@ function Makie.plot(sys::SystemStructure;
 end
 
 """
-    Makie.plot!(sys::SystemStructure; vector_scale=0.2)
+    Makie.plot!(sys::SystemStructure; vector_scale=1.0)
 
 Update the currently displayed SystemStructure plot with new data from `sys`.
 
@@ -861,7 +993,7 @@ the scene and observables.
 - `sys::SystemStructure`: The system structure with updated state to display
 
 # Keyword Arguments
-- `vector_scale::Real=0.2`: Scale factor for wing orientation arrows
+- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 
 # Returns
 - `nothing` (mutates existing scene via observables)
@@ -883,7 +1015,7 @@ end
 - `plot(::SystemStructure)`: Create a new scene (non-mutating)
 - `update_plot_observables!`: Lower-level observable update function
 """
-function Makie.plot!(sys::SystemStructure; vector_scale=0.2)
+function Makie.plot!(sys::SystemStructure; vector_scale=1.0)
     # Check if observables exist
     if isnothing(PLOT_OBSERVABLES[]) || isnothing(PLOT_SCENE[])
         error("No existing plot to update. Call plot(sys) first to create a scene.")
@@ -915,7 +1047,9 @@ function Makie.plot!(sys::SystemStructure; vector_scale=0.2)
         sys; vector_scale,
         segment_colors_obs=obs.segment_colors_obs,
         force_color=obs.force_color,
-        segment_color=obs.segment_color
+        segment_color=obs.segment_color,
+        aero_force_origins_obs=obs.aero_force_origins_obs,
+        aero_force_directions_obs=obs.aero_force_directions_obs
     )
 
     # Update background panes based on current point positions
@@ -968,7 +1102,7 @@ Record a SysLog animation to an MP4 video file.
 
 # Keyword Arguments
 - `framerate::Int=30`: Video framerate (frames per second)
-- `vector_scale::Real=0.2`: Scale factor for wing orientation arrows
+- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 - All other keyword arguments are passed through to the SystemStructure plot function
 
 # Returns
@@ -1036,7 +1170,7 @@ Replay a SysLog with interactive 3D visualization and playback controls.
 - `replay_speed::Real=1.0`: Replay speed factor (1.0 = real-time, 2.0 = 2x speed, etc.)
 - `autoplay::Bool=false`: Start playing automatically when opened
 - `loop::Bool=false`: Loop playback continuously
-- `vector_scale::Real=0.2`: Scale factor for wing orientation arrows
+- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 - All other keyword arguments are passed through to the SystemStructure plot function
 
 # Returns
@@ -1068,7 +1202,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                       replay_speed=1.0,
                       autoplay=false,
                       loop=false,
-                      vector_scale=0.2,
+                      vector_scale=1.0,
                       kwargs...)
 
     n_frames = length(lg.syslog)

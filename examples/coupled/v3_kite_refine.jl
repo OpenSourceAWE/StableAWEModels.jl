@@ -26,8 +26,9 @@ using GLMakie
 
 # ============= User settings =============
 const MODEL_NAME = "v3"
-const SIM_TIME   = 0.2
-const N_STEPS    = 200
+const SIM_TIME   = 3.0
+const FPS        = 200
+const N_STEPS    = Int(round(FPS * SIM_TIME))
 const REMAKE_CACHE = false
 # =========================================
 
@@ -51,7 +52,7 @@ sys = load_sys_struct_from_yaml(struc_yaml; system_name=model_name, set=set)
 
 # Verify REFINE wing setup
 @assert length(sys.wings) > 0 "No wings in system"
-@assert sys.wings[1].wing_type == REFINE "Wing should be REFINE type"
+@assert sys.wings[1].wing_type == SymbolicAWEModels.REFINE "Wing should be REFINE type"
 @assert length(sys.groups) == 0 "REFINE wings should have no groups"
 
 wing_points = [p for p in sys.points if p.type == WING]
@@ -84,10 +85,35 @@ wind_elev_rad = deg2rad(wind_elev)
 # Initialize the model
 # NOTE: REFINE wings do NOT use linearization (too expensive with many structural DOFs)
 @info "Initializing model without VSM linearization..."
+# sys.points[20].fix_sphere=true
+# sys.points[2].fix_sphere=true
+# sys.points[10].fix_sphere=true
+# sys.points[12].fix_sphere=true
+SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE, ignore_l0=false)
 [point.fix_static = true for point in sys.points if point.type == WING]
-SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE)
-next_step!(sam; dt=1.0)
+@time next_step!(sam; dt=10.0)
 [point.fix_static = false for point in sys.points if point.type == WING]
+
+[point.fix_sphere = true for point in sys.points if point.type == WING]
+sys.points[1].fix_sphere=true
+@time for i in 1:10
+    next_step!(sam; dt=1.0)
+end
+[point.fix_sphere = false for point in sys.points if point.type == WING]
+sys.points[1].fix_sphere=false
+
+# for i in 1:N_STEPS
+#     next_step!(sam; dt=1/FPS)
+# end
+# sys.points[1].fix_sphere=false
+# sys.points[20].fix_sphere=false
+# sys.points[2].fix_sphere=false
+# sys.points[10].fix_sphere=false
+# sys.points[12].fix_sphere=false
+# [point.fix_static = false for point in sys.points if point.type == WING]
+# [point.fix_sphere = true for point in sys.points if point.type == WING]
+# next_step!(sam; dt=1.0)
+# [point.fix_sphere = false for point in sys.points if point.type == WING]
 
 
 #TODO: check if the le te is correct
