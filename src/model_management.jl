@@ -55,7 +55,15 @@ function generate_prob_getters(sys_struct, sys)
     set_sys = setp(sys, sys.psys)
     set_set = setp(sys, sys.pset)
     get_struct_state = getu(sys, sys.wind_vec_gnd)
-    get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force]))
+
+    # Add va_point_b to point_state if REFINE wings exist
+    has_refine = length(sys_struct.wings) > 0 && any(w.wing_type == REFINE for w in sys_struct.wings)
+    if has_refine
+        get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force, sys.va_point_b]))
+    else
+        get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force]))
+    end
+
     return (; get_wing_state, get_vsm_y, get_segment_state, get_group_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
             get_set_values, set_sys, set_set, get_struct_state, get_point_state)

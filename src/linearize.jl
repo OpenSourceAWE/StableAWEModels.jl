@@ -107,6 +107,12 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
     # Handle REFINE wings (full nonlinear solve)
     has_refine_wings = any(w.wing_type == REFINE for w in wings)
     if has_refine_wings
+        # Get point state including va_point_b for REFINE wings
+        point_state = prob.get_point_state(integ)
+        # point_state = [pos, vel, point_force, va_point_b] for REFINE
+        # Extract va_point_b (4th element in point_state)
+        has_va_point_b = length(point_state) >= 4
+
         for wing in wings
             wing.wing_type != REFINE && continue
 
@@ -117,8 +123,47 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
             # Update body aerodynamics with the deformed wing sections
             # (panels regenerated from modified sections)
             # sort_sections=false preserves section order from structural points
-            VortexStepMethod.reinit!(wing.vsm_aero; init_aero=false, recompute_mapping=false, sort_sections=false)
-            set_va!(wing.vsm_aero, wing.va_b)
+            VortexStepMethod.reinit!(wing.vsm_aero;
+                init_aero=false, recompute_mapping=false, sort_sections=false)
+
+            # Build va_distribution from per-point va_b values using point_to_vsm_point mapping
+            if has_va_point_b && !isnothing(wing.point_to_vsm_point)
+                va_point_b_vals = point_state[4]  # Extract va_point_b array
+                n_sections = length(wing.vsm_wing.sections)
+                va_distribution = Vector{Vector{Float64}}(undef, n_sections)
+
+                # Use point_to_vsm_point mapping to get va at each section
+                for (section_idx, section) in enumerate(wing.vsm_wing.sections)
+                    # Find LE and TE points for this section
+                    le_point_idx = nothing
+                    te_point_idx = nothing
+                    for (point_idx, (vsm_section_idx, point_type)) in wing.point_to_vsm_point
+                        if vsm_section_idx == section_idx
+                            if point_type == :LE
+                                le_point_idx = point_idx
+                            elseif point_type == :TE
+                                te_point_idx = point_idx
+                            end
+                        end
+                    end
+
+                    # Average va from LE and TE points for this section
+                    if !isnothing(le_point_idx) && !isnothing(te_point_idx)
+                        va_le = va_point_b_vals[le_point_idx, :]
+                        va_te = va_point_b_vals[te_point_idx, :]
+                        va_distribution[section_idx] = 0.5 * (va_le + va_te)
+                    else
+                        # Fallback to wing average va_b
+                        va_distribution[section_idx] = wing.va_b
+                    end
+                end
+
+                # Set per-panel va with omega=0 (REFINE wings have no rigid rotation)
+                set_va!(wing.vsm_aero, va_distribution, zeros(3))
+            else
+                # Fallback to single va if per-point values not available
+                set_va!(wing.vsm_aero, wing.va_b)
+            end
 
             # Solve full nonlinear VSM (updates wing.vsm_solver.sol in-place)
             VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero; log=false)

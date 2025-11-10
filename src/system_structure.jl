@@ -110,6 +110,7 @@ mutable struct Point
     const disturb::KVec3 # disturbing force
     const force::KVec3
     const aero_force_b::KVec3 # aerodynamic force in body frame (for REFINE WING points)
+    const va_b::KVec3 # apparent velocity in body frame (for VSM per-point va)
     const type::DynamicsType
     mass::SimFloat
     body_frame_damping::SimFloat
@@ -160,7 +161,7 @@ function Point(idx, pos_cad, type;
     fix_sphere=false, fix_static=false
 )
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
-        vel_w, zeros(KVec3), zeros(KVec3), zeros(KVec3), type, mass,
+        vel_w, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), type, mass,
         body_frame_damping, world_frame_damping, fix_sphere, fix_static)
 end
 
@@ -2228,5 +2229,28 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
     # Note: velocities are set to zero, so damping term will be zero
     update_segment_forces!(sys)
 
+    return nothing
+end
+
+"""
+    set_world_frame_damping(sys::SystemStructure, damping)
+
+Set the world frame damping coefficient for all points in the system structure.
+
+World frame damping applies a velocity-dependent drag force in the global
+reference frame: ``\\mathbf{F}_{damp} = -c_{damp} \\mathbf{v}``, where
+``c_{damp}`` is the damping coefficient and ``\\mathbf{v}`` is the velocity.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to modify.
+- `damping::Real`: The damping coefficient to apply to all points [N·s/m].
+
+# Returns
+- `nothing`
+"""
+function set_world_frame_damping(sys::SystemStructure, damping::Real)
+    for point in sys.points
+        point.world_frame_damping = damping
+    end
     return nothing
 end

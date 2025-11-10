@@ -181,7 +181,6 @@ function compute_panel_le_te_forces(panel, cl, cd, cm, alpha_corrected, density,
     end
 
     # Clamp to reasonable range [0, 1]
-    @show cd
     x_cp = clamp(x_cp, 0.0, 1.0)
 
     # Split lift between LE and TE using moment equilibrium

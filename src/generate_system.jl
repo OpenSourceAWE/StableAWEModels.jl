@@ -120,6 +120,11 @@ get_pos_b(sys::SystemStructure, idx::Int16) = sys.points[idx].pos_b
     size = (3,)
     eltype = SimFloat
 end
+get_va_b(sys::SystemStructure, idx::Int16) = sys.points[idx].va_b
+@register_array_symbolic get_va_b(sys::SystemStructure, idx::Int16) begin
+    size = (3,)
+    eltype = SimFloat
+end
 get_wing_pos_w(sys::SystemStructure, idx::Int16) = sys.wings[idx].pos_w
 @register_array_symbolic get_wing_pos_w(sys::SystemStructure, idx::Int16) begin
     size = (3,)
@@ -306,11 +311,15 @@ function force_eqs!(
         l0(t)[eachindex(segments)]
     end
 
-    # REFINE-specific variables: per-point aero forces in body frame
+    # REFINE-specific variables: per-point aero forces and va in body frame
     # (No segment twists - no linearization for REFINE wings)
     if has_refine_wings
         @variables begin
-            aero_force_point_b(t)[eachindex(points), 1:3]
+            aero_force_point_b(t)[1:3, eachindex(points)]
+            va_point_b(t)[1:3, eachindex(points)]
+            va_point_w(t)[1:3, eachindex(points)]
+            wind_at_point(t)[1:3, eachindex(points)]
+            height(t)[eachindex(points)]
         end
     end
 
@@ -349,8 +358,22 @@ function force_eqs!(
                 # REFINE wing: Points are DYNAMIC and receive lumped panel forces
                 # Similar to DYNAMIC points but with aero forces included
 
+                # Calculate apparent velocity at this point for VSM
+                # va = wind_at_point - point_velocity + disturbances
+                eqs = [
+                    eqs
+                    height[point.idx] ~ pos[3, point.idx]
+                    wind_at_point[:, point.idx] ~
+                        calc_wind_factor(s.am, max(height[point.idx], 1.0), pset) *
+                        wind_vec_gnd
+                    va_point_w[:, point.idx] ~
+                        wind_at_point[:, point.idx] - vel[:, point.idx]
+                    va_point_b[:, point.idx] ~
+                        R_b_w[wing.idx, :, :]' * va_point_w[:, point.idx]
+                ]
+
                 # Add aerodynamic forces (calculated in linear_vsm_eqs!)
-                aero_force_w = R_b_w[wing.idx, :, :] * aero_force_point_b[point.idx, :]
+                aero_force_w = R_b_w[wing.idx, :, :] * aero_force_point_b[:, point.idx]
 
                 eqs = [
                     eqs
@@ -935,9 +958,11 @@ function force_eqs!(
         ]
     end
 
-    # Return aero_force_point_b if REFINE wings exist, otherwise nothing
+    # Return aero_force_point_b and va_point_b if REFINE wings exist, otherwise nothing
     aero_force_point_b_ret = has_refine_wings ? aero_force_point_b : nothing
-    return eqs, defaults, guesses, tether_wing_force, tether_wing_moment, aero_force_point_b_ret, pos, vel, acc
+    va_point_b_ret = has_refine_wings ? va_point_b : nothing
+    return eqs, defaults, guesses, tether_wing_force, tether_wing_moment,
+           aero_force_point_b_ret, va_point_b_ret, pos, vel, acc
 end
 
 """
@@ -1474,7 +1499,8 @@ function linear_vsm_eqs!(
     s, eqs, guesses, psys;
     aero_force_b, aero_moment_b, group_aero_moment,
     twist_angle, va_wing_b, wing_pos, ω_b, R_v_w,
-    aero_force_point_b=nothing  # REFINE-specific parameter
+    aero_force_point_b=nothing,  # REFINE-specific parameter
+    va_point_b=nothing            # REFINE-specific parameter for per-point va
 )
     @unpack groups, wings, points = s.sys_struct
     if length(wings) == 0
@@ -1557,7 +1583,7 @@ function linear_vsm_eqs!(
                 eqs = [
                     eqs
                     # Read pre-computed aero force from point.aero_force
-                    aero_force_point_b[point.idx, :] ~
+                    aero_force_point_b[:, point.idx] ~
                         [get_point_aero_force(psys, point.idx, i) for i in 1:3]
                 ]
             end
@@ -1566,7 +1592,7 @@ function linear_vsm_eqs!(
             # Individual forces are distributed to points, but total force is sum of all point forces
             eqs = [
                 eqs
-                aero_force_b[wing.idx, :] ~ sum([aero_force_point_b[p.idx, :] for p in wing_points])
+                aero_force_b[wing.idx, :] ~ sum([aero_force_point_b[:, p.idx] for p in wing_points])
                 aero_moment_b[wing.idx, :] ~ zeros(3)
             ]
 
@@ -1723,7 +1749,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     end
 
     # Build tether and bridle system equations
-    eqs, defaults, guesses, tether_wing_force, tether_wing_moment, aero_force_point_b, pos, vel, acc = force_eqs!(
+    eqs, defaults, guesses, tether_wing_force, tether_wing_moment,
+        aero_force_point_b, va_point_b, pos, vel, acc = force_eqs!(
         s, system, psys, pset, eqs, defaults, guesses;
         R_b_w, wing_pos, wing_vel, wind_vec_gnd, group_aero_moment,
         twist_angle, twist_ω, set_values, fix_wing
@@ -1732,12 +1759,13 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     # Check if we need aero_force_point_b (for REFINE wings)
     has_refine_wings = any(wing.wing_type == REFINE for wing in wings)
     if has_refine_wings
-        # aero_force_point_b was already defined in force_eqs!
+        # aero_force_point_b and va_point_b were already defined in force_eqs!
         eqs, guesses = linear_vsm_eqs!(
             s, eqs, guesses, psys;
             aero_force_b, R_v_w, aero_moment_b, group_aero_moment,
             twist_angle, va_wing_b, wing_pos, ω_b,
-            aero_force_point_b=aero_force_point_b
+            aero_force_point_b=aero_force_point_b,
+            va_point_b=va_point_b
         )
     else
         eqs, guesses = linear_vsm_eqs!(

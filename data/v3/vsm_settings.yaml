@@ -79,3 +79,5 @@ solver_settings:
     
     # --- Output Control ---
     calc_only_f_and_gamma: false     # true=compute only forces & circulation
+
+    correct_aoa: false
