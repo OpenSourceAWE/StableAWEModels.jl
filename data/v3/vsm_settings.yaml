@@ -47,7 +47,7 @@ wings:
       geometry_file: data/v3/aero_geometry.yaml
       n_panels: 36                     # Total number of panels along wingspan
       n_groups: 9                      # Number of panel groups (must divide n_panels)
-      spanwise_panel_distribution: SPLIT_PROVIDED    # Panel spacing algorithm
+      spanwise_panel_distribution: LINEAR    # Panel spacing algorithm
       spanwise_direction: [0.0, 1.0, 0.0]   # Unit vector defining wingspan direction
       remove_nan: true                 # Remove NaN values from polar data
       grouping_method: REFINE

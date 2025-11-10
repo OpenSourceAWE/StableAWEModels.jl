@@ -131,7 +131,7 @@ function build_point_to_vsm_point_mapping(
 end
 
 """
-    compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
+    compute_panel_le_te_forces(panel, cl, cd, cm, alpha_corrected, density, v_a_mag)
 
 Compute leading-edge and trailing-edge forces from aerodynamic coefficients.
 
@@ -145,6 +145,7 @@ Given a panel with aerodynamic coefficients at quarter-chord, this function:
 - `cl`: Lift coefficient [-]
 - `cd`: Drag coefficient [-]
 - `cm`: Pitching moment coefficient at quarter-chord [-]
+- `alpha_corrected`: Corrected angle of attack (including induced velocity effects) [rad]
 - `density`: Air density [kg/m³]
 - `v_a_mag`: Apparent velocity magnitude [m/s]
 
@@ -157,12 +158,13 @@ Given a panel with aerodynamic coefficients at quarter-chord, this function:
 3. Center of pressure (normalized): x_cp = 0.25 + cm/cl
 4. Lift split: L_LE = L × (1 - x_cp), L_TE = L × x_cp
 5. Drag split: D_LE = D/2, D_TE = D/2
-6. Force directions from panel geometry and apparent wind
+6. Force directions computed using corrected alpha (matches VortexStepMethod algorithm)
 
 # Note
 For REFINE wings, pass the group panel which has averaged geometry and total area.
+Uses corrected alpha to properly account for induced velocity effects on force direction.
 """
-function compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
+function compute_panel_le_te_forces(panel, cl, cd, cm, alpha_corrected, density, v_a_mag)
     # Dynamic pressure
     q = 0.5 * density * v_a_mag^2
 
@@ -179,6 +181,7 @@ function compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
     end
 
     # Clamp to reasonable range [0, 1]
+    @show cd
     x_cp = clamp(x_cp, 0.0, 1.0)
 
     # Split lift between LE and TE using moment equilibrium
@@ -190,12 +193,16 @@ function compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
     D_LE = D_total / 2.0
     D_TE = D_total / 2.0
 
-    # Compute force directions in body frame
-    # Apparent wind direction
-    v_a_norm = panel.va / (norm(panel.va) + 1e-12)
+    # Compute force directions using corrected alpha (matches VortexStepMethod)
+    # Induced apparent wind direction in airfoil frame
+    dir_induced_va_airfoil = cos(alpha_corrected) * panel.x_airf +
+                             sin(alpha_corrected) * panel.z_airf
 
-    # Lift direction: perpendicular to apparent wind and spanwise axis
-    lift_dir = cross(v_a_norm, panel.y_airf)
+    # Drag direction: along induced apparent wind
+    drag_dir = dir_induced_va_airfoil / (norm(dir_induced_va_airfoil) + 1e-12)
+
+    # Lift direction: perpendicular to drag and spanwise axis
+    lift_dir = cross(drag_dir, panel.y_airf)
     lift_dir_mag = norm(lift_dir)
     if lift_dir_mag > 1e-12
         lift_dir = lift_dir / lift_dir_mag
@@ -203,9 +210,6 @@ function compute_panel_le_te_forces(panel, cl, cd, cm, density, v_a_mag)
         # Fallback to z_airf if cross product is degenerate
         lift_dir = panel.z_airf
     end
-
-    # Drag direction: apparent wind
-    drag_dir = v_a_norm
 
     # Combine lift and drag components at LE and TE
     F_LE = L_LE * lift_dir + D_LE * drag_dir
@@ -248,6 +252,7 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point}
     cl_group_array = wing.vsm_solver.sol.cl_group_array
     cd_group_array = wing.vsm_solver.sol.cd_group_array
     cm_group_array = wing.vsm_solver.sol.cm_group_array
+    alpha_group_array = wing.vsm_solver.sol.alpha_group_array
     groups = wing.vsm_aero.groups
     density = wing.vsm_solver.density
     n_sections = length(wing.vsm_wing.sections)
@@ -277,6 +282,7 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point}
         cl = cl_group_array[group_idx]
         cd = cd_group_array[group_idx]
         cm = cm_group_array[group_idx]
+        alpha_corrected = alpha_group_array[group_idx]
 
         # Get group panel with averaged geometry and total area
         group_panel = groups[group_idx]
@@ -288,7 +294,7 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point}
 
         # Compute LE and TE forces using group panel (has correct averaged geometry and total area)
         F_LE, F_TE = compute_panel_le_te_forces(
-            group_panel, cl, cd, cm, density, v_a_mag
+            group_panel, cl, cd, cm, alpha_corrected, density, v_a_mag
         )
 
         # Distribute 50% of forces to each adjacent section

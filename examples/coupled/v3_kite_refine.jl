@@ -26,7 +26,7 @@ using GLMakie
 
 # ============= User settings =============
 const MODEL_NAME = "v3"
-const SIM_TIME   = 3.0
+const SIM_TIME   = 0.3
 const FPS        = 200
 const N_STEPS    = Int(round(FPS * SIM_TIME))
 const REMAKE_CACHE = false
@@ -90,132 +90,149 @@ wind_elev_rad = deg2rad(wind_elev)
 # sys.points[10].fix_sphere=true
 # sys.points[12].fix_sphere=true
 SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE, ignore_l0=false)
-[point.fix_static = true for point in sys.points if point.type == WING]
-@time next_step!(sam; dt=10.0)
-[point.fix_static = false for point in sys.points if point.type == WING]
+wing = sam.sys_struct.wings[1]
+vsm_aero = wing.vsm_aero
+vsm_solver = wing.vsm_solver
+vsm_wing = wing.vsm_wing
+# set_va!(vsm_aero, [10.0, 0.0, 0.3])
+results = VortexStepMethod.solve(vsm_solver, vsm_aero; log=true)
+body_y_coordinates = [panel.aero_center[2] for panel in vsm_aero.panels]
+plot_distribution(
+    [body_y_coordinates],
+    [results],
+    ["VSM"];
+    title="CAD_spanwise_distributions",
+    data_type=".pdf",
+    is_save=false,
+    is_show=true,
+)
 
-[point.fix_sphere = true for point in sys.points if point.type == WING]
-sys.points[1].fix_sphere=true
-@time for i in 1:10
-    next_step!(sam; dt=1.0)
-end
-[point.fix_sphere = false for point in sys.points if point.type == WING]
-sys.points[1].fix_sphere=false
-
-# for i in 1:N_STEPS
-#     next_step!(sam; dt=1/FPS)
-# end
-# sys.points[1].fix_sphere=false
-# sys.points[20].fix_sphere=false
-# sys.points[2].fix_sphere=false
-# sys.points[10].fix_sphere=false
-# sys.points[12].fix_sphere=false
+# [point.fix_static = true for point in sys.points if point.type == WING]
+# @time next_step!(sam; dt=10.0)
 # [point.fix_static = false for point in sys.points if point.type == WING]
+
 # [point.fix_sphere = true for point in sys.points if point.type == WING]
-# next_step!(sam; dt=1.0)
+# sys.points[1].fix_sphere=true
+# @time for i in 1:10
+#     next_step!(sam; dt=1.0)
+# end
 # [point.fix_sphere = false for point in sys.points if point.type == WING]
+# sys.points[1].fix_sphere=false
+
+# # for i in 1:N_STEPS
+# #     next_step!(sam; dt=1/FPS)
+# # end
+# # sys.points[1].fix_sphere=false
+# # sys.points[20].fix_sphere=false
+# # sys.points[2].fix_sphere=false
+# # sys.points[10].fix_sphere=false
+# # sys.points[12].fix_sphere=false
+# # [point.fix_static = false for point in sys.points if point.type == WING]
+# # [point.fix_sphere = true for point in sys.points if point.type == WING]
+# # next_step!(sam; dt=1.0)
+# # [point.fix_sphere = false for point in sys.points if point.type == WING]
 
 
-#TODO: check if the le te is correct
+# #TODO: check if the le te is correct
 
-# Calculate simulation parameters
-n_steps = N_STEPS
-Δt = SIM_TIME / n_steps
-@info "Running simulation for $(SIM_TIME) seconds ($n_steps steps, Δt = $(round(Δt, digits=4)) s)..."
+# # Calculate simulation parameters
+# n_steps = N_STEPS
+# Δt = SIM_TIME / n_steps
+# @info "Running simulation for $(SIM_TIME) seconds ($n_steps steps, Δt = $(round(Δt, digits=4)) s)..."
 
-# Create logger for recording simulation
-using KiteUtils
-logger = Logger(length(sam.sys_struct.points), n_steps + 1)
-sys_state = SysState(sam)
-sys_state.time = 0.0
-log!(logger, sys_state)
+# # Create logger for recording simulation
+# using KiteUtils
+# logger = Logger(length(sam.sys_struct.points), n_steps + 1)
+# sys_state = SysState(sam)
+# sys_state.time = 0.0
+# log!(logger, sys_state)
 
-## Plot initial state (user must display if desired)
-@info "Creating initial plot..."
-scene = plot(sam.sys_struct)
-display(scene)
+# ## Plot initial state (user must display if desired)
+# @info "Creating initial plot..."
+# scene = plot(sam.sys_struct)
+# display(scene)
 
-# Time-marching loop with coupled aerodynamics
-@info "Starting time-marching simulation with coupled REFINE aerodynamics..."
-@info "  REFINE wing: Panel forces → lumped to $(length(wing_points)) structural points"
-@info "  NO linearization: Forces computed directly from nonlinear VSM solve each timestep"
-@info "  Two-way coupling: Structure deforms → VSM panels update → Forces update"
+# # Time-marching loop with coupled aerodynamics
+# @info "Starting time-marching simulation with coupled REFINE aerodynamics..."
+# @info "  REFINE wing: Panel forces → lumped to $(length(wing_points)) structural points"
+# @info "  NO linearization: Forces computed directly from nonlinear VSM solve each timestep"
+# @info "  Two-way coupling: Structure deforms → VSM panels update → Forces update"
 
-for step in 1:n_steps
-    t = step * Δt
+# for step in 1:n_steps
+#     t = step * Δt
 
-    try
-        # Update VSM panels from deformed structure (if needed, done internally)
-        # Then solve VSM and apply lumped forces to points
-        next_step!(sam; dt=Δt, vsm_interval=1)
-    catch err
-        @error "next_step! failed" step integrator_t=sam.integrator.t integrator_dt=sam.integrator.dt integrator_norm=norm(sam.integrator.u) integrator_max=maximum(abs, sam.integrator.u) exception=(err, catch_backtrace())
-        rethrow(err)
-    end
+#     try
+#         # Update VSM panels from deformed structure (if needed, done internally)
+#         # Then solve VSM and apply lumped forces to points
+#         next_step!(sam; dt=Δt, vsm_interval=1)
+#     catch err
+#         @error "next_step! failed" step integrator_t=sam.integrator.t integrator_dt=sam.integrator.dt integrator_norm=norm(sam.integrator.u) integrator_max=maximum(abs, sam.integrator.u) exception=(err, catch_backtrace())
+#         rethrow(err)
+#     end
 
-    # Log current state
-    update_sys_state!(sys_state, sam)
-    sys_state.time = t
-    log!(logger, sys_state)
+#     # Log current state
+#     update_sys_state!(sys_state, sam)
+#     sys_state.time = t
+#     log!(logger, sys_state)
 
-    # Print progress periodically with REFINE-specific info
-    if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
-        # Calculate average wing point position for tracking deformation
-        avg_wing_pos = mean([p.pos_w for p in wing_points])
-        @info "  Step $step/$n_steps (t = $(round(t, digits=2)) s)" avg_wing_z=round(avg_wing_pos[3], digits=2)
-    end
-end
+#     # Print progress periodically with REFINE-specific info
+#     if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
+#         # Calculate average wing point position for tracking deformation
+#         avg_wing_pos = mean([p.pos_w for p in wing_points])
+#         @info "  Step $step/$n_steps (t = $(round(t, digits=2)) s)" avg_wing_z=round(avg_wing_pos[3], digits=2)
+#     end
+# end
 
-@info "Simulation complete. Creating interactive replay viewer with $(length(logger)) frames..."
+# @info "Simulation complete. Creating interactive replay viewer with $(length(logger)) frames..."
 
-# Create interactive replay viewer with slider controls using the logged data
-save_log(logger, "tmp_run_refine")
-syslog = load_log("tmp_run_refine")
-scene = replay(syslog, sam.sys_struct; autoplay=false, loop=true)
-display(scene)
+# # Create interactive replay viewer with slider controls using the logged data
+# save_log(logger, "tmp_run_refine")
+# syslog = load_log("tmp_run_refine")
+# scene = replay(syslog, sam.sys_struct; autoplay=false, loop=true)
+# display(scene)
 
-@info "Replay viewer created! Use the slider to step through time, or press Play to replay."
+# @info "Replay viewer created! Use the slider to step through time, or press Play to replay."
 
-# Print final statistics
-println("\n" * "="^60)
-println("Final Simulation Results (t = $(SIM_TIME) s) - REFINE Wing")
-println("="^60)
+# # Print final statistics
+# println("\n" * "="^60)
+# println("Final Simulation Results (t = $(SIM_TIME) s) - REFINE Wing")
+# println("="^60)
 
-# Calculate wing structural point statistics
-if !isempty(wing_points)
-    avg_x = mean([p.pos_w[1] for p in wing_points])
-    avg_y = mean([p.pos_w[2] for p in wing_points])
-    avg_z = mean([p.pos_w[3] for p in wing_points])
-    println("  Average wing point position: [$(round(avg_x, digits=2)), $(round(avg_y, digits=2)), $(round(avg_z, digits=2))] m")
+# # Calculate wing structural point statistics
+# if !isempty(wing_points)
+#     avg_x = mean([p.pos_w[1] for p in wing_points])
+#     avg_y = mean([p.pos_w[2] for p in wing_points])
+#     avg_z = mean([p.pos_w[3] for p in wing_points])
+#     println("  Average wing point position: [$(round(avg_x, digits=2)), $(round(avg_y, digits=2)), $(round(avg_z, digits=2))] m")
 
-    # Calculate span of wing points
-    y_coords = [p.pos_w[2] for p in wing_points]
-    span = maximum(y_coords) - minimum(y_coords)
-    println("  Wing span: $(round(span, digits=2)) m")
+#     # Calculate span of wing points
+#     y_coords = [p.pos_w[2] for p in wing_points]
+#     span = maximum(y_coords) - minimum(y_coords)
+#     println("  Wing span: $(round(span, digits=2)) m")
 
-    # Calculate deformation from initial positions
-    displacements = [norm(p.pos_w - p.pos_cad) for p in wing_points]
-    avg_displacement = mean(displacements)
-    max_displacement = maximum(displacements)
-    println("  Average structural displacement: $(round(avg_displacement, digits=3)) m")
-    println("  Maximum structural displacement: $(round(max_displacement, digits=3)) m")
-end
+#     # Calculate deformation from initial positions
+#     displacements = [norm(p.pos_w - p.pos_cad) for p in wing_points]
+#     avg_displacement = mean(displacements)
+#     max_displacement = maximum(displacements)
+#     println("  Average structural displacement: $(round(avg_displacement, digits=3)) m")
+#     println("  Maximum structural displacement: $(round(max_displacement, digits=3)) m")
+# end
 
-# Calculate average position of dynamic (non-wing) points
-dynamic_points = filter(p -> p.type == SymbolicAWEModels.DYNAMIC && p.type != SymbolicAWEModels.WING, sam.sys_struct.points)
-if !isempty(dynamic_points)
-    avg_x = mean([p.pos_w[1] for p in dynamic_points])
-    avg_y = mean([p.pos_w[2] for p in dynamic_points])
-    avg_z = mean([p.pos_w[3] for p in dynamic_points])
-    println("  Average dynamic point position: [$(round(avg_x, digits=2)), $(round(avg_y, digits=2)), $(round(avg_z, digits=2))] m")
-end
+# # Calculate average position of dynamic (non-wing) points
+# dynamic_points = filter(p -> p.type == SymbolicAWEModels.DYNAMIC && p.type != SymbolicAWEModels.WING, sam.sys_struct.points)
+# if !isempty(dynamic_points)
+#     avg_x = mean([p.pos_w[1] for p in dynamic_points])
+#     avg_y = mean([p.pos_w[2] for p in dynamic_points])
+#     avg_z = mean([p.pos_w[3] for p in dynamic_points])
+#     println("  Average dynamic point position: [$(round(avg_x, digits=2)), $(round(avg_y, digits=2)), $(round(avg_z, digits=2))] m")
+# end
 
-println("\n  REFINE wing type: Direct panel forces applied to $(length(wing_points)) structural points")
-println("  VSM panels: $(length(sys.wings[1].vsm_aero.panels)) panels with forces lumped via inverse distance weighting")
-println("  NO linearization: Forces computed directly from nonlinear VSM solve")
-println("="^60)
+# println("\n  REFINE wing type: Direct panel forces applied to $(length(wing_points)) structural points")
+# println("  VSM panels: $(length(sys.wings[1].vsm_aero.panels)) panels with forces lumped via inverse distance weighting")
+# println("  NO linearization: Forces computed directly from nonlinear VSM solve")
+# println("="^60)
 
-@info "Simulation complete! Interactive replay viewer with $(length(logger)) frames ready."
-@info "Note: Compare with standard v3_kite.jl to see the difference between REFINE and QUATERNION wing types"
+# @info "Simulation complete! Interactive replay viewer with $(length(logger)) frames ready."
+# @info "Note: Compare with standard v3_kite.jl to see the difference between REFINE and QUATERNION wing types"
 
-nothing
+# nothing
