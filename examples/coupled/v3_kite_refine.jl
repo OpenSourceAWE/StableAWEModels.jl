@@ -26,7 +26,7 @@ using GLMakie
 
 # ============= User settings =============
 const MODEL_NAME = "v3"
-const SIM_TIME   = 1.6
+const SIM_TIME   = 4.0
 const FPS        = 200
 const N_STEPS    = Int(round(FPS * SIM_TIME))
 const REMAKE_CACHE = false
