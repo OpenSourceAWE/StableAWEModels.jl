@@ -26,12 +26,13 @@ using GLMakie
 
 # ============= User settings =============
 const MODEL_NAME = "v3"
-const SIM_TIME   = 4.0
-const FPS        = 200
+const SIM_TIME   = 100.0
+const FPS        = 60
 const N_STEPS    = Int(round(FPS * SIM_TIME))
 const REMAKE_CACHE = false
 const INITIAL_DAMPING = 10.0  # Initial world frame damping [N·s/m]
 const DECAY_TIME = 1.0        # Time for damping to decay to zero [s]
+const PLOT_DISTRIBUTION = false
 # =========================================
 
 # Load settings for the v3 kite
@@ -92,21 +93,25 @@ wind_elev_rad = deg2rad(wind_elev)
 # sys.points[10].fix_sphere=true
 # sys.points[12].fix_sphere=true
 SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE, ignore_l0=false)
+
 wing = sam.sys_struct.wings[1]
 vsm_aero = wing.vsm_aero
 vsm_solver = wing.vsm_solver
 vsm_wing = wing.vsm_wing
-results = VortexStepMethod.solve(vsm_solver, vsm_aero; log=true)
-body_y_coordinates = [panel.aero_center[2] for panel in vsm_aero.panels]
-plot_distribution(
-    [body_y_coordinates],
-    [results],
-    ["VSM"];
-    title="CAD_spanwise_distributions",
-    data_type=".pdf",
-    is_save=false,
-    is_show=true,
-)
+
+if PLOT_DISTRIBUTION
+    results = VortexStepMethod.solve(vsm_solver, vsm_aero; log=true)
+    body_y_coordinates = [panel.aero_center[2] for panel in vsm_aero.panels]
+    plot_distribution(
+        [body_y_coordinates],
+        [results],
+        ["VSM"];
+        title="CAD_spanwise_distributions",
+        data_type=".pdf",
+        is_save=false,
+        is_show=true,
+    )
+end
 
 # Calculate simulation parameters
 n_steps = N_STEPS
@@ -116,13 +121,6 @@ n_steps = N_STEPS
 [point.fix_static = true for point in sys.points if point.type == WING]
 @time next_step!(sam; dt=10.0)
 [point.fix_static = false for point in sys.points if point.type == WING]
-# [point.fix_sphere = true for point in sys.points if point.type == WING]
-# sys.points[1].fix_sphere=true
-# @time for i in 1:n_steps
-#     next_step!(sam; dt=Δt)
-# end
-# [point.fix_sphere = false for point in sys.points if point.type == WING]
-# sys.points[1].fix_sphere=false
 
 # Create logger for recording simulation
 using KiteUtils

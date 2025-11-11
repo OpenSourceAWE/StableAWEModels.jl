@@ -460,10 +460,13 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_tether_moment::Bool=false`: Show the panel with the y-component of tether-induced moment.
 - `plot_twist::Bool=plot_default`: Show the panel with the twist angles for each wing group.
 - `plot_aoa::Bool=plot_default`: Show the panel with the angle of attack.
-- `plot_heading::Bool=plot_default`: Show the panel with the kite's heading angle.
+- `plot_heading::Bool=plot_default`: Show the panel with the kite's heading and course angles.
+- `plot_kiteutils_course::Bool=false`: Also plot course calculated using KiteUtils.calc_course.
 - `plot_elevation::Bool=false`: Show the panel with the kite's elevation angle.
 - `plot_azimuth::Bool=false`: Show the panel with the kite's azimuth angle.
 - `plot_distance::Bool=false`: Show the panel with the kite distance from origin (norm of position).
+- `plot_cone_angle::Bool=false`: Show the panel with the cone angle (angle between wind vector and normalized kite position).
+- `plot_old_heading::Bool=false`: Show the old heading calculated from orientation quaternion (angle between -R_b_w[:,1] and -R_v_w[:,1]).
 - `plot_winch_force::Bool=plot_default`: Show the panel with the winch forces.
 - `plot_set_values::Bool=false`: Show the panel with the set torque values.
 - `suffix::String=" - " * sys.name`: Suffix to append to plot labels.
@@ -482,6 +485,7 @@ function Makie.plot(sys::SystemStructure, lg::SysLog;
                     plot_twist=plot_default,
                     plot_aoa=plot_default,
                     plot_heading=plot_default,
+                    plot_kiteutils_course=false,
                     plot_aero_moment=false,
                     plot_turn_rates=false,
                     plot_elevation=false,
@@ -490,6 +494,8 @@ function Makie.plot(sys::SystemStructure, lg::SysLog;
                     plot_winch_force=plot_default,
                     plot_set_values=false,
                     plot_distance=false,
+                    plot_cone_angle=false,
+                    plot_old_heading=false,
                     suffix=" - " * sys.name,
                     size=(1200, 800))
 
@@ -500,11 +506,37 @@ function Makie.plot(sys::SystemStructure, lg::SysLog;
 
     if plot_turn_rates
         turn_rates_deg = rad2deg.(hcat(sl.turn_rates...))
-        push!(panels, (
-            data = [turn_rates_deg[1,:], turn_rates_deg[2,:], turn_rates_deg[3,:]],
-            labels = ["ω_x" * suffix, "ω_y" * suffix, "ω_z" * suffix],
-            ylabel = "turn rates [°/s]"
-        ))
+        # Check if all turn rates are zero
+        if all(iszero, turn_rates_deg)
+            # Plot heading rate of change instead
+            # Unwrap heading to avoid 2π jumps
+            heading_unwrapped = copy(sl.heading)
+            for i in 2:length(heading_unwrapped)
+                diff_angle = heading_unwrapped[i] - heading_unwrapped[i-1]
+                # Adjust for wrap-around
+                if diff_angle > π
+                    heading_unwrapped[i:end] .-= 2π
+                elseif diff_angle < -π
+                    heading_unwrapped[i:end] .+= 2π
+                end
+            end
+            heading_deg = rad2deg.(heading_unwrapped)
+            heading_rate = diff(heading_deg) ./ diff(sl.time)
+            # Pad to match time array length
+            heading_rate = vcat(heading_rate, heading_rate[end])
+            push!(panels, (
+                data = [heading_rate],
+                labels = ["dψ/dt" * suffix],
+                ylabel = "heading rate [°/s]"
+            ))
+        else
+            push!(panels, (
+                data = [turn_rates_deg[1,:], turn_rates_deg[2,:],
+                        turn_rates_deg[3,:]],
+                labels = ["ω_x" * suffix, "ω_y" * suffix, "ω_z" * suffix],
+                ylabel = "turn rates [°/s]"
+            ))
+        end
     end
 
     if plot_reelout
@@ -566,10 +598,64 @@ function Makie.plot(sys::SystemStructure, lg::SysLog;
 
     if plot_heading
         heading_deg = rad2deg.(sl.heading)
+        course_deg = rad2deg.(sl.course)
+
+        # Collect all heading-related data and labels
+        heading_data = [heading_deg, course_deg]
+        heading_labels = ["heading" * suffix, "course" * suffix]
+
+        if plot_kiteutils_course
+            # Calculate course using KiteUtils.calc_course
+            upwind_dir = deg2rad(sys.set.upwind_dir)
+            kiteutils_course = [KiteUtils.calc_course(sl.vel_kite[i],
+                                                       sl.elevation[i],
+                                                       sl.azimuth[i],
+                                                       upwind_dir,
+                                                       false)
+                                for i in eachindex(sl.vel_kite)]
+            kiteutils_course_deg = rad2deg.(kiteutils_course)
+            push!(heading_data, kiteutils_course_deg)
+            push!(heading_labels, "KU course" * suffix)
+        end
+
+        if plot_old_heading
+            # Old heading calculated from orientation quaternion
+            # Get kite position index (for refine wings, use wing origin)
+            kite_idx = sys.wings[1].origin_idx
+
+            old_headings = [begin
+                # Get quaternion and convert to rotation matrix
+                quaternion = sl.orient[i]
+                R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(quaternion)
+
+                # Get wing position
+                wing_pos = [sl.X[i][kite_idx], sl.Y[i][kite_idx], sl.Z[i][kite_idx]]
+
+                # Calculate R_v_w using positive body x-axis
+                R_v_w = SymbolicAWEModels.calc_R_v_w(wing_pos, R_b_w[:, 1])
+
+                # Calculate R_t_w (tether frame)
+                R_t_w = SymbolicAWEModels.calc_R_t_w(wing_pos)
+
+                # Calculate angle between -R_b_w[:,1] and -R_v_w[:,1]
+                # Project both vectors into tether frame
+                vec1_t = R_t_w' * (-R_b_w[:, 1])
+                vec2_t = R_t_w' * (-R_v_w[:, 1])
+
+                # Use atan for signed angle
+                heading = atan(vec1_t[2] - vec2_t[2], vec1_t[1] - vec2_t[1])
+                heading
+            end for i in eachindex(sl.orient)]
+
+            old_headings_deg = rad2deg.(old_headings)
+            push!(heading_data, old_headings_deg)
+            push!(heading_labels, "old heading" * suffix)
+        end
+
         push!(panels, (
-            data = [heading_deg],
-            labels = ["heading" * suffix],
-            ylabel = "heading [°]"
+            data = heading_data,
+            labels = heading_labels,
+            ylabel = "heading / course [°]"
         ))
     end
 
@@ -597,6 +683,30 @@ function Makie.plot(sys::SystemStructure, lg::SysLog;
             data = [distance],
             labels = ["distance" * suffix],
             ylabel = "distance [m]"
+        ))
+    end
+
+    if plot_cone_angle
+        # Cone angle is the angle between the wind vector and normalized kite pos
+        # Wind vector points in the direction the wind is blowing (downwind)
+        upwind_dir_rad = deg2rad(sys.set.upwind_dir)
+        wind_vector = [upwind_dir_rad, 0.0, 0.0]
+
+        # Get kite position index (for refine wings, use wing origin)
+        kite_idx = sys.wings[1].origin_idx
+
+        cone_angles = [begin
+            kite_pos = [sl.X[i][kite_idx], sl.Y[i][kite_idx], sl.Z[i][kite_idx]]
+            kite_pos_norm = normalize(kite_pos)
+            angle = acos(clamp(dot(wind_vector, kite_pos_norm), -1.0, 1.0))
+            angle
+        end for i in eachindex(sl.X)]
+
+        cone_angles_deg = rad2deg.(cone_angles)
+        push!(panels, (
+            data = [cone_angles_deg],
+            labels = ["cone angle" * suffix],
+            ylabel = "cone angle [°]"
         ))
     end
 

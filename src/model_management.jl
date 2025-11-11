@@ -491,10 +491,23 @@ end
 """
     get_set_hash(set::Settings; fields)
 
-Calculates a SHA1 hash for a subset of fields in the `Settings` object.
-This is used to check if a cached model is still valid.
+Calculates a SHA1 hash for structural fields in the `Settings` object.
+This is used to check if a cached compiled model is still valid.
+
+# Structural Fields (affect symbolic equations):
+- `:segments`: Number of tether segments (affects state vector size)
+- `:model`: Kite model name (affects geometry)
+- `:foil_file`: Airfoil data file (affects VSM setup)
+- `:physical_model`: Model type (ram, simple_ram, 4_attach_ram)
+- `:quasi_static`: Whether points are quasi-static (affects equations)
+- `:winch_model`: Winch dynamics model (affects winch equations)
+
+# Runtime Fields (don't affect compilation, excluded from hash):
+- `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
+- `:v_wind`, `:elevation`: Initial conditions
+- Other runtime parameters
 """
-function get_set_hash(set::Settings; 
+function get_set_hash(set::Settings;
         fields=[:segments, :model, :foil_file, :physical_model, :quasi_static, :winch_model]
     )
     h = zeros(UInt8, 1)
@@ -508,8 +521,20 @@ end
 """
     get_sys_struct_hash(sys_struct::SystemStructure)
 
-Calculates a SHA1 hash for the topology of a `SystemStructure`.
-This is used to check if a cached model is still valid.
+Calculates a SHA1 hash for the topology and structure of a `SystemStructure`.
+This is used to check if a cached compiled model is still valid.
+
+Includes all structural properties that affect the symbolic equations:
+- Point connectivity and types (STATIC, DYNAMIC, QUASI_STATIC, WING)
+- Segment connectivity
+- Group structure and types (FIXED, TWIST)
+- Pulley constraints and types
+- Tether topology
+- Winch configuration
+- Wing topology, connectivity, and aerodynamic model type (QUATERNION vs REFINE)
+- Transform hierarchy
+
+Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
@@ -533,10 +558,10 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("winch", winch.idx, winch.tether_idxs))
     end
     for wing in wings
-        push!(data_parts, ("wing", wing.idx, wing.group_idxs))
+        push!(data_parts, ("wing", wing.idx, wing.group_idxs, Int(wing.base.wing_type)))
     end
     for transform in transforms
-        push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx, 
+        push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx,
                         transform.base_point_idx, transform.base_transform_idx))
     end
     content = string(data_parts)

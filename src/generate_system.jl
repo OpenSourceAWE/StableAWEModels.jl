@@ -1405,14 +1405,26 @@ function scalar_eqs!(
         # But they don't have ω_b, α_b (no rotational dynamics)
         if wing.wing_type == REFINE
             x, y, z = wing_pos[wing.idx, :]
+            # Calculate heading using wind-perpendicular frame
+            # Normalize wind direction
+            wind_norm = sym_normalize(wind_vel_wing[wing.idx, :])
+            # Project -e_x onto plane perpendicular to wind
+            minus_e_x = -e_x[wing.idx, :]
+            proj_on_wind = (minus_e_x ⋅ wind_norm) * wind_norm
+            e_x_perp = minus_e_x - proj_on_wind
+            # Heading is angle in wind-perpendicular plane
+            # x-component: perpendicular to both wind and z
+            wind_cross_z = [wind_norm[2], -wind_norm[1], 0]
+            heading_x = e_x_perp ⋅ wind_cross_z
+            # z-component: world z-axis
+            heading_z = e_x_perp[3]
             eqs = [
                 eqs
                 vec(R_v_w[wing.idx, :, :]) .~
                     vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
                 vec(R_t_w[wing.idx, :, :]) .~
                     vec(sym_calc_R_t_w(wing_pos[wing.idx, :]))
-                heading[wing.idx] ~
-                    calc_heading(R_t_w[wing.idx, :, :], R_v_w[wing.idx, :, :])
+                heading[wing.idx] ~ atan(heading_x, heading_z)
                 # Rotational quantities are zero (no rigid body rotation)
                 ω_b[wing.idx, :] ~ zeros(3)
                 α_b[wing.idx, :] ~ zeros(3)
@@ -1421,9 +1433,9 @@ function scalar_eqs!(
                 # Translational kinematics use actual centroid motion
                 distance[wing.idx] ~ norm(wing_pos[wing.idx, :])
                 distance_vel[wing.idx] ~
-                    wing_vel[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
+                    wing_vel[wing.idx, :] ⋅ R_t_w[wing.idx, :, 3]
                 distance_acc[wing.idx] ~
-                    wing_acc[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
+                    wing_acc[wing.idx, :] ⋅ R_t_w[wing.idx, :, 3]
                 elevation[wing.idx] ~ KiteUtils.calc_elevation(wing_pos[wing.idx, :])
                 elevation_vel[wing.idx] ~
                     dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 1]) /
@@ -1436,8 +1448,10 @@ function scalar_eqs!(
                     dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
                 azimuth_acc[wing.idx] ~
                     dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
+                # Course is the direction of velocity in the tether frame x-y plane
                 course[wing.idx] ~
-                    atan(-azimuth_vel[wing.idx], elevation_vel[wing.idx])
+                    atan(dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]),
+                         dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 1]))
                 # Angle of attack from apparent wind
                 angle_of_attack[wing.idx] ~
                     calc_angle_of_attack(va_wing_b[wing.idx, :])
@@ -1449,14 +1463,26 @@ function scalar_eqs!(
                 half_len = wing.group_idxs[1] + length(wing.group_idxs) ÷ 2 - 1
             end
 
+            # Calculate heading using wind-perpendicular frame
+            # Normalize wind direction
+            wind_norm = sym_normalize(wind_vel_wing[wing.idx, :])
+            # Project -e_x onto plane perpendicular to wind
+            minus_e_x = -e_x[wing.idx, :]
+            proj_on_wind = (minus_e_x ⋅ wind_norm) * wind_norm
+            e_x_perp = minus_e_x - proj_on_wind
+            # Heading is angle in wind-perpendicular plane
+            # x-component: perpendicular to both wind and z
+            wind_cross_z = [wind_norm[2], -wind_norm[1], 0]
+            heading_x = e_x_perp ⋅ wind_cross_z
+            # z-component: world z-axis
+            heading_z = e_x_perp[3]
             eqs = [
                 eqs
                 vec(R_v_w[wing.idx, :, :]) .~
                     vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
                 vec(R_t_w[wing.idx, :, :]) .~
                     vec(sym_calc_R_t_w(wing_pos[wing.idx, :]))
-                heading[wing.idx] ~
-                    calc_heading(R_t_w[wing.idx, :, :], R_v_w[wing.idx, :, :])
+                heading[wing.idx] ~ atan(heading_x, heading_z)
                 turn_rate[wing.idx, :] ~
                     R_v_w[wing.idx, :, :]' *
                     (R_b_w[wing.idx, :, :] * ω_b[wing.idx, :])
@@ -1465,9 +1491,9 @@ function scalar_eqs!(
                     (R_b_w[wing.idx, :, :] * α_b[wing.idx, :])
                 distance[wing.idx] ~ norm(wing_pos[wing.idx, :])
                 distance_vel[wing.idx] ~
-                    wing_vel[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
+                    wing_vel[wing.idx, :] ⋅ R_t_w[wing.idx, :, 3]
                 distance_acc[wing.idx] ~
-                    wing_acc[wing.idx, :] ⋅ R_v_w[wing.idx, :, 3]
+                    wing_acc[wing.idx, :] ⋅ R_t_w[wing.idx, :, 3]
 
                 elevation[wing.idx] ~ KiteUtils.calc_elevation(wing_pos[wing.idx, :])
                 elevation_vel[wing.idx] ~
@@ -1481,8 +1507,10 @@ function scalar_eqs!(
                     dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
                 azimuth_acc[wing.idx] ~
                     dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
+                # Course is the direction of velocity in the tether frame x-y plane
                 course[wing.idx] ~
-                    atan(-azimuth_vel[wing.idx], elevation_vel[wing.idx])
+                    atan(dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]),
+                         dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 1]))
 
                 angle_of_attack[wing.idx] ~
                     calc_angle_of_attack(va_wing_b[wing.idx, :]) +
