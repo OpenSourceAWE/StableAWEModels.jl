@@ -19,6 +19,11 @@ const PLOT_OBSERVABLES = Ref{Union{Nothing, NamedTuple}}(nothing)
 const PLOT_SCENE = Ref{Union{Nothing, Scene}}(nothing)
 const PLOT_BACKGROUND_PANES = Ref{Union{Nothing, Vector}}(nothing)
 const PLOT_MARGIN = Ref{Float64}(10.0)
+const PLOT_RELEVANT_PLOTS = Ref{Union{Nothing, Vector}}(nothing)
+const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemStructure}}(nothing)
+const PLOT_ZOOMED_IN = Ref{Bool}(false)
+const PLOT_ZOOM_RELMARGIN = Ref{Float64}(0.2)
+const PLOT_ZOOM_SEGMENT_IDX = Ref{Int}(-1)  # Which segment we're zoomed into (-1 = none)
 
 """
     calculate_segment_force_colors(segments, segment_color)
@@ -135,12 +140,12 @@ function Makie.plot!(ax, sys::SystemStructure;
     end
 
     # === Plot VSM Aerodynamics ===
-    # VSM panels are static geometry (only position/orientation changes)
-    # so we plot them once regardless of whether observables are used
+    # VSM panels - use observables if we're in dynamic mode
     if plot_vsm && !isempty(sys.wings)
         plots[:vsm] = []
+        use_obs = !isnothing(segment_points_obs)  # If other observables exist, use them for VSM too
         for (i, wing) in enumerate(sys.wings)
-            p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w)
+            p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w, use_observables=use_obs)
             push!(plots[:vsm], p)
         end
     end
@@ -325,7 +330,8 @@ function SymbolicAWEModels.update_plot_observables!(segment_points_obs, point_po
                                                      segment_colors_obs=nothing, force_color=false,
                                                      segment_color=:black,
                                                      aero_force_origins_obs=nothing,
-                                                     aero_force_directions_obs=nothing)
+                                                     aero_force_directions_obs=nothing,
+                                                     update_vsm=true)
     # Update point positions
     if !isnothing(point_positions_obs)
         point_positions_obs[] = [Point3f(p.pos_w) for p in sys.points]
@@ -409,6 +415,28 @@ function SymbolicAWEModels.update_plot_observables!(segment_points_obs, point_po
 
         aero_force_origins_obs[] = aero_origins
         aero_force_directions_obs[] = aero_directions
+    end
+
+    # Update VSM panel meshes if requested and observables exist
+    if update_vsm && !isnothing(segment_points_obs)
+        for wing in sys.wings
+            plot!(wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w)
+        end
+    end
+
+    # Auto-update camera to keep geometry centered (runs every frame during replay)
+    # Re-runs the appropriate zoom function to track moving geometry
+    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STRUCTURE[])
+        scene = PLOT_SCENE[]
+        relevant_plots = PLOT_RELEVANT_PLOTS[]
+        stored_sys = PLOT_SYSTEM_STRUCTURE[]
+        if PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
+            # When zoomed in, keep segment centered as it moves
+            zoom_in!(scene, scene.camera, stored_sys, PLOT_ZOOM_SEGMENT_IDX[])
+        elseif !PLOT_ZOOMED_IN[]
+            # When not zoomed in, keep full view centered on geometry
+            zoom_out!(scene, scene.camera, relevant_plots; relmargin=PLOT_ZOOM_RELMARGIN[])
+        end
     end
 
     return nothing
@@ -788,6 +816,31 @@ function zoom_out!(scene, cam, plots; relmargin=0.2)
     update_cam!(scene, new_eyepos, center)
 end
 
+function zoom_in!(scene, cam, sys, segment_idx)
+    # --- ZOOM IN ON SEGMENT ---
+    # Get current segment endpoints
+    seg = sys.segments[segment_idx]
+    p1_w = sys.points[seg.point_idxs[1]].pos_w
+    p2_w = sys.points[seg.point_idxs[2]].pos_w
+
+    # Calculate segment center and length
+    center = (p1_w + p2_w) / 2.0f0
+    segment_len = norm(p2_w - p1_w)
+    dist_heuristic = segment_len * 1.5 + 2.0
+
+    # Get camera direction
+    inv_view_matrix = inv(cam.view[])
+    cam_dir_vec = normalize(Vec3f(inv_view_matrix[1, 3],
+                                  inv_view_matrix[2, 3],
+                                  inv_view_matrix[3, 3]))
+
+    # Calculate new camera position
+    new_eyepos = center + dist_heuristic * cam_dir_vec
+
+    # Update camera
+    update_cam!(scene, new_eyepos, center)
+end
+
 function _plot_with_panes(sys::SystemStructure;
                     size = (1200, 800),
                     margin = 10.0,
@@ -961,7 +1014,9 @@ function _plot_with_panes(sys::SystemStructure;
                         
                         update_cam!(scene, new_eyepos, center)
                         zoomed_in[] = true
-                        
+                        PLOT_ZOOMED_IN[] = true  # Track global zoom state
+                        PLOT_ZOOM_SEGMENT_IDX[] = hover_idx  # Track which segment we're zoomed into
+
                         # Update label positions after zoom
                         # Small delay to ensure camera update is complete
                         sleep(0.01)
@@ -984,7 +1039,9 @@ function _plot_with_panes(sys::SystemStructure;
                 else
                     zoom_out!(scene, cam, relevant_plots; relmargin)
                     zoomed_in[] = false
-                    
+                    PLOT_ZOOMED_IN[] = false  # Track global zoom state
+                    PLOT_ZOOM_SEGMENT_IDX[] = -1  # Clear zoomed segment
+
                     # Update label positions after zoom out
                     # Small delay to ensure camera update is complete
                     sleep(0.01)
@@ -1020,9 +1077,9 @@ function _plot_with_panes(sys::SystemStructure;
     update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
     zoom_out!(scene, scene.camera, relevant_plots; relmargin)
 
-    # Return scene along with pane_observables, margin, and plots dict
+    # Return scene along with pane_observables, margin, plots dict, and relevant_plots
     # These will be used by time-based plotting
-    return scene, pane_observables, margin, plots
+    return scene, pane_observables, margin, plots, relevant_plots
 end
 
 # Public API function - creates scene with observables for dynamic updates
@@ -1031,6 +1088,7 @@ function Makie.plot(sys::SystemStructure;
                     force_color=false,
                     segment_color=:black,
                     plot_aero=true,
+                    relmargin=0.2,
                     kwargs...)
     # Create new plot with observables for dynamic updates
     segment_points_obs = Observable(Point3f[])
@@ -1040,17 +1098,18 @@ function Makie.plot(sys::SystemStructure;
     aero_force_origins_obs = Observable(Point3f[])
     aero_force_directions_obs = Observable(Vec3f[])
 
-    # Initialize observables from current state
+    # Initialize observables from current state (except VSM - those are created later)
     update_plot_observables!(
         segment_points_obs, point_positions_obs,
         wing_origins_obs, wing_directions_obs,
         sys; vector_scale,
         aero_force_origins_obs,
-        aero_force_directions_obs
+        aero_force_directions_obs,
+        update_vsm=false  # Don't update VSM yet - observables created in _plot_with_panes
     )
 
     # Create scene with observables using internal function
-    scene, pane_observables, margin, plots = _plot_with_panes(sys;
+    scene, pane_observables, margin, plots, relevant_plots = _plot_with_panes(sys;
                 segment_points_obs,
                 point_positions_obs,
                 wing_origins_obs,
@@ -1061,6 +1120,7 @@ function Makie.plot(sys::SystemStructure;
                 force_color,
                 segment_color,
                 plot_aero,
+                relmargin,
                 kwargs...)
 
     # Get the segment colors observable from the plots if available
@@ -1082,10 +1142,15 @@ function Makie.plot(sys::SystemStructure;
         segment_color = segment_color
     )
 
-    # Store scene and pane observables globally
+    # Store scene, pane observables, and relevant plots globally
     PLOT_SCENE[] = scene
     PLOT_BACKGROUND_PANES[] = pane_observables
     PLOT_MARGIN[] = margin
+    PLOT_RELEVANT_PLOTS[] = relevant_plots
+    PLOT_SYSTEM_STRUCTURE[] = sys  # Store SystemStructure for zoom operations
+    PLOT_ZOOMED_IN[] = false  # Initialize zoom state (not zoomed in)
+    PLOT_ZOOM_RELMARGIN[] = relmargin  # Store relmargin for auto-updates
+    PLOT_ZOOM_SEGMENT_IDX[] = -1  # No segment zoomed initially
 
     return scene
 end

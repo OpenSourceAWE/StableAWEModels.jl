@@ -57,7 +57,7 @@ lin_sam = ss(sam.simple_lin_model.A,
              sam.simple_lin_model.C, 
              sam.simple_lin_model.D)
 
-logger = Logger(length(sam.sys_struct.points), steps)
+logger = Logger(sam, steps)
 sys_state = SysState(sam)
 t = 0.0
 runtime = 0.0

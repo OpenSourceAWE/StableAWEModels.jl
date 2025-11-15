@@ -364,6 +364,24 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.Y[point.idx] = point.pos_w[2] * zoom
         ss.Z[point.idx] = point.pos_w[3] * zoom
     end
+
+    # Store VSM panel corner positions in world frame
+    corner_idx = length(points)
+    for wing in wings
+        R_b_w = wing.R_b_w
+        for panel in wing.vsm_aero.panels
+            for j in 1:4
+                corner_idx += 1
+                # Transform from body frame to world frame
+                corner_b = panel.corner_points[:, j]
+                corner_w = wing.pos_w + R_b_w * corner_b
+                ss.X[corner_idx] = corner_w[1] * zoom
+                ss.Y[corner_idx] = corner_w[2] * zoom
+                ss.Z[corner_idx] = corner_w[3] * zoom
+            end
+        end
+    end
+
     ss.v_wind_gnd .= sam.sys_struct.wind_vec_gnd
     nothing
 end
@@ -384,9 +402,46 @@ with the current state of the provided model.
 - `SysState`: A new state struct representing the current model state.
 """
 function SysState(s::SymbolicAWEModel, zoom=1.0)
-    ss = SysState{length(s.sys_struct.points)}()
+    # Calculate total points: regular points + 4 corners per panel
+    n_points = length(s.sys_struct.points)
+    n_panel_corners = sum(
+        length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings
+    )
+    total_points = n_points + n_panel_corners
+    ss = SysState{total_points}()
     update_sys_state!(ss, s, zoom)
     ss
+end
+
+"""
+    KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
+
+Constructs a `Logger` from a `SymbolicAWEModel` with the correct number of points.
+
+This convenience constructor automatically calculates the total number of points
+including VSM panel corners (4 corners per panel) and creates a Logger with the
+appropriate size.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The AWE model to create a logger for.
+- `steps::Int`: The number of time steps to allocate for logging.
+
+# Returns
+- `Logger`: A new logger with size for all points including panel corners.
+
+# Example
+```julia
+logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1000)
+```
+"""
+function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
+    # Calculate total points: regular points + 4 corners per panel
+    n_points = length(sam.sys_struct.points)
+    n_panel_corners = sum(
+        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings
+    )
+    total_points = n_points + n_panel_corners
+    return Logger(total_points, steps)
 end
 
 """

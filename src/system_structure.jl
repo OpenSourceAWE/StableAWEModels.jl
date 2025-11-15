@@ -2144,9 +2144,16 @@ plot(sys)
 function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
     @unpack points, groups, winches, wings = sys
 
+    # Calculate expected total points (regular points + panel corners)
+    n_points = length(points)
+    n_panel_corners = sum(length(wing.vsm_aero.panels) * 4 for wing in wings)
+    expected_total = n_points + n_panel_corners
+
     # Verify compatibility
-    if length(points) != P
-        error("SystemStructure has $(length(points)) points but SysState has $P points")
+    if expected_total != P
+        error("SystemStructure expects $expected_total points " *
+              "($n_points regular + $n_panel_corners corners) " *
+              "but SysState has $P points")
     end
 
     # Update point positions (X, Y, Z from SysState)
@@ -2219,6 +2226,23 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
             winches[i].friction = NaN
             winches[i].tether_acc = 0.0
             winches[i].set_value = Float64(ss.set_torque[i])
+        end
+    end
+
+    # Update VSM panel corner positions from world frame back to body frame
+    corner_idx = n_points
+    for wing in wings
+        R_w_b = wing.R_b_w'  # Transpose to get world-to-body rotation
+        for panel in wing.vsm_aero.panels
+            for j in 1:4
+                corner_idx += 1
+                # Get corner position from SysState (world frame)
+                corner_w = [ss.X[corner_idx], ss.Y[corner_idx], ss.Z[corner_idx]]
+                # Transform from world frame to body frame
+                corner_b = R_w_b * (corner_w - wing.pos_w)
+                # Update panel corner
+                panel.corner_points[:, j] .= corner_b
+            end
         end
     end
 

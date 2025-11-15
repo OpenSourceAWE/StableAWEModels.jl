@@ -79,7 +79,7 @@ n_steps = N_STEPS
 
 # Create logger for recording simulation
 using KiteUtils
-logger = Logger(length(sam.sys_struct.points), n_steps + 1)
+logger = Logger(sam, n_steps + 1)
 sys_state = SysState(sam)
 sys_state.time = 0.0
 log!(logger, sys_state)

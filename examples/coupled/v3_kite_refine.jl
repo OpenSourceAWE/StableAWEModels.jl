@@ -33,7 +33,7 @@ const REMAKE_CACHE = false
 const INITIAL_DAMPING = 10.0  # Initial world frame damping [N·s/m]
 const DECAY_TIME = 2.0        # Time for damping to decay to zero [s]
 const PLOT_DISTRIBUTION = false
-const MAX_STEERING = 0.1      # Maximum steering line length change [m]
+const MAX_STEERING = 0.2      # Maximum steering line length change [m]
 # =========================================
 
 # Load settings for the v3 kite
@@ -132,7 +132,7 @@ n_steps = N_STEPS
 
 # Create logger for recording simulation
 using KiteUtils
-logger = Logger(length(sam.sys_struct.points), n_steps + 1)
+logger = Logger(sam, n_steps + 1)
 sys_state = SysState(sam)
 sys_state.time = 0.0
 log!(logger, sys_state)
@@ -147,6 +147,10 @@ display(scene)
 @info "  REFINE wing: Panel forces → lumped to $(length(wing_points)) structural points"
 @info "  NO linearization: Forces computed directly from nonlinear VSM solve each timestep"
 @info "  Two-way coupling: Structure deforms → VSM panels update → Forces update"
+
+# Track simulation time for performance metrics
+sim_start_time = time()
+total_sim_time = 0.0
 
 for step in 1:n_steps
     t = step * Δt
@@ -178,9 +182,19 @@ for step in 1:n_steps
         # Calculate average wing point position for tracking deformation
         avg_wing_pos = mean([p.pos_w for p in wing_points])
         current_damp = t <= DECAY_TIME ? INITIAL_DAMPING * (1.0 - t / DECAY_TIME) : 0.0
-        @info "  Step $step/$n_steps (t = $(round(t, digits=2)) s)" avg_wing_z=round(avg_wing_pos[3], digits=2) damping=round(current_damp, digits=2)
+
+        # Calculate times realtime
+        elapsed_wall_time = time() - sim_start_time
+        times_realtime = t / elapsed_wall_time
+
+        @info "  Step $step/$n_steps (t = $(round(t, digits=2)) s)" avg_wing_z=round(avg_wing_pos[3], digits=2) damping=round(current_damp, digits=2) times_realtime=round(times_realtime, digits=2)
     end
 end
+
+# Calculate final performance metrics
+total_wall_time = time() - sim_start_time
+final_times_realtime = SIM_TIME / total_wall_time
+@info "Simulation completed" total_wall_time=round(total_wall_time, digits=2) times_realtime=round(final_times_realtime, digits=2)
 
 @info "Simulation complete. Creating interactive replay viewer with $(length(logger)) frames..."
 
