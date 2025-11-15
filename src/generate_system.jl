@@ -707,7 +707,7 @@ function force_eqs!(
         stiffness(t)[eachindex(segments)]
         damping(t)[eachindex(segments)]
         # Aerodynamic drag model
-        height(t)[eachindex(segments)]
+        segment_height(t)[eachindex(segments)]
         segment_vel(t)[1:3, eachindex(segments)]
         segment_rho(t)[eachindex(segments)]
         wind_vel(t)[1:3, eachindex(segments)]
@@ -815,38 +815,36 @@ function force_eqs!(
                 spring_force[segment.idx] * unit_vec[:, segment.idx]
         ]
 
-        # Skip aerodynamic drag for structural segments within REFINE wings
-        # (those segments connect WING points and get forces from VSM panels instead)
-        if !is_wing_structural_segment
+        # Aerodynamic properties for all segments
+        eqs = [
+            eqs
+            segment_height[segment.idx] ~ max(0.0, 0.5 * (pos[:, p1][3] + pos[:, p2][3]))
+            segment_vel[:, segment.idx] ~ 0.5 * (vel[:, p1] + vel[:, p2])
+            segment_rho[segment.idx] ~ calc_rho(s.am, segment_height[segment.idx])
+            wind_vel[:, segment.idx] ~
+                calc_wind_factor(s.am, max(segment_height[segment.idx], 1.0), pset) *
+                wind_vec_gnd
+            va[:, segment.idx] ~
+                wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
+            area[segment.idx] ~
+                len[segment.idx] * get_diameter(psys, segment.idx)
+            app_perp_vel[:, segment.idx] ~
+                va[:, segment.idx] -
+                (va[:, segment.idx] ⋅ unit_vec[:, segment.idx]) *
+                unit_vec[:, segment.idx]
+        ]
+
+        # Drag force: zero for wing structural segments (forces from VSM), otherwise computed
+        if is_wing_structural_segment
+            eqs = [eqs; drag_force[:, segment.idx] ~ zeros(3)]
+        else
             eqs = [
                 eqs
-                # Aerodynamic drag force on the tether segment
-                height[segment.idx] ~ max(0.0, 0.5 * (pos[:, p1][3] + pos[:, p2][3]))
-                segment_vel[:, segment.idx] ~ 0.5 * (vel[:, p1] + vel[:, p2])
-                segment_rho[segment.idx] ~ calc_rho(s.am, height[segment.idx])
-                wind_vel[:, segment.idx] ~
-                    calc_wind_factor(s.am, max(height[segment.idx], 1.0), pset) *
-                    wind_vec_gnd
-                va[:, segment.idx] ~
-                    wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
-                area[segment.idx] ~
-                    len[segment.idx] * get_diameter(psys, segment.idx)
-                app_perp_vel[:, segment.idx] ~
-                    va[:, segment.idx] -
-                    (va[:, segment.idx] ⋅ unit_vec[:, segment.idx]) *
-                    unit_vec[:, segment.idx]
                 drag_force[:, segment.idx] ~
                     (
                         0.5 * segment_rho[segment.idx] * get_cd_tether(pset) *
                         norm(va[:, segment.idx]) * area[segment.idx]
                     ) * app_perp_vel[:, segment.idx]
-            ]
-        else
-            # For wing structural segments, only define drag_force (set to zero)
-            # Don't define other aerodynamic variables - they're unused and would create extra equations
-            eqs = [
-                eqs
-                drag_force[:, segment.idx] ~ zeros(3)
             ]
         end
     end
@@ -1418,6 +1416,11 @@ function scalar_eqs!(
             heading_x = e_x_perp ⋅ wind_cross_z
             # z-component: world z-axis
             heading_z = e_x_perp[3]
+            # Calculate course using same wind-perpendicular projection
+            proj_vel_on_wind = (wing_vel[wing.idx, :] ⋅ wind_norm) * wind_norm
+            vel_perp = wing_vel[wing.idx, :] - proj_vel_on_wind
+            course_x = vel_perp ⋅ wind_cross_z
+            course_z = vel_perp[3]
             eqs = [
                 eqs
                 vec(R_v_w[wing.idx, :, :]) .~
@@ -1448,10 +1451,8 @@ function scalar_eqs!(
                     dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
                 azimuth_acc[wing.idx] ~
                     dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
-                # Course is the direction of velocity in the tether frame x-y plane
-                course[wing.idx] ~
-                    atan(dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]),
-                         dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 1]))
+                # Course is the direction of velocity in the wind-perpendicular plane
+                course[wing.idx] ~ atan(course_x, course_z)
                 # Angle of attack from apparent wind
                 angle_of_attack[wing.idx] ~
                     calc_angle_of_attack(va_wing_b[wing.idx, :])
@@ -1476,6 +1477,11 @@ function scalar_eqs!(
             heading_x = e_x_perp ⋅ wind_cross_z
             # z-component: world z-axis
             heading_z = e_x_perp[3]
+            # Calculate course using same wind-perpendicular projection
+            proj_vel_on_wind = (wing_vel[wing.idx, :] ⋅ wind_norm) * wind_norm
+            vel_perp = wing_vel[wing.idx, :] - proj_vel_on_wind
+            course_x = vel_perp ⋅ wind_cross_z
+            course_z = vel_perp[3]
             eqs = [
                 eqs
                 vec(R_v_w[wing.idx, :, :]) .~
@@ -1507,10 +1513,8 @@ function scalar_eqs!(
                     dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
                 azimuth_acc[wing.idx] ~
                     dot(wing_acc[wing.idx, :], -R_t_w[wing.idx, :, 2]) / norm([x, y])
-                # Course is the direction of velocity in the tether frame x-y plane
-                course[wing.idx] ~
-                    atan(dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 2]),
-                         dot(wing_vel[wing.idx, :], -R_t_w[wing.idx, :, 1]))
+                # Course is the direction of velocity in the wind-perpendicular plane
+                course[wing.idx] ~ atan(course_x, course_z)
 
                 angle_of_attack[wing.idx] ~
                     calc_angle_of_attack(va_wing_b[wing.idx, :]) +

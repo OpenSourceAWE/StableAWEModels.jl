@@ -26,13 +26,14 @@ using GLMakie
 
 # ============= User settings =============
 const MODEL_NAME = "v3"
-const SIM_TIME   = 100.0
+const SIM_TIME   = 300.0
 const FPS        = 60
 const N_STEPS    = Int(round(FPS * SIM_TIME))
 const REMAKE_CACHE = false
 const INITIAL_DAMPING = 10.0  # Initial world frame damping [N·s/m]
-const DECAY_TIME = 1.0        # Time for damping to decay to zero [s]
+const DECAY_TIME = 2.0        # Time for damping to decay to zero [s]
 const PLOT_DISTRIBUTION = false
+const MAX_STEERING = 0.1      # Maximum steering line length change [m]
 # =========================================
 
 # Load settings for the v3 kite
@@ -92,7 +93,14 @@ wind_elev_rad = deg2rad(wind_elev)
 # sys.points[2].fix_sphere=true
 # sys.points[10].fix_sphere=true
 # sys.points[12].fix_sphere=true
+sam.set.v_wind = 15.4
+# Store initial lengths for steering segments
+sys.segments[87].l0 += MAX_STEERING
+sys.segments[89].l0 -= MAX_STEERING
+seg_87_initial_length = sys.segments[87].l0
+seg_89_initial_length = sys.segments[89].l0
 SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE, ignore_l0=false)
+@info "Steering segments initial lengths:" seg_87=seg_87_initial_length seg_89=seg_89_initial_length
 
 wing = sam.sys_struct.wings[1]
 vsm_aero = wing.vsm_aero

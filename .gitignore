@@ -1,4 +1,6 @@
 /LocalPreferences*
+*.old
+*.mp4
 .helix
 *.arrow
 *.bin
