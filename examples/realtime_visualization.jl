@@ -150,7 +150,7 @@ end
 println("\nSimulation running... Use arrow keys to control the kite!\n")
 
 # Initialize state
-logger = SymbolicAWEModels.Logger(length(sys_struct.points), steps+1)
+logger = SymbolicAWEModels.Logger(sam, steps+1)
 sys_state = SysState(sam)
 sys_state.time = 0.0
 SymbolicAWEModels.log!(logger, sys_state)

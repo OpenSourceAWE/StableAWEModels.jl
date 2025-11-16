@@ -199,7 +199,7 @@ end
 println("\nSimulation running... Use arrow keys to control!\n")
 
 # Initialize logger
-logger = Logger(length(sys.points), N_STEPS + 1)
+logger = Logger(sam, N_STEPS + 1)
 sys_state = SysState(sam)
 sys_state.time = 0.0
 log!(logger, sys_state)
