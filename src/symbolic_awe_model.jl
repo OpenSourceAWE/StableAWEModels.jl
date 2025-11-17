@@ -318,11 +318,13 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
     end
     if length(groups) > 0
-        for group in groups
+        # Only fill up to the size of ss.twist_angles (typically 4)
+        max_groups = min(length(groups), length(ss.twist_angles))
+        for group in groups[1:max_groups]
             ss.twist_angles[group.idx] = group.twist
         end
-        ss.depower = rad2deg(mean(ss.twist_angles)) # Average twist for depower
-        ss.steering = rad2deg(ss.twist_angles[length(groups)] - ss.twist_angles[1])
+        ss.depower = rad2deg(mean(ss.twist_angles[1:max_groups])) # Average twist for depower
+        ss.steering = rad2deg(ss.twist_angles[max_groups] - ss.twist_angles[1])
     end
     if length(wings) > 0
         wing = wings[1]
@@ -591,20 +593,41 @@ function update_sys_struct!(prob::ProbWithAttributes,
 end
 
 """
-    get_model_name(set::Settings; precompile=false)
+    get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false)
 
 Constructs a unique filename for the serialized model based on its configuration.
-The filename includes the Julia version, physical model, dynamics type, and number of
-segments to ensure that the correct cached model is loaded.
+The filename includes the Julia version, physical model, wing type, dynamics type,
+and component counts to ensure that the correct cached model is loaded.
 """
-function get_model_name(set::Settings; precompile=false)
+function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false)
     suffix = ""
     ver = "$(VERSION.major).$(VERSION.minor)"
     if precompile
         suffix = ".default"
     end
+
+    # Determine wing type
+    wing_types = [wing.wing_type for wing in sys_struct.wings]
+    wing_type_str = if isempty(wing_types)
+        "nowng"
+    elseif all(wt -> wt == QUATERNION, wing_types)
+        "quat"
+    elseif all(wt -> wt == REFINE, wing_types)
+        "refine"
+    else
+        "mixed"
+    end
+
     dynamics_type = ifelse(set.quasi_static, "static", "dynamic")
-    return "model_$(ver)_$(set.physical_model)_$(dynamics_type)_$(set.segments)_seg.bin$suffix"
+
+    # Count components
+    n_points = length(sys_struct.points)
+    n_segments = length(sys_struct.segments)
+    n_groups = length(sys_struct.groups)
+    n_wings = length(sys_struct.wings)
+    n_winches = length(sys_struct.winches)
+
+    return "model_$(ver)_$(set.physical_model)_$(wing_type_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_groups)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
 end
 
 """

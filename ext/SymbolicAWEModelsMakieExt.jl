@@ -757,6 +757,420 @@ function Makie.plot(sys::SystemStructure, lg::SysLog;
     return fig
 end
 
+"""
+    Makie.plot(sys::SystemStructure, logs::Vector{SysLog}; kwargs...)
+
+Create a multi-panel plot comparing multiple simulation logs on the same figure.
+
+This method allows plotting multiple syslogs (e.g., from REFINE and QUATERNION models)
+on the same panels for direct comparison. Each log's traces are labeled with its
+corresponding system name.
+
+# Arguments
+- `sys::SystemStructure`: The system structure (can be from any of the models).
+- `logs::Vector{SysLog}`: Vector of simulation logs to compare.
+
+# Keyword Arguments
+Same as the single-syslog version. See `Makie.plot(sys::SystemStructure, lg::SysLog)` for details.
+
+# Example
+```julia
+# Compare REFINE vs QUATERNION models
+plot(sys_struct, [syslog_refine, syslog_quat];
+     plot_turn_rates=true, plot_azimuth=true,
+     plot_heading=true, plot_aoa=true,
+     plot_default=false, plot_aero_force=true)
+```
+"""
+function Makie.plot(sys::SystemStructure, logs::Vector{SysLog};
+                    plot_default=true,
+                    plot_reelout=plot_default,
+                    plot_aero_force=plot_default,
+                    plot_twist=plot_default,
+                    plot_aoa=plot_default,
+                    plot_heading=plot_default,
+                    plot_kiteutils_course=false,
+                    plot_aero_moment=false,
+                    plot_turn_rates=false,
+                    plot_elevation=false,
+                    plot_azimuth=false,
+                    plot_tether_moment=false,
+                    plot_winch_force=plot_default,
+                    plot_set_values=false,
+                    plot_distance=false,
+                    plot_cone_angle=false,
+                    plot_old_heading=false,
+                    size=(1200, 800))
+
+    # Build list of panels to plot by combining data from all logs
+    panels = []
+
+    if plot_turn_rates
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            turn_rates_deg = rad2deg.(hcat(sl.turn_rates...))
+            if all(iszero, turn_rates_deg)
+                # Plot heading rate of change instead
+                heading_unwrapped = copy(sl.heading)
+                for i in 2:length(heading_unwrapped)
+                    while heading_unwrapped[i] - heading_unwrapped[i-1] > π
+                        heading_unwrapped[i] -= 2π
+                    end
+                    while heading_unwrapped[i] - heading_unwrapped[i-1] < -π
+                        heading_unwrapped[i] += 2π
+                    end
+                end
+                heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
+                push!(all_data, heading_rate)
+                push!(all_labels, "dψ/dt" * suffix)
+            else
+                for j in 1:3
+                    push!(all_data, turn_rates_deg[j, :])
+                    push!(all_labels, ["ω_x" * suffix, "ω_y" * suffix, "ω_z" * suffix][j])
+                end
+            end
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = all(occursin.("dψ/dt", all_labels)) ? "heading rate [°/s]" : "turn rate [°/s]",
+            time = logs[1].syslog.time[1:end-1]  # Use first log's time (trimmed if needed)
+        ))
+    end
+
+    if plot_reelout
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            v_ro = [[sl.v_reelout[i][j] for i in eachindex(sl.v_reelout)] for j in 1:3]
+            for j in 1:3
+                push!(all_data, v_ro[j])
+                push!(all_labels, "v_ro,$j" * suffix)
+            end
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "reel-out speed [m/s]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_aero_force
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            aero_force_z = [sl.aero_force[i][3] for i in eachindex(sl.aero_force)]
+            push!(all_data, aero_force_z)
+            push!(all_labels, "F_aero,z" * suffix)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "F_aero,z [N]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_aero_moment
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            aero_moment_y = [sl.aero_moment[i][2] for i in eachindex(sl.aero_moment)]
+            push!(all_data, aero_moment_y)
+            push!(all_labels, "M_aero,y" * suffix)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "M_aero,y [Nm]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_tether_moment
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            tether_moment_y = [sl.tether_moment[i][2] for i in eachindex(sl.tether_moment)]
+            push!(all_data, tether_moment_y)
+            push!(all_labels, "M_tether,y" * suffix)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "M_tether,y [Nm]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_twist
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            n_groups = length(sl.twist_angles[1])
+            if n_groups > 0
+                twist_deg = rad2deg.(hcat(sl.twist_angles...))
+                for j in 1:n_groups
+                    push!(all_data, twist_deg[j, :])
+                    push!(all_labels, "β_$j" * suffix)
+                end
+            end
+        end
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                ylabel = "twist [°]",
+                time = logs[1].syslog.time
+            ))
+        end
+    end
+
+    if plot_aoa
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            aoa_deg = rad2deg.(sl.aoa)
+            push!(all_data, aoa_deg)
+            push!(all_labels, "α" * suffix)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "angle of attack [°]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_heading
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            heading_deg = rad2deg.(sl.heading)
+            course_deg = rad2deg.(sl.course)
+            push!(all_data, heading_deg)
+            push!(all_labels, "ψ" * suffix)
+            push!(all_data, course_deg)
+            push!(all_labels, "χ" * suffix)
+            if plot_kiteutils_course
+                course_kiteutils_deg = [rad2deg(KiteUtils.calc_course(sl.orient[i])) for i in eachindex(sl.orient)]
+                push!(all_data, course_kiteutils_deg)
+                push!(all_labels, "χ_KU" * suffix)
+            end
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "heading/course [°]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_old_heading
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            # Calculate old heading from orientation quaternion
+            old_heading_rad = similar(sl.heading)
+            for i in eachindex(sl.orient)
+                R_b_w = KiteUtils.rotation_matrix(sl.orient[i])
+                R_v_w = [1.0 0.0 0.0; 0.0 -1.0 0.0; 0.0 0.0 -1.0]
+                v1 = -R_b_w[:, 1]
+                v2 = -R_v_w[:, 1]
+                old_heading_rad[i] = atan(v1[2] - v2[2], v1[1] - v2[1])
+            end
+            old_heading_deg = rad2deg.(old_heading_rad)
+            push!(all_data, old_heading_deg)
+            push!(all_labels, "ψ_old" * suffix)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "old heading [°]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_distance
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            distance = [norm(sl.pos[i]) for i in eachindex(sl.pos)]
+            push!(all_data, distance)
+            push!(all_labels, "r" * suffix)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "distance [m]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_cone_angle
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            # Assuming wind_vec_gnd is available in syslog
+            cone_angle_rad = similar(sl.heading)
+            for i in eachindex(sl.pos)
+                pos_norm = normalize(sl.pos[i])
+                wind_norm = normalize([sl.v_wind_gnd[1], sl.v_wind_gnd[2], sl.v_wind_gnd[3]])
+                cone_angle_rad[i] = acos(clamp(dot(pos_norm, wind_norm), -1.0, 1.0))
+            end
+            cone_angle_deg = rad2deg.(cone_angle_rad)
+            push!(all_data, cone_angle_deg)
+            push!(all_labels, "θ_cone" * suffix)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "cone angle [°]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_elevation
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            elevation_deg = rad2deg.(sl.elevation)
+            push!(all_data, elevation_deg)
+            push!(all_labels, "elevation" * suffix)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "elevation [°]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_azimuth
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            azimuth_deg = rad2deg.(sl.azimuth)
+            push!(all_data, azimuth_deg)
+            push!(all_labels, "azimuth" * suffix)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "azimuth [°]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_winch_force
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
+            for j in 1:3
+                push!(all_data, winch_force[j])
+                push!(all_labels, "F_winch,$j" * suffix)
+            end
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "Winch force [N]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    if plot_set_values
+        all_data = []
+        all_labels = []
+        for lg in logs
+            sl = lg.syslog
+            suffix = " - " * sl.name
+            set_values = [[sl.set_torque[i][j] for i in eachindex(sl.set_torque)] for j in 1:3]
+            for j in 1:3
+                push!(all_data, set_values[j])
+                push!(all_labels, "T_winch,$j" * suffix)
+            end
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            ylabel = "Set torque [Nm]",
+            time = logs[1].syslog.time
+        ))
+    end
+
+    # Check if there's anything to plot
+    if isempty(panels)
+        error("No plot sections enabled. Enable at least one plot panel.")
+    end
+
+    # Create figure with subplots
+    n_panels = length(panels)
+    fig = Figure(size=size)
+
+    axes = []
+    for (i, panel) in enumerate(panels)
+        # Share x-axis with first subplot
+        if i == 1
+            ax = Axis(fig[i, 1], ylabel=panel.ylabel)
+        else
+            ax = Axis(fig[i, 1], ylabel=panel.ylabel, xticklabelsvisible=false)
+            linkxaxes!(axes[1], ax)
+        end
+
+        # Plot each data series in this panel
+        time_vec = haskey(panel, :time) ? panel.time : logs[1].syslog.time
+        for (j, (data_series, label)) in enumerate(zip(panel.data, panel.labels))
+            lines!(ax, time_vec, data_series, label=label)
+        end
+
+        # Add legend if multiple traces
+        if length(panel.data) > 1
+            axislegend(ax, position=:rt)
+        end
+
+        push!(axes, ax)
+    end
+
+    # Add x-label to bottom subplot
+    axes[end].xlabel = "time [s]"
+    axes[end].xticklabelsvisible = true
+
+    Makie.resize_to_layout!(fig)
+    return fig
+end
+
 function zoom_out!(scene, cam, plots; relmargin=0.2)
     # --- ROBUST ZOOM OUT ---
     # 1. Get the current camera viewing direction vector

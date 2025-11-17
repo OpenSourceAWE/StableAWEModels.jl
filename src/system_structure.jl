@@ -581,7 +581,7 @@ mutable struct BaseWing <: AbstractWing
     const idx::Int16
 
     # Structural information
-    const group_idxs::Vector{Int16}
+    group_idxs::Vector{Int16}
     const transform_idx::Int16
     const R_b_c::Matrix{SimFloat}
     const pos_cad::KVec3
@@ -654,9 +654,9 @@ mutable struct VSMWing <: AbstractWing
     vsm_solver::VortexStepMethod.Solver
 
     # VSM state and linearization
-    const vsm_y::Vector{SimFloat}
-    const vsm_x::Vector{SimFloat}
-    const vsm_jac::Matrix{SimFloat}
+    vsm_y::Vector{SimFloat}
+    vsm_x::Vector{SimFloat}
+    vsm_jac::Matrix{SimFloat}
 
     # REFINE-specific fields (Nothing for QUATERNION wings)
     point_to_vsm_point::Union{Nothing, Dict{Int16, Tuple{Int16, Symbol}}}
@@ -789,14 +789,6 @@ function VSMWing(idx::Int, set::Settings,
                      Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}=nothing,
                  origin_idx::Union{Nothing, Int16}=nothing)
 
-    # Set defaults from VortexStepMethod if not provided
-    if isnothing(R_b_c) || isnothing(pos_cad)
-        temp_wing = VortexStepMethod.Wing(set; prn=false)
-        isnothing(R_b_c) && (R_b_c = temp_wing.R_cad_body)
-        isnothing(pos_cad) &&
-            (pos_cad = temp_wing.T_cad_body)
-    end
-
     # Validation
     if wing_type == REFINE
         @assert length(group_idxs) == 0
@@ -822,6 +814,12 @@ function VSMWing(idx::Int, set::Settings,
     vsm_solver = VortexStepMethod.Solver(vsm_aero;
         solver_type=VortexStepMethod.NONLIN,
         atol=2e-8, rtol=2e-8)
+
+    # Set defaults from actual vsm_wing if not provided
+    if isnothing(R_b_c) || isnothing(pos_cad)
+        isnothing(R_b_c) && (R_b_c = vsm_wing.R_cad_body)
+        isnothing(pos_cad) && (pos_cad = vsm_wing.T_cad_body)
+    end
 
     # Compute inertia
     inertia_vec = isnothing(inertia_diag) ?
@@ -1229,23 +1227,129 @@ function SystemStructure(name, set;
             end
         end
     end
-    # Initialize group geometries from VSM wing
+    # Auto-create groups for QUATERNION wings if needed (before geometry initialization)
+    for (i, wing) in enumerate(wings)
+        if wing.wing_type == QUATERNION && isempty(wing.group_idxs)
+            # Get WING-type points for this wing
+            wing_point_idxs = findall(
+                p -> p.type == WING && p.wing_idx == wing.idx, points)
+            wing_points = [points[idx] for idx in wing_point_idxs]
+
+            # Identify LE/TE pairs
+            wing_segments = identify_wing_segments(wing_points)
+
+            # Create a group for each LE/TE pair
+            vsm_wing = wing.vsm_wing
+            new_group_idxs = Int16[]
+
+            # Check if wing has interpolators (from .obj) or not (from YAML)
+            has_interpolators = !isnothing(vsm_wing.le_interp)
+
+            # For YAML wings, calculate COM from WING points and update transforms
+            if !has_interpolators && !isempty(wing_points)
+                calculated_com = mean([p.pos_cad for p in wing_points])
+                wing.pos_cad .= calculated_com
+                wing.vsm_wing.T_cad_body .= calculated_com
+            end
+
+            for (le_idx, te_idx) in wing_segments
+                group_idx = length(groups) + 1
+
+                if has_interpolators
+                    # For .obj wings, calculate gamma from LE position
+                    le_point = points[le_idx]
+                    y_le = le_point.pos_cad[2]
+                    z_le = le_point.pos_cad[3]
+                    # Compute circle_center_z = middle_le_z - radius
+                    circle_center_z = vsm_wing.le_interp[3](0.0) - vsm_wing.radius
+                    gamma = atan(-y_le, z_le - circle_center_z)
+
+                    # Use constructor with vsm_wing (computes geometry from gamma)
+                    new_group = Group(group_idx, [le_idx, te_idx],
+                                     vsm_wing, gamma, DYNAMIC, 0.25)
+                else
+                    # For YAML wings, gamma concept doesn't apply
+                    # Use simple constructor (geometry computed from points later)
+                    new_group = Group(group_idx, [le_idx, te_idx],
+                                     0.0, DYNAMIC, 0.25)
+                end
+
+                push!(groups, new_group)
+                push!(new_group_idxs, Int16(group_idx))
+            end
+
+            # Update wing with new groups and resize vsm arrays
+            wing.group_idxs = new_group_idxs
+
+            # Resize vsm arrays based on new number of groups
+            ny = 3 + length(new_group_idxs) + 3  # va(3) + ω(3) + twist(n_groups)
+            nx = 3 + 3 + length(new_group_idxs)  # force(3) + moment(3) + group_moments
+            wing.vsm_y = zeros(SimFloat, ny)
+            wing.vsm_x = zeros(SimFloat, nx)
+            wing.vsm_jac = zeros(SimFloat, nx, ny)
+
+            @info "Auto-created $(length(new_group_idxs)) groups " *
+                  "for QUATERNION wing $(wing.idx)" *
+                  (!has_interpolators && !isempty(wing_points) ?
+                   " (COM from WING points: " *
+                   "[$(round(wing.pos_cad[1], digits=2)), " *
+                   "$(round(wing.pos_cad[2], digits=2)), " *
+                   "$(round(wing.pos_cad[3], digits=2))])" : "")
+        end
+    end
+
+    # Initialize group geometries from VSM wing or point positions
     for group in groups
-        if iszero(group.le_pos)
+        if iszero(group.chord)
             # Find which wing this group belongs to
             for wing in wings
                 if group.idx in wing.group_idxs
                     vsm_wing = wing.vsm_wing
-                    gamma = group.gamma
-                    group.le_pos .= [vsm_wing.le_interp[i](gamma)
-                        for i in 1:3]
-                    te_pos = [vsm_wing.te_interp[i](gamma)
-                        for i in 1:3]
-                    group.chord .= te_pos .- group.le_pos
-                    le_minus = [vsm_wing.le_interp[i](gamma-0.01)
-                        for i in 1:3]
-                    group.y_airf .= normalize(
-                        le_minus - group.le_pos)
+
+                    if !isnothing(vsm_wing.le_interp)
+                        # For .obj wings: use interpolators with gamma
+                        gamma = group.gamma
+                        group.le_pos .= [vsm_wing.le_interp[i](gamma)
+                            for i in 1:3]
+                        te_pos = [vsm_wing.te_interp[i](gamma)
+                            for i in 1:3]
+                        group.chord .= te_pos .- group.le_pos
+                        le_minus = [vsm_wing.le_interp[i](gamma-0.01)
+                            for i in 1:3]
+                        group.y_airf .= normalize(
+                            le_minus - group.le_pos)
+                    else
+                        # For YAML wings: compute from point positions
+                        # group.point_idxs contains [le_idx, te_idx]
+                        @assert length(group.point_idxs) >= 2 "Group $(group.idx) needs at least LE and TE points"
+                        le_idx = group.point_idxs[1]
+                        te_idx = group.point_idxs[2]
+
+                        # Calculate pos_b manually (same as done in reinit!)
+                        # pos_b = R_b_c' * (pos_cad - wing.pos_cad)
+                        le_point = points[le_idx]
+                        te_point = points[te_idx]
+
+                        le_pos_b = wing.R_b_c' * (le_point.pos_cad - wing.pos_cad)
+                        te_pos_b = wing.R_b_c' * (te_point.pos_cad - wing.pos_cad)
+
+                        group.le_pos .= le_pos_b
+                        group.chord .= te_pos_b .- le_pos_b
+
+                        # y_airf: get from closest refined panel via segment mapping
+                        vsm_aero = wing.vsm_aero
+                        if !isempty(vsm_wing.refined_sections) &&
+                           !isempty(vsm_wing.refined_panel_mapping) &&
+                           group.idx <= length(vsm_wing.refined_panel_mapping)
+                            panel_idx = vsm_wing.refined_panel_mapping[group.idx]
+                            panel = vsm_aero.panels[panel_idx]
+                            group.y_airf .= normalize(panel.y_airf)
+                        else
+                            # Fallback if VSM not initialized
+                            @debug "VSM panels not available for group $(group.idx), using default y_airf"
+                            group.y_airf .= normalize([0.0, 1.0, 0.0])
+                        end
+                    end
                     break
                 end
             end

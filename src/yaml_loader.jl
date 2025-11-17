@@ -496,22 +496,37 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         wing_rows = parse_table(data["wings"])
 
         for (i, row) in enumerate(wing_rows)
-            wing = call_yaml_constructor(VSMWing, row,
-                [:idx, :set, :group_idxs],
-                [:transform_idx, :y_damping, :wing_type,
-                 :z_ref_points, :y_ref_points, :origin_idx];
-                mappings=Dict(
-                    :set => r -> set,
-                    :group_idxs => r -> Int16[],
-                    :wing_type => r ->
-                        parse_wing_type(String(r.type)),
-                    :z_ref_points => r ->
-                        parse_ref_points(r, :z_ref_points),
-                    :y_ref_points => r ->
-                        parse_ref_points(r, :y_ref_points),
-                    :origin_idx => r ->
-                        get_field_or_nothing(Int16, r, :origin_idx)
-                ))
+            wing_type = parse_wing_type(String(row.type))
+
+            # Build kwargs based on wing type
+            if wing_type == REFINE
+                # REFINE wings need z_ref_points, y_ref_points, origin_idx
+                wing = call_yaml_constructor(VSMWing, row,
+                    [:idx, :set, :group_idxs],
+                    [:transform_idx, :y_damping, :wing_type,
+                     :z_ref_points, :y_ref_points, :origin_idx];
+                    mappings=Dict(
+                        :set => r -> set,
+                        :group_idxs => r -> Int16[],
+                        :wing_type => r -> wing_type,
+                        :z_ref_points => r ->
+                            parse_ref_points(r, :z_ref_points),
+                        :y_ref_points => r ->
+                            parse_ref_points(r, :y_ref_points),
+                        :origin_idx => r ->
+                            get_field_or_nothing(Int16, r, :origin_idx)
+                    ))
+            else  # QUATERNION
+                # QUATERNION wings don't use these fields
+                wing = call_yaml_constructor(VSMWing, row,
+                    [:idx, :set, :group_idxs],
+                    [:transform_idx, :y_damping, :wing_type];
+                    mappings=Dict(
+                        :set => r -> set,
+                        :group_idxs => r -> Int16[],
+                        :wing_type => r -> wing_type
+                    ))
+            end
             push!(wings, wing)
         end
     end
