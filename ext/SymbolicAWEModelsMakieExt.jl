@@ -28,6 +28,11 @@ const PLOT_SEGMENT_COLOR = Ref{Symbol}(:black)
 const PLOT_ZOOMED_IN = Ref{Bool}(false)
 const PLOT_ZOOM_RELMARGIN = Ref{Float64}(0.2)
 const PLOT_ZOOM_SEGMENT_IDX = Ref{Int}(-1)  # Which segment we're zoomed into (-1 = none)
+const PLOT_BODY_FRAME = Ref{Bool}(false)  # Whether body frame tracking is active
+const PLOT_CAMERA_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)  # Stored camera distance
+const PLOT_PREV_BODY_FRAME = Ref{Bool}(false)  # Previous body frame state
+const PLOT_PREV_ZOOMED_IN = Ref{Bool}(false)  # Previous zoomed state
+const PLOT_PREV_SEGMENT_IDX = Ref{Int}(-1)  # Previous segment index
 
 """
     calculate_segment_force_colors(segments, segment_color)
@@ -391,12 +396,33 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
         scene = PLOT_SCENE[]
         relevant_plots = PLOT_RELEVANT_PLOTS[]
         stored_sys = PLOT_SYSTEM_STRUCTURE[]
-        if PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
+
+        # Detect mode change
+        mode_changed = (PLOT_PREV_BODY_FRAME[] != PLOT_BODY_FRAME[] ||
+                        PLOT_PREV_ZOOMED_IN[] != PLOT_ZOOMED_IN[] ||
+                        PLOT_PREV_SEGMENT_IDX[] != PLOT_ZOOM_SEGMENT_IDX[])
+
+        if mode_changed
+            PLOT_CAMERA_DISTANCE[] = nothing  # Force recalculation
+            # Update prev state
+            PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
+            PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
+            PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
+        end
+
+        # Call zoom functions with stored distance (preserves manual zoom)
+        if PLOT_BODY_FRAME[]
+            # Body frame mode: continuously track wing orientation
+            dist = zoom_body_frame!(scene, scene.camera, stored_sys, PLOT_CAMERA_DISTANCE[])
+            PLOT_CAMERA_DISTANCE[] = dist
+        elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
             # When zoomed in, keep segment centered as it moves
-            zoom_in!(scene, scene.camera, stored_sys, PLOT_ZOOM_SEGMENT_IDX[])
+            dist = zoom_in!(scene, scene.camera, stored_sys, PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_DISTANCE[])
+            PLOT_CAMERA_DISTANCE[] = dist
         elseif !PLOT_ZOOMED_IN[]
             # When not zoomed in, keep full view centered on geometry
-            zoom_out!(scene, scene.camera, relevant_plots; relmargin=PLOT_ZOOM_RELMARGIN[])
+            dist = zoom_out!(scene, scene.camera, relevant_plots, PLOT_CAMERA_DISTANCE[]; relmargin=PLOT_ZOOM_RELMARGIN[])
+            PLOT_CAMERA_DISTANCE[] = dist
         end
     end
 
@@ -467,294 +493,9 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 plot(model.sys_struct, log, plot_reelout=false, plot_aero_force=false, plot_twist=false, plot_winch_force=false)
 ```
 """
-function Makie.plot(sys::SystemStructure, lg::SysLog;
-                    plot_default=true,
-                    plot_reelout=plot_default,
-                    plot_aero_force=plot_default,
-                    plot_twist=plot_default,
-                    plot_aoa=plot_default,
-                    plot_heading=plot_default,
-                    plot_kiteutils_course=false,
-                    plot_aero_moment=false,
-                    plot_turn_rates=false,
-                    plot_elevation=false,
-                    plot_azimuth=false,
-                    plot_tether_moment=false,
-                    plot_winch_force=plot_default,
-                    plot_set_values=false,
-                    plot_distance=false,
-                    plot_cone_angle=false,
-                    plot_old_heading=false,
-                    suffix=" - " * sys.name,
-                    size=(1200, 800))
-
-    sl = lg.syslog
-
-    # Build list of panels to plot
-    panels = []
-
-    if plot_turn_rates
-        turn_rates_deg = rad2deg.(hcat(sl.turn_rates...))
-        # Check if all turn rates are zero
-        if all(iszero, turn_rates_deg)
-            # Plot heading rate of change instead
-            # Unwrap heading to avoid 2π jumps
-            heading_unwrapped = copy(sl.heading)
-            for i in 2:length(heading_unwrapped)
-                diff_angle = heading_unwrapped[i] - heading_unwrapped[i-1]
-                # Adjust for wrap-around
-                if diff_angle > π
-                    heading_unwrapped[i:end] .-= 2π
-                elseif diff_angle < -π
-                    heading_unwrapped[i:end] .+= 2π
-                end
-            end
-            heading_deg = rad2deg.(heading_unwrapped)
-            heading_rate = diff(heading_deg) ./ diff(sl.time)
-            # Pad to match time array length
-            heading_rate = vcat(heading_rate, heading_rate[end])
-            push!(panels, (
-                data = [heading_rate],
-                labels = ["dψ/dt" * suffix],
-                ylabel = "heading rate [°/s]"
-            ))
-        else
-            push!(panels, (
-                data = [turn_rates_deg[1,:], turn_rates_deg[2,:],
-                        turn_rates_deg[3,:]],
-                labels = ["ω_x" * suffix, "ω_y" * suffix, "ω_z" * suffix],
-                ylabel = "turn rates [°/s]"
-            ))
-        end
-    end
-
-    if plot_reelout
-        v_reelout_2 = [sl.v_reelout[i][2] for i in eachindex(sl.v_reelout)]
-        v_reelout_3 = [sl.v_reelout[i][3] for i in eachindex(sl.v_reelout)]
-        push!(panels, (
-            data = [v_reelout_2, v_reelout_3],
-            labels = ["v_ro[2]" * suffix, "v_ro[3]" * suffix],
-            ylabel = "v_ro [m/s]"
-        ))
-    end
-
-    if plot_aero_force
-        aero_force_z = [sl.aero_force_b[i][3] for i in eachindex(sl.aero_force_b)]
-        push!(panels, (
-            data = [aero_force_z],
-            labels = ["F_aero,z" * suffix],
-            ylabel = "aero F [N]"
-        ))
-    end
-
-    if plot_aero_moment
-        moment_y = [sl.aero_moment_b[i][2] for i in eachindex(sl.aero_moment_b)]
-        push!(panels, (
-            data = [moment_y],
-            labels = ["M_aero,y" * suffix],
-            ylabel = "aero M [Nm]"
-        ))
-    end
-
-    if plot_tether_moment
-        moment_y = [sl.tether_induced_moment[i][2] for i in eachindex(sl.tether_moment)]
-        push!(panels, (
-            data = [moment_y],
-            labels = ["M_tether,y" * suffix],
-            ylabel = "tether M [Nm]"
-        ))
-    end
-
-    if plot_twist && !isempty(sys.groups)
-        twist_angles_deg = rad2deg.(hcat(sl.twist_angles...))[eachindex(sys.groups),:]
-        twist_data = [twist_angles_deg[i,:] for i in eachindex(sys.groups)]
-        twist_labels = ["twist[$i]" * suffix for i in eachindex(sys.groups)]
-        push!(panels, (
-            data = twist_data,
-            labels = twist_labels,
-            ylabel = "twist [°]"
-        ))
-    end
-
-    if plot_aoa
-        AoA_deg = rad2deg.(sl.AoA)
-        push!(panels, (
-            data = [AoA_deg],
-            labels = ["AoA" * suffix],
-            ylabel = "AoA [°]"
-        ))
-    end
-
-    if plot_heading
-        heading_deg = rad2deg.(sl.heading)
-        course_deg = rad2deg.(sl.course)
-
-        # Collect all heading-related data and labels
-        heading_data = [heading_deg, course_deg]
-        heading_labels = ["heading" * suffix, "course" * suffix]
-
-        if plot_kiteutils_course
-            # Calculate course using KiteUtils.calc_course
-            upwind_dir = deg2rad(sys.set.upwind_dir)
-            kiteutils_course = [KiteUtils.calc_course(sl.vel_kite[i],
-                                                       sl.elevation[i],
-                                                       sl.azimuth[i],
-                                                       upwind_dir,
-                                                       false)
-                                for i in eachindex(sl.vel_kite)]
-            kiteutils_course_deg = rad2deg.(kiteutils_course)
-            push!(heading_data, kiteutils_course_deg)
-            push!(heading_labels, "KU course" * suffix)
-        end
-
-        if plot_old_heading
-            # Old heading calculated from orientation quaternion
-            # Get kite position index (for refine wings, use wing origin)
-            kite_idx = sys.wings[1].origin_idx
-
-            old_headings = [begin
-                # Get quaternion and convert to rotation matrix
-                quaternion = sl.orient[i]
-                R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(quaternion)
-
-                # Get wing position
-                wing_pos = [sl.X[i][kite_idx], sl.Y[i][kite_idx], sl.Z[i][kite_idx]]
-
-                # Calculate R_v_w using positive body x-axis
-                R_v_w = SymbolicAWEModels.calc_R_v_w(wing_pos, R_b_w[:, 1])
-
-                # Calculate R_t_w (tether frame)
-                R_t_w = SymbolicAWEModels.calc_R_t_w(wing_pos)
-
-                # Calculate angle between -R_b_w[:,1] and -R_v_w[:,1]
-                # Project both vectors into tether frame
-                vec1_t = R_t_w' * (-R_b_w[:, 1])
-                vec2_t = R_t_w' * (-R_v_w[:, 1])
-
-                # Use atan for signed angle
-                heading = atan(vec1_t[2] - vec2_t[2], vec1_t[1] - vec2_t[1])
-                heading
-            end for i in eachindex(sl.orient)]
-
-            old_headings_deg = rad2deg.(old_headings)
-            push!(heading_data, old_headings_deg)
-            push!(heading_labels, "old heading" * suffix)
-        end
-
-        push!(panels, (
-            data = heading_data,
-            labels = heading_labels,
-            ylabel = "heading / course [°]"
-        ))
-    end
-
-    if plot_elevation
-        elevation_deg = rad2deg.(sl.elevation)
-        push!(panels, (
-            data = [elevation_deg],
-            labels = ["elevation" * suffix],
-            ylabel = "elevation [°]"
-        ))
-    end
-
-    if plot_azimuth
-        azimuth_deg = rad2deg.(sl.azimuth)
-        push!(panels, (
-            data = [azimuth_deg],
-            labels = ["azimuth" * suffix],
-            ylabel = "azimuth [°]"
-        ))
-    end
-
-    if plot_distance
-        distance = [norm(sl.pos[i]) for i in eachindex(sl.pos)]
-        push!(panels, (
-            data = [distance],
-            labels = ["distance" * suffix],
-            ylabel = "distance [m]"
-        ))
-    end
-
-    if plot_cone_angle
-        # Cone angle is the angle between the wind vector and normalized kite pos
-        # Wind vector points in the direction the wind is blowing (downwind)
-        upwind_dir_rad = deg2rad(sys.set.upwind_dir)
-        wind_vector = [upwind_dir_rad, 0.0, 0.0]
-
-        # Get kite position index (for refine wings, use wing origin)
-        kite_idx = sys.wings[1].origin_idx
-
-        cone_angles = [begin
-            kite_pos = [sl.X[i][kite_idx], sl.Y[i][kite_idx], sl.Z[i][kite_idx]]
-            kite_pos_norm = normalize(kite_pos)
-            angle = acos(clamp(dot(wind_vector, kite_pos_norm), -1.0, 1.0))
-            angle
-        end for i in eachindex(sl.X)]
-
-        cone_angles_deg = rad2deg.(cone_angles)
-        push!(panels, (
-            data = [cone_angles_deg],
-            labels = ["cone angle" * suffix],
-            ylabel = "cone angle [°]"
-        ))
-    end
-
-    if plot_winch_force
-        winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
-        push!(panels, (
-            data = winch_force,
-            labels = ["F_winch,1" * suffix, "F_winch,2" * suffix, "F_winch,3" * suffix],
-            ylabel = "Winch force [N]"
-        ))
-    end
-
-    if plot_set_values
-        set_values = [[sl.set_torque[i][j] for i in eachindex(sl.set_torque)] for j in 1:3]
-        push!(panels, (
-            data = set_values,
-            labels = ["T_winch,1" * suffix, "T_winch,2" * suffix, "T_winch,3" * suffix],
-            ylabel = "Set torque [Nm]"
-        ))
-    end
-
-    # Check if there's anything to plot
-    if isempty(panels)
-        error("No plot sections enabled. Enable at least one plot panel.")
-    end
-
-    # Create figure with subplots
-    n_panels = length(panels)
-    fig = Figure(size=size)
-
-    axes = []
-    for (i, panel) in enumerate(panels)
-        # Share x-axis with first subplot
-        if i == 1
-            ax = Axis(fig[i, 1], ylabel=panel.ylabel)
-        else
-            ax = Axis(fig[i, 1], ylabel=panel.ylabel, xticklabelsvisible=false)
-            linkxaxes!(axes[1], ax)
-        end
-
-        # Plot each data series in this panel
-        for (j, (data_series, label)) in enumerate(zip(panel.data, panel.labels))
-            lines!(ax, sl.time, data_series, label=label)
-        end
-
-        # Add legend if multiple traces
-        if length(panel.data) > 1
-            axislegend(ax, position=:rt)
-        end
-
-        push!(axes, ax)
-    end
-
-    # Add x-label to bottom subplot
-    axes[end].xlabel = "time [s]"
-    axes[end].xticklabelsvisible = true
-
-    Makie.resize_to_layout!(fig)
-    return fig
+function Makie.plot(sys::SystemStructure, lg::SysLog{N}; kwargs...) where N
+    # Wrapper that uses the vector version
+    return Makie.plot([sys], [lg]; kwargs...)
 end
 
 """
@@ -782,25 +523,31 @@ plot(sys_struct, [syslog_refine, syslog_quat];
      plot_default=false, plot_aero_force=true)
 ```
 """
-function Makie.plot(sys::SystemStructure, logs::Vector{SysLog};
-                    plot_default=true,
-                    plot_reelout=plot_default,
-                    plot_aero_force=plot_default,
-                    plot_twist=plot_default,
-                    plot_aoa=plot_default,
-                    plot_heading=plot_default,
-                    plot_kiteutils_course=false,
-                    plot_aero_moment=false,
-                    plot_turn_rates=false,
-                    plot_elevation=false,
-                    plot_azimuth=false,
-                    plot_tether_moment=false,
-                    plot_winch_force=plot_default,
-                    plot_set_values=false,
-                    plot_distance=false,
-                    plot_cone_angle=false,
-                    plot_old_heading=false,
-                    size=(1200, 800))
+function Makie.plot(sys::SystemStructure, logs::Vector{<:SysLog}; kwargs...)
+    # Wrapper that creates a vector of SystemStructure with the same sys for each log
+    syss = [sys for _ in logs]
+    return Makie.plot(syss, logs; kwargs...)
+end
+
+function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
+                   plot_default=true,
+                   plot_reelout=plot_default,
+                   plot_aero_force=plot_default,
+                   plot_twist=plot_default,
+                   plot_aoa=plot_default,
+                   plot_heading=plot_default,
+                   plot_kiteutils_course=false,
+                   plot_aero_moment=false,
+                   plot_turn_rates=false,
+                   plot_elevation=false,
+                   plot_azimuth=false,
+                   plot_tether_moment=false,
+                   plot_winch_force=plot_default,
+                   plot_set_values=false,
+                   plot_distance=false,
+                   plot_cone_angle=false,
+                   plot_old_heading=false,
+                   size=(1200, 800))
 
     # Build list of panels to plot by combining data from all logs
     panels = []
@@ -808,9 +555,10 @@ function Makie.plot(sys::SystemStructure, logs::Vector{SysLog};
     if plot_turn_rates
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
+            suffix = " - " * syss[i].name
             turn_rates_deg = rad2deg.(hcat(sl.turn_rates...))
             if all(iszero, turn_rates_deg)
                 # Plot heading rate of change instead
@@ -826,107 +574,118 @@ function Makie.plot(sys::SystemStructure, logs::Vector{SysLog};
                 heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
                 push!(all_data, heading_rate)
                 push!(all_labels, "dψ/dt" * suffix)
+                push!(all_times, sl.time[1:end-1])
             else
-                for j in 1:3
-                    push!(all_data, turn_rates_deg[j, :])
-                    push!(all_labels, ["ω_x" * suffix, "ω_y" * suffix, "ω_z" * suffix][j])
-                end
+                # Only plot z-component (yaw rate)
+                push!(all_data, turn_rates_deg[3, :])
+                push!(all_labels, "ω_z" * suffix)
+                push!(all_times, sl.time)
             end
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = all(occursin.("dψ/dt", all_labels)) ? "heading rate [°/s]" : "turn rate [°/s]",
-            time = logs[1].syslog.time[1:end-1]  # Use first log's time (trimmed if needed)
+            times = all_times,
+            ylabel = all(occursin.("dψ/dt", all_labels)) ? "heading rate [°/s]" : "yaw rate [°/s]"
         ))
     end
 
     if plot_reelout
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
+            suffix = " - " * syss[i].name
             v_ro = [[sl.v_reelout[i][j] for i in eachindex(sl.v_reelout)] for j in 1:3]
             for j in 1:3
                 push!(all_data, v_ro[j])
                 push!(all_labels, "v_ro,$j" * suffix)
+                push!(all_times, sl.time)
             end
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "reel-out speed [m/s]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "reel-out speed [m/s]"
         ))
     end
 
     if plot_aero_force
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
-            aero_force_z = [sl.aero_force[i][3] for i in eachindex(sl.aero_force)]
+            suffix = " - " * syss[i].name
+            aero_force_z = [sl.aero_force_b[i][3] for i in eachindex(sl.aero_force_b)]
             push!(all_data, aero_force_z)
             push!(all_labels, "F_aero,z" * suffix)
+            push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "F_aero,z [N]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "F_aero,z [N]"
         ))
     end
 
     if plot_aero_moment
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
-            aero_moment_y = [sl.aero_moment[i][2] for i in eachindex(sl.aero_moment)]
+            suffix = " - " * syss[i].name
+            aero_moment_y = [sl.aero_moment_b[i][2] for i in eachindex(sl.aero_moment_b)]
             push!(all_data, aero_moment_y)
             push!(all_labels, "M_aero,y" * suffix)
+            push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "M_aero,y [Nm]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "M_aero,y [Nm]"
         ))
     end
 
     if plot_tether_moment
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
-            tether_moment_y = [sl.tether_moment[i][2] for i in eachindex(sl.tether_moment)]
+            suffix = " - " * syss[i].name
+            tether_moment_y = [sl.tether_induced_moment[i][2] for i in eachindex(sl.tether_induced_moment)]
             push!(all_data, tether_moment_y)
             push!(all_labels, "M_tether,y" * suffix)
+            push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "M_tether,y [Nm]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "M_tether,y [Nm]"
         ))
     end
 
     if plot_twist
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
+            suffix = " - " * syss[i].name
             n_groups = length(sl.twist_angles[1])
             if n_groups > 0
                 twist_deg = rad2deg.(hcat(sl.twist_angles...))
                 for j in 1:n_groups
                     push!(all_data, twist_deg[j, :])
                     push!(all_labels, "β_$j" * suffix)
+                    push!(all_times, sl.time)
                 end
             end
         end
@@ -934,8 +693,8 @@ function Makie.plot(sys::SystemStructure, logs::Vector{SysLog};
             push!(panels, (
                 data = all_data,
                 labels = all_labels,
-                ylabel = "twist [°]",
-                time = logs[1].syslog.time
+                times = all_times,
+                ylabel = "twist [°]"
             ))
         end
     end
@@ -943,53 +702,60 @@ function Makie.plot(sys::SystemStructure, logs::Vector{SysLog};
     if plot_aoa
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
-            aoa_deg = rad2deg.(sl.aoa)
+            suffix = " - " * syss[i].name
+            aoa_deg = rad2deg.(sl.AoA)
             push!(all_data, aoa_deg)
             push!(all_labels, "α" * suffix)
+            push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "angle of attack [°]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "angle of attack [°]"
         ))
     end
 
     if plot_heading
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
+            suffix = " - " * syss[i].name
             heading_deg = rad2deg.(sl.heading)
             course_deg = rad2deg.(sl.course)
             push!(all_data, heading_deg)
             push!(all_labels, "ψ" * suffix)
+            push!(all_times, sl.time)
             push!(all_data, course_deg)
             push!(all_labels, "χ" * suffix)
+            push!(all_times, sl.time)
             if plot_kiteutils_course
                 course_kiteutils_deg = [rad2deg(KiteUtils.calc_course(sl.orient[i])) for i in eachindex(sl.orient)]
                 push!(all_data, course_kiteutils_deg)
                 push!(all_labels, "χ_KU" * suffix)
+                push!(all_times, sl.time)
             end
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "heading/course [°]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "heading/course [°]"
         ))
     end
 
     if plot_old_heading
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
+            suffix = " - " * syss[i].name
             # Calculate old heading from orientation quaternion
             old_heading_rad = similar(sl.heading)
             for i in eachindex(sl.orient)
@@ -1002,131 +768,149 @@ function Makie.plot(sys::SystemStructure, logs::Vector{SysLog};
             old_heading_deg = rad2deg.(old_heading_rad)
             push!(all_data, old_heading_deg)
             push!(all_labels, "ψ_old" * suffix)
+            push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "old heading [°]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "old heading [°]"
         ))
     end
 
     if plot_distance
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
-            distance = [norm(sl.pos[i]) for i in eachindex(sl.pos)]
+            suffix = " - " * syss[i].name
+            # Get wing origin index
+            kite_idx = syss[i].wings[1].origin_idx
+            distance = [norm([sl.X[j][kite_idx], sl.Y[j][kite_idx], sl.Z[j][kite_idx]]) for j in eachindex(sl.X)]
             push!(all_data, distance)
             push!(all_labels, "r" * suffix)
+            push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "distance [m]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "distance [m]"
         ))
     end
 
     if plot_cone_angle
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
+            suffix = " - " * syss[i].name
+            # Get wing origin index
+            kite_idx = syss[i].wings[1].origin_idx
             # Assuming wind_vec_gnd is available in syslog
             cone_angle_rad = similar(sl.heading)
-            for i in eachindex(sl.pos)
-                pos_norm = normalize(sl.pos[i])
+            for j in eachindex(sl.X)
+                pos = [sl.X[j][kite_idx], sl.Y[j][kite_idx], sl.Z[j][kite_idx]]
+                pos_norm = normalize(pos)
                 wind_norm = normalize([sl.v_wind_gnd[1], sl.v_wind_gnd[2], sl.v_wind_gnd[3]])
-                cone_angle_rad[i] = acos(clamp(dot(pos_norm, wind_norm), -1.0, 1.0))
+                cone_angle_rad[j] = acos(clamp(dot(pos_norm, wind_norm), -1.0, 1.0))
             end
             cone_angle_deg = rad2deg.(cone_angle_rad)
             push!(all_data, cone_angle_deg)
             push!(all_labels, "θ_cone" * suffix)
+            push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "cone angle [°]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "cone angle [°]"
         ))
     end
 
     if plot_elevation
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
+            suffix = " - " * syss[i].name
             elevation_deg = rad2deg.(sl.elevation)
             push!(all_data, elevation_deg)
             push!(all_labels, "elevation" * suffix)
+            push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "elevation [°]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "elevation [°]"
         ))
     end
 
     if plot_azimuth
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
+            suffix = " - " * syss[i].name
             azimuth_deg = rad2deg.(sl.azimuth)
             push!(all_data, azimuth_deg)
             push!(all_labels, "azimuth" * suffix)
+            push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "azimuth [°]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "azimuth [°]"
         ))
     end
 
     if plot_winch_force
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
+            suffix = " - " * syss[i].name
             winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
             for j in 1:3
                 push!(all_data, winch_force[j])
                 push!(all_labels, "F_winch,$j" * suffix)
+                push!(all_times, sl.time)
             end
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "Winch force [N]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "Winch force [N]"
         ))
     end
 
     if plot_set_values
         all_data = []
         all_labels = []
-        for lg in logs
+        all_times = []
+        for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * sl.name
+            suffix = " - " * syss[i].name
             set_values = [[sl.set_torque[i][j] for i in eachindex(sl.set_torque)] for j in 1:3]
             for j in 1:3
                 push!(all_data, set_values[j])
                 push!(all_labels, "T_winch,$j" * suffix)
+                push!(all_times, sl.time)
             end
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
-            ylabel = "Set torque [Nm]",
-            time = logs[1].syslog.time
+            times = all_times,
+            ylabel = "Set torque [Nm]"
         ))
     end
 
@@ -1150,8 +934,7 @@ function Makie.plot(sys::SystemStructure, logs::Vector{SysLog};
         end
 
         # Plot each data series in this panel
-        time_vec = haskey(panel, :time) ? panel.time : logs[1].syslog.time
-        for (j, (data_series, label)) in enumerate(zip(panel.data, panel.labels))
+        for (j, (data_series, label, time_vec)) in enumerate(zip(panel.data, panel.labels, panel.times))
             lines!(ax, time_vec, data_series, label=label)
         end
 
@@ -1171,7 +954,7 @@ function Makie.plot(sys::SystemStructure, logs::Vector{SysLog};
     return fig
 end
 
-function zoom_out!(scene, cam, plots; relmargin=0.2)
+function zoom_out!(scene, cam, plots, distance=nothing; relmargin=0.2)
     # --- ROBUST ZOOM OUT ---
     # 1. Get the current camera viewing direction vector
     inv_view_matrix = inv(cam.view[])
@@ -1181,27 +964,38 @@ function zoom_out!(scene, cam, plots; relmargin=0.2)
     # 2. Get the scene's bounding box and its center (the new target)
     bbox = data_limits(plots)
     center = bbox.origin .+ bbox.widths ./ 2
-    # 3. Calculate the distance needed to see the whole box
-    radius = norm(bbox.widths) / 2.0
-    fov_rad = 2 * atan(1 / cam.projection[][2, 2])
-    distance = radius / tan(fov_rad / 2.0)
+
+    # 3. Calculate distance only if not provided
+    if isnothing(distance)
+        # Calculate the distance needed to see the whole box
+        radius = norm(bbox.widths) / 2.0
+        fov_rad = 2 * atan(1 / cam.projection[][2, 2])
+        distance = radius / tan(fov_rad / 2.0) * (1 + relmargin)
+    end
+
     # 4. Calculate the new camera position
-    new_eyepos = center + cam_dir_vec * (distance * (1+relmargin))
+    new_eyepos = center + cam_dir_vec * distance
     # 5. Update the camera to the new "fit-all" view
     update_cam!(scene, new_eyepos, center)
+
+    return distance
 end
 
-function zoom_in!(scene, cam, sys, segment_idx)
+function zoom_in!(scene, cam, sys, segment_idx, distance=nothing)
     # --- ZOOM IN ON SEGMENT ---
     # Get current segment endpoints
     seg = sys.segments[segment_idx]
     p1_w = sys.points[seg.point_idxs[1]].pos_w
     p2_w = sys.points[seg.point_idxs[2]].pos_w
 
-    # Calculate segment center and length
+    # Calculate segment center
     center = (p1_w + p2_w) / 2.0f0
-    segment_len = norm(p2_w - p1_w)
-    dist_heuristic = segment_len * 1.5 + 2.0
+
+    # Calculate distance only if not provided
+    if isnothing(distance)
+        segment_len = norm(p2_w - p1_w)
+        distance = segment_len * 1.5 + 2.0
+    end
 
     # Get camera direction
     inv_view_matrix = inv(cam.view[])
@@ -1210,10 +1004,71 @@ function zoom_in!(scene, cam, sys, segment_idx)
                                   inv_view_matrix[3, 3]))
 
     # Calculate new camera position
-    new_eyepos = center + dist_heuristic * cam_dir_vec
+    new_eyepos = center + distance * cam_dir_vec
 
     # Update camera
     update_cam!(scene, new_eyepos, center)
+
+    return distance
+end
+
+"""
+    zoom_body_frame!(scene, cam, sys, distance=nothing)
+
+Set camera to body-frame view tracking the wing orientation.
+Camera positioned behind the kite looking forward along body x-axis.
+
+# Arguments
+- `scene`: The Makie scene
+- `cam`: The camera object
+- `sys`: SystemStructure with wing to track
+- `distance`: Optional fixed distance to use (if nothing, calculates from geometry)
+
+# Returns
+- Camera distance used (for storage/reuse)
+"""
+function zoom_body_frame!(scene, cam, sys, distance=nothing)
+    if isempty(sys.wings)
+        @warn "No wings in system, cannot use body frame view"
+        return nothing
+    end
+
+    wing = sys.wings[1]
+    kite_pos = wing.pos_w
+    R_b_w = wing.R_b_w
+
+    # Calculate distance only if not provided
+    if isnothing(distance)
+        # Calculate characteristic system length
+        if !isempty(sys.points)
+            all_x = [p.pos_w[1] for p in sys.points]
+            all_y = [p.pos_w[2] for p in sys.points]
+            all_z = [p.pos_w[3] for p in sys.points]
+
+            xlims = extrema(all_x)
+            ylims = extrema(all_y)
+            zlims = extrema(all_z)
+
+            char_length = max(xlims[2] - xlims[1], ylims[2] - ylims[1], zlims[2] - zlims[1])
+        else
+            char_length = 10.0
+        end
+        distance = char_length * 0.5
+    end
+
+    # Camera position: kite_pos - R_b_w * [distance, 0, 0]
+    # Places camera in front of kite (negative x in body frame), looking along +x axis
+    cam_offset_body = [-distance, 0.0, 0.0]
+    cam_offset_world = R_b_w * cam_offset_body
+    cam_pos = kite_pos + cam_offset_world
+
+    # Set camera position and lookat
+    update_cam!(scene, Vec3f(cam_pos), Vec3f(kite_pos))
+
+    # Set up vector to align with body z-axis
+    cam.upvector[] = Vec3f(R_b_w[:, 3])
+
+    return distance
 end
 
 function _plot_with_panes(sys::SystemStructure;
@@ -1223,6 +1078,8 @@ function _plot_with_panes(sys::SystemStructure;
                     segment_color = :black,
                     highlight_color = :red,
                     force_color = false,
+                    body_frame = false,
+                    perspective = false,
                     kwargs...)
     # Use LScene for advanced camera controls
     scene = Scene(; camera=cam3d!, show_axis = false, size, zoommode = :free, samples = 16)
@@ -1412,7 +1269,7 @@ function _plot_with_panes(sys::SystemStructure;
                         return Consume(true) # Consume the event
                     end
                 else
-                    zoom_out!(scene, cam, relevant_plots; relmargin)
+                    zoom_out!(scene, cam, relevant_plots, nothing; relmargin)
                     zoomed_in[] = false
                     PLOT_ZOOMED_IN[] = false  # Track global zoom state
                     PLOT_ZOOM_SEGMENT_IDX[] = -1  # Clear zoomed segment
@@ -1448,9 +1305,28 @@ function _plot_with_panes(sys::SystemStructure;
     # Extract pane observables from plots (created by plot!())
     pane_observables = haskey(plots, :pane_observables) ? plots[:pane_observables] : nothing
 
+    # Set camera projection type
+    cam = scene.camera
+    if !perspective
+        # Use orthographic projection
+        # Get current projection view bounds
+        widths = scene.viewport[].widths
+        w_half = Float32(widths[1] / 2)
+        h_half = Float32(widths[2] / 2)
+        cam.projection[] = Makie.orthographicprojection(
+            -w_half, w_half,
+            -h_half, h_half,
+            -10_000f0, 10_000f0
+        )
+    end
+
     # Set initial camera position
-    update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
-    zoom_out!(scene, scene.camera, relevant_plots; relmargin)
+    if body_frame
+        zoom_body_frame!(scene, cam, sys)
+    else
+        update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
+        zoom_out!(scene, cam, relevant_plots, nothing; relmargin)
+    end
 
     # Return scene along with pane_observables, margin, plots dict, and relevant_plots
     # These will be used by time-based plotting
@@ -1464,12 +1340,15 @@ function Makie.plot(sys::SystemStructure;
                     segment_color=:black,
                     plot_aero=true,
                     relmargin=0.2,
+                    body_frame=false,
+                    perspective=false,
                     kwargs...)
     # Store SystemStructure globally FIRST so @lift expressions can access it
     PLOT_SYSTEM_STRUCTURE[] = sys
     PLOT_VECTOR_SCALE[] = vector_scale
     PLOT_FORCE_COLOR[] = force_color
     PLOT_SEGMENT_COLOR[] = segment_color
+    PLOT_BODY_FRAME[] = body_frame
 
     # Create single geometry trigger observable
     geometry_obs = Observable(0.0)
@@ -1482,6 +1361,8 @@ function Makie.plot(sys::SystemStructure;
                 segment_color,
                 plot_aero,
                 relmargin,
+                body_frame,
+                perspective,
                 kwargs...)
 
     # Get the segment colors observable from the plots if available
@@ -1805,8 +1686,18 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     text!(ui_scene, ">", position=Point2f(step_forward_x + button_width/2, button_y + button_height/2),
           align=(:center, :center), fontsize=14, color=:white)
 
+    # Body frame toggle button
+    body_frame_button_x = step_forward_x + button_width + 10
+    body_frame_button_rect = Rect2f(body_frame_button_x, button_y, button_width, button_height)
+    body_frame_obs = Observable(PLOT_BODY_FRAME[])
+    body_frame_button_color = @lift($(body_frame_obs) ? RGBAf(0.3, 0.6, 0.8, 0.8) : RGBAf(0.5, 0.5, 0.5, 0.8))
+    poly!(ui_scene, body_frame_button_rect, color=body_frame_button_color)
+    body_frame_button_label = @lift($(body_frame_obs) ? "Body" : "World")
+    text!(ui_scene, body_frame_button_label, position=Point2f(body_frame_button_x + button_width/2, button_y + button_height/2),
+          align=(:center, :center), fontsize=14, color=:white)
+
     # Info label
-    info_label_x = step_forward_x + button_width + 20
+    info_label_x = body_frame_button_x + button_width + 20
     info_text = @lift("Frame: $($(frame_idx))/$n_frames | Time: $(@sprintf("%.2f", lg.syslog[$(frame_idx)].time)) s | Speed: $(replay_speed)x")
     text!(ui_scene, info_text, position=Point2f(info_label_x, button_y + button_height/2),
           align=(:left, :center), fontsize=14, color=:white, strokecolor=:black, strokewidth=1)
@@ -1854,6 +1745,38 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                     new_idx = min(n_frames, frame_idx[] + 1)
                     frame_idx[] = new_idx
                     update_frame!(new_idx)
+                    return Consume(true)
+                end
+
+                # Check body frame toggle button
+                if mp[1] >= body_frame_button_rect.origin[1] && mp[1] <= body_frame_button_rect.origin[1] + body_frame_button_rect.widths[1] &&
+                   mp[2] >= body_frame_button_rect.origin[2] && mp[2] <= body_frame_button_rect.origin[2] + body_frame_button_rect.widths[2]
+                    PLOT_BODY_FRAME[] = !PLOT_BODY_FRAME[]
+                    body_frame_obs[] = PLOT_BODY_FRAME[]
+                    # Disable zoom-in mode when switching to body frame
+                    if PLOT_BODY_FRAME[]
+                        PLOT_ZOOMED_IN[] = false
+                        PLOT_ZOOM_SEGMENT_IDX[] = -1
+                    end
+                    # Force camera update immediately (not just during playback)
+                    PLOT_CAMERA_DISTANCE[] = nothing  # Force recalculation on mode change
+                    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STRUCTURE[])
+                        scene = PLOT_SCENE[]
+                        relevant_plots = PLOT_RELEVANT_PLOTS[]
+                        stored_sys = PLOT_SYSTEM_STRUCTURE[]
+
+                        if PLOT_BODY_FRAME[]
+                            dist = zoom_body_frame!(scene, scene.camera, stored_sys, PLOT_CAMERA_DISTANCE[])
+                            PLOT_CAMERA_DISTANCE[] = dist
+                        else
+                            dist = zoom_out!(scene, scene.camera, relevant_plots, PLOT_CAMERA_DISTANCE[]; relmargin=PLOT_ZOOM_RELMARGIN[])
+                            PLOT_CAMERA_DISTANCE[] = dist
+                        end
+                    end
+                    # Update tracking variables to prevent mode change detection
+                    PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
+                    PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
+                    PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
                     return Consume(true)
                 end
             elseif event.action == Mouse.release

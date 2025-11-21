@@ -13,7 +13,7 @@ Otherwise, it falls back to loading from `aero_geometry.yaml`.
 This is a constructor helper that reads geometry from the `Settings` object
 and initializes the `Wing` object from `VortexStepMethod.jl`.
 """
-function VortexStepMethod.Wing(set::Settings; prn=true, kwargs...)
+function VortexStepMethod.Wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
     # Check for .obj and .dat files in the model directory
     model_dir = get_data_path()
     obj_path = joinpath(model_dir, set.model)
@@ -35,11 +35,9 @@ function VortexStepMethod.Wing(set::Settings; prn=true, kwargs...)
         )
     end
 
-    # Fallback: load from aero_geometry.yaml
-    vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
-    prn && @info "No .obj/.dat files found, using aero_geometry.yaml: $vsm_set_path"
-    return VortexStepMethod.Wing(VSMSettings(vsm_set_path; data_prefix=false);
-                                 kwargs...)
+    # Fallback: load from aero_geometry.yaml using provided vsm_set
+    prn && @info "Using provided VSMSettings for wing creation"
+    return VortexStepMethod.Wing(vsm_set; kwargs...)
 end
 
 """
@@ -774,7 +772,8 @@ Creates vsm_wing, vsm_aero, and vsm_solver internally.
 - `VSMWing`: A new VSM wing object.
 """
 function VSMWing(idx::Int, set::Settings,
-                 group_idxs::AbstractVector;
+                 group_idxs::AbstractVector,
+                 vsm_set::VortexStepMethod.VSMSettings;
                  R_b_c::Union{Nothing,AbstractMatrix}=nothing,
                  pos_cad::Union{Nothing,AbstractVector}=nothing,
                  transform_idx=1, y_damping=150.0,
@@ -809,7 +808,7 @@ function VSMWing(idx::Int, set::Settings,
     end
 
     # Create VSM wing, aero, and solver
-    vsm_wing = VortexStepMethod.Wing(set; prn=false)
+    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero;
         solver_type=VortexStepMethod.NONLIN,
@@ -910,6 +909,27 @@ function wing_inertia_principal(vsm_wing)
         return MVector{3, SimFloat}(diag_vals)
     end
     return MVector{3, SimFloat}(ones(SimFloat, 3))
+end
+
+"""
+    adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
+
+Adjust VSM panel positions when body frame origin changes.
+
+When QUATERNION wings are loaded from YAML, the panel positions in aero_geometry.yaml
+are specified in an absolute body frame. However, the body frame origin is adjusted
+to the mean position of all WING points. This function updates all panel positions
+to be relative to the new origin by subtracting the offset.
+
+# Arguments
+- `vsm_wing`: VortexStepMethod.Wing with sections to adjust
+- `origin_offset`: Vector [x, y, z] to subtract from panel positions
+"""
+function adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
+    for section in vsm_wing.sections
+        section.LE_point .-= origin_offset
+        section.TE_point .-= origin_offset
+    end
 end
 
 """
@@ -1046,6 +1066,7 @@ mutable struct SystemStructure
     wind_elevation::SimFloat
     stabilize::Bool
     fix_wing::Bool
+    vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
 end
 
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
@@ -1174,7 +1195,17 @@ function SystemStructure(name, set;
         wings=AbstractWing[],
         transforms=Transform[],
         ignore_l0::Bool=false,
+        vsm_set=nothing,
     )
+    # Load VSMSettings if not provided and wings exist
+    if isnothing(vsm_set) && !isempty(wings)
+        model_dir = get_data_path()
+        vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
+        if isfile(vsm_set_path)
+            vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+        end
+    end
+
     # If no wings defined, convert WING points to STATIC
     if isempty(wings)
         wing_point_idxs = findall(p -> p.type == WING, points)
@@ -1250,6 +1281,7 @@ function SystemStructure(name, set;
                 calculated_com = mean([p.pos_cad for p in wing_points])
                 wing.pos_cad .= calculated_com
                 wing.vsm_wing.T_cad_body .= calculated_com
+                adjust_vsm_panels_to_origin!(vsm_wing, calculated_com)
             end
 
             for (le_idx, te_idx) in wing_segments
@@ -1433,7 +1465,7 @@ function SystemStructure(name, set;
     jac = zeros(length(wings), nx, ny)
     set.physical_model = name
     sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
-        winches, wings, transforms, y, x, jac, zeros(KVec3), 0.0, false, false)
+        winches, wings, transforms, y, x, jac, zeros(KVec3), 0.0, false, false, vsm_set)
     reinit!(sys_struct, set)
 
     # Recalculate segment rest lengths from current positions if requested
@@ -2030,11 +2062,17 @@ function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=fal
     if remake_vsm
         for wing in wings
             # Recreate VSM wing from settings
-            wing.vsm_wing = VortexStepMethod.Wing(set; prn=false)
+            wing.vsm_wing = VortexStepMethod.Wing(set, sys_struct.vsm_set; prn=false)
             wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
             wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero;
                 solver_type=VortexStepMethod.NONLIN,
                 atol=2e-8, rtol=2e-8)
+
+            # Adjust VSM panel positions if body frame origin was customized
+            # (QUATERNION wings with YAML geometry have pos_cad adjusted to mean WING points)
+            if wing.wing_type == QUATERNION
+                adjust_vsm_panels_to_origin!(wing.vsm_wing, wing.pos_cad)
+            end
 
             # For REFINE wings, rebuild point_to_vsm_point mapping
             if wing.wing_type == REFINE && !isnothing(wing.point_to_vsm_point)

@@ -2,243 +2,205 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-TU Delft V3 Kite with REFINE Wing Type
+TU Delft V3 Kite Comparison: REFINE vs QUATERNION Wing Types
 
-This example demonstrates the REFINE wing type, which applies VSM panel forces
-directly to structural points instead of using quaternion-based rigid body dynamics.
+This example compares REFINE and QUATERNION wing models:
+- REFINE: Panel forces applied to structural points, deformable wing
+- QUATERNION: Rigid body dynamics with group twist DOFs
 
-Key differences from standard v3_kite.jl:
-- Wing points are DYNAMIC and deform under loads
-- VSM panel forces are lumped to structural points via inverse distance weighting
-- No group twist dynamics (REFINE wings cannot have groups)
-- Two-way coupling: structure deforms → VSM panels update → forces update
-- NO linearization (forces come directly from nonlinear VSM solve)
+The script runs both simulations and plots them for direct comparison.
 """
 
 using SymbolicAWEModels
 using VortexStepMethod
 using LinearAlgebra
 using Statistics
-using YAML
 using GLMakie
-
-@info "Loading v3 kite model with REFINE wing type..."
-
-# ============= User settings =============
-const MODEL_NAME = "v3"
-const SIM_TIME   = 300.0
-const FPS        = 1
-const N_STEPS    = Int(round(FPS * SIM_TIME))
-const REMAKE_CACHE = false
-const INITIAL_DAMPING = 10.0  # Initial world frame damping [N·s/m]
-const DECAY_TIME = 2.0        # Time for damping to decay to zero [s]
-const PLOT_DISTRIBUTION = false
-const MAX_STEERING = 0.2      # Maximum steering line length change [m]
-# =========================================
-
-# Load settings for the v3 kite
-set_data_path("data/v3")
-set = Settings("system.yaml")
-if hasproperty(set, :c_spring) || hasproperty(set, :damping)
-    @info "Legacy tether settings still present" c_spring=(hasproperty(set, :c_spring) ? getproperty(set, :c_spring) : missing) damping=(hasproperty(set, :damping) ? getproperty(set, :damping) : missing)
-end
-@info "Tether parameters (post-load)" axial_stiffness=set.axial_stiffness axial_damping=set.axial_damping d_tether=set.d_tether cd_tether=set.cd_tether
-
-# Load v3 system structure directly from YAML (automatically creates REFINE wing)
-@info "Loading v3 kite system structure from YAML..."
-model_name = hasproperty(set, :model_name) ? set.model_name : MODEL_NAME
-struc_yaml = hasproperty(set, :struc_geometry_path) ? set.struc_geometry_path :
-    joinpath("data", model_name, "struc_geometry.yaml")
-sys = load_sys_struct_from_yaml(struc_yaml; system_name=model_name, set=set)
-
-# Initialize damping to starting value
-SymbolicAWEModels.set_world_frame_damping(sys, INITIAL_DAMPING)
-
-wing_points = [p for p in sys.points if p.type == WING]
-@info "REFINE wing setup:" n_wing_points=length(wing_points) n_panels=length(sys.wings[1].vsm_aero.panels) n_segments=length(sys.segments)
-
-segment_props = [(idx=seg.idx, k=seg.axial_stiffness, c=seg.axial_damping, d=seg.diameter) for seg in sys.segments]
-@info "Segment mechanical properties (first 10)" segment_props[1:min(10, length(segment_props))]
-
-@info "System loaded with $(length(sys.points)) points, $(length(sys.segments)) segments, $(length(sys.wings)) wings"
-
-# Create symbolic model with the v3 REFINE system
-@info "Creating SymbolicAWEModel..."
-sam = SymbolicAWEModel(set, sys)
-
-# Test with head-on wind
-set.upwind_dir = -90.0
-
-# Calculate wind vector components in X,Y,Z
-upwind_rad = deg2rad(set.upwind_dir)
-# Check if wind_elevation exists in settings, default to 0.0
-wind_elev = hasfield(typeof(set), :wind_elevation) ? set.wind_elevation : 0.0
-wind_elev_rad = deg2rad(wind_elev)
-
-# Print wind settings with vector components
-@info "Wind Configuration:" wind_speed=set.v_wind upwind_dir=set.upwind_dir wind_elevation=wind_elev
-@info "  → Wind direction: $(set.upwind_dir)° (0° = North, 90° = East, 180° = South, -90° = West)"
-@info "  → Wind speed: $(set.v_wind) m/s at reference height $(set.h_ref) m"
-
-# Initialize the model
-# NOTE: REFINE wings do NOT use linearization (too expensive with many structural DOFs)
-# sys.points[20].fix_sphere=true
-# sys.points[2].fix_sphere=true
-# sys.points[10].fix_sphere=true
-# sys.points[12].fix_sphere=true
-sam.set.v_wind = 15.4
-# Store initial lengths for steering segments
-sys.segments[87].l0 += MAX_STEERING
-sys.segments[89].l0 -= MAX_STEERING
-seg_87_initial_length = sys.segments[87].l0
-seg_89_initial_length = sys.segments[89].l0
-SymbolicAWEModels.init!(sam; remake=REMAKE_CACHE, ignore_l0=false)
-@info "Steering segments initial lengths:" seg_87=seg_87_initial_length seg_89=seg_89_initial_length
-
-wing = sam.sys_struct.wings[1]
-vsm_aero = wing.vsm_aero
-vsm_solver = wing.vsm_solver
-vsm_wing = wing.vsm_wing
-
-if PLOT_DISTRIBUTION
-    results = VortexStepMethod.solve(vsm_solver, vsm_aero; log=true)
-    body_y_coordinates = [panel.aero_center[2] for panel in vsm_aero.panels]
-    plot_distribution(
-        [body_y_coordinates],
-        [results],
-        ["VSM"];
-        title="CAD_spanwise_distributions",
-        data_type=".pdf",
-        is_save=false,
-        is_show=true,
-    )
-end
-
-# Calculate simulation parameters
-n_steps = N_STEPS
-Δt = SIM_TIME / n_steps
-
-@info "Stabilizing system..."
-[point.fix_static = true for point in sys.points if point.type == WING]
-@time next_step!(sam; dt=10.0)
-[point.fix_static = false for point in sys.points if point.type == WING]
-
-# Create logger for recording simulation
 using KiteUtils
-logger = Logger(sam, n_steps + 1)
-sys_state = SysState(sam)
-sys_state.time = 0.0
-log!(logger, sys_state)
 
-## Plot initial state (user must display if desired)
-@info "Creating initial plot..."
-scene = plot(sam.sys_struct)
-display(scene)
+"""
+    run_v3_kite(wing_type::WingType; kwargs...)
 
-# Time-marching loop with coupled aerodynamics
-@info "Starting time-marching simulation with coupled aerodynamics..."
-@info "  REFINE wing: Panel forces → lumped to $(length(wing_points)) structural points"
-@info "  NO linearization: Forces computed directly from nonlinear VSM solve each timestep"
-@info "  Two-way coupling: Structure deforms → VSM panels update → Forces update"
+Run a v3 kite simulation with the specified wing type.
 
-# Track simulation time for performance metrics
-sim_start_time = time()
-total_sim_time = 0.0
+# Arguments
+- `wing_type::WingType`: Either `REFINE` or `QUATERNION`
 
-for step in 1:n_steps
-    t = step * Δt
+# Keyword Arguments
+- `sim_time::Float64=300.0`: Simulation duration [s]
+- `fps::Int=1`: Frames per second for logging
+- `remake_cache::Bool=false`: Force rebuild of cached model
+- `initial_damping::Float64=10.0`: Initial world frame damping [N·s/m]
+- `decay_time::Float64=2.0`: Time for damping decay [s]
+- `max_steering::Float64=0.2`: Maximum steering line length change [m]
+- `show_plots::Bool=false`: Display 3D plots during simulation
+- `v_wind::Float64=15.4`: Wind speed [m/s]
+- `upwind_dir::Float64=-90.0`: Wind direction [°]
 
-    # Update damping: linearly decay from INITIAL_DAMPING to 0 over DECAY_TIME
-    if t <= DECAY_TIME
-        current_damping = INITIAL_DAMPING * (1.0 - t / DECAY_TIME)
-        SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+# Returns
+- `SysLog`: The simulation log containing time history data
+"""
+function run_v3_kite(wing_type::WingType;
+                     sim_time=300.0,
+                     fps=1,
+                     remake_cache=false,
+                     initial_damping=10.0,
+                     decay_time=2.0,
+                     max_steering=0.1,
+                     show_plots=false,
+                     v_wind=15.4,
+                     upwind_dir=-90.0)
+
+    wing_type_str = wing_type == SymbolicAWEModels.REFINE ? "REFINE" : "QUATERNION"
+    @info "Running v3 kite simulation with $wing_type_str wing type..."
+
+    # Load settings
+    set_data_path("data/v3")
+    set = Settings("system.yaml")
+    set.v_wind = v_wind
+    set.upwind_dir = upwind_dir
+
+    # Load YAML structure path
+    model_name = wing_type == QUATERNION ? "v3_quat" : "v3_refine"
+    struc_yaml_path = joinpath("data", "v3", "struc_geometry.yaml")
+
+    # Load VSMSettings based on wing type
+    vsm_set_path = joinpath(get_data_path(), "vsm_settings.yaml")
+    vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+
+    # Modify VSM settings based on wing type
+    if wing_type == SymbolicAWEModels.REFINE
+        # REFINE uses 36 panels and 9 groups
+        vsm_set.wings[1].n_panels = 36
+        vsm_set.wings[1].n_groups = 9
     else
-        SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
+        # QUATERNION uses 40 panels and 10 groups
+        vsm_set.wings[1].n_panels = 40
+        vsm_set.wings[1].n_groups = 10
     end
 
-    try
-        # Update VSM panels from deformed structure (if needed, done internally)
-        # Then solve VSM and apply lumped forces to points
-        next_step!(sam; dt=Δt, vsm_interval=1)
-    catch err
-        @error "next_step! failed" step integrator_t=sam.integrator.t integrator_dt=sam.integrator.dt integrator_norm=norm(sam.integrator.u) integrator_max=maximum(abs, sam.integrator.u) exception=(err, catch_backtrace())
-        rethrow(err)
+    # Load system structure with wing_type and vsm_set parameters
+    sys = load_sys_struct_from_yaml(struc_yaml_path;
+        system_name=model_name, set, wing_type, vsm_set)
+
+
+    # Initialize damping
+    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
+
+    wing_points = [p for p in sys.points if p.type == WING]
+    @info "$wing_type_str wing setup:" n_wing_points=length(wing_points) n_groups=length(sys.groups) n_panels=length(sys.wings[1].vsm_aero.panels) n_segments=length(sys.segments)
+
+    # Create symbolic model
+    sam = SymbolicAWEModel(set, sys)
+
+    # Apply steering
+    sys.segments[87].l0 += max_steering
+    sys.segments[89].l0 -= max_steering
+
+    # Initialize model
+    @show sys.wings[1].vsm_wing.n_groups
+    SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
+
+    # Stabilization phase
+    @info "Stabilizing system..."
+    [point.fix_static = true for point in sys.points if point.type == WING]
+    if wing_type == QUATERNION
+        sys.wings[1].fix_sphere = true
+    end
+    @time next_step!(sam; dt=10.0)
+    [point.fix_static = false for point in sys.points if point.type == WING]
+    if wing_type == QUATERNION
+        sys.wings[1].fix_sphere = false
     end
 
-    # Log current state
-    update_sys_state!(sys_state, sam)
-    sys_state.time = t
+    # Create logger
+    n_steps = Int(round(fps * sim_time))
+    Δt = sim_time / n_steps
+    logger = Logger(sam, n_steps + 1)
+    sys_state = SysState(sam)
+    sys_state.time = 0.0
     log!(logger, sys_state)
 
-    # Print progress periodically with REFINE-specific info
-    if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
-        # Calculate average wing point position for tracking deformation
-        avg_wing_pos = mean([p.pos_w for p in wing_points])
-        current_damp = t <= DECAY_TIME ? INITIAL_DAMPING * (1.0 - t / DECAY_TIME) : 0.0
-
-        # Calculate times realtime
-        elapsed_wall_time = time() - sim_start_time
-        times_realtime = t / elapsed_wall_time
-
-        @info "  Step $step/$n_steps (t = $(round(t, digits=2)) s)" avg_wing_z=round(avg_wing_pos[3], digits=2) damping=round(current_damp, digits=2) times_realtime=round(times_realtime, digits=2)
+    # Optional initial plot
+    if show_plots
+        scene = plot(sam.sys_struct)
+        display(scene)
     end
+
+    # Time-marching loop
+    @info "Starting simulation: $n_steps steps, Δt = $(round(Δt, digits=4)) s"
+    sim_start_time = time()
+
+    for step in 1:n_steps
+        t = step * Δt
+
+        # Update damping
+        if t <= decay_time
+            current_damping = initial_damping * (1.0 - t / decay_time)
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+        else
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
+        end
+
+        # Advance simulation
+        try
+            next_step!(sam; dt=Δt, vsm_interval=1)
+        catch err
+            if err isa AssertionError
+                @error "next_step! failed" step
+                break
+            end
+            rethrow(err)
+        end
+
+        # Log state
+        update_sys_state!(sys_state, sam)
+        sys_state.time = t
+        log!(logger, sys_state)
+
+        # Progress updates
+        if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
+            elapsed = time() - sim_start_time
+            times_realtime = t / elapsed
+            @info "  Step $step/$n_steps (t = $(round(t, digits=2)) s)" times_realtime=round(times_realtime, digits=2)
+        end
+    end
+
+    # Calculate performance
+    total_wall_time = time() - sim_start_time
+    final_times_realtime = sim_time / total_wall_time
+    @info "Simulation completed: $wing_type_str" wall_time=round(total_wall_time, digits=2) times_realtime=round(final_times_realtime, digits=2)
+
+    # Save and load log
+    log_name = "tmp_run_$(lowercase(wing_type_str))"
+    save_log(logger, log_name)
+    syslog = load_log(log_name)
+
+    return syslog, sam
 end
 
-# Calculate final performance metrics
-total_wall_time = time() - sim_start_time
-final_times_realtime = SIM_TIME / total_wall_time
-@info "Simulation completed" total_wall_time=round(total_wall_time, digits=2) times_realtime=round(final_times_realtime, digits=2)
+# ============= Main Execution =============
 
-@info "Simulation complete. Creating interactive replay viewer with $(length(logger)) frames..."
+@info "V3 Kite Comparison: Running REFINE and QUATERNION simulations..."
 
-# Create interactive replay viewer with slider controls using the logged data
-save_log(logger, "tmp_run_refine")
-syslog = load_log("tmp_run_refine")
-scene = replay(syslog, sam.sys_struct; autoplay=false, loop=true)
-display(scene)
+# Run both simulations
+# syslog_refine, sam_refine = run_v3_kite(SymbolicAWEModels.REFINE; sim_time=60.0, fps=60, show_plots=false)
+syslog_quat, sam_quat = run_v3_kite(QUATERNION; sim_time=60.0, fps=24, show_plots=false)
 
-@info "Replay viewer created! Use the slider to step through time, or press Play to replay."
+@info "Both simulations complete. Creating comparison plots..."
 
-# Print final statistics
-println("\n" * "="^60)
-println("Final Simulation Results (t = $(SIM_TIME) s) - REFINE Wing")
-println("="^60)
+# # Create comparison plot
+# fig = plot(sam_refine.sys_struct, [syslog_refine, syslog_quat];
+#            plot_turn_rates=true,
+#            plot_azimuth=true,
+#            plot_elevation=true,
+#            plot_aoa=true,
+#            plot_heading=true,
+#            plot_default=false,
+#            plot_aero_force=true)
 
-# Calculate wing structural point statistics
-if !isempty(wing_points)
-    avg_x = mean([p.pos_w[1] for p in wing_points])
-    avg_y = mean([p.pos_w[2] for p in wing_points])
-    avg_z = mean([p.pos_w[3] for p in wing_points])
-    println("  Average wing point position: [$(round(avg_x, digits=2)), $(round(avg_y, digits=2)), $(round(avg_z, digits=2))] m")
+# display(fig)
 
-    # Calculate span of wing points
-    y_coords = [p.pos_w[2] for p in wing_points]
-    span = maximum(y_coords) - minimum(y_coords)
-    println("  Wing span: $(round(span, digits=2)) m")
-
-    # Calculate deformation from initial positions
-    displacements = [norm(p.pos_w - p.pos_cad) for p in wing_points]
-    avg_displacement = mean(displacements)
-    max_displacement = maximum(displacements)
-    println("  Average structural displacement: $(round(avg_displacement, digits=3)) m")
-    println("  Maximum structural displacement: $(round(max_displacement, digits=3)) m")
-end
-
-# Calculate average position of dynamic (non-wing) points
-dynamic_points = filter(p -> p.type == SymbolicAWEModels.DYNAMIC && p.type != SymbolicAWEModels.WING, sam.sys_struct.points)
-if !isempty(dynamic_points)
-    avg_x = mean([p.pos_w[1] for p in dynamic_points])
-    avg_y = mean([p.pos_w[2] for p in dynamic_points])
-    avg_z = mean([p.pos_w[3] for p in dynamic_points])
-    println("  Average dynamic point position: [$(round(avg_x, digits=2)), $(round(avg_y, digits=2)), $(round(avg_z, digits=2))] m")
-end
-
-println("\n  REFINE wing type: Direct panel forces applied to $(length(wing_points)) structural points")
-println("  VSM panels: $(length(sys.wings[1].vsm_aero.panels)) panels with forces lumped via inverse distance weighting")
-println("  NO linearization: Forces computed directly from nonlinear VSM solve")
-println("="^60)
-
-@info "Simulation complete! Interactive replay viewer with $(length(logger)) frames ready."
-@info "Note: Compare with standard v3_kite.jl to see the difference between REFINE and QUATERNION wing types"
+# @info "Comparison plot created!"
 
 nothing

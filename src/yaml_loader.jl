@@ -263,7 +263,7 @@ starting from 1 with no gaps.
 - `wings`: (optional, typically from VSM configuration)
 - `transforms`: (optional, typically from settings)
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing(), ignore_l0::Bool=false)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing(), ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, vsm_set=nothing)
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
@@ -496,19 +496,21 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         wing_rows = parse_table(data["wings"])
 
         for (i, row) in enumerate(wing_rows)
-            wing_type = parse_wing_type(String(row.type))
+            # Use provided wing_type parameter or parse from YAML
+            wt = isnothing(wing_type) ? parse_wing_type(String(row.type)) : wing_type
 
             # Build kwargs based on wing type
-            if wing_type == REFINE
+            if wt == REFINE
                 # REFINE wings need z_ref_points, y_ref_points, origin_idx
                 wing = call_yaml_constructor(VSMWing, row,
-                    [:idx, :set, :group_idxs],
+                    [:idx, :set, :group_idxs, :vsm_set],
                     [:transform_idx, :y_damping, :wing_type,
                      :z_ref_points, :y_ref_points, :origin_idx];
                     mappings=Dict(
                         :set => r -> set,
                         :group_idxs => r -> Int16[],
-                        :wing_type => r -> wing_type,
+                        :vsm_set => r -> vsm_set,
+                        :wing_type => r -> wt,
                         :z_ref_points => r ->
                             parse_ref_points(r, :z_ref_points),
                         :y_ref_points => r ->
@@ -519,12 +521,13 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             else  # QUATERNION
                 # QUATERNION wings don't use these fields
                 wing = call_yaml_constructor(VSMWing, row,
-                    [:idx, :set, :group_idxs],
+                    [:idx, :set, :group_idxs, :vsm_set],
                     [:transform_idx, :y_damping, :wing_type];
                     mappings=Dict(
                         :set => r -> set,
                         :group_idxs => r -> Int16[],
-                        :wing_type => r -> wing_type
+                        :vsm_set => r -> vsm_set,
+                        :wing_type => r -> wt
                     ))
             end
             push!(wings, wing)
@@ -570,5 +573,5 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     # SystemStructure constructor now handles WING→STATIC
     # conversion when no wings are defined
     return SystemStructure(system_name, set; points, groups,
-        segments, pulleys, tethers, winches, wings, transforms, ignore_l0)
+        segments, pulleys, tethers, winches, wings, transforms, ignore_l0, vsm_set)
 end
