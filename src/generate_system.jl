@@ -1569,9 +1569,14 @@ function linear_vsm_eqs!(
     has_quaternion = any(w.wing_type == QUATERNION for w in wings)
 
     # Compute maximum dimensions across all wings
-    # ny = dimension of VSM input state for QUATERNION wings: [va(3), ω(3), twist(n_groups)]
+    # ny = dimension of VSM input state for QUATERNION wings: [va(3), twist(n_unrefined), ω(3)]
     # Only compute if we have QUATERNION wings
-    ny_quaternion = has_quaternion ? 3 + length(wings[1].group_idxs) + 3 : 0
+    if has_quaternion
+        n_unrefined = wings[1].vsm_wing.n_unrefined_sections
+        ny_quaternion = 3 + n_unrefined + 3
+    else
+        ny_quaternion = 0
+    end
 
     # nx = dimension of VSM output (forces/moments for QUATERNION, panel forces for REFINE)
     nx_values = Int[]
@@ -1581,8 +1586,9 @@ function linear_vsm_eqs!(
             n_panels = length(wing.vsm_aero.panels)
             push!(nx_values, 3 * n_panels)
         else
-            # QUATERNION: Store [aero_force(3), aero_moment(3), group_moments(n_groups)]
-            push!(nx_values, 3 + 3 + length(wing.group_idxs))
+            # QUATERNION: Store [aero_force(3), aero_moment(3), unrefined_moments(n_unrefined)]
+            n_unrefined = wing.vsm_wing.n_unrefined_sections
+            push!(nx_values, 3 + 3 + n_unrefined)
         end
     end
     nx_max = maximum(nx_values)
@@ -1660,8 +1666,8 @@ function linear_vsm_eqs!(
             #   F(state) ≈ F(state₀) + ∂F/∂state|_{state₀} * (state - state₀)
             #
             # Where:
-            #   state = [va_wing_b(3), ω_b(3), twist_angle(n_groups)]  ← VSM inputs
-            #   F = [aero_force(3), aero_moment(3), group_moments(n_groups)]  ← VSM outputs
+            #   state = [va_wing_b(3), twist_angle(n_unrefined), ω_b(3)]  ← VSM inputs
+            #   F = [aero_force(3), aero_moment(3), unrefined_moments(n_unrefined)]  ← VSM outputs
             #   state₀ = previous linearization point (updated periodically by VSM solve)
             #   ∂F/∂state = Jacobian matrix (computed by VSM via finite differences)
             #
@@ -1673,7 +1679,8 @@ function linear_vsm_eqs!(
             drag_force_b = (force_b ⋅ wind_direction_b) * wind_direction_b
 
             # Dimensions for this wing
-            nx_quat = 3 + 3 + length(wing.group_idxs)
+            n_unrefined = wing.vsm_wing.n_unrefined_sections
+            nx_quat = 3 + 3 + n_unrefined
 
             eqs = [
                 eqs
@@ -1690,29 +1697,71 @@ function linear_vsm_eqs!(
                         get_vsm_jac(psys, wing.idx, ix, iy) for ix = 1:nx_quat for
                     iy = 1:ny_quaternion
                 ]
+            ]
 
+            # Build mapping from unrefined section index to group twist
+            # Create an array where unrefined_twists[i] = twist of group containing section i
+            unrefined_to_group_twist = Vector{Any}(undef, n_unrefined)
+            for group_idx in wing.group_idxs
+                group = groups[group_idx]
+                for unrefined_idx in group.unrefined_section_idxs
+                    unrefined_to_group_twist[unrefined_idx] = twist_angle[group.idx]
+                end
+            end
+
+            eqs = [
+                eqs
                 # Current input state for linearization
                 vsm_input_state[wing.idx, :] ~ [
-                    va_wing_b[wing.idx, :]        # Apparent wind velocity in body frame
+                    va_wing_b[wing.idx, :]       # Apparent wind velocity in body frame
+                    unrefined_to_group_twist       # Twist angles per unrefined section
                     ω_b[wing.idx, :]              # Angular velocity in body frame
-                    twist_angle[wing.group_idxs]  # Wing group twist angles
                 ]
 
                 # State deviation from linearization point: Δstate = state - state₀
                 vsm_input_state_delta[wing.idx, :] ~ vsm_input_state[wing.idx, :] - vsm_input_state_prev[wing.idx, :]
+            ]
 
+            # Map unrefined moments back to groups
+            # Sum moments from all unrefined sections belonging to each group
+            group_moment_eqs = []
+            for group_idx in wing.group_idxs
+                group = groups[group_idx]
+                if !isempty(group.unrefined_section_idxs)
+                    # Indices in vsm_output_force_prev: [force(3), moment(3), unrefined_moments(...)]
+                    # unrefined_moments start at index 7
+                    moment_terms = []
+                    for unrefined_idx in group.unrefined_section_idxs
+                        vsm_output_idx = 6 + unrefined_idx
+                        # Linearized moment: moment₀ + jacobian * delta_state
+                        linearized_moment = (
+                            vsm_output_force_prev[wing.idx, vsm_output_idx] +
+                            sum([force_jacobian[wing.idx, vsm_output_idx, iy] *
+                                 vsm_input_state_delta[wing.idx, iy]
+                                 for iy in 1:ny_quaternion])
+                        )
+                        push!(moment_terms, linearized_moment)
+                    end
+                    push!(group_moment_eqs,
+                          group_aero_moment[group.idx] ~ sum(moment_terms))
+                end
+            end
+
+            eqs = [
+                eqs
                 # ===== LINEARIZED FORCE CALCULATION =====
                 # F ≈ F₀ + ∂F/∂state * Δstate
                 # Then scale by dynamic pressure and wing area
                 [
                     force_b
                     aero_moment_b[wing.idx, :]
-                    group_aero_moment[wing.group_idxs]
                 ] ~
                     q_inf[wing.idx] *
                     area *
-                    (vsm_output_force_prev[wing.idx, 1:nx_quat] +
-                     force_jacobian[wing.idx, 1:nx_quat, :] * vsm_input_state_delta[wing.idx, :])
+                    (vsm_output_force_prev[wing.idx, 1:6] +
+                     force_jacobian[wing.idx, 1:6, :] * vsm_input_state_delta[wing.idx, :])
+
+                group_moment_eqs
 
                 # Apply additional drag correction factor
                 aero_force_b[wing.idx, :] ~
