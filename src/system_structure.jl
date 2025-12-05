@@ -185,6 +185,7 @@ mutable struct Group
     tether_force::SimFloat
     tether_moment::SimFloat
     aero_moment::SimFloat
+    unrefined_section_idxs::Vector{Int16}  # Indices of VSM unrefined sections in this group
 end
 
 """
@@ -218,7 +219,8 @@ function Group(idx, point_idxs, gamma, type, moment_frac;
     Group(idx, point_idxs, gamma,
           zeros(KVec3), zeros(KVec3), zeros(KVec3),
           type, moment_frac, damping,
-          0.0, 0.0, 0.0, 0.0, 0.0)
+          0.0, 0.0, 0.0, 0.0, 0.0,
+          Int16[])
 end
 
 """
@@ -236,7 +238,8 @@ function Group(idx, point_idxs, vsm_wing::Wing, gamma,
         for i in 1:3] - le_pos)
     Group(idx, point_idxs, gamma, le_pos, chord, y_airf,
           type, moment_frac, damping,
-          0.0, 0.0, 0.0, 0.0, 0.0)
+          0.0, 0.0, 0.0, 0.0, 0.0,
+          Int16[])
 end
 
 """
@@ -677,14 +680,19 @@ mutable struct VSMWing <: AbstractWing
     # Defines wing.pos_w = pos[:, origin_idx] to track structural deformation
     origin_idx::Union{Nothing, Int16}
 
-    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx)
-        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx)
+    # Body frame z-axis offset for VSM aerodynamics (QUATERNION only)
+    # Shifts VSM panel positions in positive z direction (body frame)
+    # to adjust moment arm for improved stability
+    aero_z_offset::SimFloat
+
+    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx, aero_z_offset)
+        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx, aero_z_offset)
     end
 end
 
 # Delegate property access to base wing for VSMWing
 function Base.getproperty(wing::VSMWing, sym::Symbol)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx, :aero_z_offset)
         return getfield(wing, sym)
     elseif sym == :vsm_aoa
         # Compute mean angle of attack from VSM solver solution
@@ -696,7 +704,7 @@ function Base.getproperty(wing::VSMWing, sym::Symbol)
 end
 
 function Base.setproperty!(wing::VSMWing, sym::Symbol, value)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx, :aero_z_offset)
         setfield!(wing, sym, value)
     else
         setproperty!(getfield(wing, :base), sym, value)
@@ -767,6 +775,7 @@ Creates vsm_wing, vsm_aero, and vsm_solver internally.
 - `wing_segments`: LE/TE pairs (REFINE only).
 - `x_ref_points`: Chord direction reference (REFINE only).
 - `y_ref_points`: Span direction reference (REFINE only).
+- `aero_z_offset::SimFloat=0.0`: Body frame z-offset for VSM panels (QUATERNION only).
 
 # Returns
 - `VSMWing`: A new VSM wing object.
@@ -786,7 +795,8 @@ function VSMWing(idx::Int, set::Settings,
                      Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}=nothing,
                  y_ref_points::Union{Nothing,
                      Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}=nothing,
-                 origin_idx::Union{Nothing, Int16}=nothing)
+                 origin_idx::Union{Nothing, Int16}=nothing,
+                 aero_z_offset::SimFloat=0.0)
 
     # Validation
     if wing_type == REFINE
@@ -832,15 +842,18 @@ function VSMWing(idx::Int, set::Settings,
         nx = 3 * length(vsm_aero.panels)
         ny = 0
     else
-        ny = length(group_idxs) + 3 + 3
-        nx = length(group_idxs) + 3 + 3
+        # QUATERNION: use number of unrefined sections
+        n_unrefined = vsm_wing.n_unrefined_sections
+        ny = 3 + n_unrefined + 3  # va(3) + twist(n_unrefined) + ω(3)
+        nx = 3 + 3 + n_unrefined  # force(3) + moment(3) + unrefined_moments(n_unrefined)
     end
 
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
                    zeros(SimFloat, ny), zeros(SimFloat, nx),
                    zeros(SimFloat, nx, ny),
                    point_to_vsm_point, wing_segments,
-                   z_ref_points, y_ref_points, origin_idx)
+                   z_ref_points, y_ref_points, origin_idx,
+                   aero_z_offset)
 end
 
 """
@@ -868,12 +881,14 @@ function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
                  pos_cad::AbstractVector)
     inertia_vec = wing_inertia_principal(vsm_wing)
     base = BaseWing(idx, group_idxs, R_b_c, pos_cad, inertia_vec)
-    ny = length(group_idxs) + 3 + 3
-    nx = length(group_idxs) + 3 + 3
+    # Use number of unrefined sections
+    n_unrefined = vsm_wing.n_unrefined_sections
+    ny = 3 + n_unrefined + 3  # va(3) + twist(n_unrefined) + ω(3)
+    nx = 3 + 3 + n_unrefined  # force(3) + moment(3) + unrefined_moments(n_unrefined)
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, ny), zeros(SimFloat, nx),
         zeros(SimFloat, nx, ny),
-        nothing, nothing, nothing, nothing, nothing)
+        nothing, nothing, nothing, nothing, nothing, 0.0)
 end
 
 """
@@ -929,6 +944,29 @@ function adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
     for section in vsm_wing.sections
         section.LE_point .-= origin_offset
         section.TE_point .-= origin_offset
+    end
+end
+
+"""
+    apply_aero_z_offset!(vsm_wing, aero_z_offset)
+
+Apply z-axis offset to VSM panel positions in body frame.
+
+For QUATERNION wings, this shifts the aerodynamic center of pressure
+in the positive z-direction (body frame) to adjust the moment arm.
+This is applied AFTER the COM adjustment.
+
+# Arguments
+- `vsm_wing`: VortexStepMethod.Wing with sections to adjust
+- `aero_z_offset`: Distance to shift panels in +z direction [m]
+"""
+function apply_aero_z_offset!(vsm_wing, aero_z_offset)
+    if abs(aero_z_offset) > 1e-10
+        offset_vec = [0.0, 0.0, aero_z_offset]
+        for section in vsm_wing.sections
+            section.LE_point .+= offset_vec
+            section.TE_point .+= offset_vec
+        end
     end
 end
 
@@ -1269,7 +1307,8 @@ function SystemStructure(name, set;
             # Identify LE/TE pairs
             wing_segments = identify_wing_segments(wing_points)
 
-            # Create a group for each LE/TE pair
+            # Create a group for each section (LE/TE pair)
+            # n_groups = n_unrefined_sections (one group per section)
             vsm_wing = wing.vsm_wing
             new_group_idxs = Int16[]
 
@@ -1282,6 +1321,8 @@ function SystemStructure(name, set;
                 wing.pos_cad .= calculated_com
                 wing.vsm_wing.T_cad_body .= calculated_com
                 adjust_vsm_panels_to_origin!(vsm_wing, calculated_com)
+                # Apply aero_z_offset after COM adjustment
+                apply_aero_z_offset!(vsm_wing, wing.aero_z_offset)
             end
 
             for (le_idx, te_idx) in wing_segments
@@ -1313,9 +1354,10 @@ function SystemStructure(name, set;
             # Update wing with new groups and resize vsm arrays
             wing.group_idxs = new_group_idxs
 
-            # Resize vsm arrays based on new number of groups
-            ny = 3 + length(new_group_idxs) + 3  # va(3) + ω(3) + twist(n_groups)
-            nx = 3 + 3 + length(new_group_idxs)  # force(3) + moment(3) + group_moments
+            # Resize vsm arrays based on number of unrefined sections
+            n_unrefined = wing.vsm_wing.n_unrefined_sections
+            ny = 3 + n_unrefined + 3  # va(3) + twist(n_unrefined) + ω(3)
+            nx = 3 + 3 + n_unrefined  # force(3) + moment(3) + unrefined_moments(n_unrefined)
             wing.vsm_y = zeros(SimFloat, ny)
             wing.vsm_x = zeros(SimFloat, nx)
             wing.vsm_jac = zeros(SimFloat, nx, ny)
@@ -1388,6 +1430,29 @@ function SystemStructure(name, set;
         end
     end
 
+    # Initialize group-to-unrefined-section mapping for QUATERNION wings
+    for wing in wings
+        if wing.wing_type == QUATERNION && !isempty(wing.group_idxs)
+            n_unrefined = wing.vsm_wing.n_unrefined_sections  # Number of unrefined sections
+            n_groups = length(wing.group_idxs)
+
+            # Simple mapping: divide unrefined sections equally among groups
+            if n_groups > 0
+                sections_per_group = n_unrefined ÷ n_groups
+                remainder = n_unrefined % n_groups
+
+                unrefined_idx = 1
+                for (local_idx, group_idx) in enumerate(wing.group_idxs)
+                    group = groups[group_idx]
+                    # Give extra section to first groups if there's remainder
+                    n_sections = sections_per_group + (local_idx <= remainder ? 1 : 0)
+                    group.unrefined_section_idxs = Int16[unrefined_idx:(unrefined_idx + n_sections - 1);]
+                    unrefined_idx += n_sections
+                end
+            end
+        end
+    end
+
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
         # For REFINE wings, set defaults if not provided
@@ -1454,8 +1519,10 @@ function SystemStructure(name, set;
         set.headings[i]   = rad2deg(transform.heading)
     end
     if length(wings) > 0
-        ny = 3+length(wings[1].group_idxs)+3
-        nx = 3+3+length(wings[1].group_idxs)
+        # Use number of unrefined sections
+        n_unrefined = wings[1].vsm_wing.n_unrefined_sections
+        ny = 3 + n_unrefined + 3
+        nx = 3 + 3 + n_unrefined
     else
         ny = 0
         nx = 0
@@ -2072,6 +2139,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=fal
             # (QUATERNION wings with YAML geometry have pos_cad adjusted to mean WING points)
             if wing.wing_type == QUATERNION
                 adjust_vsm_panels_to_origin!(wing.vsm_wing, wing.pos_cad)
+                # Apply aero_z_offset after COM adjustment
+                apply_aero_z_offset!(wing.vsm_wing, wing.aero_z_offset)
             end
 
             # For REFINE wings, rebuild point_to_vsm_point mapping
