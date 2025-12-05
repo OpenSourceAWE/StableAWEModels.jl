@@ -277,11 +277,16 @@ wings:
   data:
     # QUATERNION wing: Rigid body with twist groups (auto-created from LE/TE pairs)
     # Points 2-21 form 10 LE/TE segment pairs (2,3), ..., (20,21)
+    # For QUATERNION wings, use aero_z_offset to shift VSM panels in body frame z
+    # For REFINE wings, use point_ids, origin_idx, z_ref_points, y_ref_points
     - idx: 1
       type: REFINE
       point_ids: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
         13, 14, 15, 16, 17, 18, 19, 20, 21]
       origin_idx: 1
+      z_ref_points: [1, [12, 11]]  # KCU to LE for Z (normal)
+      y_ref_points: [12, 10]  # Center LE for Y (span)
+      aero_z_offset: 10.0  # QUATERNION only: shifts VSM panels +z in body frame
 
 ###########################
 ## Transforms #############
