@@ -23,6 +23,7 @@ makedocs(;
         "Getting Started" => "getting_started.md",
         "Examples" => "examples.md",
         "Custom Model" => "tutorial_system_structure.md",
+        "VSM Coupling" => "vsm_coupling.md",
         "Exported Types" => "exported_types.md",
         "Exported Functions" => "exported_functions.md",
         "Parameters" => "parameters.md",
