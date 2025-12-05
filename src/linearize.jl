@@ -77,30 +77,52 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
                 @warn "Resetting vsm solver."
             end
 
+            # Build unrefined twist angles from groups
+            n_unrefined = wing.vsm_wing.n_unrefined_sections
             group_idxs = wing.group_idxs
-            total_groups = length(groups)
-            theta_idxs = isempty(group_idxs) ? nothing : (6 .+ group_idxs)
+
+            # Populate wing.theta_dist from group twist angles
+            for group_idx in group_idxs
+                group = groups[group_idx]
+                for unrefined_idx in group.unrefined_section_idxs
+                    wing.vsm_wing.theta_dist[unrefined_idx] = group.twist
+                end
+            end
+
+            # Determine moment_frac and theta_idxs
             moment_frac = if isempty(group_idxs)
                 0.25
-            elseif total_groups >= maximum(group_idxs)
+            elseif length(groups) >= maximum(group_idxs)
                 groups[first(group_idxs)].moment_frac
             else
                 0.25
             end
+
+            # All unrefined sections get twist (not just groups)
+            theta_idxs = isempty(group_idxs) ? nothing : (4:(3+n_unrefined))
 
             res = VortexStepMethod.linearize(
                 wing.vsm_solver,
                 wing.vsm_aero,
                 wing.vsm_y;
                 va_idxs = 1:3,
-                omega_idxs = 4:6,
                 theta_idxs = theta_idxs,
+                omega_idxs = (4+n_unrefined):(6+n_unrefined),
                 moment_frac = moment_frac,
                 aero_coeffs = true
             )
 
             wing.vsm_jac .= res[1]
             wing.vsm_x .= res[2]
+
+            # Map unrefined moments back to groups
+            if !isempty(group_idxs)
+                unrefined_moments = res[2][7:end]  # First 6 are force+moment
+                for group_idx in group_idxs
+                    group = groups[group_idx]
+                    group.aero_moment = sum(unrefined_moments[group.unrefined_section_idxs])
+                end
+            end
         end
     end
 
