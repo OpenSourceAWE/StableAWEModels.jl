@@ -220,24 +220,24 @@ end
 """
     distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point})
 
-Distribute VSM panel forces to structural points using group-level aerodynamic coefficients.
+Distribute VSM panel forces to structural points using unrefined-level aerodynamic coefficients.
 
-After VSM solve, uses pre-computed group-level coefficients (averaged over refined panels)
+After VSM solve, uses pre-computed unrefined section coefficients (averaged over refined panels)
 to compute LE and TE forces for each section, then distributes to structural points.
 
 # Algorithm
 1. Initialize all WING point aero_forces to zero
-2. For each section (which maps 1:1 to unrefined panels/groups):
-   - Get cl, cd, cm from group arrays (groups map 1:1 to unrefined panels)
-   - Get a representative panel from this group
+2. For each section (which maps 1:1 to unrefined panels):
+   - Get cl, cd, cm from unrefined arrays
+   - Get a representative panel from this unrefined section
    - Call compute_panel_le_te_forces() to get LE and TE forces
    - Map forces to structural points via point_to_vsm_point
 
 # Mapping
-- Groups in VortexStepMethod map 1:1 to unrefined panels
+- Unrefined sections in VortexStepMethod map 1:1 to structural wing segments
 - Each unrefined panel connects two adjacent sections
-- Each group aggregates coefficients from all refined panels of that unrefined panel
-- Group coefficients are pre-averaged by the VSM solver
+- Each unrefined section aggregates coefficients from all refined panels
+- Unrefined coefficients are pre-averaged by the VSM solver
 - Forces are distributed 50/50 to the two sections that bound each panel
 
 # Arguments
@@ -247,12 +247,12 @@ to compute LE and TE forces for each section, then distributes to structural poi
 function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point})
     @assert wing.wing_type == REFINE "Can only distribute forces for REFINE wings"
 
-    # Get VSM solution data - use group arrays instead of panel arrays
-    cl_group_array = wing.vsm_solver.sol.cl_group_array
-    cd_group_array = wing.vsm_solver.sol.cd_group_array
-    cm_group_array = wing.vsm_solver.sol.cm_group_array
-    alpha_group_array = wing.vsm_solver.sol.alpha_group_array
-    groups = wing.vsm_aero.groups
+    # Get VSM solution data - use unrefined arrays
+    cl_unrefined_array = wing.vsm_solver.sol.cl_unrefined_array
+    cd_unrefined_array = wing.vsm_solver.sol.cd_unrefined_array
+    cm_unrefined_array = wing.vsm_solver.sol.cm_unrefined_array
+    alpha_unrefined_array = wing.vsm_solver.sol.alpha_unrefined_array
+    unrefined = wing.vsm_aero.unrefined
     density = wing.vsm_solver.density
     n_sections = length(wing.vsm_wing.sections)
 
@@ -270,30 +270,30 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point}
     end
 
     # Number of unrefined panels = number of sections - 1
-    # Groups map 1:1 to unrefined panels for REFINE wings
+    # Unrefined sections map 1:1 to panels for REFINE wings
     n_unrefined_panels = n_sections - 1
 
-    # For each unrefined panel (group), distribute forces to adjacent sections
+    # For each unrefined panel, distribute forces to adjacent sections
     for panel_idx in 1:n_unrefined_panels
-        group_idx = panel_idx  # 1:1 mapping
+        unrefined_idx = panel_idx  # 1:1 mapping
 
-        # Get group-level coefficients (averaged over all refined panels in this group)
-        cl = cl_group_array[group_idx]
-        cd = cd_group_array[group_idx]
-        cm = cm_group_array[group_idx]
-        alpha_corrected = alpha_group_array[group_idx]
+        # Get unrefined-level coefficients (averaged over all refined panels)
+        cl = cl_unrefined_array[unrefined_idx]
+        cd = cd_unrefined_array[unrefined_idx]
+        cm = cm_unrefined_array[unrefined_idx]
+        alpha_corrected = alpha_unrefined_array[unrefined_idx]
 
-        # Get group panel with averaged geometry and total area
-        group_panel = groups[group_idx]
-        v_a_mag = norm(group_panel.va)
+        # Get unrefined panel with averaged geometry and total area
+        unrefined_panel = unrefined[unrefined_idx]
+        v_a_mag = norm(unrefined_panel.va)
 
         # Panel connects section i and section i+1
         section_i_idx = panel_idx
         section_i_plus_1_idx = panel_idx + 1
 
-        # Compute LE and TE forces using group panel (has correct averaged geometry and total area)
+        # Compute LE and TE forces using unrefined panel (has correct averaged geometry and total area)
         F_LE, F_TE = compute_panel_le_te_forces(
-            group_panel, cl, cd, cm, alpha_corrected, density, v_a_mag
+            unrefined_panel, cl, cd, cm, alpha_corrected, density, v_a_mag
         )
 
         # Distribute 50% of forces to each adjacent section

@@ -522,7 +522,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 # QUATERNION wings don't use these fields
                 wing = call_yaml_constructor(VSMWing, row,
                     [:idx, :set, :group_idxs, :vsm_set],
-                    [:transform_idx, :y_damping, :wing_type];
+                    [:transform_idx, :y_damping, :wing_type, :aero_z_offset];
                     mappings=Dict(
                         :set => r -> set,
                         :group_idxs => r -> Int16[],

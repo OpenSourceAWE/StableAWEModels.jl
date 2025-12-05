@@ -560,7 +560,15 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("winch", winch.idx, winch.tether_idxs))
     end
     for wing in wings
-        push!(data_parts, ("wing", wing.idx, wing.group_idxs, Int(wing.base.wing_type)))
+        wing_data = ("wing", wing.idx, wing.group_idxs, Int(wing.base.wing_type))
+
+        # Include REFINE wing reference points in hash
+        if wing isa VSMWing
+            wing_data = (wing_data...,
+                wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
+        end
+
+        push!(data_parts, wing_data)
     end
     for transform in transforms
         push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx,
