@@ -151,7 +151,7 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
             # Build va_distribution from per-point va_b values using point_to_vsm_point mapping
             if !isnothing(wing.point_to_vsm_point)
                 # First calculate va at each section from structural points
-                n_sections = length(wing.vsm_wing.sections)
+                n_sections = length(wing.vsm_wing.unrefined_sections)
                 section_va = Vector{Vector{Float64}}(undef, n_sections)
 
                 # Build inverse mapping: (section_idx, :LE/:TE) -> point_idx

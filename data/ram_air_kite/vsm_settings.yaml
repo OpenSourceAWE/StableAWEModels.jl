@@ -15,13 +15,11 @@ InitialGammaDistribution:
 wings:
     - name: main_wing
       n_panels: 40
-      n_groups: 40
       spanwise_panel_distribution: LINEAR
       spanwise_direction: [0.0, 1.0, 0.0]
       remove_nan: true
 solver_settings:
     n_panels: 40
-    n_groups: 40
     aerodynamic_model_type: VSM
     density: 1.225                   # air density  [kg/m³]
     max_iterations: 1500

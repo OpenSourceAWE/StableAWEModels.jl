@@ -56,7 +56,7 @@ Build 1:1 mapping from structural WING points to VSM wing section points (LE/TE)
 For each VSM section point (LE/TE), finds the closest structural point in CAD frame.
 
 # Constraint
-Requires: `length(wing_points) == 2 * length(vsm_wing.sections)`
+Requires: `length(wing_points) == 2 * length(vsm_wing.unrefined_sections)`
 
 # Arguments
 - `wing_points::Vector{Point}`: Structural WING-type points
@@ -76,7 +76,7 @@ function build_point_to_vsm_point_mapping(
     vsm_wing::VortexStepMethod.AbstractWing
 )
     n_points = length(wing_points)
-    n_sections = length(vsm_wing.sections)
+    n_sections = length(vsm_wing.unrefined_sections)
 
     # Validate 1:1 correspondence constraint
     if n_points != 2 * n_sections
@@ -87,7 +87,7 @@ function build_point_to_vsm_point_mapping(
     point_to_vsm_point = Dict{Int16, Tuple{Int16, Symbol}}()
     used_points = Set{Int16}()
 
-    for (section_idx, section) in enumerate(vsm_wing.sections)
+    for (section_idx, section) in enumerate(vsm_wing.unrefined_sections)
         # Map LE_point to closest unused structural point
         le_pos = section.LE_point
         min_dist = Inf
@@ -131,17 +131,21 @@ function build_point_to_vsm_point_mapping(
 end
 
 """
-    compute_panel_le_te_forces(panel, cl, cd, cm, alpha_corrected, density, v_a_mag)
+    compute_section_le_te_forces(x_airf, y_airf, z_airf, chord, width, cl, cd, cm, alpha_corrected, density, v_a_mag)
 
 Compute leading-edge and trailing-edge forces from aerodynamic coefficients.
 
-Given a panel with aerodynamic coefficients at quarter-chord, this function:
+Given section geometry and aerodynamic coefficients at quarter-chord, this function:
 1. Calculates total lift and drag forces using dynamic pressure
 2. Uses pitching moment to determine center of pressure location
 3. Splits forces between LE and TE to satisfy moment equilibrium
 
 # Arguments
-- `panel`: VSM Panel (or group panel) with geometry (x_airf, y_airf, z_airf, chord, width, va)
+- `x_airf`: Airfoil frame x-axis unit vector (chord direction)
+- `y_airf`: Airfoil frame y-axis unit vector (spanwise direction)
+- `z_airf`: Airfoil frame z-axis unit vector (normal to chord)
+- `chord`: Section chord length [m]
+- `width`: Section spanwise width [m]
 - `cl`: Lift coefficient [-]
 - `cd`: Drag coefficient [-]
 - `cm`: Pitching moment coefficient at quarter-chord [-]
@@ -159,18 +163,15 @@ Given a panel with aerodynamic coefficients at quarter-chord, this function:
 4. Lift split: L_LE = L × (1 - x_cp), L_TE = L × x_cp
 5. Drag split: D_LE = D/2, D_TE = D/2
 6. Force directions computed using corrected alpha (matches VortexStepMethod algorithm)
-
-# Note
-For REFINE wings, pass the group panel which has averaged geometry and total area.
-Uses corrected alpha to properly account for induced velocity effects on force direction.
 """
-function compute_panel_le_te_forces(panel, cl, cd, cm, alpha_corrected, density, v_a_mag)
+function compute_section_le_te_forces(x_airf, y_airf, z_airf, chord, width,
+                                       cl, cd, cm, alpha_corrected, density, v_a_mag)
     # Dynamic pressure
     q = 0.5 * density * v_a_mag^2
 
     # Total lift and drag magnitudes
-    L_total = cl * q * panel.chord * panel.width
-    D_total = cd * q * panel.chord * panel.width
+    L_total = cl * q * chord * width
+    D_total = cd * q * chord * width
 
     # Center of pressure location (normalized by chord)
     # x_cp = 0.25 (quarter-chord) + cm/cl (moment arm)
@@ -194,20 +195,20 @@ function compute_panel_le_te_forces(panel, cl, cd, cm, alpha_corrected, density,
 
     # Compute force directions using corrected alpha (matches VortexStepMethod)
     # Induced apparent wind direction in airfoil frame
-    dir_induced_va_airfoil = cos(alpha_corrected) * panel.x_airf +
-                             sin(alpha_corrected) * panel.z_airf
+    dir_induced_va_airfoil = cos(alpha_corrected) * x_airf +
+                             sin(alpha_corrected) * z_airf
 
     # Drag direction: along induced apparent wind
     drag_dir = dir_induced_va_airfoil / (norm(dir_induced_va_airfoil) + 1e-12)
 
     # Lift direction: perpendicular to drag and spanwise axis
-    lift_dir = cross(drag_dir, panel.y_airf)
+    lift_dir = cross(drag_dir, y_airf)
     lift_dir_mag = norm(lift_dir)
     if lift_dir_mag > 1e-12
         lift_dir = lift_dir / lift_dir_mag
     else
         # Fallback to z_airf if cross product is degenerate
-        lift_dir = panel.z_airf
+        lift_dir = z_airf
     end
 
     # Combine lift and drag components at LE and TE
@@ -220,25 +221,23 @@ end
 """
     distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point})
 
-Distribute VSM panel forces to structural points using unrefined-level aerodynamic coefficients.
+Distribute VSM forces to structural points using unrefined section distributions.
 
-After VSM solve, uses pre-computed unrefined section coefficients (averaged over refined panels)
-to compute LE and TE forces for each section, then distributes to structural points.
+After VSM solve, uses unrefined section coefficients and geometry (averaged over refined panels)
+to compute LE and TE forces for each section, then maps directly to structural points.
 
 # Algorithm
 1. Initialize all WING point aero_forces to zero
-2. For each section (which maps 1:1 to unrefined panels):
-   - Get cl, cd, cm from unrefined arrays
-   - Get a representative panel from this unrefined section
-   - Call compute_panel_le_te_forces() to get LE and TE forces
-   - Map forces to structural points via point_to_vsm_point
+2. For each unrefined section:
+   - Get cl, cd, cm, alpha, and geometry from unrefined_dist arrays
+   - Compute LE and TE forces using section geometry
+   - Map forces directly to structural points via point_to_vsm_point (1:1 mapping)
 
 # Mapping
-- Unrefined sections in VortexStepMethod map 1:1 to structural wing segments
-- Each unrefined panel connects two adjacent sections
-- Each unrefined section aggregates coefficients from all refined panels
-- Unrefined coefficients are pre-averaged by the VSM solver
-- Forces are distributed 50/50 to the two sections that bound each panel
+- Unrefined sections map 1:1 to structural wing sections
+- Each structural section has an LE point and TE point
+- VSM provides averaged coefficients and geometry per unrefined section
+- Direct mapping: unrefined_section[i] → structural_section[i] → (LE_point, TE_point)
 
 # Arguments
 - `wing::VSMWing`: Wing with REFINE type and solved VSM state
@@ -247,14 +246,20 @@ to compute LE and TE forces for each section, then distributes to structural poi
 function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point})
     @assert wing.wing_type == REFINE "Can only distribute forces for REFINE wings"
 
-    # Get VSM solution data - use unrefined arrays
-    cl_unrefined_array = wing.vsm_solver.sol.cl_unrefined_array
-    cd_unrefined_array = wing.vsm_solver.sol.cd_unrefined_array
-    cm_unrefined_array = wing.vsm_solver.sol.cm_unrefined_array
-    alpha_unrefined_array = wing.vsm_solver.sol.alpha_unrefined_array
-    unrefined = wing.vsm_aero.unrefined
+    # Get VSM solution data - unrefined distributions
+    sol = wing.vsm_solver.sol
+    cl_unrefined_dist = sol.cl_unrefined_dist
+    cd_unrefined_dist = sol.cd_unrefined_dist
+    cm_unrefined_dist = sol.cm_unrefined_dist
+    alpha_unrefined_dist = sol.alpha_unrefined_dist
+    x_airf_unrefined_dist = sol.x_airf_unrefined_dist
+    y_airf_unrefined_dist = sol.y_airf_unrefined_dist
+    z_airf_unrefined_dist = sol.z_airf_unrefined_dist
+    va_unrefined_dist = sol.va_unrefined_dist
+    chord_unrefined_dist = sol.chord_unrefined_dist
+    width_unrefined_dist = sol.width_unrefined_dist
     density = wing.vsm_solver.density
-    n_sections = length(wing.vsm_wing.sections)
+    n_sections = length(wing.vsm_wing.unrefined_sections)
 
     # Initialize all WING point forces to zero
     for point in points
@@ -269,58 +274,38 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point}
         vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
     end
 
-    # Number of unrefined panels = number of sections - 1
-    # Unrefined sections map 1:1 to panels for REFINE wings
-    n_unrefined_panels = n_sections - 1
+    # For each unrefined section, compute and apply forces directly
+    for section_idx in 1:n_sections
+        # Get section coefficients and geometry from unrefined distributions
+        cl = cl_unrefined_dist[section_idx]
+        cd = cd_unrefined_dist[section_idx]
+        cm = cm_unrefined_dist[section_idx]
+        alpha_corrected = alpha_unrefined_dist[section_idx]
+        x_airf = x_airf_unrefined_dist[section_idx]
+        y_airf = y_airf_unrefined_dist[section_idx]
+        z_airf = z_airf_unrefined_dist[section_idx]
+        va = va_unrefined_dist[section_idx]
+        chord = chord_unrefined_dist[section_idx]
+        width = width_unrefined_dist[section_idx]
+        v_a_mag = norm(va)
 
-    # For each unrefined panel, distribute forces to adjacent sections
-    for panel_idx in 1:n_unrefined_panels
-        unrefined_idx = panel_idx  # 1:1 mapping
-
-        # Get unrefined-level coefficients (averaged over all refined panels)
-        cl = cl_unrefined_array[unrefined_idx]
-        cd = cd_unrefined_array[unrefined_idx]
-        cm = cm_unrefined_array[unrefined_idx]
-        alpha_corrected = alpha_unrefined_array[unrefined_idx]
-
-        # Get unrefined panel with averaged geometry and total area
-        unrefined_panel = unrefined[unrefined_idx]
-        v_a_mag = norm(unrefined_panel.va)
-
-        # Panel connects section i and section i+1
-        section_i_idx = panel_idx
-        section_i_plus_1_idx = panel_idx + 1
-
-        # Compute LE and TE forces using unrefined panel (has correct averaged geometry and total area)
-        F_LE, F_TE = compute_panel_le_te_forces(
-            unrefined_panel, cl, cd, cm, alpha_corrected, density, v_a_mag
+        # Compute LE and TE forces for this section
+        F_LE, F_TE = compute_section_le_te_forces(
+            x_airf, y_airf, z_airf, chord, width,
+            cl, cd, cm, alpha_corrected, density, v_a_mag
         )
 
-        # Distribute 50% of forces to each adjacent section
-        # Section i gets 50%
-        le_key_i = (Int16(section_i_idx), :LE)
-        te_key_i = (Int16(section_i_idx), :TE)
+        # Map forces directly to structural points (1:1 mapping)
+        le_key = (Int16(section_idx), :LE)
+        te_key = (Int16(section_idx), :TE)
 
-        if haskey(vsm_point_to_struct, le_key_i)
-            point_idx = vsm_point_to_struct[le_key_i]
-            points[point_idx].aero_force_b .+= F_LE / 2.0
+        if haskey(vsm_point_to_struct, le_key)
+            point_idx = vsm_point_to_struct[le_key]
+            points[point_idx].aero_force_b .= F_LE
         end
-        if haskey(vsm_point_to_struct, te_key_i)
-            point_idx = vsm_point_to_struct[te_key_i]
-            points[point_idx].aero_force_b .+= F_TE / 2.0
-        end
-
-        # Section i+1 gets 50%
-        le_key_i_plus_1 = (Int16(section_i_plus_1_idx), :LE)
-        te_key_i_plus_1 = (Int16(section_i_plus_1_idx), :TE)
-
-        if haskey(vsm_point_to_struct, le_key_i_plus_1)
-            point_idx = vsm_point_to_struct[le_key_i_plus_1]
-            points[point_idx].aero_force_b .+= F_LE / 2.0
-        end
-        if haskey(vsm_point_to_struct, te_key_i_plus_1)
-            point_idx = vsm_point_to_struct[te_key_i_plus_1]
-            points[point_idx].aero_force_b .+= F_TE / 2.0
+        if haskey(vsm_point_to_struct, te_key)
+            point_idx = vsm_point_to_struct[te_key]
+            points[point_idx].aero_force_b .= F_TE
         end
     end
 
@@ -366,7 +351,7 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
         pos_b = R_b_w' * (point.pos_w - origin)
 
         # Get the section
-        section = wing.vsm_wing.sections[section_idx]
+        section = wing.vsm_wing.unrefined_sections[section_idx]
 
         # Set section point directly to body frame position
         if le_or_te == :LE

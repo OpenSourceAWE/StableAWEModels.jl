@@ -1617,16 +1617,9 @@ function linear_vsm_eqs!(
 
     for wing in wings
         if wing.wing_type == REFINE
-            # ==================== REFINE WING: Direct Panel Forces ====================
-            # REFINE wings apply VSM panel forces directly to structural points without
-            # linearization. Each VSM panel contributes to nearby structural points via
-            # inverse distance weighting.
-            #
-            # Storage: vsm_output_force_prev[wing.idx, 1:nx_refine] stores per-panel forces
-            #          as [fx_1, fy_1, fz_1, fx_2, fy_2, fz_2, ...]
-            #
-            # NO linearization: Forces come from full nonlinear VSM solve each timestep.
-            # (Linearization would be prohibitively expensive with many structural DOFs)
+            # ==================== REFINE WING: Direct Section Forces ====================
+            # REFINE wings use nonlinear VSM solve each timestep. Unrefined section forces
+            # map 1:1 to structural sections (LE+TE points). No linearization.
 
             n_panels = length(wing.vsm_aero.panels)
             nx_refine = 3 * n_panels
@@ -1637,22 +1630,18 @@ function linear_vsm_eqs!(
                 [vsm_output_force_prev[wing.idx, ix] ~ get_vsm_x(psys, wing.idx, ix) for ix = 1:nx_refine]
             ]
 
-            # REFINE wings: aero forces computed in Julia and stored in point.aero_force
-            # (computed by distribute_panel_forces_to_points! after VSM solve)
-            # Just read the pre-computed forces from point struct
+            # Aero forces computed by distribute_panel_forces_to_points! and stored in point.aero_force_b
             wing_points = [p for p in points if p.type == WING && p.wing_idx == wing.idx]
 
             for point in wing_points
                 eqs = [
                     eqs
-                    # Read pre-computed aero force from point.aero_force
                     aero_force_point_b[:, point.idx] ~
                         [get_point_aero_force(psys, point.idx, i) for i in 1:3]
                 ]
             end
 
-            # Sum point forces to get total wing aero force (for REFINE wings)
-            # Individual forces are distributed to points, but total force is sum of all point forces
+            # Total wing force is sum of all point forces
             eqs = [
                 eqs
                 aero_force_b[wing.idx, :] ~ sum([aero_force_point_b[:, p.idx] for p in wing_points])
@@ -1661,17 +1650,9 @@ function linear_vsm_eqs!(
 
         else
             # ==================== QUATERNION WING: Linearized Aerodynamics ====================
-            # QUATERNION wings use first-order Taylor expansion to approximate aerodynamic forces:
-            #
-            #   F(state) ≈ F(state₀) + ∂F/∂state|_{state₀} * (state - state₀)
-            #
-            # Where:
-            #   state = [va_wing_b(3), twist_angle(n_unrefined), ω_b(3)]  ← VSM inputs
-            #   F = [aero_force(3), aero_moment(3), unrefined_moments(n_unrefined)]  ← VSM outputs
-            #   state₀ = previous linearization point (updated periodically by VSM solve)
-            #   ∂F/∂state = Jacobian matrix (computed by VSM via finite differences)
-            #
-            # This allows efficient force updates without re-solving the full VSM system every timestep.
+            # Linearized forces: F ≈ F₀ + J*(state - state₀)
+            # State: [va_b(3), twist(n_unrefined), ω_b(3)]
+            # Output: [force(3), moment(3), unrefined_moments(n_unrefined)]
 
             area = wing.vsm_aero.projected_area
             force_b = no_scale_aero_force_b[wing.idx, :]
@@ -1818,7 +1799,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
             end
 
             # Verify 1:1 correspondence: n_structural_points == 2 * n_sections
-            n_sections = length(wing.vsm_wing.sections)
+            n_sections = length(wing.vsm_wing.unrefined_sections)
             @assert length(wing_point_idxs) == 2 * n_sections "REFINE wing $(wing.idx): expected $(2*n_sections) points for $(n_sections) sections, got $(length(wing_point_idxs))"
 
             prn && println("✓ REFINE wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")

@@ -941,7 +941,7 @@ to be relative to the new origin by subtracting the offset.
 - `origin_offset`: Vector [x, y, z] to subtract from panel positions
 """
 function adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
-    for section in vsm_wing.sections
+    for section in vsm_wing.unrefined_sections
         section.LE_point .-= origin_offset
         section.TE_point .-= origin_offset
     end
@@ -963,7 +963,7 @@ This is applied AFTER the COM adjustment.
 function apply_aero_z_offset!(vsm_wing, aero_z_offset)
     if abs(aero_z_offset) > 1e-10
         offset_vec = [0.0, 0.0, aero_z_offset]
-        for section in vsm_wing.sections
+        for section in vsm_wing.unrefined_sections
             section.LE_point .+= offset_vec
             section.TE_point .+= offset_vec
         end

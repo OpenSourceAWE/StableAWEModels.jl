@@ -745,8 +745,8 @@ function min_chord_len(sam::SymbolicAWEModel)
             le_pos = [vsm_wing.le_interp[i](vsm_wing.gamma_tip) for i in 1:3]
             te_pos = [vsm_wing.te_interp[i](vsm_wing.gamma_tip) for i in 1:3]
             min_len = min(norm(le_pos - te_pos), min_len)
-        elseif hasproperty(vsm_wing, :sections) && !isempty(vsm_wing.sections)
-            for section in vsm_wing.sections
+        elseif hasproperty(vsm_wing, :unrefined_sections) && !isempty(vsm_wing.unrefined_sections)
+            for section in vsm_wing.unrefined_sections
                 chord = section.TE_point - section.LE_point
                 min_len = min(norm(chord), min_len)
             end
