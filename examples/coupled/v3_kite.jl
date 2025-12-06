@@ -179,7 +179,7 @@ end
 
 # Run both simulations
 syslog_refine, sam_refine = run_v3_kite(SymbolicAWEModels.REFINE; sim_time=60.0, fps=60, show_plots=false)
-syslog_quat, sam_quat = run_v3_kite(QUATERNION; sim_time=60.0, fps=60, show_plots=false)
+syslog_quat, sam_quat = run_v3_kite(QUATERNION; sim_time=60.0, fps=24, show_plots=false)
 
 @info "Both simulations complete. Creating comparison plots..."
 
