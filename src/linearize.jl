@@ -77,17 +77,8 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
                 @warn "Resetting vsm solver."
             end
 
-            # Build unrefined twist angles from groups
             n_unrefined = wing.vsm_wing.n_unrefined_sections
             group_idxs = wing.group_idxs
-
-            # Populate wing.theta_dist from group twist angles
-            for group_idx in group_idxs
-                group = groups[group_idx]
-                for unrefined_idx in group.unrefined_section_idxs
-                    wing.vsm_wing.theta_dist[unrefined_idx] = group.twist
-                end
-            end
 
             # Determine moment_frac and theta_idxs
             moment_frac = if isempty(group_idxs)
@@ -145,8 +136,7 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
             # Update body aerodynamics with the deformed wing sections
             # (panels regenerated from modified sections)
             # sort_sections=false preserves section order from structural points
-            VortexStepMethod.reinit!(wing.vsm_aero;
-                init_aero=false, recompute_mapping=false, sort_sections=false)
+            VortexStepMethod.reinit!(wing.vsm_aero; init_aero=false)
 
             # Build va_distribution from per-point va_b values using point_to_vsm_point mapping
             if !isnothing(wing.point_to_vsm_point)

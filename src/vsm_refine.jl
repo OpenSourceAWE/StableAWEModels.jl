@@ -361,6 +361,7 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
         end
     end
 
+    refine!(wing.vsm_wing; recompute_mapping=false, sort_sections=false)
     # Do NOT call reinit! on wing - only modify sections!
     # body_aero reinit! will update panels from modified sections (called in update_vsm!)
     return nothing

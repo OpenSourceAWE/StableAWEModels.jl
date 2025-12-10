@@ -639,16 +639,16 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = " - " * syss[i].name
-            aero_moment_y = [sl.aero_moment_b[i][2] for i in eachindex(sl.aero_moment_b)]
-            push!(all_data, aero_moment_y)
-            push!(all_labels, "M_aero,y" * suffix)
+            aero_moment_z = [sl.aero_moment_b[i][3] for i in eachindex(sl.aero_moment_b)]
+            push!(all_data, aero_moment_z)
+            push!(all_labels, "M_aero,z" * suffix)
             push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "M_aero,y [Nm]"
+            ylabel = "M_aero,z [Nm]"
         ))
     end
 

@@ -286,7 +286,7 @@ wings:
       origin_idx: 1
       z_ref_points: [1, [12, 11]]  # KCU to LE for Z (normal)
       y_ref_points: [12, 10]  # Center LE for Y (span)
-      aero_z_offset: 10.0  # QUATERNION only: shifts VSM panels +z in body frame
+      aero_z_offset: 0.0  # QUATERNION only: shifts VSM panels +z in body frame
 
 ###########################
 ## Transforms #############

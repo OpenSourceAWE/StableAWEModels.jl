@@ -819,6 +819,7 @@ function VSMWing(idx::Int, set::Settings,
 
     # Create VSM wing, aero, and solver
     vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false)
+    refine!(vsm_wing)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero;
         solver_type=VortexStepMethod.NONLIN,
@@ -941,7 +942,11 @@ to be relative to the new origin by subtracting the offset.
 - `origin_offset`: Vector [x, y, z] to subtract from panel positions
 """
 function adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
-    for section in vsm_wing.unrefined_sections
+    for section in vsm_wing.refined_sections
+        section.LE_point .-= origin_offset
+        section.TE_point .-= origin_offset
+    end
+    for section in vsm_wing.non_deformed_sections
         section.LE_point .-= origin_offset
         section.TE_point .-= origin_offset
     end
@@ -963,7 +968,11 @@ This is applied AFTER the COM adjustment.
 function apply_aero_z_offset!(vsm_wing, aero_z_offset)
     if abs(aero_z_offset) > 1e-10
         offset_vec = [0.0, 0.0, aero_z_offset]
-        for section in vsm_wing.unrefined_sections
+        for section in vsm_wing.refined_sections
+            section.LE_point .+= offset_vec
+            section.TE_point .+= offset_vec
+        end
+        for section in vsm_wing.non_deformed_sections
             section.LE_point .+= offset_vec
             section.TE_point .+= offset_vec
         end
@@ -1410,17 +1419,29 @@ function SystemStructure(name, set;
                         group.le_pos .= le_pos_b
                         group.chord .= te_pos_b .- le_pos_b
 
-                        # y_airf: get from closest refined panel via segment mapping
+                        # y_airf: get from VSM panel
                         vsm_aero = wing.vsm_aero
                         if !isempty(vsm_wing.refined_sections) &&
-                           !isempty(vsm_wing.refined_panel_mapping) &&
-                           group.idx <= length(vsm_wing.refined_panel_mapping)
-                            panel_idx = vsm_wing.refined_panel_mapping[group.idx]
-                            panel = vsm_aero.panels[panel_idx]
-                            group.y_airf .= normalize(panel.y_airf)
+                           !isempty(vsm_wing.refined_panel_mapping)
+                            # Get local group index (position in wing.group_idxs)
+                            local_group_idx = findfirst(==(group.idx), wing.group_idxs)
+                            # Use local index to find corresponding unrefined section
+                            # Then find panels that map to that section
+                            matching_panels = findall(
+                                ==(local_group_idx),
+                                vsm_wing.refined_panel_mapping)
+                            if !isempty(matching_panels)
+                                # Use middle panel
+                                mid_panel_idx = matching_panels[div(length(matching_panels)+1, 2)]
+                                panel = vsm_aero.panels[mid_panel_idx]
+                                group.y_airf .= normalize(panel.y_airf)
+                            else
+                                @warn "VSM panels not available for group $(group.idx)"
+                                group.y_airf .= normalize([0.0, 1.0, 0.0])
+                            end
                         else
                             # Fallback if VSM not initialized
-                            @debug "VSM panels not available for group $(group.idx), using default y_airf"
+                            @warn "VSM panels not available for group $(group.idx), using default y_airf"
                             group.y_airf .= normalize([0.0, 1.0, 0.0])
                         end
                     end

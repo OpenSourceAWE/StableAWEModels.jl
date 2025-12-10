@@ -18,6 +18,9 @@ using Statistics
 using GLMakie
 using KiteUtils
 
+REFINE = true
+QUAT = true
+
 """
     run_v3_kite(wing_type::WingType; kwargs...)
 
@@ -44,7 +47,7 @@ function run_v3_kite(wing_type::WingType;
                      sim_time=300.0,
                      fps=1,
                      remake_cache=false,
-                     initial_damping=10.0,
+                     initial_damping=100.0,
                      decay_time=2.0,
                      max_steering=0.1,
                      show_plots=false,
@@ -95,17 +98,17 @@ function run_v3_kite(wing_type::WingType;
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
 
-    # Stabilization phase
-    @info "Stabilizing system..."
-    [point.fix_static = true for point in sys.points if point.type == WING]
-    if wing_type == QUATERNION
-        sys.wings[1].fix_sphere = true
-    end
-    @time next_step!(sam; dt=10.0)
-    [point.fix_static = false for point in sys.points if point.type == WING]
-    if wing_type == QUATERNION
-        sys.wings[1].fix_sphere = false
-    end
+    # # Stabilization phase
+    # @info "Stabilizing system..."
+    # [point.fix_static = true for point in sys.points if point.type == WING]
+    # if wing_type == QUATERNION
+    #     sys.wings[1].fix_sphere = true
+    # end
+    # @time next_step!(sam; dt=10.0)
+    # [point.fix_static = false for point in sys.points if point.type == WING]
+    # if wing_type == QUATERNION
+    #     sys.wings[1].fix_sphere = false
+    # end
 
     # Create logger
     n_steps = Int(round(fps * sim_time))
@@ -178,21 +181,30 @@ end
 @info "V3 Kite Comparison: Running REFINE and QUATERNION simulations..."
 
 # Run both simulations
-syslog_refine, sam_refine = run_v3_kite(SymbolicAWEModels.REFINE; sim_time=60.0, fps=60, show_plots=false)
-syslog_quat, sam_quat = run_v3_kite(QUATERNION; sim_time=60.0, fps=24, show_plots=false)
+if REFINE
+    syslog_refine, sam_refine = run_v3_kite(SymbolicAWEModels.REFINE; sim_time=10.0, fps=60, show_plots=false)
+end
+if QUAT
+    syslog_quat, sam_quat = run_v3_kite(QUATERNION; sim_time=10, fps=24, show_plots=false)
+end
 
 @info "Both simulations complete. Creating comparison plots..."
 
 # Create comparison plot
-fig = plot([sam_refine.sys_struct, sam_quat.sys_struct], [syslog_refine, syslog_quat];
-           plot_turn_rates=true,
-           plot_azimuth=true,
-           plot_elevation=true,
-           plot_aoa=true,
-           plot_heading=true,
-           plot_default=false,
-           plot_aero_force=true)
+if REFINE && QUAT
+    fig = plot([sam_refine.sys_struct, sam_quat.sys_struct], [syslog_refine, syslog_quat];
+               plot_turn_rates=true,
+               plot_azimuth=true,
+               plot_elevation=true,
+               plot_aoa=true,
+               plot_heading=true,
+               plot_default=false,
+               plot_aero_force=true)
+end
 
+if QUAT && !REFINE
+    fig = plot(sam_quat.sys_struct, syslog_quat; plot_aero_moment=true)
+end
 display(fig)
 
 @info "Comparison plot created!"
