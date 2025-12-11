@@ -17,9 +17,14 @@ using LinearAlgebra
 using Statistics
 using GLMakie
 using KiteUtils
+using DiscretePIDs
 
-REFINE = false
-QUAT = true
+REFINE = true
+QUAT = false
+
+# PID controller parameters
+MAX_HEADING = 90.0  # Maximum heading amplitude [degrees]
+PERIOD = 60.0       # Oscillation period [seconds]
 
 """
     run_v3_kite(wing_type::WingType; kwargs...)
@@ -39,6 +44,9 @@ Run a v3 kite simulation with the specified wing type.
 - `show_plots::Bool=false`: Display 3D plots during simulation
 - `v_wind::Float64=15.4`: Wind speed [m/s]
 - `upwind_dir::Float64=-90.0`: Wind direction [°]
+- `max_heading::Float64=50.0`: Maximum heading amplitude for sine wave [°]
+- `period::Float64=20.0`: Oscillation period for sine wave [s]
+- `pid_ki::Float64=0.1`: Integral gain for heading controller
 
 # Returns
 - `SysLog`: The simulation log containing time history data
@@ -49,10 +57,13 @@ function run_v3_kite(wing_type::WingType;
                      remake_cache=false,
                      initial_damping=100.0,
                      decay_time=2.0,
-                     max_steering=-0.1,
+                     max_steering=0.1,
                      show_plots=false,
                      v_wind=15.4,
-                     upwind_dir=-90.0)
+                     upwind_dir=-90.0,
+                     max_heading=50.0,
+                     period=20.0,
+                     pid_ki=0.1)
 
     wing_type_str = wing_type == SymbolicAWEModels.REFINE ? "REFINE" : "QUATERNION"
     @info "Running v3 kite simulation with $wing_type_str wing type..."
@@ -91,8 +102,8 @@ function run_v3_kite(wing_type::WingType;
     sam = SymbolicAWEModel(set, sys)
 
     # Apply steering
-    sys.segments[87].l0 += max_steering
-    sys.segments[89].l0 -= max_steering
+    # sys.segments[87].l0 += max_steering
+    # sys.segments[89].l0 -= max_steering
 
     # Initialize model
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -118,6 +129,29 @@ function run_v3_kite(wing_type::WingType;
     sys_state.time = 0.0
     log!(logger, sys_state)
 
+    # Store nominal segment lengths for PID control
+    nominal_l0_87 = sys.segments[87].l0
+    nominal_l0_89 = sys.segments[89].l0
+
+    # Storage for heading setpoint
+    heading_setpoint = zeros(n_steps + 1)
+    heading_setpoint[1] = 0.0
+
+    # Create PID controller for heading (I-only: P=0, D=0)
+    max_heading_rad = deg2rad(max_heading)
+    angular_freq = 2π / period  # rad/s
+    pid = DiscretePID(;
+        K = 1.0,
+        Ti = 1.0 / pid_ki,  # Ti = 1/Ki for integral time constant
+        Td = false,
+        Ts = Δt,
+        umin = -abs(max_steering),
+        umax = abs(max_steering)
+    )
+    @info "PID controller initialized" max_heading period pid_ki
+    @info "  Sine wave: ±$(max_heading)°, period=$(period)s"
+    @info "  Integral time Ti=$(1.0/pid_ki)s, saturation=±$(abs(max_steering))m"
+
     # Optional initial plot
     if show_plots
         scene = plot(sam.sys_struct)
@@ -138,6 +172,18 @@ function run_v3_kite(wing_type::WingType;
         else
             SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
         end
+
+        # PID heading control with sine wave setpoint
+        target_heading_rad = max_heading_rad * sin(angular_freq * t)
+        current_heading = sam.sys_struct.wings[1].heading
+        steering_control = pid(target_heading_rad, current_heading, 0.0)
+
+        # Store setpoint for plotting
+        heading_setpoint[step + 1] = target_heading_rad
+
+        # Apply differential steering (opposite signs for turning moment)
+        sys.segments[87].l0 = nominal_l0_87 + steering_control
+        sys.segments[89].l0 = nominal_l0_89 - steering_control
 
         # Advance simulation
         try
@@ -173,7 +219,7 @@ function run_v3_kite(wing_type::WingType;
     save_log(logger, log_name)
     syslog = load_log(log_name)
 
-    return syslog, sam
+    return syslog, sam, heading_setpoint
 end
 
 # ============= Main Execution =============
@@ -181,11 +227,18 @@ end
 @info "V3 Kite Comparison: Running REFINE and QUATERNION simulations..."
 
 # Run both simulations
+heading_setpoint_refine = nothing
+heading_setpoint_quat = nothing
+
 if REFINE
-    syslog_refine, sam_refine = run_v3_kite(SymbolicAWEModels.REFINE; sim_time=100.0, fps=60, show_plots=false)
+    syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
+        sim_time=200.0, fps=60, show_plots=false,
+        max_heading=MAX_HEADING, period=PERIOD)
 end
 if QUAT
-    syslog_quat, sam_quat = run_v3_kite(QUATERNION; sim_time=100.0, fps=24, show_plots=false)
+    syslog_quat, sam_quat, heading_setpoint_quat = run_v3_kite(QUATERNION;
+        sim_time=50.0, fps=24, show_plots=false,
+        max_heading=MAX_HEADING, period=PERIOD)
 end
 
 @info "Both simulations complete. Creating comparison plots..."
@@ -200,11 +253,18 @@ if REFINE && QUAT
                plot_aoa=true,
                plot_heading=true,
                plot_default=false,
-               plot_aero_force=true)
+               plot_aero_force=true,
+               heading_setpoint=[heading_setpoint_refine, heading_setpoint_quat])
 end
 
 if QUAT && !REFINE
-    fig = plot(sam_quat.sys_struct, syslog_quat; plot_aero_moment=true)
+    fig = plot(sam_quat.sys_struct, syslog_quat;
+               plot_aero_moment=true,
+               heading_setpoint=heading_setpoint_quat)
+end
+if !QUAT && REFINE
+    fig = plot(sam_refine.sys_struct, syslog_refine;
+               heading_setpoint=heading_setpoint_refine)
 end
 display(fig)
 

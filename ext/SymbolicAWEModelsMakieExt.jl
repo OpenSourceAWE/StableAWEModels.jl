@@ -547,6 +547,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_distance=false,
                    plot_cone_angle=false,
                    plot_old_heading=false,
+                   heading_setpoint=nothing,
                    size=(1200, 800))
 
     # Build list of panels to plot by combining data from all logs
@@ -741,6 +742,30 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 push!(all_data, course_kiteutils_deg)
                 push!(all_labels, "χ_KU" * suffix)
                 push!(all_times, sl.time)
+            end
+            # Add setpoint if provided
+            if !isnothing(heading_setpoint)
+                # Check if heading_setpoint is a vector of vectors (multiple logs)
+                # or a vector of numbers (single log)
+                is_multi_setpoint = (heading_setpoint isa Vector &&
+                                     length(heading_setpoint) > 0 &&
+                                     heading_setpoint[1] isa AbstractVector)
+
+                if is_multi_setpoint
+                    # Multiple setpoints (one per log)
+                    if i <= length(heading_setpoint) && !isnothing(heading_setpoint[i])
+                        setpoint_deg = rad2deg.(heading_setpoint[i])
+                        push!(all_data, setpoint_deg)
+                        push!(all_labels, "ψ_sp" * suffix)
+                        push!(all_times, sl.time)
+                    end
+                else
+                    # Single setpoint for all logs (or single log)
+                    setpoint_deg = rad2deg.(heading_setpoint)
+                    push!(all_data, setpoint_deg)
+                    push!(all_labels, "ψ_sp" * suffix)
+                    push!(all_times, sl.time)
+                end
             end
         end
         push!(panels, (
