@@ -950,6 +950,10 @@ function adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
         section.LE_point .-= origin_offset
         section.TE_point .-= origin_offset
     end
+    for section in vsm_wing.unrefined_sections
+        section.LE_point .-= origin_offset
+        section.TE_point .-= origin_offset
+    end
 end
 
 """
@@ -973,6 +977,10 @@ function apply_aero_z_offset!(vsm_wing, aero_z_offset)
             section.TE_point .+= offset_vec
         end
         for section in vsm_wing.non_deformed_sections
+            section.LE_point .+= offset_vec
+            section.TE_point .+= offset_vec
+        end
+        for section in vsm_wing.unrefined_sections
             section.LE_point .+= offset_vec
             section.TE_point .+= offset_vec
         end
@@ -1381,6 +1389,70 @@ function SystemStructure(name, set;
         end
     end
 
+    """
+        compute_spatial_group_mapping!(the_wing, groups, points)
+
+    Map groups to unrefined sections using spatial proximity.
+    Each group is assigned to the closest unrefined section based on distance between centers.
+    """
+    function compute_spatial_group_mapping!(the_wing::VSMWing, groups::Vector{Group}, points::Vector{Point})
+        the_vsm_wing = the_wing.vsm_wing
+        n_unrefined = the_vsm_wing.n_unrefined_sections
+        n_groups = length(the_wing.base.group_idxs)
+
+        # Compute group centers in body frame
+        group_centers = Vector{MVec3}(undef, n_groups)
+        for (local_idx, group_idx) in enumerate(the_wing.base.group_idxs)
+            group = groups[group_idx]
+            le_idx = group.point_idxs[1]
+            te_idx = group.point_idxs[2]
+            le_pos_b = the_wing.base.R_b_c' * (points[le_idx].pos_cad - the_wing.base.pos_cad)
+            te_pos_b = the_wing.base.R_b_c' * (points[te_idx].pos_cad - the_wing.base.pos_cad)
+            group_centers[local_idx] = (le_pos_b + te_pos_b) / 2
+        end
+
+        # Compute unrefined section centers
+        unrefined_centers = Vector{MVec3}(undef, n_unrefined)
+        for i in 1:n_unrefined
+            le_point = the_vsm_wing.unrefined_sections[i].LE_point
+            te_point = the_vsm_wing.unrefined_sections[i].TE_point
+            unrefined_centers[i] = (le_point + te_point) / 2
+        end
+
+        # Map each group to closest unrefined section
+        for (local_idx, group_idx) in enumerate(the_wing.base.group_idxs)
+            group = groups[group_idx]
+            min_dist = Inf
+            closest_idx = 1
+            for unrefined_idx in 1:n_unrefined
+                dist = norm(group_centers[local_idx] - unrefined_centers[unrefined_idx])
+                if dist < min_dist
+                    min_dist = dist
+                    closest_idx = unrefined_idx
+                end
+            end
+            group.unrefined_section_idxs = Int16[closest_idx]
+        end
+
+        # Validate: check all sections are covered
+        assigned = Set{Int16}()
+        for group_idx in the_wing.base.group_idxs
+            union!(assigned, groups[group_idx].unrefined_section_idxs)
+        end
+        if length(assigned) != n_unrefined
+            unassigned = setdiff(1:n_unrefined, assigned)
+            @warn "Wing $(the_wing.base.idx): $(length(unassigned)) unrefined sections not assigned to any group: $unassigned"
+        end
+    end
+
+    # Initialize group-to-unrefined-section mapping for QUATERNION wings
+    # Do this BEFORE y_airf calculation so the mapping is available
+    for the_wing in wings
+        if isa(the_wing, VSMWing) && the_wing.base.wing_type == QUATERNION && !isempty(the_wing.base.group_idxs)
+            compute_spatial_group_mapping!(the_wing, groups, points)
+        end
+    end
+
     # Initialize group geometries from VSM wing or point positions
     for group in groups
         if iszero(group.chord)
@@ -1419,24 +1491,27 @@ function SystemStructure(name, set;
                         group.le_pos .= le_pos_b
                         group.chord .= te_pos_b .- le_pos_b
 
-                        # y_airf: get from VSM panel
-                        vsm_aero = wing.vsm_aero
-                        if !isempty(vsm_wing.refined_sections) &&
-                           !isempty(vsm_wing.refined_panel_mapping)
-                            # Get local group index (position in wing.group_idxs)
-                            local_group_idx = findfirst(==(group.idx), wing.group_idxs)
-                            # Use local index to find corresponding unrefined section
-                            # Then find panels that map to that section
-                            matching_panels = findall(
-                                ==(local_group_idx),
-                                vsm_wing.refined_panel_mapping)
-                            if !isempty(matching_panels)
-                                # Use middle panel
-                                mid_panel_idx = matching_panels[div(length(matching_panels)+1, 2)]
-                                panel = vsm_aero.panels[mid_panel_idx]
-                                group.y_airf .= normalize(panel.y_airf)
+                        # y_airf: get from VSM non_deformed section geometry (local_y used in deform!)
+                        # This MUST match the coordinate system VSM uses for twist deformation
+                        if !isempty(vsm_wing.non_deformed_sections) &&
+                           !isempty(group.unrefined_section_idxs)
+                            # Get the unrefined section index assigned to this group by spatial mapping
+                            unrefined_idx = group.unrefined_section_idxs[1]
+                            # Get local_y exactly as VSM deform! calculates it
+                            # (from non_deformed section LE points, spanwise direction)
+                            if unrefined_idx < length(vsm_wing.non_deformed_sections)
+                                section = vsm_wing.non_deformed_sections[unrefined_idx]
+                                section2 = vsm_wing.non_deformed_sections[unrefined_idx + 1]
+                                local_y = normalize(section.LE_point - section2.LE_point)
+                                group.y_airf .= local_y
+                            elseif unrefined_idx == length(vsm_wing.non_deformed_sections)
+                                # For last section, use same local_y as previous (matching deform! logic)
+                                section = vsm_wing.non_deformed_sections[unrefined_idx]
+                                section_prev = vsm_wing.non_deformed_sections[unrefined_idx - 1]
+                                local_y = normalize(section_prev.LE_point - section.LE_point)
+                                group.y_airf .= local_y
                             else
-                                @warn "VSM panels not available for group $(group.idx)"
+                                @warn "Unrefined section index $unrefined_idx out of range for group $(group.idx)"
                                 group.y_airf .= normalize([0.0, 1.0, 0.0])
                             end
                         else
@@ -1446,29 +1521,6 @@ function SystemStructure(name, set;
                         end
                     end
                     break
-                end
-            end
-        end
-    end
-
-    # Initialize group-to-unrefined-section mapping for QUATERNION wings
-    for wing in wings
-        if wing.wing_type == QUATERNION && !isempty(wing.group_idxs)
-            n_unrefined = wing.vsm_wing.n_unrefined_sections  # Number of unrefined sections
-            n_groups = length(wing.group_idxs)
-
-            # Simple mapping: divide unrefined sections equally among groups
-            if n_groups > 0
-                sections_per_group = n_unrefined ÷ n_groups
-                remainder = n_unrefined % n_groups
-
-                unrefined_idx = 1
-                for (local_idx, group_idx) in enumerate(wing.group_idxs)
-                    group = groups[group_idx]
-                    # Give extra section to first groups if there's remainder
-                    n_sections = sections_per_group + (local_idx <= remainder ? 1 : 0)
-                    group.unrefined_section_idxs = Int16[unrefined_idx:(unrefined_idx + n_sections - 1);]
-                    unrefined_idx += n_sections
                 end
             end
         end

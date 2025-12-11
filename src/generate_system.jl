@@ -179,6 +179,21 @@ get_group_damping(sys::SystemStructure, idx::Int16) = sys.groups[idx].damping
 @register_symbolic get_group_damping(sys::SystemStructure, idx::Int16)
 get_twist_ω(sys::SystemStructure, idx::Int16) = sys.groups[idx].twist_ω
 @register_symbolic get_twist_ω(sys::SystemStructure, idx::Int16)
+get_group_y_airf(sys::SystemStructure, idx::Int16) = sys.groups[idx].y_airf
+@register_array_symbolic get_group_y_airf(sys::SystemStructure, idx::Int16) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_group_chord(sys::SystemStructure, idx::Int16) = sys.groups[idx].chord
+@register_array_symbolic get_group_chord(sys::SystemStructure, idx::Int16) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_group_le_pos(sys::SystemStructure, idx::Int16) = sys.groups[idx].le_pos
+@register_array_symbolic get_group_le_pos(sys::SystemStructure, idx::Int16) begin
+    size = (3,)
+    eltype = SimFloat
+end
 get_mass(sys::SystemStructure, idx::Int16) = sys.points[idx].mass
 @register_symbolic get_mass(sys::SystemStructure, idx::Int16)
 get_l0(sys::SystemStructure, idx::Int16) = sys.segments[idx].l0
@@ -281,6 +296,15 @@ function force_eqs!(
 )
 
     @unpack points, groups, segments, pulleys, tethers, winches, wings = system
+
+    # Declare group geometry symbolic variables
+    if length(groups) > 0
+        @variables begin
+            group_y_airf(t)[eachindex(groups), 1:3]
+            group_chord(t)[eachindex(groups), 1:3]
+            group_le_pos(t)[eachindex(groups), 1:3]
+        end
+    end
 
     # Aggregate forces and moments from tethers onto the wing's center of mass
     tether_wing_force = zeros(Num, length(wings), 3)
@@ -480,7 +504,7 @@ function force_eqs!(
                         fixed_pos[:, point.idx] ~ get_le_pos(psys, group.idx)
                         chord_b[:, point.idx] ~
                             get_pos_b(psys, point.idx) .- fixed_pos[:, point.idx]
-                        normal[:, point.idx] ~ chord_b[:, point.idx] × group.y_airf
+                        normal[:, point.idx] ~ chord_b[:, point.idx] × group_y_airf[group.idx, :]
                         pos_b[:, point.idx] ~
                             fixed_pos[:, point.idx] .+
                             cos(twist_angle[group.idx]) * chord_b[:, point.idx] -
@@ -630,8 +654,16 @@ function force_eqs!(
             "should not be part of a deforming group.",
         )
 
-        x_airf = normalize(group.chord)
-        init_z_airf = x_airf × group.y_airf
+        # Set group geometry from getters (allows runtime updates)
+        eqs = [
+            eqs
+            group_y_airf[group.idx, :] ~ get_group_y_airf(psys, group.idx)
+            group_chord[group.idx, :] ~ get_group_chord(psys, group.idx)
+            group_le_pos[group.idx, :] ~ get_group_le_pos(psys, group.idx)
+        ]
+
+        x_airf = sym_normalize(group_chord[group.idx, :])
+        init_z_airf = x_airf × group_y_airf[group.idx, :]
         z_airf =
             x_airf * sin(twist_angle[group.idx]) +
             init_z_airf * cos(twist_angle[group.idx])
@@ -640,10 +672,10 @@ function force_eqs!(
                 eqs
                 r_vec[group.idx, i, :] ~ (
                     get_pos_b(psys, point_idx) .-
-                    (group.le_pos + get_moment_frac(psys, group.idx) * group.chord)
+                    (group_le_pos[group.idx, :] + get_moment_frac(psys, group.idx) * group_chord[group.idx, :])
                 )
                 r_group[group.idx, i] ~
-                    r_vec[group.idx, i, :] ⋅ normalize(group.chord)
+                    r_vec[group.idx, i, :] ⋅ sym_normalize(group_chord[group.idx, :])
                 tether_force[group.idx, i] ~
                     (point_force[:, point_idx] ⋅ (R_b_w[wing.idx, :, :] * -z_airf))
                 tether_moment[group.idx, i] ~
@@ -653,7 +685,7 @@ function force_eqs!(
 
         # Inertia of a thin rectangular plate rotating around one edge
         inertia =
-            1 / 3 * (get_set_mass(pset) / length(groups)) * (norm(group.chord))^2
+            1 / 3 * (get_set_mass(pset) / length(groups)) * (norm(group_chord[group.idx, :]))^2
         @parameters max_twist = deg2rad(90)
 
         eqs = [

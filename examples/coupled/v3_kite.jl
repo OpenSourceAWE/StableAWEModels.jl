@@ -18,7 +18,7 @@ using Statistics
 using GLMakie
 using KiteUtils
 
-REFINE = true
+REFINE = false
 QUAT = true
 
 """
@@ -49,7 +49,7 @@ function run_v3_kite(wing_type::WingType;
                      remake_cache=false,
                      initial_damping=100.0,
                      decay_time=2.0,
-                     max_steering=0.1,
+                     max_steering=-0.0,
                      show_plots=false,
                      v_wind=15.4,
                      upwind_dir=-90.0)
@@ -182,14 +182,15 @@ end
 
 # Run both simulations
 if REFINE
-    syslog_refine, sam_refine = run_v3_kite(SymbolicAWEModels.REFINE; sim_time=10.0, fps=60, show_plots=false)
+    syslog_refine, sam_refine = run_v3_kite(SymbolicAWEModels.REFINE; sim_time=100.0, fps=60, show_plots=false)
 end
 if QUAT
-    syslog_quat, sam_quat = run_v3_kite(QUATERNION; sim_time=10, fps=24, show_plots=false)
+    syslog_quat, sam_quat = run_v3_kite(QUATERNION; sim_time=100.0, fps=24, show_plots=false)
 end
 
 @info "Both simulations complete. Creating comparison plots..."
 
+fig = nothing
 # Create comparison plot
 if REFINE && QUAT
     fig = plot([sam_refine.sys_struct, sam_quat.sys_struct], [syslog_refine, syslog_quat];
