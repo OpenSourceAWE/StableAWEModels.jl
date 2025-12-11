@@ -49,7 +49,7 @@ function run_v3_kite(wing_type::WingType;
                      remake_cache=false,
                      initial_damping=100.0,
                      decay_time=2.0,
-                     max_steering=-0.0,
+                     max_steering=-0.1,
                      show_plots=false,
                      v_wind=15.4,
                      upwind_dir=-90.0)
@@ -98,17 +98,17 @@ function run_v3_kite(wing_type::WingType;
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
 
-    # # Stabilization phase
-    # @info "Stabilizing system..."
-    # [point.fix_static = true for point in sys.points if point.type == WING]
-    # if wing_type == QUATERNION
-    #     sys.wings[1].fix_sphere = true
-    # end
-    # @time next_step!(sam; dt=10.0)
-    # [point.fix_static = false for point in sys.points if point.type == WING]
-    # if wing_type == QUATERNION
-    #     sys.wings[1].fix_sphere = false
-    # end
+    # Stabilization phase
+    @info "Stabilizing system..."
+    [point.fix_static = true for point in sys.points if point.type == WING]
+    if wing_type == QUATERNION
+        sys.wings[1].fix_sphere = true
+    end
+    @time next_step!(sam; dt=10.0)
+    [point.fix_static = false for point in sys.points if point.type == WING]
+    if wing_type == QUATERNION
+        sys.wings[1].fix_sphere = false
+    end
 
     # Create logger
     n_steps = Int(round(fps * sim_time))

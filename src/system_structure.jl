@@ -1491,38 +1491,31 @@ function SystemStructure(name, set;
                         group.le_pos .= le_pos_b
                         group.chord .= te_pos_b .- le_pos_b
 
-                        # y_airf: get from VSM non_deformed section geometry (local_y used in deform!)
-                        # This MUST match the coordinate system VSM uses for twist deformation
-                        if !isempty(vsm_wing.non_deformed_sections) &&
-                           !isempty(group.unrefined_section_idxs)
-                            # Get the unrefined section index assigned to this group by spatial mapping
-                            unrefined_idx = group.unrefined_section_idxs[1]
-                            # Get local_y exactly as VSM deform! calculates it
-                            # (from non_deformed section LE points, spanwise direction)
-                            # For unrefined sections, we always use forward difference (section -> section+1)
-                            # because deform! uses backward difference only for the very last *refined* section,
-                            # not the last *unrefined* section
-                            if unrefined_idx <= length(vsm_wing.non_deformed_sections)
-                                section = vsm_wing.non_deformed_sections[unrefined_idx]
-                                if unrefined_idx < length(vsm_wing.non_deformed_sections)
-                                    section2 = vsm_wing.non_deformed_sections[unrefined_idx + 1]
-                                    local_y = normalize(section.LE_point - section2.LE_point)
-                                else
-                                    # For last unrefined section, use direction to next refined section
-                                    # (which exists because n_refined_sections = n_panels + 1 > n_unrefined_sections)
-                                    section_prev = vsm_wing.non_deformed_sections[unrefined_idx - 1]
-                                    local_y = normalize(section_prev.LE_point - section.LE_point)
-                                end
-                                group.y_airf .= local_y
-                            else
-                                @warn "Unrefined section index $unrefined_idx out of range for group $(group.idx)"
-                                group.y_airf .= normalize([0.0, 1.0, 0.0])
+                        # y_airf: find the two closest non_deformed_sections
+                        group_center = (le_pos_b .+ te_pos_b) ./ 2
+                        # Find closest section
+                        min_dist1 = Inf
+                        closest_idx1 = 1
+                        for i in 1:length(vsm_wing.non_deformed_sections)
+                            section = vsm_wing.non_deformed_sections[i]
+                            section_center = (section.LE_point .+ section.TE_point) ./ 2
+                            dist = norm(group_center .- section_center)
+                            if dist < min_dist1
+                                min_dist1 = dist
+                                closest_idx1 = i
                             end
-                        else
-                            # Fallback if VSM not initialized
-                            @warn "VSM panels not available for group $(group.idx), using default y_airf"
-                            group.y_airf .= normalize([0.0, 1.0, 0.0])
                         end
+
+                        # Use adjacent section to compute local_y
+                        section1 = vsm_wing.non_deformed_sections[closest_idx1]
+                        if closest_idx1 < length(vsm_wing.non_deformed_sections)
+                            section2 = vsm_wing.non_deformed_sections[closest_idx1 + 1]
+                            local_y = normalize(section1.LE_point .- section2.LE_point)
+                        else
+                            section_prev = vsm_wing.non_deformed_sections[closest_idx1 - 1]
+                            local_y = normalize(section_prev.LE_point .- section1.LE_point)
+                        end
+                        group.y_airf .= local_y
                     end
                     break
                 end
