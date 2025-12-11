@@ -1499,16 +1499,20 @@ function SystemStructure(name, set;
                             unrefined_idx = group.unrefined_section_idxs[1]
                             # Get local_y exactly as VSM deform! calculates it
                             # (from non_deformed section LE points, spanwise direction)
-                            if unrefined_idx < length(vsm_wing.non_deformed_sections)
+                            # For unrefined sections, we always use forward difference (section -> section+1)
+                            # because deform! uses backward difference only for the very last *refined* section,
+                            # not the last *unrefined* section
+                            if unrefined_idx <= length(vsm_wing.non_deformed_sections)
                                 section = vsm_wing.non_deformed_sections[unrefined_idx]
-                                section2 = vsm_wing.non_deformed_sections[unrefined_idx + 1]
-                                local_y = normalize(section.LE_point - section2.LE_point)
-                                group.y_airf .= local_y
-                            elseif unrefined_idx == length(vsm_wing.non_deformed_sections)
-                                # For last section, use same local_y as previous (matching deform! logic)
-                                section = vsm_wing.non_deformed_sections[unrefined_idx]
-                                section_prev = vsm_wing.non_deformed_sections[unrefined_idx - 1]
-                                local_y = normalize(section_prev.LE_point - section.LE_point)
+                                if unrefined_idx < length(vsm_wing.non_deformed_sections)
+                                    section2 = vsm_wing.non_deformed_sections[unrefined_idx + 1]
+                                    local_y = normalize(section.LE_point - section2.LE_point)
+                                else
+                                    # For last unrefined section, use direction to next refined section
+                                    # (which exists because n_refined_sections = n_panels + 1 > n_unrefined_sections)
+                                    section_prev = vsm_wing.non_deformed_sections[unrefined_idx - 1]
+                                    local_y = normalize(section_prev.LE_point - section.LE_point)
+                                end
                                 group.y_airf .= local_y
                             else
                                 @warn "Unrefined section index $unrefined_idx out of range for group $(group.idx)"
