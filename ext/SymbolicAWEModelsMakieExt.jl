@@ -559,25 +559,27 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = " - " * syss[i].name
-            turn_rates_deg = rad2deg.(hcat(sl.turn_rates...))
-            if all(iszero, turn_rates_deg)
-                # Plot heading rate of change instead
-                heading_unwrapped = copy(sl.heading)
-                for i in 2:length(heading_unwrapped)
-                    while heading_unwrapped[i] - heading_unwrapped[i-1] > π
-                        heading_unwrapped[i] -= 2π
-                    end
-                    while heading_unwrapped[i] - heading_unwrapped[i-1] < -π
-                        heading_unwrapped[i] += 2π
-                    end
+
+            # Calculate heading rate from diff for quaternion wings
+            heading_unwrapped = copy(sl.heading)
+            for j in 2:length(heading_unwrapped)
+                while heading_unwrapped[j] - heading_unwrapped[j-1] > π
+                    heading_unwrapped[j] -= 2π
                 end
-                heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
-                push!(all_data, heading_rate)
-                push!(all_labels, "dψ/dt" * suffix)
-                push!(all_times, sl.time[1:end-1])
-            else
-                # Only plot z-component (yaw rate)
-                push!(all_data, turn_rates_deg[3, :])
+                while heading_unwrapped[j] - heading_unwrapped[j-1] < -π
+                    heading_unwrapped[j] += 2π
+                end
+            end
+            heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
+            push!(all_data, heading_rate)
+            push!(all_labels, "dψ/dt" * suffix)
+            push!(all_times, sl.time[1:end-1])
+
+            # Also plot z-component (yaw rate ω_z) if available
+            turn_rates_rad = hcat(sl.turn_rates...)
+            if !all(iszero, turn_rates_rad)
+                omega_z_deg = rad2deg.(turn_rates_rad[3, :])
+                push!(all_data, omega_z_deg)
                 push!(all_labels, "ω_z" * suffix)
                 push!(all_times, sl.time)
             end
@@ -586,7 +588,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = all(occursin.("dψ/dt", all_labels)) ? "heading rate [°/s]" : "yaw rate [°/s]"
+            ylabel = "turn rate [°/s]"
         ))
     end
 
@@ -1062,11 +1064,11 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     cam_offset_world = R_b_w * cam_offset_body
     cam_pos = kite_pos + cam_offset_world
 
+    # Set up vector to align with body z-axis BEFORE updating camera
+    cam.upvector[] = Vec3f(R_b_w[:, 3])
+
     # Set camera position and lookat
     update_cam!(scene, Vec3f(cam_pos), Vec3f(kite_pos))
-
-    # Set up vector to align with body z-axis
-    cam.upvector[] = Vec3f(R_b_w[:, 3])
 
     return distance
 end
