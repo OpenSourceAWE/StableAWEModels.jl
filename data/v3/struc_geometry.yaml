@@ -30,7 +30,7 @@ points:
             mass, body_frame_damping, world_frame_damping]
   data:
     # KCU
-    - [1, [0.0, 0.0, 0.0], DYNAMIC, 1, 1, 8.4, 0.0, 0.0]
+    - [1, [0.0, 0.0, 0.0], DYNAMIC, 1, 1, 23.25, 0.0, 0.0]
 
     # Wing particles (LE/TE pairs)
     - [2, [-0.16686417, 4.07190711, 8.25938552], WING, 1, 1, 0.0, 10.0, 0.0]
@@ -74,7 +74,12 @@ points:
     - [38, [0.13269336, -0.23394851, 1.48060245], DYNAMIC, 1, 1, 0.1, 10.0, 0.0]
 
     # Ground particle
-    - [39, [0.0, 0.0, -50.0], STATIC, 1, 1, 0.1, 1.0, 0.0]
+    - [39, [0.0, 0.0, -45.0], DYNAMIC, 1, 1, 0.0, 0.0, 0.0]
+    - [40, [0.0, 0.0, -90.0], DYNAMIC, 1, 1, 0.0, 0.0, 0.0]
+    - [41, [0.0, 0.0, -135.0], DYNAMIC, 1, 1, 0.0, 0.0, 0.0]
+    - [42, [0.0, 0.0, -180.0], DYNAMIC, 1, 1, 0.0, 0.0, 0.0]
+    - [43, [0.0, 0.0, -225.0], DYNAMIC, 1, 1, 0.0, 0.0, 0.0]
+    - [44, [0.0, 0.0, -270.0], STATIC, 1, 1, 0.0, 0.0, 0.0]
 
 ###########################
 ## Segments ###############
@@ -209,7 +214,12 @@ segments:
     - [88, 35, 1, BRIDLE, 3.129, 2.0, dyneema, nothing, 0.01]  # Power Tape
     - [89, 38, 1, BRIDLE, 1.506, 2.0, dyneema, nothing, 0.01]  # Steering Tape
 
-    - [90, 1, 39, BRIDLE, 49.0, 10.0, dyneema, nothing, 0.01]
+    - [90, 1, 39, BRIDLE, 45, 13.5, dyneema, nothing, 0.01]
+    - [91, 39, 40, BRIDLE, 45, 13.5, dyneema, nothing, 0.01]
+    - [92, 40, 41, BRIDLE, 45, 13.5, dyneema, nothing, 0.01]
+    - [93, 41, 42, BRIDLE, 45, 13.5, dyneema, nothing, 0.01]
+    - [94, 42, 43, BRIDLE, 45, 13.5, dyneema, nothing, 0.01]
+    - [95, 43, 44, BRIDLE, 45, 13.5, dyneema, nothing, 0.01]
 
 ###########################
 ## Pulleys ################
@@ -245,14 +255,14 @@ groups:
 ## Tethers ################
 ###########################
 # Collections of segments forming tether lines
-# headers: [id, segment_ids, ground_point_id]
+# headers: [id, segment_idxs, ground_point_id]
 # Note: For this structure, tethers would connect from bridle to winches
 # This is typically handled by the simulation setup rather than structure definition
 
 tethers:
-  headers: [idx, segment_ids, ground_point_id]
+  headers: [idx, segment_idxs, winch_idx]
   data:
-    # Tethers would be added here
+    - [1, [90, 91, 92, 93, 94, 95], 1]
 
 ###########################
 ## Winches ################
@@ -261,9 +271,9 @@ tethers:
 # headers: [id, tether_ids]
 
 winches:
-  headers: [idx, tether_ids]
+  headers: [idx, tether_idxs]
   data:
-    # Winches would be defined here if needed
+    - [1, [1]]
 
 ###########################
 ## Wings ##################
@@ -300,9 +310,9 @@ transforms:
   data:
     # Main transform for v3 kite wing
     - idx: 1
-      elevation: 78.0       # Elevation angle from ground (degrees)
-      azimuth: 0.0          # Azimuth angle, 0 = downwind (degrees)
-      heading: 0.0          # Kite heading/yaw (degrees)
+      elevation: 30.37
+      azimuth: 1.15
+      heading: -55
       wing_idx: 1           # Transform applies to wing 1
       base_pos: [0.0, 0.0, 0.0] # Base position (at KCU/ground point)
-      base_point_idx: 39     # Reference to point 39 (ground attachment)
+      base_point_idx: 44     # Reference to point 39 (ground attachment)

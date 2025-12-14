@@ -8,8 +8,7 @@ system:
     g_earth:      0.0
 
 initial:
-    l_tethers: [50.0, 50.0, 50.0]  # initial tether length       [m]
-    elevation: 70.8                # initial elevation angle   [deg]
+    l_tethers: [260]  # initial tether length       [m]
     v_reel_outs: [0.0, 0.0, 0.0]   # initial reel out speed    [m/s]
 
 solver:
@@ -22,7 +21,7 @@ kite:
     model: ""     # 3D model of the kite
     foil_file: "" # filename for the foil shape
     physical_model: "v3"            # name of the kite model to use (KPS3, KPS4 or SymbolicAWEModel)
-    mass: 11.0                               # kite mass [kg]
+    mass: 23.0                               # kite mass [kg]
     quasi_static: false                     # whether to use quasi static kite points or not
 
 tether:

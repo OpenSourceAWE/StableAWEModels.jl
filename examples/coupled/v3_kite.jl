@@ -22,9 +22,17 @@ using DiscretePIDs
 REFINE = true
 QUAT = false
 
-# PID controller parameters
-MAX_HEADING = 90.0  # Maximum heading amplitude [degrees]
+# Heading PID controller parameters
+MAX_HEADING = 10.0  # Maximum heading amplitude [degrees]
 PERIOD = 60.0       # Oscillation period [seconds]
+HEADING_P = 0.0     # Proportional gain
+HEADING_I = 0.1     # Integral gain
+HEADING_D = 0.0     # Derivative gain
+
+# Tether winch PID controller parameters
+WINCH_P = 1000.0    # Proportional gain [N/m]
+WINCH_I = 100.0     # Integral gain [N/(m·s)]
+WINCH_D = 50.0      # Derivative gain [N·s/m]
 
 """
     run_v3_kite(wing_type::WingType; kwargs...)
@@ -46,7 +54,12 @@ Run a v3 kite simulation with the specified wing type.
 - `upwind_dir::Float64=-90.0`: Wind direction [°]
 - `max_heading::Float64=50.0`: Maximum heading amplitude for sine wave [°]
 - `period::Float64=20.0`: Oscillation period for sine wave [s]
-- `pid_ki::Float64=0.1`: Integral gain for heading controller
+- `heading_p::Float64=0.0`: Proportional gain for heading controller
+- `heading_i::Float64=0.1`: Integral gain for heading controller
+- `heading_d::Float64=0.0`: Derivative gain for heading controller
+- `winch_p::Float64=1000.0`: Proportional gain for winch controller [N/m]
+- `winch_i::Float64=100.0`: Integral gain for winch controller [N/(m·s)]
+- `winch_d::Float64=50.0`: Derivative gain for winch controller [N·s/m]
 
 # Returns
 - `SysLog`: The simulation log containing time history data
@@ -63,7 +76,12 @@ function run_v3_kite(wing_type::WingType;
                      upwind_dir=-90.0,
                      max_heading=50.0,
                      period=20.0,
-                     pid_ki=0.1)
+                     heading_p=0.0,
+                     heading_i=0.1,
+                     heading_d=0.0,
+                     winch_p=1000.0,
+                     winch_i=100.0,
+                     winch_d=50.0)
 
     wing_type_str = wing_type == SymbolicAWEModels.REFINE ? "REFINE" : "QUATERNION"
     @info "Running v3 kite simulation with $wing_type_str wing type..."
@@ -109,17 +127,17 @@ function run_v3_kite(wing_type::WingType;
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
 
-    # Stabilization phase
-    @info "Stabilizing system..."
-    [point.fix_static = true for point in sys.points if point.type == WING]
-    if wing_type == QUATERNION
-        sys.wings[1].fix_sphere = true
-    end
-    @time next_step!(sam; dt=10.0)
-    [point.fix_static = false for point in sys.points if point.type == WING]
-    if wing_type == QUATERNION
-        sys.wings[1].fix_sphere = false
-    end
+    # # Stabilization phase
+    # @info "Stabilizing system..."
+    # [point.fix_static = true for point in sys.points if point.type == WING]
+    # if wing_type == QUATERNION
+    #     sys.wings[1].fix_sphere = true
+    # end
+    # @time next_step!(sam; dt=10.0)
+    # [point.fix_static = false for point in sys.points if point.type == WING]
+    # if wing_type == QUATERNION
+    #     sys.wings[1].fix_sphere = false
+    # end
 
     # Create logger
     n_steps = Int(round(fps * sim_time))
@@ -134,23 +152,45 @@ function run_v3_kite(wing_type::WingType;
     nominal_l0_89 = sys.segments[89].l0
 
     # Storage for heading setpoint
-    heading_setpoint = zeros(n_steps + 1)
-    heading_setpoint[1] = 0.0
+    heading_setpoint = Float64[]
+    push!(heading_setpoint, 0.0)  # Initial setpoint
 
-    # Create PID controller for heading (I-only: P=0, D=0)
+    # Create PID controller for heading
     max_heading_rad = deg2rad(max_heading)
     angular_freq = 2π / period  # rad/s
-    pid = DiscretePID(;
-        K = 1.0,
-        Ti = 1.0 / pid_ki,  # Ti = 1/Ki for integral time constant
-        Td = false,
+    heading_pid = DiscretePID(;
+        K = heading_p > 0 ? heading_p : 1.0,
+        Ti = heading_i > 0 ? 1.0 / heading_i : false,
+        Td = heading_d > 0 ? heading_d : false,
         Ts = Δt,
         umin = -abs(max_steering),
         umax = abs(max_steering)
     )
-    @info "PID controller initialized" max_heading period pid_ki
+    @info "Heading PID controller initialized" max_heading period heading_p heading_i heading_d
     @info "  Sine wave: ±$(max_heading)°, period=$(period)s"
-    @info "  Integral time Ti=$(1.0/pid_ki)s, saturation=±$(abs(max_steering))m"
+
+    # Store nominal tether length for winch controller
+    nominal_tether_length = sys.winches[1].tether_len
+
+    # Initialize winch torque based on initial tether force
+    winch = sys.winches[1]
+    initial_force = norm(winch.force)
+    initial_torque = -winch.drum_radius / winch.gear_ratio * initial_force + winch.friction
+    winch.set_value = initial_torque
+    @info "Winch initialized" initial_force initial_torque drum_radius=winch.drum_radius gear_ratio=winch.gear_ratio friction=winch.friction
+
+    # Create PID controller for tether winch (maintain constant length)
+    # Output is force [N], will be converted to torque in control loop
+    max_force = 50000.0  # N
+    winch_pid = DiscretePID(;
+        K = winch_p,
+        Ti = winch_i > 0 ? winch_p / winch_i : false,
+        Td = winch_d > 0 ? winch_d / winch_p : false,
+        Ts = Δt,
+        umin = -max_force,
+        umax = max_force
+    )
+    @info "Winch PID controller initialized" nominal_tether_length winch_p winch_i winch_d
 
     # Optional initial plot
     if show_plots
@@ -176,18 +216,26 @@ function run_v3_kite(wing_type::WingType;
         # PID heading control with sine wave setpoint
         target_heading_rad = max_heading_rad * sin(angular_freq * t)
         current_heading = sam.sys_struct.wings[1].heading
-        steering_control = pid(target_heading_rad, current_heading, 0.0)
+        steering_control = heading_pid(target_heading_rad, current_heading, 0.0)
 
         # Store setpoint for plotting
-        heading_setpoint[step + 1] = target_heading_rad
+        push!(heading_setpoint, target_heading_rad)
 
         # Apply differential steering (opposite signs for turning moment)
         sys.segments[87].l0 = nominal_l0_87 + steering_control
         sys.segments[89].l0 = nominal_l0_89 - steering_control
 
+        # PID winch control to maintain constant tether length
+        current_tether_length = sys.winches[1].tether_len
+        winch_force_control = winch_pid(nominal_tether_length, current_tether_length, 0.0)
+
+        # Convert force to torque: τ = -r/G * F + friction
+        winch_torque = -winch.drum_radius / winch.gear_ratio * winch_force_control + winch.friction
+        sys.winches[1].set_value = -winch_torque
+
         # Advance simulation
         try
-            next_step!(sam; dt=Δt, vsm_interval=1)
+            next_step!(sam; set_values=[-winch_torque], dt=Δt, vsm_interval=1)
         catch err
             if err isa AssertionError
                 @error "next_step! failed" step
@@ -233,12 +281,16 @@ heading_setpoint_quat = nothing
 if REFINE
     syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
         sim_time=200.0, fps=60, show_plots=false,
-        max_heading=MAX_HEADING, period=PERIOD)
+        max_heading=MAX_HEADING, period=PERIOD,
+        heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
+        winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
 end
 if QUAT
     syslog_quat, sam_quat, heading_setpoint_quat = run_v3_kite(QUATERNION;
         sim_time=50.0, fps=24, show_plots=false,
-        max_heading=MAX_HEADING, period=PERIOD)
+        max_heading=MAX_HEADING, period=PERIOD,
+        heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
+        winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
 end
 
 @info "Both simulations complete. Creating comparison plots..."
@@ -254,16 +306,19 @@ if REFINE && QUAT
                plot_heading=true,
                plot_default=false,
                plot_aero_force=true,
+               plot_tether=true,
                heading_setpoint=[heading_setpoint_refine, heading_setpoint_quat])
 end
 
 if QUAT && !REFINE
     fig = plot(sam_quat.sys_struct, syslog_quat;
                plot_aero_moment=true,
+               plot_tether=true,
                heading_setpoint=heading_setpoint_quat)
 end
 if !QUAT && REFINE
     fig = plot(sam_refine.sys_struct, syslog_refine;
+               plot_tether=true,
                heading_setpoint=heading_setpoint_refine)
 end
 display(fig)
