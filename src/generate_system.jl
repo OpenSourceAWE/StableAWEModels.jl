@@ -1318,18 +1318,6 @@ function sym_calc_R_t_w(wing_pos)
 end
 
 """
-    calc_heading(R_t_w, R_v_w)
-
-Calculate the heading angle [rad] of the wing. Heading is the rotation angle
-between the tether frame and the view frame around the common z-axis.
-"""
-function calc_heading(R_t_w::AbstractMatrix, R_v_w::AbstractMatrix)
-    heading_vec = R_t_w' * R_v_w[:, 1]
-    heading = atan(heading_vec[2], heading_vec[1])
-    return heading
-end
-
-"""
     scalar_eqs!(s, eqs, psys, pset; kwargs...)
 
 Generate equations for derived scalar kinematic quantities useful for control and

@@ -437,8 +437,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:idx, :segment_idxs, :winch_idx],
                 [];
                 mappings=Dict(
-                    :segment_idxs => r -> Vector{Int16}(r.segment_idxs),
-                    :winch_idx => r -> Int16(r.winch_idx)
+                    :segment_idxs => r -> isnothing(r.segment_idxs) ? Int16[] : Vector{Int16}(r.segment_idxs),
+                    :winch_idx => r -> isnothing(r.winch_idx) ? Int16(0) : Int16(r.winch_idx)
                 ))
             push!(tethers, tether)
         end
