@@ -306,10 +306,11 @@ function Makie.plot!(ax, sys::SystemStructure;
         origins = [Point3f(0, 0, 0), Point3f(0, 0, 0), Point3f(0, 0, 0)]
         directions = [Vec3f(axis_length, 0, 0), Vec3f(0, axis_length, 0), Vec3f(0, 0, axis_length)]
         axis_colors = [:red, :green, :blue]
+        # Use fixed radii so arrows don't get fatter with longer tethers
         plots[:global_axes] = arrows3d!(ax, origins, directions;
-                                        shaftradius=axis_length*0.002,
-                                        tipradius=axis_length*0.006,
-                                        tiplength=axis_length*0.01,
+                                        shaftradius=0.02,
+                                        tipradius=0.08,
+                                        tiplength=0.2,
                                         color=axis_colors,
                                         label="Global Axes")
     end
@@ -473,7 +474,7 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_aero_force::Bool=plot_default`: Show the panel with the z-component of aerodynamic force.
 - `plot_aero_moment::Bool=false`: Show the panel with the y-component of aerodynamic moment.
 - `plot_tether_moment::Bool=false`: Show the panel with the y-component of tether-induced moment.
-- `plot_twist::Bool=plot_default`: Show the panel with the twist angles for each wing group.
+- `plot_twist::Bool=false`: Show the panel with the twist angles for each wing group.
 - `plot_aoa::Bool=plot_default`: Show the panel with the angle of attack.
 - `plot_heading::Bool=plot_default`: Show the panel with the kite's heading and course angles.
 - `plot_kiteutils_course::Bool=false`: Also plot course calculated using KiteUtils.calc_course.
@@ -533,7 +534,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_default=true,
                    plot_reelout=plot_default,
                    plot_aero_force=plot_default,
-                   plot_twist=plot_default,
+                   plot_twist=false,
                    plot_aoa=plot_default,
                    plot_heading=plot_default,
                    plot_kiteutils_course=false,
@@ -547,7 +548,9 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_distance=false,
                    plot_cone_angle=false,
                    plot_old_heading=false,
+                   plot_tether=false,
                    heading_setpoint=nothing,
+                   tether_len_setpoint=nothing,
                    size=(1200, 800))
 
     # Build list of panels to plot by combining data from all logs
@@ -612,6 +615,47 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             labels = all_labels,
             times = all_times,
             ylabel = "reel-out speed [m/s]"
+        ))
+    end
+
+    if plot_tether
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = " - " * syss[i].name
+            # Extract tether length (first element if vector, otherwise scalar)
+            l_tether = [length(sl.l_tether[j]) > 0 ? sl.l_tether[j][1] : 0.0
+                        for j in eachindex(sl.l_tether)]
+            push!(all_data, l_tether)
+            push!(all_labels, "l_tether" * suffix)
+            push!(all_times, sl.time)
+
+            # Add setpoint if provided
+            if !isnothing(tether_len_setpoint)
+                is_multi_setpoint = (tether_len_setpoint isa Vector &&
+                                     length(tether_len_setpoint) > 0 &&
+                                     tether_len_setpoint[1] isa AbstractVector)
+
+                if is_multi_setpoint
+                    if i <= length(tether_len_setpoint) && !isnothing(tether_len_setpoint[i])
+                        push!(all_data, tether_len_setpoint[i])
+                        push!(all_labels, "l_sp" * suffix)
+                        push!(all_times, sl.time)
+                    end
+                else
+                    push!(all_data, tether_len_setpoint)
+                    push!(all_labels, "l_sp" * suffix)
+                    push!(all_times, sl.time)
+                end
+            end
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            times = all_times,
+            ylabel = "tether length [m]"
         ))
     end
 
@@ -962,6 +1006,10 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
 
         # Plot each data series in this panel
         for (j, (data_series, label, time_vec)) in enumerate(zip(panel.data, panel.labels, panel.times))
+            if length(data_series) != length(time_vec)
+                @warn "Skipping trace '$label': data length $(length(data_series)) != time length $(length(time_vec))"
+                continue
+            end
             lines!(ax, time_vec, data_series, label=label)
         end
 
