@@ -638,7 +638,9 @@ end
 Calculates the torque for each winch that results in zero acceleration (steady state).
 """
 function calc_steady_torque(sam::SymbolicAWEModel)
-    sys_struct = sam.sys_struct
+    return calc_steady_torque(sam.sys_struct)
+end
+function calc_steady_torque(sys_struct::SystemStructure)
     torques = -[winch.drum_radius / winch.gear_ratio * norm(winch.force) +
                 winch.friction for winch in sys_struct.winches]
     return torques

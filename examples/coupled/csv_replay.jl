@@ -10,7 +10,7 @@ Usage:
 """
 
 using SymbolicAWEModels, VortexStepMethod, KiteUtils
-using SymbolicAWEModels: reposition!, rotate_around_z, rotate_around_y
+using SymbolicAWEModels: reposition!, rotate_around_z, rotate_around_y, calc_steady_torque
 using CSV, DataFrames, DiscretePIDs
 using GLMakie
 using Statistics
@@ -23,12 +23,41 @@ using KiteUtils: calc_elevation, azimuth_east
 # Configuration parameters
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
 START_FRAME = 22068 + 1000        # First frame to replay
-END_FRAME = START_FRAME + 30 # Last frame to replay (use nothing for all frames)
+END_FRAME = START_FRAME + 20 # Last frame to replay (use nothing for all frames)
 REMAKE_CACHE = false
 
 # V3 Kite steering/depower calibration (from KCU documentation)
+# Steering calibration
 STEERING_L0 = 1.506  # Neutral steering tape length (m)
+STEERING_GAIN = 1.0  # Maximum differential (m) at |u_s| = 1
+
+# Depower calibration
 DEPOWER_L0 = 3.129
+DEPOWER_GAIN = 5.0
+
+"""
+    steering_percentage_to_lengths(percentage)
+
+Convert CSV steering percentage to left/right tape lengths (m).
+Percentage convention: negative = left turn, positive = right turn.
+"""
+function steering_percentage_to_lengths(percentage)
+    u_s = percentage / 100.0  # Convert percentage to [-1, 1]
+    L_left = STEERING_L0 - (STEERING_GAIN / 2.0) * u_s
+    L_right = STEERING_L0 + (STEERING_GAIN / 2.0) * u_s
+    return L_left, L_right
+end
+
+"""
+    depower_percentage_to_length(percentage)
+
+Convert CSV depower percentage to tape length (m).
+"""
+function depower_percentage_to_length(percentage)
+    u_p = percentage / 100.0  # Convert percentage to [0, 1]
+    L_depower = DEPOWER_L0 + (DEPOWER_GAIN / 2) * (u_p - 0.5)
+    return L_depower
+end
 
 INITIAL_DAMPING = 100.0
 DECAY_TIME = 2.0
@@ -41,10 +70,10 @@ HEADING_KD = 0.0     # No derivative gain
 DT_CONTROL = 0.01    # Control timestep
 
 # PID controller parameters for winch control
-WINCH_KP = 0.1    # Proportional gain for tether length
-WINCH_TAU_I = 0.001    # Integral time constant (seconds)
+WINCH_KP = 100    # Proportional gain for tether length
+WINCH_TAU_I = 0.1    # Integral time constant (seconds)
 WINCH_KD = 0.0       # No derivative gain
-INIT_I = 300
+INIT_I = 0.0
 
 """
     load_flight_data(csv_path::String)
@@ -88,6 +117,29 @@ function limit_frames(data; start_frame=1, end_frame=nothing)
 end
 
 """
+    add_distance_column(data)
+
+Add distance and cumulative_distance columns to CSV data.
+Calculates 3D Euclidean distance between consecutive kite positions.
+"""
+function add_distance_column(data)
+    n = length(data.time)
+    distances = zeros(Float64, n)
+    cumulative_distances = zeros(Float64, n)
+
+    for i in 2:n
+        dx = data.kite_pos_east[i] - data.kite_pos_east[i-1]
+        dy = data.kite_pos_north[i] - data.kite_pos_north[i-1]
+        dz = data.kite_height[i] - data.kite_height[i-1]
+        distances[i] = sqrt(dx^2 + dy^2 + dz^2)
+        cumulative_distances[i] = cumulative_distances[i-1] + distances[i]
+    end
+
+    # Add new fields to the named tuple
+    return merge(data, (distance=distances, cumulative_distance=cumulative_distances))
+end
+
+"""
     euler_to_quaternion(roll_deg, pitch_deg, yaw_deg)
 
 Convert Euler angles (in degrees) from NED to ENU quaternion.
@@ -125,7 +177,20 @@ function calc_R_b_w(sys_struct::SystemStructure)
     return R_b_w
 end
 
+"""
+    wrap_to_pi(angle)
 
+Wrap angle to [-π, π] range.
+"""
+function wrap_to_pi(angle)
+    return mod(angle + π, 2π) - π
+end
+
+"""
+    calc_heading(sys_struct::SystemStructure, R_b_w)
+
+Calculate heading angle from rotation matrix, wrapped to [-π, π].
+"""
 function calc_heading(sys_struct::SystemStructure, R_b_w)
     e_x = R_b_w[:, 1]
     wind_norm = [1,0,0]
@@ -137,43 +202,58 @@ function calc_heading(sys_struct::SystemStructure, R_b_w)
     wind_cross_z = [wind_norm[2], -wind_norm[1], 0]
     heading_x = dot(e_x_perp, wind_cross_z)
     heading_z = e_x_perp[3]
-    return atan(heading_x, heading_z)
+    heading = atan(heading_x, heading_z)
+    return wrap_to_pi(heading)
 end
 
-function update_vel_from_csv!(sys, row, heading_pid, winch_pid)
+"""
+    calc_csv_heading(roll_deg, pitch_deg, yaw_deg, sys_struct)
+
+Calculate heading from CSV Euler angles, wrapped to [-π, π].
+"""
+function calc_csv_heading(roll_deg, pitch_deg, yaw_deg, sys_struct)
+    quat = euler_to_quaternion(roll_deg, pitch_deg, yaw_deg)
+    R = SymbolicAWEModels.quaternion_to_rotation_matrix(quat)
+    heading = calc_heading(sys_struct, R)
+    return wrap_to_pi(heading + π)
+end
+
+function update_vel_from_csv!(sys, row, heading_pid, winch_pid, steady_torque, brake)
     @unpack wings, points, winches, segments = sys
     wing = wings[1]
 
     # calc delta heading
-    quat = euler_to_quaternion(row.roll,
-                               row.pitch,
-                               row.yaw)
-    csv_heading =
-        calc_heading(sys, SymbolicAWEModels.quaternion_to_rotation_matrix(quat)) + pi
+    csv_heading = calc_csv_heading(row.roll, row.pitch, row.yaw, sys)
     wing.R_b_w = calc_R_b_w(sys)
     curr_heading = calc_heading(sys, wing.R_b_w)
-    delta_heading = csv_heading - curr_heading - 2pi
+    delta_heading = wrap_to_pi(csv_heading - curr_heading)
 
     # PID control for steering based on heading error
+    # Use CSV steering as feedforward
+    L_left_csv, L_right_csv = steering_percentage_to_lengths(row.steering)
+    u_s_csv = (L_right_csv - L_left_csv) / 2.0  # Convert back to differential (m)
+
     # calculate_control!(pid, r, y, uff) - r:setpoint, y:measurement, uff:feedforward
-    steering_control = DiscretePIDs.calculate_control!(heading_pid, 0.0, delta_heading, 0.0)
-    total_steering_len = 2 * STEERING_L0
-    # Apply steering: positive control increases seg 87, decreases seg 89
-    # segments[87].l0 = STEERING_L0 + steering_control
-    # segments[89].l0 = total_steering_len - segments[87].l0
-    # @show steering_control
+    steering_control = DiscretePIDs.calculate_control!(heading_pid, 0.0, delta_heading, u_s_csv)
+
+    # Apply steering via differential tape lengths
+    segments[87].l0 = STEERING_L0 - (STEERING_GAIN/2.0)*steering_control  # Left
+    segments[89].l0 = STEERING_L0 + (STEERING_GAIN/2.0)*steering_control  # Right
 
     # PID control for winch to maintain tether length
     # Negate output: tether too long (positive error) needs negative torque (reel in)
     winch = winches[1]
-    torque_control = -DiscretePIDs.calculate_control!(
-        winch_pid, winch.tether_len, row.tether_len, 0.0)
-    winch.brake = false
+    torque_damp = 0.9
+    steady_torque = torque_damp * steady_torque + (1-torque_damp) * calc_steady_torque(sys)[1]
+    torque_control = DiscretePIDs.calculate_control!(
+        winch_pid, row.tether_len, winch.tether_len, steady_torque)
+    winch.brake = brake
     winch.set_value = torque_control
 
     # update depower (from CSV)
-    # segments[88].l0 = DEPOWER_L0 + row.depower / 100
-    return winch.set_value
+    L_depower = depower_percentage_to_length(row.depower)
+    segments[88].l0 = L_depower
+    return winch.set_value, steady_torque
 end
 
 """
@@ -228,11 +308,16 @@ function update_sys_struct_from_csv!(sys, row)
 
     # update tether length
     winches[1].tether_len = row.tether_len
-    winches[1].tether_vel = row.tether_vel
+    # winches[1].tether_vel = row.tether_vel
     winches[1].brake = true
-    segments[87].l0 = STEERING_L0 + row.steering / 100
-    segments[89].l0 = STEERING_L0 - row.steering / 100
-    segments[88].l0 = DEPOWER_L0 + row.depower / 100
+
+    # Convert CSV percentages to tape lengths
+    L_left, L_right = steering_percentage_to_lengths(row.steering)
+    L_depower = depower_percentage_to_length(row.depower)
+
+    segments[87].l0 = L_left   # Left steering tape
+    segments[89].l0 = L_right  # Right steering tape
+    segments[88].l0 = L_depower  # Depower tape
     return INIT_I
 end
 
@@ -248,6 +333,7 @@ function run_physics_replay(csv_path::String;
 
     raw_data = load_flight_data(csv_path)
     csv_data = limit_frames(raw_data; start_frame, end_frame)
+    csv_data = add_distance_column(csv_data)
 
     @info "Loading v3 kite system structure from YAML"
     set_data_path("data/v3")
@@ -290,8 +376,11 @@ function run_physics_replay(csv_path::String;
         Td = false,
         Ts = DT_CONTROL,
         I = INIT_I,
-        umin = -50000.0,
-        umax = 50000.0)
+        umin = -2000.0,
+        umax = 2000.0)
+
+    steady_torque = calc_steady_torque(sam)[1]
+    
     for step in 1:n_steps
         # Create row data structure
         csv_row = (
@@ -309,6 +398,8 @@ function run_physics_replay(csv_path::String;
             tether_vel = csv_data.ground_tether_reelout_speed[step],
             steering = csv_data.kite_actual_steering[step],
             depower = csv_data.kite_actual_depower[step],
+            distance = csv_data.distance[step],
+            cumulative_distance = csv_data.cumulative_distance[step],
         )
         if t <= DECAY_TIME
             current_damping = (INITIAL_DAMPING - MIN_DAMPING) * (1.0 - t / DECAY_TIME) + MIN_DAMPING
@@ -322,15 +413,43 @@ function run_physics_replay(csv_path::String;
             set_value = update_sys_struct_from_csv!(sam.sys_struct, csv_row)
             SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
         end
-        if step==1
-            substeps = Int(round((csv_data.time[step+1] - csv_data.time[step]) / dt))
+
+        # Distance-based stepping
+        target_distance = csv_row.distance
+        simulated_distance = 0.0
+        last_pos_w = copy(sam.sys_struct.wings[1].pos_w)
+        substep_count = 0
+        max_substeps = 10
+        min_distance_threshold = 0.001  # meters
+
+        if t < 0.2
+            brake = true
         else
-            substeps = Int(round((csv_data.time[step] - csv_data.time[step-1]) / dt))
+            brake = false
         end
-        for substep in 1:substeps
+
+        # Step until we match CSV distance (or hit safety limit)
+        wing = sam.sys_struct.wings[1]
+        while (simulated_distance < target_distance - min_distance_threshold) &&
+              (substep_count < max_substeps)
             t += dt
-            set_value = update_vel_from_csv!(sam.sys_struct, csv_row, heading_pid, winch_pid)
+            set_value, steady_torque = update_vel_from_csv!(sam.sys_struct, csv_row,
+                                             heading_pid, winch_pid, steady_torque, brake)
             next_step!(sam; dt, set_values=[set_value])
+
+            # Calculate distance moved in this substep
+            current_pos_w = wing.pos_w
+            step_distance = norm(current_pos_w - last_pos_w)
+            simulated_distance += step_distance
+            last_pos_w = current_pos_w
+            substep_count += 1
+        end
+
+        # Warn if we hit the safety limit
+        if substep_count >= max_substeps
+            @warn "Hit max substeps at step $step " *
+                  "(simulated: $(round(simulated_distance, digits=3))m / " *
+                  "target: $(round(target_distance, digits=3))m)"
         end
 
         # Update sys_state from sam and log it
@@ -357,16 +476,12 @@ function run_physics_replay(csv_path::String;
     csv_heading = zeros(n_steps)
     csv_tether_len = zeros(n_steps)
     for step in 1:n_steps
-        quat = euler_to_quaternion(
+        csv_heading[step] = calc_csv_heading(
             csv_data.kite_0_roll[step],
             csv_data.kite_0_pitch[step],
-            csv_data.kite_0_yaw[step]
+            csv_data.kite_0_yaw[step],
+            sys
         )
-        csv_pos = [csv_data.kite_pos_east[step],
-                   csv_data.kite_pos_north[step],
-                   csv_data.kite_height[step]]
-        R = SymbolicAWEModels.quaternion_to_rotation_matrix(quat)
-        csv_heading[step] = calc_heading(sys, R) - pi
         csv_tether_len[step] = csv_data.ground_tether_length[step]
     end
 
@@ -375,7 +490,7 @@ end
 
 # Main execution
 sam_phys, syslog_phys, csv_data_phys, csv_heading, csv_tether_len = run_physics_replay(CSV_PATH)
-plot(sam_phys.sys_struct, syslog_phys;
+fig = plot(sam_phys.sys_struct, syslog_phys;
      heading_setpoint=csv_heading,
      tether_len_setpoint=csv_tether_len,
      plot_tether=true)

@@ -129,16 +129,8 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
         for wing in wings
             wing.wing_type != REFINE && continue
 
-            # Update VSM wing sections from structural deformation
-            # (modifies sections in place, like deform!)
             update_vsm_wing_from_structure!(wing, points)
 
-            # Update body aerodynamics with the deformed wing sections
-            # (panels regenerated from modified sections)
-            # sort_sections=false preserves section order from structural points
-            # VortexStepMethod.reinit!(wing.vsm_aero; init_aero=false)
-
-            # Build va_distribution from per-point va_b values using point_to_vsm_point mapping
             if !isnothing(wing.point_to_vsm_point)
                 # First calculate va at each section from structural points
                 n_sections = length(wing.vsm_wing.unrefined_sections)
