@@ -132,7 +132,7 @@ segments:
     - [28, 19, 21, POWER_LINE, 0.903854, 1.0, 10000.0, 10.0, 0]
 
     # Wing structural elements - diagonal springs (hardcoded stiffness)
-    - [29, 2, 5, POWER_LINE, 1.360356, 1.0, 10000.0, 10.0, 1.0]
+    - [29, 2, 5, POWER_LINE, 1.360356, 1.0, 10000.0, 10.0, 0]
     - [30, 3, 4, POWER_LINE, 1.780032, 1.0, 10000.0, 10.0, 0]
     - [31, 4, 7, POWER_LINE, 2.108078, 1.0, 10000.0, 10.0, 0]
     - [32, 5, 6, POWER_LINE, 2.251513, 1.0, 10000.0, 10.0, 0]
@@ -149,12 +149,12 @@ segments:
     - [43, 16, 19, POWER_LINE, 2.251513, 1.0, 10000.0, 10.0, 0]
     - [44, 17, 18, POWER_LINE, 2.108078, 1.0, 10000.0, 10.0, 0]
     - [45, 18, 21, POWER_LINE, 1.780032, 1.0, 10000.0, 10.0, 0]
-    - [46, 19, 20, POWER_LINE, 1.360356, 1.0, 10000.0, 10.0, 1.0]
+    - [46, 19, 20, POWER_LINE, 1.360356, 1.0, 10000.0, 10.0, 0]
 
     # Bridle segments - left front lines (non-compressive, using dyneema material)
     - [47, 2, 26, BRIDLE, 5.686, 5.0, dyneema, nothing, 0.01]  # a6 first half (pulley)
     - [48, 2, 34, BRIDLE, 5.686, 5.0, dyneema, nothing, 0.01]  # a6 second half (pulley)
-    - [49, 4, 22, BRIDLE, 2.782, 5.0, dyneema, nothing, 0.01]  # A5 - original 2.782
+    - [49, 4, 22, BRIDLE, 2.782, 5.0, dyneema, nothing, 0.01]  # A5
     - [50, 6, 22, BRIDLE, 3.253, 5.0, dyneema, nothing, 0.01]  # A3
     - [51, 8, 23, BRIDLE, 3.352, 5.0, dyneema, nothing, 0.01]  # A2
     - [52, 10, 23, BRIDLE, 3.520, 5.0, dyneema, nothing, 0.01]  # A1
@@ -163,7 +163,7 @@ segments:
     - [53, 12, 24, BRIDLE, 3.520, 5.0, dyneema, nothing, 0.01]  # A1
     - [54, 14, 24, BRIDLE, 3.352, 5.0, dyneema, nothing, 0.01]  # A2
     - [55, 16, 25, BRIDLE, 3.253, 5.0, dyneema, nothing, 0.01]  # A3
-    - [56, 18, 25, BRIDLE, 2.782, 5.0, dyneema, nothing, 0.01]  # A5 - original 2.782
+    - [56, 18, 25, BRIDLE, 2.782, 5.0, dyneema, nothing, 0.01]  # A5
     - [57, 27, 20, BRIDLE, 5.686, 5.0, dyneema, nothing, 0.01]  # a6 first half (pulley)
     - [58, 20, 36, BRIDLE, 5.686, 5.0, dyneema, nothing, 0.01]  # a6 second half (pulley)
 
@@ -220,9 +220,6 @@ segments:
     - [93, 41, 42, BRIDLE, 45, 13.5, dyneema, nothing, 0.01]
     - [94, 42, 43, BRIDLE, 45, 13.5, dyneema, nothing, 0.01]
     - [95, 43, 44, BRIDLE, 45, 13.5, dyneema, nothing, 0.01]
-
-    - [96, 2, 6, POWER_LINE, 0.0, 1.0, 10000.0, 10.0, 1.0]
-    - [97, 16, 20, POWER_LINE, 0.0, 1.0, 10000.0, 10.0, 1.0]
 
 ###########################
 ## Pulleys ################
@@ -313,9 +310,9 @@ transforms:
   data:
     # Main transform for v3 kite wing
     - idx: 1
-      elevation: 45
-      azimuth: 0.0
-      heading: 0.0
+      elevation: 30.37
+      azimuth: 1.15
+      heading: -55
       wing_idx: 1           # Transform applies to wing 1
       base_pos: [0.0, 0.0, 0.0] # Base position (at KCU/ground point)
       base_point_idx: 44     # Reference to point 39 (ground attachment)
