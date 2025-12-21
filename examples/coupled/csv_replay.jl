@@ -23,7 +23,7 @@ using KiteUtils: calc_elevation, azimuth_east
 # Configuration parameters
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
 START_FRAME = 22068 + 1000        # First frame to replay
-END_FRAME = START_FRAME - 1 + 10 # Last frame to replay (use nothing for all frames)
+END_FRAME = START_FRAME + 62 # Last frame to replay (use nothing for all frames)
 REMAKE_CACHE = false
 
 # V3 Kite steering/depower calibration (from KCU documentation)
@@ -37,7 +37,7 @@ DEPOWER_GAIN = 5.0
 
 INITIAL_DAMPING = 20.0
 DECAY_TIME = 2.0
-MIN_DAMPING = 0.0
+MIN_DAMPING = 10.0
 
 # PID controller parameters for heading control
 HEADING_KP = 0.05    # Low proportional gain
@@ -414,27 +414,36 @@ function run_physics_replay(csv_path::String;
 
     steady_torque = calc_steady_torque(sam)[1]
 
+    function get_row(csv_data, step)
+        csv_row = (
+            time = csv_data.time[step],
+            roll = csv_data.kite_0_roll[step],
+            pitch = csv_data.kite_0_pitch[step],
+            yaw = csv_data.kite_0_yaw[step],
+            x = csv_data.kite_pos_east[step],
+            y = csv_data.kite_pos_north[step],
+            z = csv_data.kite_height[step],
+            vx = csv_data.kite_est_vx[step],
+            vy = csv_data.kite_est_vy[step],
+            vz = csv_data.kite_est_vz[step],
+            tether_len = csv_data.ground_tether_length[step],
+            tether_vel = csv_data.ground_tether_reelout_speed[step],
+            steering = csv_data.kite_actual_steering[step],
+            depower = csv_data.kite_actual_depower[step],
+            distance = csv_data.distance[step],
+            cumulative_distance = csv_data.cumulative_distance[step],
+        )
+    end
+
+    csv_heading = Float64[]
+    csv_tether_len = Float64[]
+
     try
-        for step in 1:n_csv_steps
+        for step in 1:n_csv_steps-1
+            @show step
             # Create row data structure
-            csv_row = (
-                time = csv_data.time[step],
-                roll = csv_data.kite_0_roll[step],
-                pitch = csv_data.kite_0_pitch[step],
-                yaw = csv_data.kite_0_yaw[step],
-                x = csv_data.kite_pos_east[step],
-                y = csv_data.kite_pos_north[step],
-                z = csv_data.kite_height[step],
-                vx = csv_data.kite_est_vx[step],
-                vy = csv_data.kite_est_vy[step],
-                vz = csv_data.kite_est_vz[step],
-                tether_len = csv_data.ground_tether_length[step],
-                tether_vel = csv_data.ground_tether_reelout_speed[step],
-                steering = csv_data.kite_actual_steering[step],
-                depower = csv_data.kite_actual_depower[step],
-                distance = csv_data.distance[step],
-                cumulative_distance = csv_data.cumulative_distance[step],
-            )
+            csv_row = get_row(csv_data, step)
+            next_row = get_row(csv_data, step+1)
             if t <= DECAY_TIME
                 current_damping = (INITIAL_DAMPING - MIN_DAMPING) * (1.0 - t / DECAY_TIME) + MIN_DAMPING
                 SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping)
@@ -472,15 +481,29 @@ function run_physics_replay(csv_path::String;
                 next_step!(sam; dt, set_values=[set_value])
 
                 # Calculate distance moved in this substep
+                next_pos = [next_row.x, next_row.y, next_row.z]
+                next_elevation = KiteUtils.calc_elevation(next_pos)
+                next_azimuth = KiteUtils.azimuth_east(next_pos)
+                sphere_distance = norm([next_elevation, next_azimuth] -
+                                       [wing.elevation, wing.azimuth])
+                @show sphere_distance
                 current_pos_w = wing.pos_w
                 step_distance = norm(current_pos_w - last_pos_w)
-                @show step_distance
                 simulated_distance += step_distance
                 last_pos_w = copy(current_pos_w)
                 update_sys_state!(sys_state, sam)
                 sys_state.time = t
                 log!(logger, sys_state)
                 substep_count += 1
+
+                # Calculate CSV heading for comparison
+                push!(csv_heading, calc_csv_heading(
+                    csv_data.kite_0_roll[step],
+                    csv_data.kite_0_pitch[step],
+                    csv_data.kite_0_yaw[step],
+                    sys
+                ))
+                push!(csv_tether_len, csv_data.ground_tether_length[step])
             end
 
             # Warn if we hit the safety limit
@@ -511,19 +534,6 @@ function run_physics_replay(csv_path::String;
     @info "Saving replay log..."
     save_log(logger, "csv_replay")
     syslog = load_log("csv_replay")
-
-    # Calculate CSV heading for comparison
-    csv_heading = zeros(n_steps)
-    csv_tether_len = zeros(n_steps)
-    for step in 1:n_csv_steps
-        csv_heading[step] = calc_csv_heading(
-            csv_data.kite_0_roll[step],
-            csv_data.kite_0_pitch[step],
-            csv_data.kite_0_yaw[step],
-            sys
-        )
-        csv_tether_len[step] = csv_data.ground_tether_length[step]
-    end
 
     return sam, syslog, csv_data, csv_heading, csv_tether_len
 end
