@@ -479,7 +479,6 @@ function next_step!(sam::SymbolicAWEModel; set_values=nothing, dt=1/sam.set.samp
     prob = sam.prob
     if (isnothing(set_values)) 
         set_values = [winch.set_value for winch in sam.sys_struct.winches]
-        @show set_values
     end
     prob.set_set_values(sam.integrator, set_values)
     

@@ -23,7 +23,7 @@ using KiteUtils: calc_elevation, azimuth_east
 # Configuration parameters
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
 START_FRAME = 22068 + 1000        # First frame to replay
-END_FRAME = START_FRAME + 1 # Last frame to replay (use nothing for all frames)
+END_FRAME = START_FRAME - 1 + 10 # Last frame to replay (use nothing for all frames)
 REMAKE_CACHE = false
 
 # V3 Kite steering/depower calibration (from KCU documentation)
@@ -35,7 +35,7 @@ STEERING_GAIN = 1.0  # Maximum differential (m) at |u_s| = 1
 DEPOWER_L0 = 3.129
 DEPOWER_GAIN = 5.0
 
-INITIAL_DAMPING = 100.0
+INITIAL_DAMPING = 20.0
 DECAY_TIME = 2.0
 MIN_DAMPING = 0.0
 
@@ -284,8 +284,9 @@ Update system structure from a single CSV row.
 Updates wing orientation from Euler angles and position via transform system.
 """
 function update_sys_struct_from_csv!(sys, row)
-    @unpack wings, points, winches, segments = sys
+    @unpack wings, points, winches, segments, transforms = sys
     wing = wings[1]
+    transform = transforms[1]
 
     # calc delta heading
     quat = euler_to_quaternion(row.roll,
@@ -302,11 +303,12 @@ function update_sys_struct_from_csv!(sys, row)
     curr_pos = wing.pos_w
     delta_pos = csv_pos - curr_pos
     # apply transform
-    wing.pos_w .+= delta_pos
-    for point in points
-        transform_frac = point.pos_w ⋅ normalize(wing.pos_w) / norm(wing.pos_w)
-        point.pos_w .+= transform_frac * delta_pos
+    for (n, point_idx) in enumerate(39:44)
+        points[point_idx].pos_b .= [0.0, 0.0, -n * row.tether_len / 6 * 1.01]
     end
+    transform.elevation = KiteUtils.calc_elevation(csv_pos)
+    transform.azimuth = KiteUtils.azimuth_east(csv_pos)
+    SymbolicAWEModels.reinit!([transform], sys)
 
     # apply vel
     csv_vel = [row.vx, row.vy, row.vz]
@@ -362,7 +364,7 @@ function run_physics_replay(csv_path::String;
     vsm_set_path = joinpath(get_data_path(), "vsm_settings.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
     sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml";
-        system_name="v3", set, wing_type=REFINE, vsm_set)
+        system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)
 
@@ -379,7 +381,7 @@ function run_physics_replay(csv_path::String;
     sys = sam.sys_struct
     SymbolicAWEModels.set_body_frame_damping(sys, INITIAL_DAMPING)
     t = 0.0
-    dt = 0.01
+    dt = DT_CONTROL
 
     # Initialize heading PID controller
     heading_pid = DiscretePID(;
@@ -451,13 +453,13 @@ function run_physics_replay(csv_path::String;
             simulated_distance = 0.0
             last_pos_w = copy(sam.sys_struct.wings[1].pos_w)
             substep_count = 0
-            min_distance_threshold = 0.001  # meters
+            min_distance_threshold = 0.01  # meters
 
-            if t < 0.2
+            # if t < 0.2
                 brake = true
-            else
-                brake = false
-            end
+            # else
+            #     brake = false
+            # end
 
             # Step until we match CSV distance (or hit safety limit)
             wing = sam.sys_struct.wings[1]
@@ -472,9 +474,9 @@ function run_physics_replay(csv_path::String;
                 # Calculate distance moved in this substep
                 current_pos_w = wing.pos_w
                 step_distance = norm(current_pos_w - last_pos_w)
+                @show step_distance
                 simulated_distance += step_distance
-                last_pos_w = current_pos_w
-                @show sam.sys_struct.wings[1].heading
+                last_pos_w = copy(current_pos_w)
                 update_sys_state!(sys_state, sam)
                 sys_state.time = t
                 log!(logger, sys_state)
@@ -528,7 +530,7 @@ end
 
 # Main execution
 sam, syslog, csv_data, csv_heading, csv_tether_len = run_physics_replay(CSV_PATH)
-fig = plot(sam_phys.sys_struct, syslog_phys;
+fig = plot(sam.sys_struct, syslog;
      heading_setpoint=csv_heading,
      tether_len_setpoint=csv_tether_len,
      plot_tether=true)
