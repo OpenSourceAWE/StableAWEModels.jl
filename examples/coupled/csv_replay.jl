@@ -35,6 +35,26 @@ STEERING_GAIN = 1.0  # Maximum differential (m) at |u_s| = 1
 DEPOWER_L0 = 3.129
 DEPOWER_GAIN = 5.0
 
+INITIAL_DAMPING = 100.0
+DECAY_TIME = 2.0
+MIN_DAMPING = 0.0
+
+# PID controller parameters for heading control
+HEADING_KP = 0.05    # Low proportional gain
+HEADING_TAU_I = 0.1  # Integral time constant (seconds)
+HEADING_KD = 0.0     # No derivative gain
+DT_CONTROL = 0.01    # Control timestep
+
+# PID controller parameters for winch control
+WINCH_KP = 100    # Proportional gain for tether length
+WINCH_TAU_I = 0.1    # Integral time constant (seconds)
+WINCH_KD = 0.0       # No derivative gain
+INIT_I = 0.0
+
+SPEED_KP = 10    # Proportional gain for tether length
+SPEED_TAU_I = 10    # Integral time constant (seconds)
+SPEED_KD = 0.0       # No derivative gain
+
 """
     steering_percentage_to_lengths(percentage)
 
@@ -58,26 +78,6 @@ function depower_percentage_to_length(percentage)
     L_depower = DEPOWER_L0 + (DEPOWER_GAIN / 2) * (u_p - 0.5)
     return L_depower
 end
-
-INITIAL_DAMPING = 10.0
-DECAY_TIME = 2.0
-MIN_DAMPING = 0.0
-
-# PID controller parameters for heading control
-HEADING_KP = 0.05    # Low proportional gain
-HEADING_TAU_I = 0.1  # Integral time constant (seconds)
-HEADING_KD = 0.0     # No derivative gain
-DT_CONTROL = 0.01    # Control timestep
-
-# PID controller parameters for winch control
-WINCH_KP = 100    # Proportional gain for tether length
-WINCH_TAU_I = 0.1    # Integral time constant (seconds)
-WINCH_KD = 0.0       # No derivative gain
-INIT_I = 0.0
-
-SPEED_KP = 10    # Proportional gain for tether length
-SPEED_TAU_I = 10    # Integral time constant (seconds)
-SPEED_KD = 0.0       # No derivative gain
 
 """
     load_flight_data(csv_path::String)
@@ -269,7 +269,6 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_pid, speed_pid,
         speed_pid, norm(csv_vel), norm(wing.vel_w), 0.0
     )
     # apply_force!(sys, speed_control)
-    @show wing.aero_force_b wing.R_b_w' * wing.vel_w wing.R_b_w' * wing.acc_w
 
     # update depower (from CSV)
     L_depower = depower_percentage_to_length(row.depower)
@@ -367,7 +366,9 @@ function run_physics_replay(csv_path::String;
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)
 
-    n_steps = length(csv_data.time)
+    max_substeps = 1000
+    n_csv_steps = length(csv_data.time)
+    n_steps = length(csv_data.time) * max_substeps
     @info "Creating log with $n_steps timesteps"
     sys_state = SysState(sam)
     logger = Logger(sam, n_steps)
@@ -376,7 +377,7 @@ function run_physics_replay(csv_path::String;
     @info "Replaying CSV data..."
     replay_start = time()
     sys = sam.sys_struct
-    SymbolicAWEModels.set_world_frame_damping(sys, INITIAL_DAMPING)
+    SymbolicAWEModels.set_body_frame_damping(sys, INITIAL_DAMPING)
     t = 0.0
     dt = 0.01
 
@@ -410,89 +411,95 @@ function run_physics_replay(csv_path::String;
         umax = 2000.0)
 
     steady_torque = calc_steady_torque(sam)[1]
-    
-    for step in 1:n_steps
-        # Create row data structure
-        csv_row = (
-            time = csv_data.time[step],
-            roll = csv_data.kite_0_roll[step],
-            pitch = csv_data.kite_0_pitch[step],
-            yaw = csv_data.kite_0_yaw[step],
-            x = csv_data.kite_pos_east[step],
-            y = csv_data.kite_pos_north[step],
-            z = csv_data.kite_height[step],
-            vx = csv_data.kite_est_vx[step],
-            vy = csv_data.kite_est_vy[step],
-            vz = csv_data.kite_est_vz[step],
-            tether_len = csv_data.ground_tether_length[step],
-            tether_vel = csv_data.ground_tether_reelout_speed[step],
-            steering = csv_data.kite_actual_steering[step],
-            depower = csv_data.kite_actual_depower[step],
-            distance = csv_data.distance[step],
-            cumulative_distance = csv_data.cumulative_distance[step],
-        )
-        if t <= DECAY_TIME
-            current_damping = (INITIAL_DAMPING - MIN_DAMPING) * (1.0 - t / DECAY_TIME) + MIN_DAMPING
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+
+    try
+        for step in 1:n_csv_steps
+            # Create row data structure
+            csv_row = (
+                time = csv_data.time[step],
+                roll = csv_data.kite_0_roll[step],
+                pitch = csv_data.kite_0_pitch[step],
+                yaw = csv_data.kite_0_yaw[step],
+                x = csv_data.kite_pos_east[step],
+                y = csv_data.kite_pos_north[step],
+                z = csv_data.kite_height[step],
+                vx = csv_data.kite_est_vx[step],
+                vy = csv_data.kite_est_vy[step],
+                vz = csv_data.kite_est_vz[step],
+                tether_len = csv_data.ground_tether_length[step],
+                tether_vel = csv_data.ground_tether_reelout_speed[step],
+                steering = csv_data.kite_actual_steering[step],
+                depower = csv_data.kite_actual_depower[step],
+                distance = csv_data.distance[step],
+                cumulative_distance = csv_data.cumulative_distance[step],
+            )
+            if t <= DECAY_TIME
+                current_damping = (INITIAL_DAMPING - MIN_DAMPING) * (1.0 - t / DECAY_TIME) + MIN_DAMPING
+                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping)
+            else
+                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, MIN_DAMPING)
+            end
+
+            # Update system structure from CSV
+            if step==1
+                set_value = update_sys_struct_from_csv!(sam.sys_struct, csv_row)
+                SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
+            end
+
+            # Distance-based stepping
+            target_distance = csv_row.distance
+            simulated_distance = 0.0
+            last_pos_w = copy(sam.sys_struct.wings[1].pos_w)
+            substep_count = 0
+            min_distance_threshold = 0.001  # meters
+
+            if t < 0.2
+                brake = true
+            else
+                brake = false
+            end
+
+            # Step until we match CSV distance (or hit safety limit)
+            wing = sam.sys_struct.wings[1]
+            while (simulated_distance < target_distance - min_distance_threshold) &&
+                  (substep_count < max_substeps)
+                t += dt
+                set_value, steady_torque = update_vel_from_csv!(sam.sys_struct, csv_row,
+                                                 heading_pid, winch_pid, speed_pid,
+                                                 steady_torque, brake)
+                next_step!(sam; dt, set_values=[set_value])
+
+                # Calculate distance moved in this substep
+                current_pos_w = wing.pos_w
+                step_distance = norm(current_pos_w - last_pos_w)
+                simulated_distance += step_distance
+                last_pos_w = current_pos_w
+                @show sam.sys_struct.wings[1].heading
+                update_sys_state!(sys_state, sam)
+                sys_state.time = t
+                log!(logger, sys_state)
+                substep_count += 1
+            end
+
+            # Warn if we hit the safety limit
+            if substep_count >= max_substeps
+                @warn "Hit max substeps at step $step " *
+                      "(simulated: $(round(simulated_distance, digits=3))m / " *
+                      "target: $(round(target_distance, digits=3))m)"
+            end
+
+            # Progress reporting
+            if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
+                elapsed = time() - replay_start
+                @info "  Logged $step/$n_steps points " *
+                      "(t = $(round(csv_row.time, digits=2)) s)"
+            end
+        end
+    catch err
+        if err isa AssertionError
+            @warn "Still plotting"
         else
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, MIN_DAMPING)
-        end
-
-        # Update system structure from CSV
-        if step==1
-            set_value = update_sys_struct_from_csv!(sam.sys_struct, csv_row)
-            SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
-        end
-
-        # Distance-based stepping
-        target_distance = csv_row.distance
-        simulated_distance = 0.0
-        last_pos_w = copy(sam.sys_struct.wings[1].pos_w)
-        substep_count = 0
-        max_substeps = 1000
-        min_distance_threshold = 0.001  # meters
-
-        if t < 0.2
-            brake = true
-        else
-            brake = false
-        end
-
-        # Step until we match CSV distance (or hit safety limit)
-        wing = sam.sys_struct.wings[1]
-        while (simulated_distance < target_distance - min_distance_threshold) &&
-              (substep_count < max_substeps)
-            t += dt
-            set_value, steady_torque = update_vel_from_csv!(sam.sys_struct, csv_row,
-                                             heading_pid, winch_pid, speed_pid,
-                                             steady_torque, brake)
-            next_step!(sam; dt, set_values=[set_value])
-
-            # Calculate distance moved in this substep
-            current_pos_w = wing.pos_w
-            step_distance = norm(current_pos_w - last_pos_w)
-            simulated_distance += step_distance
-            last_pos_w = current_pos_w
-            substep_count += 1
-        end
-
-        # Warn if we hit the safety limit
-        if substep_count >= max_substeps
-            @warn "Hit max substeps at step $step " *
-                  "(simulated: $(round(simulated_distance, digits=3))m / " *
-                  "target: $(round(target_distance, digits=3))m)"
-        end
-
-        # Update sys_state from sam and log it
-        update_sys_state!(sys_state, sam)
-        sys_state.time = t
-        log!(logger, sys_state)
-
-        # Progress reporting
-        if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
-            elapsed = time() - replay_start
-            @info "  Logged $step/$n_steps points " *
-                  "(t = $(round(csv_row.time, digits=2)) s)"
+            rethrow(err)
         end
     end
 
@@ -506,7 +513,7 @@ function run_physics_replay(csv_path::String;
     # Calculate CSV heading for comparison
     csv_heading = zeros(n_steps)
     csv_tether_len = zeros(n_steps)
-    for step in 1:n_steps
+    for step in 1:n_csv_steps
         csv_heading[step] = calc_csv_heading(
             csv_data.kite_0_roll[step],
             csv_data.kite_0_pitch[step],
@@ -520,7 +527,7 @@ function run_physics_replay(csv_path::String;
 end
 
 # Main execution
-sam_phys, syslog_phys, csv_data_phys, csv_heading, csv_tether_len = run_physics_replay(CSV_PATH)
+sam, syslog, csv_data, csv_heading, csv_tether_len = run_physics_replay(CSV_PATH)
 fig = plot(sam_phys.sys_struct, syslog_phys;
      heading_setpoint=csv_heading,
      tether_len_setpoint=csv_tether_len,

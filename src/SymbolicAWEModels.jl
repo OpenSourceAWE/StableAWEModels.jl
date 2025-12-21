@@ -80,6 +80,7 @@ export linearize!, simple_linearize!
 export copy_to_simple!
 export update_segment_forces!
 export set_world_frame_damping
+export set_body_frame_damping
 
 # --- System Structure Creators ---
 export create_ram_sys_struct

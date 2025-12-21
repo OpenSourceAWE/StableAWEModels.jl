@@ -2559,3 +2559,24 @@ function set_world_frame_damping(sys::SystemStructure, damping::Real)
     end
     return nothing
 end
+
+"""
+    set_body_frame_damping(sys::SystemStructure, damping)
+
+Set the body frame damping coefficient for all WING points in the system structure.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to modify.
+- `damping::Real`: The damping coefficient to apply to all points [N·s/m].
+
+# Returns
+- `nothing`
+"""
+function set_body_frame_damping(sys::SystemStructure, damping::Real)
+    for point in sys.points
+        if point.type == WING
+            point.body_frame_damping = damping
+        end
+    end
+    return nothing
+end
