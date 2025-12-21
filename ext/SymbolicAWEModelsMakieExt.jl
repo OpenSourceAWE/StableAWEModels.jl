@@ -605,17 +605,22 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = " - " * syss[i].name
             v_ro = [[sl.v_reelout[i][j] for i in eachindex(sl.v_reelout)] for j in 1:3]
             for j in 1:3
-                push!(all_data, v_ro[j])
-                push!(all_labels, "v_ro,$j" * suffix)
-                push!(all_times, sl.time)
+                # Only plot if non-zero or if it's index 1
+                if j == 1 || !all(iszero, v_ro[j])
+                    push!(all_data, v_ro[j])
+                    push!(all_labels, "v_ro,$j" * suffix)
+                    push!(all_times, sl.time)
+                end
             end
         end
-        push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = "reel-out speed [m/s]"
-        ))
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "reel-out speed [m/s]"
+            ))
+        end
     end
 
     if plot_tether
@@ -950,17 +955,22 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = " - " * syss[i].name
             winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
             for j in 1:3
-                push!(all_data, winch_force[j])
-                push!(all_labels, "F_winch,$j" * suffix)
-                push!(all_times, sl.time)
+                # Only plot if non-zero or if it's index 1
+                if j == 1 || !all(iszero, winch_force[j])
+                    push!(all_data, winch_force[j])
+                    push!(all_labels, "F_winch,$j" * suffix)
+                    push!(all_times, sl.time)
+                end
             end
         end
-        push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = "Winch force [N]"
-        ))
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "Winch force [N]"
+            ))
+        end
     end
 
     if plot_set_values
@@ -972,17 +982,22 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = " - " * syss[i].name
             set_values = [[sl.set_torque[i][j] for i in eachindex(sl.set_torque)] for j in 1:3]
             for j in 1:3
-                push!(all_data, set_values[j])
-                push!(all_labels, "T_winch,$j" * suffix)
-                push!(all_times, sl.time)
+                # Only plot if non-zero or if it's index 1
+                if j == 1 || !all(iszero, set_values[j])
+                    push!(all_data, set_values[j])
+                    push!(all_labels, "T_winch,$j" * suffix)
+                    push!(all_times, sl.time)
+                end
             end
         end
-        push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = "Set torque [Nm]"
-        ))
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "Set torque [Nm]"
+            ))
+        end
     end
 
     # Check if there's anything to plot
