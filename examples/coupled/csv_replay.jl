@@ -23,7 +23,7 @@ using KiteUtils: calc_elevation, azimuth_east
 # Configuration parameters
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
 START_FRAME = 22068 + 1000        # First frame to replay
-END_FRAME = START_FRAME + 20 # Last frame to replay (use nothing for all frames)
+END_FRAME = START_FRAME + 1 # Last frame to replay (use nothing for all frames)
 REMAKE_CACHE = false
 
 # V3 Kite steering/depower calibration (from KCU documentation)
@@ -59,9 +59,9 @@ function depower_percentage_to_length(percentage)
     return L_depower
 end
 
-INITIAL_DAMPING = 100.0
+INITIAL_DAMPING = 10.0
 DECAY_TIME = 2.0
-MIN_DAMPING = 50.0
+MIN_DAMPING = 0.0
 
 # PID controller parameters for heading control
 HEADING_KP = 0.05    # Low proportional gain
@@ -74,6 +74,10 @@ WINCH_KP = 100    # Proportional gain for tether length
 WINCH_TAU_I = 0.1    # Integral time constant (seconds)
 WINCH_KD = 0.0       # No derivative gain
 INIT_I = 0.0
+
+SPEED_KP = 10    # Proportional gain for tether length
+SPEED_TAU_I = 10    # Integral time constant (seconds)
+SPEED_KD = 0.0       # No derivative gain
 
 """
     load_flight_data(csv_path::String)
@@ -218,7 +222,17 @@ function calc_csv_heading(roll_deg, pitch_deg, yaw_deg, sys_struct)
     return wrap_to_pi(heading + π)
 end
 
-function update_vel_from_csv!(sys, row, heading_pid, winch_pid, steady_torque, brake)
+function apply_force!(sys, control)
+    wing = sys.wings[1]
+    R_b_w = wing.R_b_w
+    for point in sys.points
+        distance_frac = point.pos_w ⋅ normalize(wing.pos_w) / norm(wing.pos_w)
+        point.disturb .= -R_b_w[:, 1] * control * distance_frac
+    end
+end
+
+function update_vel_from_csv!(sys, row, heading_pid, winch_pid, speed_pid,
+                              steady_torque, brake)
     @unpack wings, points, winches, segments = sys
     wing = wings[1]
 
@@ -250,9 +264,17 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_pid, steady_torque, b
     winch.brake = brake
     winch.set_value = torque_control
 
+    csv_vel = [row.vx, row.vy, row.vz]
+    speed_control = DiscretePIDs.calculate_control!(
+        speed_pid, norm(csv_vel), norm(wing.vel_w), 0.0
+    )
+    # apply_force!(sys, speed_control)
+    @show wing.aero_force_b wing.R_b_w' * wing.vel_w wing.R_b_w' * wing.acc_w
+
     # update depower (from CSV)
     L_depower = depower_percentage_to_length(row.depower)
     segments[88].l0 = L_depower
+    steering_control = DiscretePIDs.calculate_control!(heading_pid, 0.0, delta_heading, u_s_csv)
     return winch.set_value, steady_torque
 end
 
@@ -379,6 +401,14 @@ function run_physics_replay(csv_path::String;
         umin = -2000.0,
         umax = 2000.0)
 
+    speed_pid = DiscretePID(;
+        K = SPEED_KP,
+        Ti = SPEED_TAU_I,
+        Td = false,
+        Ts = DT_CONTROL,
+        umin = -2000.0,
+        umax = 2000.0)
+
     steady_torque = calc_steady_torque(sam)[1]
     
     for step in 1:n_steps
@@ -419,7 +449,7 @@ function run_physics_replay(csv_path::String;
         simulated_distance = 0.0
         last_pos_w = copy(sam.sys_struct.wings[1].pos_w)
         substep_count = 0
-        max_substeps = 10
+        max_substeps = 1000
         min_distance_threshold = 0.001  # meters
 
         if t < 0.2
@@ -434,7 +464,8 @@ function run_physics_replay(csv_path::String;
               (substep_count < max_substeps)
             t += dt
             set_value, steady_torque = update_vel_from_csv!(sam.sys_struct, csv_row,
-                                             heading_pid, winch_pid, steady_torque, brake)
+                                             heading_pid, winch_pid, speed_pid,
+                                             steady_torque, brake)
             next_step!(sam; dt, set_values=[set_value])
 
             # Calculate distance moved in this substep
