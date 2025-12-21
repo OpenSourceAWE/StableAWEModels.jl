@@ -464,16 +464,16 @@ function run_physics_replay(csv_path::String;
             substep_count = 0
             min_distance_threshold = 0.01  # meters
 
-            # if t < 0.2
+            if t < 1.0
                 brake = true
-            # else
-            #     brake = false
-            # end
+            else
+                brake = false
+            end
 
             # Step until we match CSV distance (or hit safety limit)
             wing = sam.sys_struct.wings[1]
-            while (simulated_distance < target_distance - min_distance_threshold) &&
-                  (substep_count < max_substeps)
+            last_sphere_distance = Inf
+            while (substep_count < max_substeps)
                 t += dt
                 set_value, steady_torque = update_vel_from_csv!(sam.sys_struct, csv_row,
                                                  heading_pid, winch_pid, speed_pid,
@@ -486,7 +486,7 @@ function run_physics_replay(csv_path::String;
                 next_azimuth = KiteUtils.azimuth_east(next_pos)
                 sphere_distance = norm([next_elevation, next_azimuth] -
                                        [wing.elevation, wing.azimuth])
-                @show sphere_distance
+
                 current_pos_w = wing.pos_w
                 step_distance = norm(current_pos_w - last_pos_w)
                 simulated_distance += step_distance
@@ -504,6 +504,12 @@ function run_physics_replay(csv_path::String;
                     sys
                 ))
                 push!(csv_tether_len, csv_data.ground_tether_length[step])
+
+                if sphere_distance > last_sphere_distance
+                    break
+                end
+                last_sphere_distance = sphere_distance
+                @show sphere_distance
             end
 
             # Warn if we hit the safety limit
