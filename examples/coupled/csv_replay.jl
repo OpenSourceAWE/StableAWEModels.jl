@@ -46,7 +46,7 @@ HEADING_KD = 0.0     # No derivative gain
 DT_CONTROL = 0.001    # Control timestep
 
 # PID controller parameters for winch velocity control (inner loop)
-WINCH_VEL_KP = 5.0       # Proportional gain for velocity tracking
+WINCH_VEL_KP = 200.0       # Proportional gain for velocity tracking
 WINCH_VEL_TAU_I = 0.05    # Fast integral for velocity matching
 WINCH_VEL_KD = 0.0        # No derivative gain
 
@@ -477,7 +477,7 @@ function run_physics_replay(csv_path::String;
             substep_count = 0
             min_distance_threshold = 0.01  # meters
 
-            if t < 1.0
+            if t < 0.1
                 brake = true
             else
                 brake = false

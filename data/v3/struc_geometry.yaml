@@ -132,7 +132,7 @@ segments:
     - [28, 19, 21, POWER_LINE, 0.903854, 1.0, 10000.0, 10.0, 0]
 
     # Wing structural elements - diagonal springs (hardcoded stiffness)
-    - [29, 2, 5, POWER_LINE, 1.360356, 1.0, 10000.0, 10.0, 1.0]
+    - [29, 2, 5, POWER_LINE, 1.360356, 1.0, 10000.0, 10.0, 0.0]
     - [30, 3, 4, POWER_LINE, 1.780032, 1.0, 10000.0, 10.0, 0]
     - [31, 4, 7, POWER_LINE, 2.108078, 1.0, 10000.0, 10.0, 0]
     - [32, 5, 6, POWER_LINE, 2.251513, 1.0, 10000.0, 10.0, 0]
@@ -149,7 +149,7 @@ segments:
     - [43, 16, 19, POWER_LINE, 2.251513, 1.0, 10000.0, 10.0, 0]
     - [44, 17, 18, POWER_LINE, 2.108078, 1.0, 10000.0, 10.0, 0]
     - [45, 18, 21, POWER_LINE, 1.780032, 1.0, 10000.0, 10.0, 0]
-    - [46, 19, 20, POWER_LINE, 1.360356, 1.0, 10000.0, 10.0, 1.0]
+    - [46, 19, 20, POWER_LINE, 1.360356, 1.0, 10000.0, 10.0, 0.0]
 
     # Bridle segments - left front lines (non-compressive, using dyneema material)
     - [47, 2, 26, BRIDLE, 5.686, 5.0, dyneema, nothing, 0.01]  # a6 first half (pulley)
