@@ -2,13 +2,9 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-TU Delft V3 Kite Comparison: REFINE vs QUATERNION Wing Types
+TU Delft V3 Kite: REFINE Wing
 
-This example compares REFINE and QUATERNION wing models:
-- REFINE: Panel forces applied to structural points, deformable wing
-- QUATERNION: Rigid body dynamics with group twist DOFs
-
-The script runs both simulations and plots them for direct comparison.
+This example runs a REFINE wing model and plots the results.
 """
 
 using SymbolicAWEModels
@@ -19,9 +15,6 @@ using GLMakie
 using KiteUtils
 using DiscretePIDs
 using Dates
-
-REFINE = true
-QUAT = false
 
 # Heading PID controller parameters
 MAX_HEADING = 10.0  # Maximum heading amplitude [degrees]
@@ -36,12 +29,9 @@ WINCH_I = 100.0     # Integral gain [N/(m·s)]
 WINCH_D = 50.0      # Derivative gain [N·s/m]
 
 """
-    run_v3_kite(wing_type::WingType; kwargs...)
+    run_v3_kite(; kwargs...)
 
-Run a v3 kite simulation with the specified wing type.
-
-# Arguments
-- `wing_type::WingType`: Either `REFINE` or `QUATERNION`
+Run a v3 kite simulation using the REFINE wing type.
 
 # Keyword Arguments
 - `sim_time::Float64=300.0`: Simulation duration [s]
@@ -65,7 +55,7 @@ Run a v3 kite simulation with the specified wing type.
 # Returns
 - `SysLog`: The simulation log containing time history data
 """
-function run_v3_kite(wing_type::WingType;
+function run_v3_kite(;
                      sim_time=300.0,
                      fps=1,
                      remake_cache=false,
@@ -75,6 +65,7 @@ function run_v3_kite(wing_type::WingType;
                      show_plots=false,
                      v_wind=15.4,
                      upwind_dir=-90.0,
+                     steering_ramp_time=25.0,
                      max_heading=50.0,
                      period=20.0,
                      heading_p=0.0,
@@ -84,8 +75,9 @@ function run_v3_kite(wing_type::WingType;
                      winch_i=100.0,
                      winch_d=50.0)
 
-    wing_type_str = wing_type == SymbolicAWEModels.REFINE ? "REFINE" : "QUATERNION"
-    @info "Running v3 kite simulation with $wing_type_str wing type..."
+    wing_type = SymbolicAWEModels.REFINE
+    wing_type_str = "REFINE"
+    @info "Running v3 kite simulation with REFINE wing type..."
 
     # Load settings
     set_data_path("data/v3")
@@ -94,7 +86,7 @@ function run_v3_kite(wing_type::WingType;
     set.upwind_dir = upwind_dir
 
     # Load YAML structure path
-    model_name = wing_type == QUATERNION ? "v3_quat" : "v3_refine"
+    model_name = "v3_refine"
     struc_yaml_path = joinpath("data", "v3", "struc_geometry.yaml")
 
     # Load VSMSettings
@@ -115,7 +107,7 @@ function run_v3_kite(wing_type::WingType;
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
-    @info "$wing_type_str wing setup:" n_wing_points=length(wing_points) n_groups=length(sys.groups) n_unrefined=n_unrefined n_panels=length(sys.wings[1].vsm_aero.panels) n_segments=length(sys.segments)
+    @info "REFINE wing setup:" n_wing_points=length(wing_points) n_groups=length(sys.groups) n_unrefined=n_unrefined n_panels=length(sys.wings[1].vsm_aero.panels) n_segments=length(sys.segments)
 
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
@@ -127,20 +119,8 @@ function run_v3_kite(wing_type::WingType;
     # Initialize model
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
-    # fixed the winch brake on, making for constant tether length
-    # sam.sys_struct.winches[1].brake = true
-
-    # # Stabilization phase
-    # @info "Stabilizing system..."
-    # [point.fix_static = true for point in sys.points if point.type == WING]
-    # if wing_type == QUATERNION
-    #     sys.wings[1].fix_sphere = true
-    # end
-    # @time next_step!(sam; dt=10.0)
-    # [point.fix_static = false for point in sys.points if point.type == WING]
-    # if wing_type == QUATERNION
-    #     sys.wings[1].fix_sphere = false
-    # end
+    # hold tether length (no dynamic reel-in)
+    sam.sys_struct.winches[1].brake = true
 
     # Create logger
     n_steps = Int(round(fps * sim_time))
@@ -171,28 +151,9 @@ function run_v3_kite(wing_type::WingType;
     # @info "Heading PID controller initialized" max_heading period heading_p heading_i heading_d
     # @info "  Sine wave: ±$(max_heading)°, period=$(period)s"
 
-    # Store nominal tether length for winch controller
-    nominal_tether_length = sys.winches[1].tether_len
-
-    # Initialize winch torque based on initial tether force
+    # Keep winch torque at zero; brake is engaged to fix tether length
     winch = sys.winches[1]
-    initial_force = norm(winch.force)
-    initial_torque = -winch.drum_radius / winch.gear_ratio * initial_force + winch.friction
-    winch.set_value = initial_torque
-    @info "Winch initialized" initial_force initial_torque drum_radius=winch.drum_radius gear_ratio=winch.gear_ratio friction=winch.friction
-
-    # Create PID controller for tether winch (maintain constant length)
-    # Output is force [N], will be converted to torque in control loop
-    max_force = 50000.0  # N
-    winch_pid = DiscretePID(;
-        K = winch_p,
-        Ti = winch_i > 0 ? winch_p / winch_i : false,
-        Td = winch_d > 0 ? winch_d / winch_p : false,
-        Ts = Δt,
-        umin = -max_force,
-        umax = max_force
-    )
-    @info "Winch PID controller initialized" nominal_tether_length winch_p winch_i winch_d
+    winch.set_value = 0.0
 
     # Optional initial plot
     if show_plots
@@ -221,24 +182,17 @@ function run_v3_kite(wing_type::WingType;
         # steering_control = heading_pid(target_heading_rad, current_heading, 0.0)
         # push!(heading_setpoint, target_heading_rad)
 
-        ## Tether length control
-        # we want to reel-in here untill we have found the desired tether length
-        # once satisfied, we keep this length and start steering the kite
-
-        # Fixed steering: ramp to full steering over 10 seconds
-        steering_control = max_steering * min(t / 10.0, 1.0)
+        # Fixed tether length: brake engaged; only steering ramp is applied
+        ramp_factor = min(t / steering_ramp_time, 1.0)
+        steering_control = max_steering * ramp_factor
         push!(heading_setpoint, 0.0)  # Keep heading setpoint flat for plotting
 
         # Apply differential steering (opposite signs for turning moment)
         sys.segments[87].l0 = nominal_l0_87 + steering_control
         sys.segments[89].l0 = nominal_l0_89 - steering_control
 
-        # PID winch control to maintain constant tether length
-        current_tether_length = sys.winches[1].tether_len
-        winch_force_control = winch_pid(nominal_tether_length, current_tether_length, 0.0)
-
         # Convert force to torque: τ = -r/G * F + friction
-        winch_torque = -winch.drum_radius / winch.gear_ratio * winch_force_control + winch.friction
+        winch_torque = 0.0
         sys.winches[1].set_value = -winch_torque
 
         # Advance simulation
@@ -288,72 +242,36 @@ end
 
 # ============= Main Execution =============
 
-@info "V3 Kite Comparison: Running REFINE and QUATERNION simulations..."
+@info "V3 Kite: Running REFINE simulation..."
 
-# Run both simulations
-heading_setpoint_refine = nothing
-heading_setpoint_quat = nothing
+syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
+    sim_time=50.0, fps=60, show_plots=false, max_steering=0.2, v_wind=15.4,
+    max_heading=MAX_HEADING, period=PERIOD,
+    heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
+    winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
 
-if REFINE
-    syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
-        sim_time=200.0, fps=60, show_plots=false, max_steering=0.2,v_wind=15.4,
-        max_heading=MAX_HEADING, period=PERIOD,
-        heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
-        winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
-end
-if QUAT
-    syslog_quat, sam_quat, heading_setpoint_quat = run_v3_kite(QUATERNION;
-        sim_time=50.0, fps=24, show_plots=false,
-        max_heading=MAX_HEADING, period=PERIOD,
-        heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
-        winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
-end
+@info "Simulation complete. Creating plots..."
 
-@info "Both simulations complete. Creating comparison plots..."
-
-fig = nothing
-# Create comparison plot
-if REFINE && QUAT
-    fig = plot([sam_refine.sys_struct, sam_quat.sys_struct], [syslog_refine, syslog_quat];
-               plot_turn_rates=true,
-               plot_azimuth=true,
-               plot_elevation=true,
-               plot_aoa=true,
-               plot_heading=true,
-               plot_default=false,
-               plot_aero_force=true,
-               plot_tether=true,
-               heading_setpoint=[heading_setpoint_refine, heading_setpoint_quat])
-end
-
-if QUAT && !REFINE
-    fig = plot(sam_quat.sys_struct, syslog_quat;
-               plot_aero_moment=true,
-               plot_tether=true,
-               heading_setpoint=heading_setpoint_quat)
-end
-if !QUAT && REFINE
-    fig = plot(sam_refine.sys_struct, syslog_refine;
-               plot_turn_rates=true,
-            #    plot_reelout=true,
-               plot_tether=true,
-               plot_aero_force=true,
-            #    plot_aero_moment=true,
-            #    plot_tether_moment=true,
-            #    plot_twist=true,
-               plot_aoa=true,
-               plot_heading=true,
-            #    plot_old_heading=true,
-               plot_distance=true,
-            #    plot_cone_angle=true,
-               plot_elevation=true,
-               plot_azimuth=true,
-            #    plot_winch_force=true,
-            #    plot_set_values=true,
-               heading_setpoint=heading_setpoint_refine)
-end
+fig = plot(sam_refine.sys_struct, syslog_refine;
+           plot_turn_rates=true,
+        #    plot_reelout=true,
+           plot_tether=true,
+           plot_aero_force=true,
+        #    plot_aero_moment=true,
+        #    plot_tether_moment=true,
+        #    plot_twist=true,
+           plot_aoa=true,
+           plot_heading=true,
+        #    plot_old_heading=true,
+           plot_distance=true,
+        #    plot_cone_angle=true,
+           plot_elevation=true,
+           plot_azimuth=true,
+        #    plot_winch_force=true,
+        #    plot_set_values=true,
+           heading_setpoint=heading_setpoint_refine)
 display(fig)
 
-@info "Comparison plot created!"
+@info "Plot created!"
 
 nothing
