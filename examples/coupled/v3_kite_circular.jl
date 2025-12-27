@@ -128,7 +128,7 @@ function run_v3_kite(wing_type::WingType;
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
     # fixed the winch brake on, making for constant tether length
-    sam.sys_struct.winches[1].brake = true
+    # sam.sys_struct.winches[1].brake = true
 
     # # Stabilization phase
     # @info "Stabilizing system..."
@@ -156,21 +156,20 @@ function run_v3_kite(wing_type::WingType;
 
     # Storage for heading setpoint
     heading_setpoint = Float64[]
-    push!(heading_setpoint, 0.0)  # Initial setpoint
-
-    # Create PID controller for heading
-    max_heading_rad = deg2rad(max_heading)
-    angular_freq = 2π / period  # rad/s
-    heading_pid = DiscretePID(;
-        K = heading_p > 0 ? heading_p : 1.0,
-        Ti = heading_i > 0 ? 1.0 / heading_i : false,
-        Td = heading_d > 0 ? heading_d : false,
-        Ts = Δt,
-        umin = -abs(max_steering),
-        umax = abs(max_steering)
-    )
-    @info "Heading PID controller initialized" max_heading period heading_p heading_i heading_d
-    @info "  Sine wave: ±$(max_heading)°, period=$(period)s"
+    push!(heading_setpoint, 0.0)  # Fixed steering: keep heading setpoint at zero
+    # # Create PID controller for heading
+    # max_heading_rad = deg2rad(max_heading)
+    # angular_freq = 2π / period  # rad/s
+    # heading_pid = DiscretePID(;
+    #     K = heading_p > 0 ? heading_p : 1.0,
+    #     Ti = heading_i > 0 ? 1.0 / heading_i : false,
+    #     Td = heading_d > 0 ? heading_d : false,
+    #     Ts = Δt,
+    #     umin = -abs(max_steering),
+    #     umax = abs(max_steering)
+    # )
+    # @info "Heading PID controller initialized" max_heading period heading_p heading_i heading_d
+    # @info "  Sine wave: ±$(max_heading)°, period=$(period)s"
 
     # Store nominal tether length for winch controller
     nominal_tether_length = sys.winches[1].tether_len
@@ -216,13 +215,19 @@ function run_v3_kite(wing_type::WingType;
             SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
         end
 
-        # PID heading control with sine wave setpoint
-        target_heading_rad = max_heading_rad * sin(angular_freq * t)
-        current_heading = sam.sys_struct.wings[1].heading
-        steering_control = heading_pid(target_heading_rad, current_heading, 0.0)
+        # # PID heading control with sine wave setpoint
+        # target_heading_rad = max_heading_rad * sin(angular_freq * t)
+        # current_heading = sam.sys_struct.wings[1].heading
+        # steering_control = heading_pid(target_heading_rad, current_heading, 0.0)
+        # push!(heading_setpoint, target_heading_rad)
 
-        # Store setpoint for plotting
-        push!(heading_setpoint, target_heading_rad)
+        ## Tether length control
+        # we want to reel-in here untill we have found the desired tether length
+        # once satisfied, we keep this length and start steering the kite
+
+        # Fixed steering: ramp to full steering over 10 seconds
+        steering_control = max_steering * min(t / 10.0, 1.0)
+        push!(heading_setpoint, 0.0)  # Keep heading setpoint flat for plotting
 
         # Apply differential steering (opposite signs for turning moment)
         sys.segments[87].l0 = nominal_l0_87 + steering_control
@@ -291,7 +296,7 @@ heading_setpoint_quat = nothing
 
 if REFINE
     syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
-        sim_time=50.0, fps=60, show_plots=false, max_steering=0.1,v_wind=15.4,
+        sim_time=200.0, fps=60, show_plots=false, max_steering=0.2,v_wind=15.4,
         max_heading=MAX_HEADING, period=PERIOD,
         heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
         winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
