@@ -61,7 +61,8 @@ function run_v3_kite(;
                      remake_cache=false,
                      initial_damping=100.0,
                      decay_time=2.0,
-                     max_steering=0.1,
+                     up = 0.5858,
+                     us=0.1,
                      show_plots=false,
                      v_wind=15.4,
                      upwind_dir=-90.0,
@@ -132,6 +133,7 @@ function run_v3_kite(;
 
     # Store nominal segment lengths for PID control
     nominal_l0_87 = sys.segments[87].l0
+    nominal_l0_88 = sys.segments[88].l0
     nominal_l0_89 = sys.segments[89].l0
 
     # Storage for heading setpoint
@@ -161,8 +163,21 @@ function run_v3_kite(;
         display(scene)
     end
 
+    ## ACTUATION
+    #len_power-tape = 200 + 5000 * up
+    #len_steering_tape = 1600 + 1400 * us
+    #us < 0 shortens right tape, and lengths left tape, causing a right turn
+    #RIGHT len_steering_tape (us = -1) = 1600 - 1400 = 200
+    #LEFT len_steering_tape (us = 1) = 1600 + 1400 = 3000
+
+    steering_tape_change = 1400 * us / 1000  # Convert mm to m
+    power_tape_change = ((200 + 5000 * up) / 1000) - nominal_l0_88  # Convert mm to m
+
+
     # Time-marching loop
     @info "Starting simulation: $n_steps steps, Δt = $(round(Δt, digits=4)) s"
+    @info " Initial lengths (m): segment 87: $(round(nominal_l0_87, digits=4)), segment 88: $(round(nominal_l0_88, digits=4)), segment 89: $(round(nominal_l0_89, digits=4))"
+    @info " Steering tape change (m): $(round(steering_tape_change, digits=4)), Power tape change (m): $(round(power_tape_change, digits=4))"
     sim_start_time = time()
 
     for step in 1:n_steps
@@ -184,12 +199,17 @@ function run_v3_kite(;
 
         # Fixed tether length: brake engaged; only steering ramp is applied
         ramp_factor = min(t / steering_ramp_time, 1.0)
-        steering_control = max_steering * ramp_factor
+        steering_control = steering_tape_change * ramp_factor
+        power_control = power_tape_change * ramp_factor
         push!(heading_setpoint, 0.0)  # Keep heading setpoint flat for plotting
+
+        # Apply power control
+        # sys.segments[88].l0 = nominal_l0_88 + power_control
 
         # Apply differential steering (opposite signs for turning moment)
         sys.segments[87].l0 = nominal_l0_87 + steering_control
         sys.segments[89].l0 = nominal_l0_89 - steering_control
+
 
         # Convert force to torque: τ = -r/G * F + friction
         winch_torque = 0.0
@@ -233,7 +253,9 @@ function run_v3_kite(;
     save_dir = joinpath("processed_data", "v3_kite")
     isdir(save_dir) || mkpath(save_dir)
     timestamp = Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM")
-    log_name = "v3_kite_" * timestamp
+    up_tag = Int(round(up*100))
+    us_tag = Int(round(us*100))
+    log_name = "up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind)" * "_" * timestamp 
     save_log(logger, log_name; path=save_dir)
 
 
@@ -243,9 +265,11 @@ end
 # ============= Main Execution =============
 
 @info "V3 Kite: Running REFINE simulation..."
+us = 0.2 # in URIs kite as a sensor it goes up to about 0.3
+up = 0.5858
 
 syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
-    sim_time=50.0, fps=60, show_plots=false, max_steering=0.2, v_wind=15.4,
+    sim_time=200.0, fps=60, show_plots=false, up=up, us=us, v_wind=15,
     max_heading=MAX_HEADING, period=PERIOD,
     heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
     winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
