@@ -475,6 +475,7 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_aero_moment::Bool=false`: Show the panel with the y-component of aerodynamic moment.
 - `plot_tether_moment::Bool=false`: Show the panel with the y-component of tether-induced moment.
 - `plot_twist::Bool=false`: Show the panel with the twist angles for each wing group.
+- `plot_v_app`::Bool=false`: Show the panel with the apparent wind speed at the wing.
 - `plot_aoa::Bool=plot_default`: Show the panel with the angle of attack.
 - `plot_heading::Bool=plot_default`: Show the panel with the kite's heading and course angles.
 - `plot_kiteutils_course::Bool=false`: Also plot course calculated using KiteUtils.calc_course.
@@ -520,7 +521,7 @@ Same as the single-syslog version. See `Makie.plot(sys::SystemStructure, lg::Sys
 # Compare REFINE vs QUATERNION models
 plot(sys_struct, [syslog_refine, syslog_quat];
      plot_turn_rates=true, plot_azimuth=true,
-     plot_heading=true, plot_aoa=true,
+     plot_heading=true, plot_v_app=true, plot_aoa=true,
      plot_default=false, plot_aero_force=true)
 ```
 """
@@ -535,6 +536,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_reelout=plot_default,
                    plot_aero_force=plot_default,
                    plot_twist=false,
+                   plot_v_app=true,
                    plot_aoa=plot_default,
                    plot_heading=plot_default,
                    plot_kiteutils_course=false,
@@ -750,6 +752,27 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             ))
         end
     end
+
+    if plot_v_app
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = " - " * syss[i].name
+            v_app = sl.v_app
+            push!(all_data, v_app)
+            push!(all_labels, "v_app" * suffix)
+            push!(all_times, sl.time)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            times = all_times,
+            ylabel = "v_app [m/s]"
+        ))
+    end
+
 
     if plot_aoa
         all_data = []

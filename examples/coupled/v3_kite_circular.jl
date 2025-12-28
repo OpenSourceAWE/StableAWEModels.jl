@@ -179,6 +179,10 @@ function run_v3_kite(;
     @info " Initial lengths (m): segment 87: $(round(nominal_l0_87, digits=4)), segment 88: $(round(nominal_l0_88, digits=4)), segment 89: $(round(nominal_l0_89, digits=4))"
     @info " Steering tape change (m): $(round(steering_tape_change, digits=4)), Power tape change (m): $(round(power_tape_change, digits=4))"
     sim_start_time = time()
+    aoa_log_interval_steps = max(1, Int(round(3.0 / Δt)))  # roughly every 3 seconds
+
+    wings = sam.sys_struct.wings
+    wing = wings[1]
 
     for step in 1:n_steps
         t = step * Δt
@@ -231,6 +235,15 @@ function run_v3_kite(;
         sys_state.time = t
         log!(logger, sys_state)
 
+        # Log AoA periodically (value stored in sys_state by update_sys_state!)
+        if step % aoa_log_interval_steps == 0
+            alpha = sys_state.AoA
+            alpha = atan(wing.va_b[3], wing.va_b[1])
+            vsm_alpha = wing.vsm_solver.sol.alpha_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)]
+            @info "---> Angle of attack" t=round(t, digits=2) sys_state.AoA=round(rad2deg(alpha), digits=2) vsm_alpha=round(rad2deg(vsm_alpha), digits=2)
+
+        end
+
         # Progress updates
         if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
             elapsed = time() - sim_start_time
@@ -267,9 +280,11 @@ end
 @info "V3 Kite: Running REFINE simulation..."
 us = 0.2 # in URIs kite as a sensor it goes up to about 0.3
 up = 0.5858
+vw = 15.0
+sim_time = 10.0
 
 syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
-    sim_time=200.0, fps=60, show_plots=false, up=up, us=us, v_wind=15,
+    sim_time=sim_time, fps=60, show_plots=false, up=up, us=us, v_wind=vw,
     max_heading=MAX_HEADING, period=PERIOD,
     heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
     winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
@@ -278,22 +293,21 @@ syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
 
 fig = plot(sam_refine.sys_struct, syslog_refine;
            plot_turn_rates=true,
-        #    plot_reelout=true,
-           plot_tether=true,
-           plot_aero_force=true,
+           plot_reelout=false,
+        #    plot_tether=true,
+        #    plot_aero_force=true,
         #    plot_aero_moment=true,
         #    plot_tether_moment=true,
         #    plot_twist=true,
            plot_aoa=true,
-           plot_heading=true,
+           plot_heading=false,
         #    plot_old_heading=true,
-           plot_distance=true,
+        #    plot_distance=true,
         #    plot_cone_angle=true,
            plot_elevation=true,
            plot_azimuth=true,
-        #    plot_winch_force=true,
-        #    plot_set_values=true,
-           heading_setpoint=heading_setpoint_refine)
+           plot_winch_force=false,
+           plot_set_values=false)
 display(fig)
 
 @info "Plot created!"
