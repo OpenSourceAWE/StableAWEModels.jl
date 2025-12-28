@@ -57,7 +57,7 @@ Run a v3 kite simulation using the REFINE wing type.
 """
 function run_v3_kite(;
                      sim_time=300.0,
-                     fps=1,
+                     fps=4,
                      remake_cache=false,
                      initial_damping=100.0,
                      decay_time=2.0,
@@ -67,6 +67,7 @@ function run_v3_kite(;
                      v_wind=15.4,
                      upwind_dir=-90.0,
                      steering_ramp_time=25.0,
+                     tether_length=150.0,
                      max_heading=50.0,
                      period=20.0,
                      heading_p=0.0,
@@ -78,13 +79,15 @@ function run_v3_kite(;
 
     wing_type = SymbolicAWEModels.REFINE
     wing_type_str = "REFINE"
-    @info "Running v3 kite simulation with REFINE wing type..."
+    @info "Running v3 kite simulation in n_steps: $(Int(round(fps * sim_time)))"
 
     # Load settings
     set_data_path("data/v3")
     set = Settings("system.yaml")
     set.v_wind = v_wind
     set.upwind_dir = upwind_dir
+    set.l_tethers[1] = tether_length
+    set.v_reel_outs[1] = 0.0
 
     # Load YAML structure path
     model_name = "v3_refine"
@@ -102,6 +105,29 @@ function run_v3_kite(;
     sys = load_sys_struct_from_yaml(struc_yaml_path;
         system_name=model_name, set, wing_type, vsm_set)
 
+    function reset_tether_length!(sam::SymbolicAWEModel, tether_length_raw)
+        tether_length = float(tether_length_raw)
+        sys = sam.sys_struct
+        set = sam.set
+        set.l_tethers[1] = tether_length
+
+        # Space tether points uniformly along body frame z (downward from wing/KCU)
+        for (n, p_idx) in enumerate(39:44)
+            sys.points[p_idx].pos_b .= [0.0, 0.0, -n * tether_length / 6]
+        end
+
+        # Aim transform to place wing at the new distance along its current direction
+        transform = sys.transforms[1]
+        target_pos = normalize(sys.wings[1].pos_w) * tether_length
+        transform.elevation = KiteUtils.calc_elevation(target_pos)
+        transform.azimuth = KiteUtils.azimuth_east(target_pos)
+        SymbolicAWEModels.reinit!([transform], sys)
+
+        winch = sys.winches[1]
+        winch.tether_len = tether_length
+        winch.tether_vel = 0.0
+        winch.brake = true
+    end
 
     # Initialize damping
     SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
@@ -122,6 +148,8 @@ function run_v3_kite(;
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
     # hold tether length (no dynamic reel-in)
     sam.sys_struct.winches[1].brake = true
+    reset_tether_length!(sam, tether_length)
+    SymbolicAWEModels.reinit!(sam, sam.prob, SymbolicAWEModels.FBDF())
 
     # Create logger
     n_steps = Int(round(fps * sim_time))
@@ -236,13 +264,13 @@ function run_v3_kite(;
         log!(logger, sys_state)
 
         # Log AoA periodically (value stored in sys_state by update_sys_state!)
-        if step % aoa_log_interval_steps == 0
-            alpha = sys_state.AoA
-            alpha = atan(wing.va_b[3], wing.va_b[1])
-            vsm_alpha = wing.vsm_solver.sol.alpha_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)]
-            @info "---> Angle of attack" t=round(t, digits=2) sys_state.AoA=round(rad2deg(alpha), digits=2) vsm_alpha=round(rad2deg(vsm_alpha), digits=2)
+        # if step % aoa_log_interval_steps == 0
+        #     alpha = sys_state.AoA
+        #     alpha = atan(wing.va_b[3], wing.va_b[1])
+        #     vsm_alpha = wing.vsm_solver.sol.alpha_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)]
+        #     @info "---> Angle of attack" t=round(t, digits=2) sys_state.AoA=round(rad2deg(alpha), digits=2) vsm_alpha=round(rad2deg(vsm_alpha), digits=2)
 
-        end
+        # end
 
         # Progress updates
         if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
@@ -278,13 +306,14 @@ end
 # ============= Main Execution =============
 
 @info "V3 Kite: Running REFINE simulation..."
-us = 0.2 # in URIs kite as a sensor it goes up to about 0.3
+us = 0.1 # in URIs kite as a sensor it goes up to about 0.3
 up = 0.5858
 vw = 15.0
-sim_time = 10.0
+lt = 260
+sim_time = 50.0
 
 syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
-    sim_time=sim_time, fps=60, show_plots=false, up=up, us=us, v_wind=vw,
+    sim_time=sim_time, fps=60, show_plots=false, up=up, us=us, v_wind=vw, tether_length=lt,
     max_heading=MAX_HEADING, period=PERIOD,
     heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
     winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
@@ -294,7 +323,8 @@ syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
 fig = plot(sam_refine.sys_struct, syslog_refine;
            plot_turn_rates=true,
            plot_reelout=false,
-        #    plot_tether=true,
+           plot_tether=true,
+           plot_gk=true,
         #    plot_aero_force=true,
         #    plot_aero_moment=true,
         #    plot_tether_moment=true,

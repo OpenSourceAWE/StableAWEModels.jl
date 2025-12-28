@@ -536,6 +536,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_reelout=plot_default,
                    plot_aero_force=plot_default,
                    plot_twist=false,
+                   plot_gk=false,
                    plot_v_app=true,
                    plot_aoa=plot_default,
                    plot_heading=plot_default,
@@ -751,6 +752,72 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 ylabel = "twist [°]"
             ))
         end
+    end
+
+    if plot_gk
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = " - " * syss[i].name
+
+            # Reconstruct steering tape length of segment 87 from logged node positions
+            seg_left = syss[i].segments[87]
+            p_i, p_j = seg_left.point_idxs
+            xs = sl.X
+            ys = sl.Y
+            zs = sl.Z
+            n = length(sl.time)
+            steering_len = zeros(Float64, n)
+            @inbounds for k in 1:n
+                p1 = SVector{3,Float64}(xs[k][p_i], ys[k][p_i], zs[k][p_i])
+                p2 = SVector{3,Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
+                steering_len[k] = norm(p2 - p1)
+            end
+            # Convert segment length to steering input (hardcoded calibration)
+            us = similar(steering_len)
+            @inbounds for k in eachindex(us)
+                δ = steering_len[k] - 1.506
+                us[k] = δ > 1e-6 ? δ / 1.4 : 0.0
+            end
+
+            # Calculate heading rate from diff for quaternion wings
+            heading_unwrapped = copy(sl.heading)
+            for j in 2:length(heading_unwrapped)
+                while heading_unwrapped[j] - heading_unwrapped[j-1] > π
+                    heading_unwrapped[j] -= 2π
+                end
+                while heading_unwrapped[j] - heading_unwrapped[j-1] < -π
+                    heading_unwrapped[j] += 2π
+                end
+            end
+            heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
+            v_app = sl.v_app[2:end]
+            us_seg = us[2:end]
+
+            # calculate gk, guarding against zero steering
+            gk = similar(heading_rate)
+            @inbounds for k in eachindex(gk)
+                gk[k] = abs(us_seg[k]) > 1e-8 ? heading_rate[k] / (v_app[k] * us_seg[k]) : NaN
+            end
+            
+            @info "turn-rate $(heading_rate[end])"
+            @info "v_app $(v_app[end])"
+            @info "us_seg $(us_seg[end])"
+            @info "gk $(gk[end])"
+
+
+            push!(all_data, gk)
+            push!(all_labels, "gk" * suffix)
+            push!(all_times, sl.time[2:end])
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            times = all_times,
+            ylabel = "gk [turn-rate/(v*us)]"
+        ))
     end
 
     if plot_v_app
