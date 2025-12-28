@@ -816,7 +816,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "gk [turn-rate/(v*us)]"
+            ylabel = "gk"
         ))
     end
 

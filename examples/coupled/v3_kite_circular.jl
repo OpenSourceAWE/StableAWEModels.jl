@@ -67,6 +67,7 @@ function run_v3_kite(;
                      v_wind=15.4,
                      upwind_dir=-90.0,
                      steering_ramp_time=25.0,
+                     v_wind_base=15,
                      tether_length=150.0,
                      max_heading=50.0,
                      period=20.0,
@@ -86,7 +87,7 @@ function run_v3_kite(;
     set = Settings("system.yaml")
     set.v_wind = v_wind
     set.upwind_dir = upwind_dir
-    set.l_tethers[1] = tether_length
+    # set.l_tethers[1] = tether_length
     set.v_reel_outs[1] = 0.0
 
     # Load YAML structure path
@@ -105,29 +106,29 @@ function run_v3_kite(;
     sys = load_sys_struct_from_yaml(struc_yaml_path;
         system_name=model_name, set, wing_type, vsm_set)
 
-    function reset_tether_length!(sam::SymbolicAWEModel, tether_length_raw)
-        tether_length = float(tether_length_raw)
-        sys = sam.sys_struct
-        set = sam.set
-        set.l_tethers[1] = tether_length
+    # function reset_tether_length!(sam::SymbolicAWEModel, tether_length_raw)
+    #     tether_length = float(tether_length_raw)
+    #     sys = sam.sys_struct
+    #     set = sam.set
+    #     set.l_tethers[1] = tether_length
 
-        # Space tether points uniformly along body frame z (downward from wing/KCU)
-        for (n, p_idx) in enumerate(39:44)
-            sys.points[p_idx].pos_b .= [0.0, 0.0, -n * tether_length / 6]
-        end
+    #     # Space tether points uniformly along body frame z (downward from wing/KCU)
+    #     for (n, p_idx) in enumerate(39:44)
+    #         sys.points[p_idx].pos_b .= [0.0, 0.0, -n * tether_length / 6]
+    #     end
 
-        # Aim transform to place wing at the new distance along its current direction
-        transform = sys.transforms[1]
-        target_pos = normalize(sys.wings[1].pos_w) * tether_length
-        transform.elevation = KiteUtils.calc_elevation(target_pos)
-        transform.azimuth = KiteUtils.azimuth_east(target_pos)
-        SymbolicAWEModels.reinit!([transform], sys)
+    #     # Aim transform to place wing at the new distance along its current direction
+    #     transform = sys.transforms[1]
+    #     target_pos = normalize(sys.wings[1].pos_w) * tether_length
+    #     transform.elevation = KiteUtils.calc_elevation(target_pos)
+    #     transform.azimuth = KiteUtils.azimuth_east(target_pos)
+    #     SymbolicAWEModels.reinit!([transform], sys)
 
-        winch = sys.winches[1]
-        winch.tether_len = tether_length
-        winch.tether_vel = 0.0
-        winch.brake = true
-    end
+    #     winch = sys.winches[1]
+    #     winch.tether_len = tether_length
+    #     winch.tether_vel = 0.0
+    #     winch.brake = true
+    # end
 
     # Initialize damping
     SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
@@ -148,8 +149,8 @@ function run_v3_kite(;
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
     # hold tether length (no dynamic reel-in)
     sam.sys_struct.winches[1].brake = true
-    reset_tether_length!(sam, tether_length)
-    SymbolicAWEModels.reinit!(sam, sam.prob, SymbolicAWEModels.FBDF())
+    # reset_tether_length!(sam, tether_length)
+    # SymbolicAWEModels.reinit!(sam, sam.prob, SymbolicAWEModels.FBDF())
 
     # Create logger
     n_steps = Int(round(fps * sim_time))
@@ -200,6 +201,7 @@ function run_v3_kite(;
 
     steering_tape_change = 1400 * us / 1000  # Convert mm to m
     power_tape_change = ((200 + 5000 * up) / 1000) - nominal_l0_88  # Convert mm to m
+    vw_change = v_wind - v_wind_base
 
 
     # Time-marching loop
@@ -236,12 +238,18 @@ function run_v3_kite(;
         push!(heading_setpoint, 0.0)  # Keep heading setpoint flat for plotting
 
         # Apply power control
-        # sys.segments[88].l0 = nominal_l0_88 + power_control
+        sys.segments[88].l0 = nominal_l0_88 + power_control
+        # print every x second & time below 30 sec
+        if step % Int(round(3.0 / Δt)) == 0 && t <= 30.0 && power_tape_change > 1e-4
+            @info "power-tape = $(round(sys.segments[88].l0, digits=4)) m at t=$(round(t, digits=2)) s"
+        end
 
         # Apply differential steering (opposite signs for turning moment)
         sys.segments[87].l0 = nominal_l0_87 + steering_control
         sys.segments[89].l0 = nominal_l0_89 - steering_control
 
+        # Update wind speed linearly
+        sam.sys_struct.set.v_wind = v_wind_base + vw_change
 
         # Convert force to torque: τ = -r/G * F + friction
         winch_torque = 0.0
@@ -296,21 +304,22 @@ function run_v3_kite(;
     timestamp = Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM")
     up_tag = Int(round(up*100))
     us_tag = Int(round(us*100))
-    log_name = "up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind)" * "_" * timestamp 
+    v_wind_tag = Int(round(v_wind))
+    log_name = "up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind_tag)" * "_date_" * timestamp 
     save_log(logger, log_name; path=save_dir)
 
 
     return syslog, sam, heading_setpoint
 end
 
+# ==========================================
 # ============= Main Execution =============
-
-@info "V3 Kite: Running REFINE simulation..."
-us = 0.1 # in URIs kite as a sensor it goes up to about 0.3
-up = 0.5858
-vw = 15.0
-lt = 260
-sim_time = 50.0
+# ==========================================
+us = 0.2  # {{{ 0.0  <> 0.30 }}} suitable range
+up = 0.5858  # {{{ 0.45 <> 0.65 }}} 0.5858 is baseline
+vw = 15  # {{{ 10.  <> 15.0 }}} suitable range
+lt = 260  # problems when changing...
+sim_time = 5.0
 
 syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
     sim_time=sim_time, fps=60, show_plots=false, up=up, us=us, v_wind=vw, tether_length=lt,
@@ -319,11 +328,10 @@ syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
     winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
 
 @info "Simulation complete. Creating plots..."
-
 fig = plot(sam_refine.sys_struct, syslog_refine;
            plot_turn_rates=true,
            plot_reelout=false,
-           plot_tether=true,
+        #    plot_tether=true,
            plot_gk=true,
         #    plot_aero_force=true,
         #    plot_aero_moment=true,
@@ -339,7 +347,6 @@ fig = plot(sam_refine.sys_struct, syslog_refine;
            plot_winch_force=false,
            plot_set_values=false)
 display(fig)
-
 @info "Plot created!"
 
 nothing
