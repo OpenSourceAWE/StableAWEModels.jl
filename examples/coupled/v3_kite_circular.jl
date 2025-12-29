@@ -62,7 +62,7 @@ function run_v3_kite(;
                      remake_cache=false,
                      initial_damping=100.0,
                      decay_time=10.0,
-                     up = 0.5858,
+                     up = 0.4,
                      us=0.1,
                      show_plots=false,
                      v_wind=15.4,
@@ -328,16 +328,17 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-us = 0.2  # {{{ 0.0  <> 0.30 }}} suitable range
-up = 0.5858  # {{{ 0.45 <> 0.65 }}} 0.5858 is baseline
-vw = 15  # {{{ 10.  <> 15.0 }}} suitable range
+us = 0.25  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
+up = 0.4  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis 
+#0.4151powered and #0.5012depowered #0.39 during turns
+vw = 15  # {{{ 10.  <> 15.0 }}} suitable range?
 lt = 260  # problems when changing...
 
-sim_time = 250.0
-decay_time = 2.0
+sim_time = 100.0
+decay_time = 3.0
 ramp_time = 30.0
-fps = 120
-initial_damping = 100.0
+fps = 300
+initial_damping = 1000.0
 tube_bending_resistance = 0  # N
 
 
@@ -350,29 +351,29 @@ syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
     heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
     winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
 
-@info "Simulation complete. Creating plots..."
-fig = plot(sam_refine.sys_struct, syslog_refine;
-           plot_turn_rates=true,
-           plot_reelout=false,
-        #    plot_tether=true,
-           plot_gk=true,
-        #    plot_aero_force=true,
-        #    plot_aero_moment=true,
-        #    plot_tether_moment=true,
-        #    plot_twist=true,
-           plot_aoa=true,
-           plot_heading=false,
-        #    plot_old_heading=true,
-        #    plot_distance=true,
-        #    plot_cone_angle=true,
-           plot_elevation=true,
-           plot_azimuth=true,
-           plot_winch_force=false,
-           plot_set_values=false)
-display(fig)
-@info "Plot created!"
+# @info "Simulation complete. Creating plots..."
+# fig = plot(sam_refine.sys_struct, syslog_refine;
+#            plot_turn_rates=true,
+#            plot_reelout=false,
+#         #    plot_tether=true,
+#            plot_gk=true,
+#         #    plot_aero_force=true,
+#         #    plot_aero_moment=true,
+#         #    plot_tether_moment=true,
+#         #    plot_twist=true,
+#            plot_aoa=true,
+#            plot_heading=false,
+#         #    plot_old_heading=true,
+#         #    plot_distance=true,
+#         #    plot_cone_angle=true,
+#            plot_elevation=true,
+#            plot_azimuth=true,
+#            plot_winch_force=false,
+#            plot_set_values=false)
+# display(fig)
+# @info "Plot created!"
 
-# scene = replay(syslog_refine, sam_refine.sys_struct)
-# display(scene)
+scene = replay(syslog_refine, sam_refine.sys_struct)
+display(scene)
 
 nothing

@@ -188,13 +188,13 @@ function plot_time_series(lg, sam)
 end
 
 
-log_name = "up_59_us_20_vw_15_date_2025_12_29_15_28"
+log_name = "up_40_us_25_vw_15_date_2025_12_29_18_31"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 ### plot time series
 # plot_time_series(lg, sam)
 
-### show 3D animation
+## show 3D animation
 scene = replay(lg, sam.sys_struct; autoplay=false, loop=true)
 display(scene)
 
