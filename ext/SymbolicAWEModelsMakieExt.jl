@@ -1233,7 +1233,7 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
         else
             char_length = 10.0
         end
-        distance = char_length * 0.5
+        distance = char_length * 0.1
     end
 
     # Camera position: kite_pos - R_b_w * [distance, 0, 0]

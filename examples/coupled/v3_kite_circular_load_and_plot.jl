@@ -194,11 +194,11 @@ lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 # plot_time_series(lg, sam)
 
 ### show 3D animation
-scene = replay(lg, sam.sys_struct; autoplay=false, loop=true)
-display(scene)
+# scene = replay(lg, sam.sys_struct; autoplay=false, loop=true)
+# display(scene)
 
 ### show 2D wing node plots
-# print_and_plot_wing(lg, sam)
+print_and_plot_wing(lg, sam)
 
 ##TODO: record does not work
 # record(scene, "v3_kite_circular_load_and_plot.mp4"; fps=30, duration=20)  # Adjust duration as needed
