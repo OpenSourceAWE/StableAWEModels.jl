@@ -167,38 +167,39 @@ end
 
 function plot_time_series(lg, sam)
     fig = plot(sam.sys_struct, lg;
-           plot_turn_rates=true,
-           plot_reelout=false,
-        #    plot_tether=true,
-        #    plot_aero_force=true,
-        #    plot_aero_moment=true,
-        #    plot_tether_moment=true,
-        #    plot_twist=true,
-           plot_aoa=true,
-           plot_heading=false,
-        #    plot_old_heading=true,
-        #    plot_distance=true,
-        #    plot_cone_angle=true,
-           plot_elevation=true,
-           plot_azimuth=true,
-           plot_winch_force=false,
-           plot_set_values=false)
+            plot_turn_rates=true,
+            plot_reelout=false,
+         #    plot_tether=true,
+            plot_gk=true,
+         #    plot_aero_force=true,
+         #    plot_aero_moment=true,
+         #    plot_tether_moment=true,
+         #    plot_twist=true,
+            plot_aoa=true,
+            plot_heading=false,
+         #    plot_old_heading=true,
+         #    plot_distance=true,
+         #    plot_cone_angle=true,
+            plot_elevation=true,
+            plot_azimuth=true,
+            plot_winch_force=false,
+            plot_set_values=false)
     display(fig)
 end
 
 
-log_name = "up_59_us_20_vw_15_date_2025_12_28_20_59"
+log_name = "up_59_us_20_vw_15_date_2025_12_29_15_28"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 ### plot time series
 # plot_time_series(lg, sam)
 
 ### show 3D animation
-# scene = replay(lg, sam.sys_struct; autoplay=false, loop=true)
-# display(scene)
+scene = replay(lg, sam.sys_struct; autoplay=false, loop=true)
+display(scene)
 
 ### show 2D wing node plots
-print_and_plot_wing(lg, sam)
+# print_and_plot_wing(lg, sam)
 
 ##TODO: record does not work
 # record(scene, "v3_kite_circular_load_and_plot.mp4"; fps=30, duration=20)  # Adjust duration as needed

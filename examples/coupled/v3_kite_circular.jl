@@ -51,6 +51,7 @@ Run a v3 kite simulation using the REFINE wing type.
 - `winch_p::Float64=1000.0`: Proportional gain for winch controller [N/m]
 - `winch_i::Float64=100.0`: Integral gain for winch controller [N/(m·s)]
 - `winch_d::Float64=50.0`: Derivative gain for winch controller [N·s/m]
+- `tube_bending_resistance::Float64=0.0`: Outward body-frame force magnitude applied to nodes 2, 3 (+y) and 20, 21 (-y)
 
 # Returns
 - `SysLog`: The simulation log containing time history data
@@ -60,13 +61,13 @@ function run_v3_kite(;
                      fps=4,
                      remake_cache=false,
                      initial_damping=100.0,
-                     decay_time=2.0,
+                     decay_time=10.0,
                      up = 0.5858,
                      us=0.1,
                      show_plots=false,
                      v_wind=15.4,
                      upwind_dir=-90.0,
-                     steering_ramp_time=25.0,
+                     ramp_time=25.0,
                      v_wind_base=15,
                      tether_length=150.0,
                      max_heading=50.0,
@@ -76,7 +77,8 @@ function run_v3_kite(;
                      heading_d=0.0,
                      winch_p=1000.0,
                      winch_i=100.0,
-                     winch_d=50.0)
+                     winch_d=50.0,
+                     tube_bending_resistance=0.0)
 
     wing_type = SymbolicAWEModels.REFINE
     wing_type_str = "REFINE"
@@ -232,7 +234,7 @@ function run_v3_kite(;
         # push!(heading_setpoint, target_heading_rad)
 
         # Fixed tether length: brake engaged; only steering ramp is applied
-        ramp_factor = min(t / steering_ramp_time, 1.0)
+        ramp_factor = min(t / ramp_time, 1.0)
         steering_control = steering_tape_change * ramp_factor
         power_control = power_tape_change * ramp_factor
         push!(heading_setpoint, 0.0)  # Keep heading setpoint flat for plotting
@@ -250,6 +252,17 @@ function run_v3_kite(;
 
         # Update wind speed linearly
         sam.sys_struct.set.v_wind = v_wind_base + vw_change
+
+        # Apply outward tube bending resistance forces in body-frame ±y directions
+        if tube_bending_resistance != 0
+            R_b_w = sam.sys_struct.wings[1].R_b_w
+            force_pos_y = R_b_w * [0.0, tube_bending_resistance, 0.0]
+            force_neg_y = R_b_w * [0.0, -tube_bending_resistance, 0.0]
+            sam.sys_struct.points[2].disturb .= force_pos_y
+            sam.sys_struct.points[3].disturb .= force_pos_y
+            sam.sys_struct.points[20].disturb .= force_neg_y
+            sam.sys_struct.points[21].disturb .= force_neg_y
+        end
 
         # Convert force to torque: τ = -r/G * F + friction
         winch_torque = 0.0
@@ -319,11 +332,21 @@ us = 0.2  # {{{ 0.0  <> 0.30 }}} suitable range
 up = 0.5858  # {{{ 0.45 <> 0.65 }}} 0.5858 is baseline
 vw = 15  # {{{ 10.  <> 15.0 }}} suitable range
 lt = 260  # problems when changing...
-sim_time = 5.0
+
+sim_time = 250.0
+decay_time = 2.0
+ramp_time = 30.0
+fps = 120
+initial_damping = 100.0
+tube_bending_resistance = 0  # N
+
 
 syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
-    sim_time=sim_time, fps=60, show_plots=false, up=up, us=us, v_wind=vw, tether_length=lt,
+    sim_time=sim_time, fps=fps, 
+    up=up, us=us, v_wind=vw, tether_length=lt,
+    decay_time=decay_time, ramp_time=ramp_time,
     max_heading=MAX_HEADING, period=PERIOD,
+    tube_bending_resistance=tube_bending_resistance,
     heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
     winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
 
@@ -348,5 +371,8 @@ fig = plot(sam_refine.sys_struct, syslog_refine;
            plot_set_values=false)
 display(fig)
 @info "Plot created!"
+
+# scene = replay(syslog_refine, sam_refine.sys_struct)
+# display(scene)
 
 nothing
