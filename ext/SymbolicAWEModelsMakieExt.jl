@@ -536,6 +536,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_reelout=plot_default,
                    plot_aero_force=plot_default,
                    plot_twist=false,
+                   plot_us=false,
                    plot_gk=false,
                    plot_v_app=true,
                    plot_aoa=plot_default,
@@ -752,6 +753,46 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 ylabel = "twist [°]"
             ))
         end
+    end
+
+    if plot_us
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = " - " * syss[i].name
+            # Reconstruct steering tape length of segment 87 from logged node positions
+            seg_left = syss[i].segments[87]
+            p_i, p_j = seg_left.point_idxs
+            xs = sl.X
+            ys = sl.Y
+            zs = sl.Z
+            n = length(sl.time)
+            steering_len = zeros(Float64, n)
+            @inbounds for k in 1:n
+                p1 = SVector{3,Float64}(xs[k][p_i], ys[k][p_i], zs[k][p_i])
+                p2 = SVector{3,Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
+                steering_len[k] = norm(p2 - p1)
+            end
+            # Convert segment length to steering input (hardcoded calibration)
+            us = similar(steering_len)
+            @inbounds for k in eachindex(us)
+                δ = steering_len[k] - 1.6
+                us[k] = δ > 1e-6 ? δ / 1.4 : 0.0
+            end
+            us_seg = us[2:end]
+
+            push!(all_data, us_seg)
+            push!(all_labels, "u_s" * suffix)
+            push!(all_times, sl.time[2:end])  # align with us_seg length
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            times = all_times,
+            ylabel = "u_s"
+        ))
     end
 
     if plot_gk

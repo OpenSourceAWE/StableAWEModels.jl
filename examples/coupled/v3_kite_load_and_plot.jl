@@ -71,12 +71,12 @@ function print_and_plot_wing(lg, sam)
    R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(lg_last.orient)
    wing_point_idxs = [p.idx for p in sam.sys_struct.points if p.type == SymbolicAWEModels.WING]
 
-   println("Wing node positions (world frame):")
-   for idx in wing_point_idxs
-      println("$(lg_last.X[idx]), $(lg_last.Y[idx]), $(lg_last.Z[idx])")
-   end
+   # println("Wing node positions (world frame):")
+   # for idx in wing_point_idxs
+   #    println("$(lg_last.X[idx]), $(lg_last.Y[idx]), $(lg_last.Z[idx])")
+   # end
 
-   println("\nWing node positions (body frame):")
+   println("\n# Wing node positions (body frame):")
    for idx in wing_point_idxs
       pos_w = [
          lg_last.X[idx],
@@ -84,13 +84,14 @@ function print_and_plot_wing(lg, sam)
          lg_last.Z[idx],
       ]
       pos_b = R_b_w' * (pos_w .- origin_w)
-      println("$(pos_b[1]), $(pos_b[2]), $(pos_b[3])")
+      wing_point = sam.sys_struct.points[idx]
+      println("- [$idx, [$(Float64(pos_b[1])), $(Float64(pos_b[2])), $(Float64(pos_b[3]))], WING, 1, 1, 0.0, 10.0, 0.0]")
    end
 
    ## print bridle nodes in body frame
    # Bridle points are points 22:38 in the v3 geometry (DYNAMIC points tied by bridle segments)
    bridle_point_idxs = collect(22:38)
-   println("\nBridle node positions (body frame):")
+   println("\n# Bridle node positions (body frame):")
    for idx in bridle_point_idxs
       pos_w = [
          lg_last.X[idx],
@@ -98,7 +99,8 @@ function print_and_plot_wing(lg, sam)
          lg_last.Z[idx],
       ]
       pos_b = R_b_w' * (pos_w .- origin_w)
-      println("$(pos_b[1]), $(pos_b[2]), $(pos_b[3])")
+      bridle_point = sam.sys_struct.points[idx]
+      println("- [$idx, [$(Float64(pos_b[1])), $(Float64(pos_b[2])), $(Float64(pos_b[3]))], DYNAMIC, 1, 1, 0.0, 10.0, 0.0]")
    end
 
    # 2D scatter plots of wing nodes in body frame
@@ -188,6 +190,7 @@ function plot_time_series(lg, sam)
             plot_reelout=false,
          #    plot_tether=true,
             plot_gk=true,
+            plot_us=true,
          #    plot_aero_force=true,
          #    plot_aero_moment=true,
          #    plot_tether_moment=true,
@@ -205,7 +208,7 @@ function plot_time_series(lg, sam)
 end
 
 
-log_name = "zenith__up_30_us_30_vw_15_date_2025_12_30_13_31"
+log_name = "zenith__up_30_us_00_vw_15_date_2025_12_30_15_06"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 ### plot time series

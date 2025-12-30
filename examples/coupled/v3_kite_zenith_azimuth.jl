@@ -76,6 +76,7 @@ function run_v3_kite(wing_type::WingType;
                      winch_i=100.0, # Integral gain [N/(m·s)]
                      winch_d=50.0, # Derivative gain [N·s/m]
                      REFINE = true,
+                     target_azimuth=-90
                      )
 
     wing_type_str = wing_type == SymbolicAWEModels.REFINE ? "REFINE" : "QUATERNION"
@@ -148,16 +149,14 @@ function run_v3_kite(wing_type::WingType;
     nominal_l0_89 = sys.segments[89].l0
     power_tape_change = ((200 + 5000 * up) / 1000) - nominal_l0_88  # Convert mm to m
 
-    # Storage for heading setpoint
-    heading_setpoint = Float64[]
-    push!(heading_setpoint, 0.0)  # Initial setpoint
+    # Storage for azimuth setpoint (targeting azimuth=0)
+    azimuth_setpoint = Float64[]
+    push!(azimuth_setpoint, 0.0)
 
-    # Create PID controller for heading
+    # Create PID controller for azimuth (reuse heading gains/limits)
     max_steering = max_us * 1.4  # Max steering line length change [m]
 
-    max_heading_rad = deg2rad(max_heading)
-    angular_freq = 2π / period  # rad/s
-    heading_pid = DiscretePID(;
+    azimuth_pid = DiscretePID(;
         K = heading_p > 0 ? heading_p : 1.0,
         Ti = heading_i > 0 ? 1.0 / heading_i : false,
         Td = heading_d > 0 ? heading_d : false,
@@ -165,8 +164,7 @@ function run_v3_kite(wing_type::WingType;
         umin = -abs(max_steering),
         umax = abs(max_steering)
     )
-    @info "Heading PID controller initialized" max_heading period heading_p heading_i heading_d
-    @info "  Sine wave: ±$(max_heading)°, period=$(period)s"
+    @info "Azimuth PID controller initialized" target_azimuth_deg=0.0 heading_p heading_i heading_d
 
     # Store nominal tether length for winch controller
     nominal_tether_length = sys.winches[1].tether_len
@@ -215,13 +213,12 @@ function run_v3_kite(wing_type::WingType;
             SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
         end
 
-        # PID heading control with sine wave setpoint
-        target_heading_rad = max_heading_rad * sin(angular_freq * t)
-        current_heading = sam.sys_struct.wings[1].heading
-        steering_control = heading_pid(target_heading_rad, current_heading, 0.0)
+        # PID azimuth control: drive azimuth to 0
+        current_azimuth = sam.sys_struct.wings[1].azimuth
+        steering_control = azimuth_pid(target_azimuth, current_azimuth, 0.0)
 
-        # Store setpoint for plotting
-        push!(heading_setpoint, target_heading_rad)
+        # Store setpoint for plotting/inspection
+        push!(azimuth_setpoint, target_azimuth)
 
         # Ramp power-tape change on segment 88
         ramp_factor = ramp_time > 0 ? clamp((t - start_ramp_time) / ramp_time, 0.0, 1.0) : 1.0
@@ -288,25 +285,24 @@ function run_v3_kite(wing_type::WingType;
     log_name = "zenith__up_$(up_tag)_us_$(us_tag)_vw_$(v_wind_tag)_date_$(timestamp)"
     save_log(logger, log_name; path=save_dir)
 
-    return syslog, sam, heading_setpoint
+    return syslog, sam, azimuth_setpoint
 end
 
 # ============= Main Execution =============
 
 # Run both simulations
 
-syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
-    sim_time=40, 
+syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
+    sim_time=100, 
     fps=60,
     v_wind=15,
-    up=0.3, 
+    up=0.4, 
     start_ramp_time=0.1,
-    ramp_time=2.0,
-    initial_damping=50.0,
-    decay_time=5.0,
-    max_heading=0.0,
-    period = 30.0,
+    ramp_time=10.0,
+    initial_damping=100.0,
+    decay_time=30.0,
     max_us = 0.05,
+    target_azimuth = 0
 )
 
 
