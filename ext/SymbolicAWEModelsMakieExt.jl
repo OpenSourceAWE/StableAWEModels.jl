@@ -778,7 +778,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             # Convert segment length to steering input (hardcoded calibration)
             us = similar(steering_len)
             @inbounds for k in eachindex(us)
-                δ = steering_len[k] - 1.506
+                δ = steering_len[k] - 1.6
                 us[k] = δ > 1e-6 ? δ / 1.4 : 0.0
             end
 
@@ -806,6 +806,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             @info "v_app $(v_app[end])"
             @info "us_seg $(us_seg[end])"
             @info "gk $(gk[end])"
+            @info "alpha $(rad2deg(sl.AoA[end]))"
 
 
             push!(all_data, gk)

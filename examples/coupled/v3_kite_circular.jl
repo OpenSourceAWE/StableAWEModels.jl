@@ -318,7 +318,7 @@ function run_v3_kite(;
     up_tag = Int(round(up*100))
     us_tag = Int(round(us*100))
     v_wind_tag = Int(round(v_wind))
-    log_name = "up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind_tag)" * "_date_" * timestamp 
+    log_name = "circle__up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind_tag)" * "_date_" * timestamp 
     save_log(logger, log_name; path=save_dir)
 
 
@@ -334,8 +334,8 @@ up = 0.4  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis
 vw = 15  # {{{ 10.  <> 15.0 }}} suitable range?
 lt = 260  # problems when changing...
 
-sim_time = 100.0
-decay_time = 3.0
+sim_time = 1.0
+decay_time = 2.0 #2secs works better than 3 somehow
 ramp_time = 30.0
 fps = 300
 initial_damping = 1000.0

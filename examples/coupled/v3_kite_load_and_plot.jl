@@ -8,9 +8,13 @@ using DiscretePIDs
 using Dates
 
 function load_log_and_system(; log_name::String)
-    up = parse(Float64, log_name[4:5])
-    us = parse(Float64, log_name[10:11])
-    v_wind = parse(Float64, log_name[16:17])
+    # Extract up, us, and v_wind from log_name with a single regex; safer than manual slicing
+    m = match(r"_up_([0-9.]+)_us_([-0-9.]+)_vw_([0-9.]+)", log_name)
+    m === nothing && error("Could not parse up/us/vw from log name: $log_name")
+    up = parse(Float64, m.captures[1])
+    us = parse(Float64, m.captures[2])
+    v_wind = parse(Float64, m.captures[3])
+    @info "up=$up/100 [-]" us=us/100 v_wind=v_wind
     initial_damping = 100.0
 
     # Load settings
@@ -74,6 +78,20 @@ function print_and_plot_wing(lg, sam)
 
    println("\nWing node positions (body frame):")
    for idx in wing_point_idxs
+      pos_w = [
+         lg_last.X[idx],
+         lg_last.Y[idx],
+         lg_last.Z[idx],
+      ]
+      pos_b = R_b_w' * (pos_w .- origin_w)
+      println("$(pos_b[1]), $(pos_b[2]), $(pos_b[3])")
+   end
+
+   ## print bridle nodes in body frame
+   # Bridle points are points 22:38 in the v3 geometry (DYNAMIC points tied by bridle segments)
+   bridle_point_idxs = collect(22:38)
+   println("\nBridle node positions (body frame):")
+   for idx in bridle_point_idxs
       pos_w = [
          lg_last.X[idx],
          lg_last.Y[idx],
@@ -161,8 +179,7 @@ function print_and_plot_wing(lg, sam)
    lines!(ax_xz, lines_xz, color=:gray)
    lines!(ax_yz, lines_yz, color=:gray)
 
-   fig2
-   display(fig2)
+   return fig2
 end
 
 function plot_time_series(lg, sam)
@@ -184,22 +201,27 @@ function plot_time_series(lg, sam)
             plot_azimuth=true,
             plot_winch_force=false,
             plot_set_values=false)
-    display(fig)
+      return fig
 end
 
 
-log_name = "up_40_us_25_vw_15_date_2025_12_29_18_31"
+log_name = "zenith__up_30_us_30_vw_15_date_2025_12_30_13_31"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 ### plot time series
-# plot_time_series(lg, sam)
-
+fig_time = plot_time_series(lg, sam)
 ## show 3D animation
 scene = replay(lg, sam.sys_struct; autoplay=false, loop=true)
-display(scene)
 
 ### show 2D wing node plots
-# print_and_plot_wing(lg, sam)
+fig_wing = print_and_plot_wing(lg, sam)
+
+scr1=display(fig_time)
+wait(scr1)
+scr2=display(scene)
+wait(scr2)
+scr3=display(fig_wing)
+wait(scr3)
 
 ##TODO: record does not work
 # record(scene, "v3_kite_circular_load_and_plot.mp4"; fps=30, duration=20)  # Adjust duration as needed
