@@ -247,7 +247,10 @@ segments:
     - [88, 35, 1, BRIDLE, 2.2, 2.0,  dyneema, nothing, 0.01]  # Power Tape
     - [89, 38, 1, BRIDLE, 1.6, 2.0,  dyneema, nothing, 0.01]  # Steering Tape
 
-    - [90, 1, 39, BRIDLE, 45, 13.5,  dyneema, nothing, 0.01]
+
+    # Tether segments
+    # [id, point_i, point_j, type, l0, diameter_mm, material, compression_frac]
+    - [90,  1, 39, BRIDLE, 45, 13.5,  dyneema, nothing, 0.01]
     - [91, 39, 40, BRIDLE, 45, 13.5,  dyneema, nothing, 0.01]
     - [92, 40, 41, BRIDLE, 45, 13.5,  dyneema, nothing, 0.01]
     - [93, 41, 42, BRIDLE, 45, 13.5,  dyneema, nothing, 0.01]
