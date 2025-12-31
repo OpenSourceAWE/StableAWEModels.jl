@@ -208,7 +208,7 @@ function plot_time_series(lg, sam)
 end
 
 
-log_name = "zenith__up_30_us_00_vw_15_date_2025_12_30_15_06"
+log_name = "zenith__up_40_us_00_vw_15_date_2025_12_30_15_46"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 ### plot time series

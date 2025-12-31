@@ -20,6 +20,25 @@ using KiteUtils
 using DiscretePIDs
 using Dates
 
+# --- Helper: geometric AoA of mid panel using panel axes (robust, no corner ordering) ---
+mid_panel_index(n::Integer) = cld(n, 2)  # middle panel index
+
+# AoA from panel body-frame axes: project apparent wind into chord-normal plane
+function aoa_of_panel_body(panel, va_b::AbstractVector{<:Real})
+    v = collect(va_b)
+    vnorm = norm(v)
+    vnorm > 1e-9 || return 0.0
+    v̂ = v ./ vnorm
+    x̂ = panel.x_airf              # chord direction (body frame)
+    ŷ = panel.y_airf              # span direction (body frame)
+    ẑ = panel.z_airf              # normal direction (body frame)
+    v2 = v̂ .- dot(v̂, ŷ) .* ŷ   # remove span component
+    v2_norm = norm(v2)
+    v2_norm > 1e-9 || return 0.0
+    v2̂ = v2 ./ v2_norm
+    return atan(dot(v2̂, ẑ), dot(v2̂, x̂))
+end
+
 
 """
     run_v3_kite(wing_type::WingType; kwargs...)
@@ -291,12 +310,11 @@ end
 # ============= Main Execution =============
 
 # Run both simulations
-
 syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
-    sim_time=100, 
+    sim_time=60, 
     fps=60,
     v_wind=15,
-    up=0.4, 
+    up=0.35, 
     start_ramp_time=0.1,
     ramp_time=10.0,
     initial_damping=100.0,
@@ -305,7 +323,26 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     target_azimuth = 0
 )
 
+# Report final geometric AoA using hardcoded mid-panel corners (world frame)
+last_state = syslog_refine.syslog[end]
+X = last_state.X; Y = last_state.Y; Z = last_state.Z
+# Mid-panel corners: 10,11,12,13 (11/13 front; 10/12 back)
+back = 0.5 .* ([X[10], Y[10], Z[10]] .+ [X[12], Y[12], Z[12]])
+front = 0.5 .* ([X[11], Y[11], Z[11]] .+ [X[13], Y[13], Z[13]])
 
+delta_z = front[3] - back[3]
+delta_x = front[1] - back[1]
+aoa_wrt_horizontal = -rad2deg(atan(delta_z, delta_x))
+@info "alpha wrt horizontal $(round(aoa_wrt_horizontal, digits=2))"
+
+chord_w = front .- back
+wing = sam_refine.sys_struct.wings[1]
+v_app_w = wing.R_b_w * wing.va_b
+@info "v_app" v_app_w=round.(v_app_w, digits=2)
+aoa_geom_deg = rad2deg(acos(clamp(dot(chord_w, v_app_w) / (norm(chord_w) * norm(v_app_w) + 1e-12), -1.0, 1.0)))
+@info "alpha wrt v_app $(round(aoa_geom_deg, digits=2))"
+
+# Plot results
 fig = plot(sam_refine.sys_struct, syslog_refine;
     plot_turn_rates=true, plot_reelout=false, plot_gk=true,
     plot_aoa=true, plot_heading=false, plot_elevation=true,
@@ -317,5 +354,6 @@ scr1 = display(fig)
 wait(scr1)
 scr2 = display(scene)
 wait(scr2)
+
 
 nothing

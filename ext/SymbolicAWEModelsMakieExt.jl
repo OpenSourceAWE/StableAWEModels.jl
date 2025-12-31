@@ -847,8 +847,101 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             @info "v_app $(v_app[end])"
             @info "us_seg $(us_seg[end])"
             @info "gk $(gk[end])"
-            @info "alpha $(rad2deg(sl.AoA[end]))"
+            @info "alpha-vsm $(rad2deg(sl.AoA[end]))"
 
+
+            @info "--- resolving alpha mystery ---"
+            # ss.AoA = atan(wing.va_b[3], wing.va_b[1]) # version-1 
+            #---> ss.AoA = wing.vsm_solver.sol.alpha_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
+            # ss.AoA =wing.vsm_aero.alpha_uncorrected[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-3, hopefullu without induction
+            @info "alpha VSM (with induction?) $(rad2deg(sl.AoA[end])) deg"
+
+            # computing alpha geometrically
+            # Report final geometric AoA using hardcoded mid-panel corners (world frame)
+            last_state = sl[end]
+            X = last_state.X; Y = last_state.Y; Z = last_state.Z
+            # Mid-panel corners: 10,11,12,13 (11/13 front; 10/12 back)
+            back = 0.5 .* ([X[10], Y[10], Z[10]] .+ [X[12], Y[12], Z[12]])
+            front = 0.5 .* ([X[11], Y[11], Z[11]] .+ [X[13], Y[13], Z[13]])
+
+            delta_z = front[3] - back[3]
+            delta_x = front[1] - back[1]
+            aoa_wrt_horizontal = -rad2deg(atan(delta_z, delta_x))
+            @info "alpha wrt horizontal $(round(aoa_wrt_horizontal, digits=2)) deg"
+
+            mid_panel_vector = front .- back
+            mid_panel_vector_unit = mid_panel_vector / (norm(mid_panel_vector) + 1e-12)
+            # @info "mid-panel vector" mid_panel_vector_unit=round.(mid_panel_vector_unit, digits=5)
+            
+            # wind vector in world frame
+            v_wind = sl.v_wind_kite[end]
+            # @info "v_wind_kite" v_wind=round.(v_wind, digits=5)
+            v_wind_unit = v_wind / (norm(v_wind) + 1e-12)
+
+            # compute angle v_a and vector_mid_panel
+            vel_KCU = sl.vel_kite[end]
+            # @info "vel_KCU" vel_kite=round.(vel_KCU, digits=5)
+            va_kcu = vel_KCU - v_wind
+            va_kcu_unit = va_kcu / (norm(va_kcu) + 1e-12)
+
+
+            # Flip chord direction so it points into the incoming flow (front -> back)
+            cos_theta = dot(-mid_panel_vector_unit, va_kcu_unit)
+            alpha_KCU = rad2deg(acos(clamp(cos_theta, -1.0, 1.0)))
+            @info "KCU" va_kcu=round.(va_kcu, digits=5) va_kcu_norm=norm(va_kcu) alpha_KCU=round(alpha_KCU, digits=2)
+            # @info "alpha wing (v_app_KCU) $(round(alpha_KCU, digits=2))"
+            
+            # compute wing v_a
+            min2 = sl[end - 2]
+            min1 = sl[end - 1]
+            last_state = sl[end]
+
+            X_min2 = min2.X; Y_min2 = min2.Y; Z_min2 = min2.Z
+            X_last = last_state.X; Y_last = last_state.Y; Z_last = last_state.Z
+            X_min1 = min1.X; Y_min1 = min1.Y; Z_min1 = min1.Z
+
+            dt_last_to_min2 = last_state.time - min2.time + 1e-12
+            va_wing = SVector{3,Float64}(
+                (X_last[1] - X_min2[1]) / (dt_last_to_min2) - v_wind[1],
+                (Y_last[1] - Y_min2[1]) / (dt_last_to_min2) - v_wind[2],
+                (Z_last[1] - Z_min2[1]) / (dt_last_to_min2) - v_wind[3],
+            )
+            # @info "v_app wing" va_wing=round.(va_wing, digits=5)
+            va_wing_unit = va_wing / (norm(va_wing) + 1e-12)
+            
+
+            # Use the same convention: chord points front -> back, apparent wind approaches from front
+            cos_theta_wing = dot(-mid_panel_vector_unit, va_wing_unit)
+            alpha_wing = rad2deg(acos(clamp(cos_theta_wing, -1.0, 1.0)))
+            @info "WING" va_wing=round.(va_wing, digits=5) va_wing_norm=norm(va_wing) alpha_wing=round(alpha_wing, digits=2)
+
+            # computing lift and drag using the total aero force "aero_force_b"
+            # SysLog stores orientation as a quaternion; rebuild R_b_w on the fly
+            R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[end])
+            F_aero_b = sl.aero_force_b[end]
+            F_aero_world = R_b_w * F_aero_b
+            # Decompose aero force into drag (opposing apparent wind) and lift (perpendicular)
+            drag_dir = -va_wing_unit               # drag acts against the flow
+            drag = -dot(F_aero_world, va_wing_unit)  # positive magnitude
+            drag_vec = drag * drag_dir
+            lift_vec = F_aero_world - dot(F_aero_world, va_wing_unit) * va_wing_unit
+            lift = norm(lift_vec)
+            lift_dir = lift > 1e-12 ? lift_vec / lift : zeros(3)
+            @info "Aero VSM forces" lift=round(lift, digits=2) drag=round(drag, digits=2) L_over_D=round(lift / (drag + 1e-12), digits=2)
+
+            # Aero forces of tethers
+            tether_force_w = sl.tether_induced_force[end]
+            drag_tether = -dot(tether_force_w, va_wing_unit)
+            tether_lift_vec = tether_force_w - dot(tether_force_w, va_wing_unit) * va_wing_unit
+            tether_lift = norm(tether_lift_vec)
+            @info "Aero tether forces" lift=round(tether_lift, digits=2) drag=round(drag_tether, digits=2) L_over_D=round(tether_lift / (drag_tether + 1e-12), digits=2)
+
+            # Total aero forces (wing + tether)
+            total_drag = drag + drag_tether
+            total_lift_vec = lift_vec + tether_lift_vec
+            total_lift = norm(total_lift_vec)
+            total_angle = rad2deg(acos(clamp(dot(total_lift_vec / (total_lift + 1e-12), drag_dir), -1.0, 1.0)))
+            @info "Aero total forces" lift=round(total_lift, digits=2) drag=round(total_drag, digits=2) angle_lift_to_drag=round(total_angle, digits=2) L_over_D=round(total_lift / (total_drag + 1e-12), digits=2)
 
             push!(all_data, gk)
             push!(all_labels, "gk" * suffix)
@@ -967,7 +1060,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             # Calculate old heading from orientation quaternion
             old_heading_rad = similar(sl.heading)
             for i in eachindex(sl.orient)
-                R_b_w = KiteUtils.rotation_matrix(sl.orient[i])
+                R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[i])
                 R_v_w = [1.0 0.0 0.0; 0.0 -1.0 0.0; 0.0 0.0 -1.0]
                 v1 = -R_b_w[:, 1]
                 v2 = -R_v_w[:, 1]

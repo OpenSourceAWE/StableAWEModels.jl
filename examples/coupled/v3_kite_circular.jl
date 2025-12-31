@@ -328,17 +328,17 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-us = 0.25  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
+us = 0.15  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
 up = 0.4  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis 
 #0.4151powered and #0.5012depowered #0.39 during turns
 vw = 15  # {{{ 10.  <> 15.0 }}} suitable range?
 lt = 260  # problems when changing...
 
-sim_time = 1.0
+sim_time = 400.0
 decay_time = 2.0 #2secs works better than 3 somehow
-ramp_time = 30.0
-fps = 300
-initial_damping = 1000.0
+ramp_time = 10.0
+fps = 60
+initial_damping = 100.0
 tube_bending_resistance = 0  # N
 
 
@@ -351,29 +351,17 @@ syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
     heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
     winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
 
-# @info "Simulation complete. Creating plots..."
-# fig = plot(sam_refine.sys_struct, syslog_refine;
-#            plot_turn_rates=true,
-#            plot_reelout=false,
-#         #    plot_tether=true,
-#            plot_gk=true,
-#         #    plot_aero_force=true,
-#         #    plot_aero_moment=true,
-#         #    plot_tether_moment=true,
-#         #    plot_twist=true,
-#            plot_aoa=true,
-#            plot_heading=false,
-#         #    plot_old_heading=true,
-#         #    plot_distance=true,
-#         #    plot_cone_angle=true,
-#            plot_elevation=true,
-#            plot_azimuth=true,
-#            plot_winch_force=false,
-#            plot_set_values=false)
-# display(fig)
-# @info "Plot created!"
+
+fig = plot(sam_refine.sys_struct, syslog_refine;
+    plot_turn_rates=true, plot_reelout=false, plot_gk=true,
+    plot_aoa=true, plot_heading=false, plot_elevation=true,
+    plot_azimuth=true, plot_winch_force=false, plot_set_values=false)
 
 scene = replay(syslog_refine, sam_refine.sys_struct)
-display(scene)
+
+scr1 = display(fig)
+wait(scr1)
+scr2 = display(scene)
+wait(scr2)
 
 nothing
