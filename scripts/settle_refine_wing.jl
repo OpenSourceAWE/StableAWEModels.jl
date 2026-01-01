@@ -20,19 +20,19 @@ using OrdinaryDiffEqCore
 using GLMakie
 
 # Configuration
-const BODY_DAMPING = 100.0  # Ns/m
-const NUM_STEPS = 200
-const DT = 0.05  # seconds
-const STRUC_PATH = "data/v3/struc_geometry.yaml"
-const AERO_PATH = "data/v3/aero_geometry.yaml"
-const STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
-const DEPOWER_PERCENTAGE = 20.0   # depower [0, 100]
+BODY_DAMPING = 100.0  # Ns/m
+NUM_STEPS = 1000
+DT = 0.05  # seconds
+STRUC_PATH = "data/v3/struc_geometry.yaml"
+AERO_PATH = "data/v3/aero_geometry.yaml"
+STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
+DEPOWER_PERCENTAGE = 20.0   # depower [0, 100]
 
 # V3 Kite steering/depower calibration (from KCU documentation)
-const STEERING_L0 = 1.506  # Neutral steering tape length (m)
-const STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
-const DEPOWER_L0 = 0.45
-const DEPOWER_GAIN = 5.0
+STEERING_L0 = 1.506  # Neutral steering tape length (m)
+STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
+DEPOWER_L0 = 0.45
+DEPOWER_GAIN = 5.0
 
 """
     steering_percentage_to_lengths(percentage)
@@ -122,21 +122,6 @@ log!(logger, sys_state)
 @info "Starting settling simulation..."
 for step in 1:NUM_STEPS
     t = step * DT
-
-    # Calculate delta heading needed to maintain alignment
-    current_heading = sys.wings[1].heading
-    delta_heading = initial_heading - current_heading
-
-    # Update transform to maintain orientation
-    transform.elevation = target_elevation
-    transform.azimuth = target_azimuth
-    transform.heading = delta_heading
-
-    # Apply repositioning to maintain alignment
-    SymbolicAWEModels.reposition!(sys.transforms, sys)
-
-    # Reinitialize the solver after repositioning
-    OrdinaryDiffEqCore.reinit!(sam.integrator)
 
     # Advance one timestep
     try

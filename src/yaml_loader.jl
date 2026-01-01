@@ -502,10 +502,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Build kwargs based on wing type
             if wt == REFINE
                 # REFINE wings need z_ref_points, y_ref_points, origin_idx
+                # and pos_cad from origin point
                 wing = call_yaml_constructor(VSMWing, row,
                     [:idx, :set, :group_idxs, :vsm_set],
                     [:transform_idx, :y_damping, :wing_type,
-                     :z_ref_points, :y_ref_points, :origin_idx];
+                     :z_ref_points, :y_ref_points, :origin_idx, :pos_cad];
                     mappings=Dict(
                         :set => r -> set,
                         :group_idxs => r -> Int16[],
@@ -516,7 +517,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         :y_ref_points => r ->
                             parse_ref_points(r, :y_ref_points),
                         :origin_idx => r ->
-                            get_field_or_nothing(Int16, r, :origin_idx)
+                            get_field_or_nothing(Int16, r, :origin_idx),
+                        :pos_cad => r -> begin
+                            oidx = get_field_or_nothing(Int16, r, :origin_idx)
+                            isnothing(oidx) ? nothing : KVec3(points[oidx].pos_cad)
+                        end
                     ))
             else  # QUATERNION
                 # QUATERNION wings don't use these fields
@@ -574,4 +579,191 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     # conversion when no wings are defined
     return SystemStructure(system_name, set; points, groups,
         segments, pulleys, tethers, winches, wings, transforms, ignore_l0, vsm_set)
+end
+
+"""
+    update_yaml_from_sys_struct!(sys_struct::SystemStructure,
+                                  struc_yaml_path::AbstractString,
+                                  aero_yaml_path::AbstractString)
+
+Update point positions in structural and aerodynamic YAML files from
+the current state of a SystemStructure. Creates backups before modifying.
+
+# Arguments
+- `sys_struct`: SystemStructure with current point positions
+- `struc_yaml_path`: Path to structural geometry YAML file to update
+- `aero_yaml_path`: Path to aero geometry YAML file to update
+
+# Example
+```julia
+# Load, simulate, then save settled positions
+sys = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml"; ...)
+sam = SymbolicAWEModel(set, sys)
+# ... run simulation ...
+update_yaml_from_sys_struct!(sys, "data/v3/struc_geometry.yaml",
+                            "data/v3/aero_geometry.yaml")
+```
+"""
+function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
+                                      struc_yaml_path::AbstractString,
+                                      aero_yaml_path::AbstractString)
+    # Helper to format coordinate with rounding
+    function format_coord(val::Float64)
+        # Round to 4 decimals, set small values to 0
+        rounded = abs(val) < 1e-4 ? 0.0 : round(val, digits=4)
+        return rounded
+    end
+
+    # Build position dictionary from system structure
+    positions = Dict{Int, Vector{Float64}}()
+    for point in sys_struct.points
+        positions[point.idx] = copy(point.pos_w)
+    end
+
+    # Build segment l0 dictionary from system structure
+    segment_l0s = Dict{Int, Float64}()
+    for seg in sys_struct.segments
+        segment_l0s[seg.idx] = seg.l0
+    end
+
+    # Update structural geometry YAML
+    struc_full_path = isabspath(struc_yaml_path) ? struc_yaml_path :
+                      joinpath(pwd(), struc_yaml_path)
+
+    if !isfile(struc_full_path)
+        error("Structural YAML file not found: $struc_full_path")
+    end
+
+    # Create backup of structural YAML
+    struc_backup = struc_full_path * ".backup"
+    @info "Creating structural backup" original=struc_full_path backup=struc_backup
+    cp(struc_full_path, struc_backup; force=true)
+
+    lines = readlines(struc_full_path)
+    n_points_updated = 0
+    n_segments_updated = 0
+    in_points_section = false
+    in_segments_section = false
+
+    for (i, line) in enumerate(lines)
+        # Track which section we're in
+        if occursin(r"^points:", line)
+            in_points_section = true
+            in_segments_section = false
+        elseif occursin(r"^segments:", line)
+            in_points_section = false
+            in_segments_section = true
+        elseif occursin(r"^\w+:", line)  # New section starts
+            in_points_section = false
+            in_segments_section = false
+        end
+
+        # Update lines in the points section
+        if in_points_section
+            # Match: "- [idx, [x, y, z], ..." where coordinates are floats
+            m = match(r"^(\s*-\s*\[)(\d+)(,\s*\[)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?,\s*[-+]?\d+\.?\d*(?:[eE][-+]?\d+)?,\s*[-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(\].*)", line)
+            if m !== nothing
+                point_idx = parse(Int, m.captures[2])
+                if haskey(positions, point_idx)
+                    new_pos = positions[point_idx]
+                    x = format_coord(new_pos[1])
+                    y = format_coord(new_pos[2])
+                    z = format_coord(new_pos[3])
+                    new_coords = "$x, $y, $z"
+                    lines[i] = m.captures[1] * m.captures[2] *
+                              m.captures[3] * new_coords * m.captures[5]
+                    n_points_updated += 1
+                end
+            end
+        end
+
+        # Update lines in the segments section
+        if in_segments_section
+            # Match: "- [idx, point_i, point_j, type, l0, ...]"
+            # Format: [idx, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+            # We want to update the l0 field (5th field, index 4)
+            m = match(r"^(\s*-\s*\[)(\d+)(,\s*\d+,\s*\d+,\s*\w+,\s*)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(.*)", line)
+            if m !== nothing
+                seg_idx = parse(Int, m.captures[2])
+
+                if haskey(segment_l0s, seg_idx)
+                    new_l0 = format_coord(segment_l0s[seg_idx])
+                    # Reconstruct line with updated l0
+                    lines[i] = m.captures[1] * m.captures[2] * m.captures[3] *
+                              string(new_l0) * m.captures[5]
+                    n_segments_updated += 1
+                end
+            end
+        end
+    end
+
+    @info "Updated structural positions and segments" n_points=n_points_updated n_segments=n_segments_updated
+
+    # Write updated structural YAML
+    @info "Writing updated structural YAML to $struc_full_path"
+    open(struc_full_path, "w") do io
+        for line in lines
+            println(io, line)
+        end
+    end
+
+    # Update aerodynamic geometry YAML
+    aero_full_path = isabspath(aero_yaml_path) ? aero_yaml_path :
+                    joinpath(pwd(), aero_yaml_path)
+
+    if !isfile(aero_full_path)
+        error("Aero YAML file not found: $aero_full_path")
+    end
+
+    # Create backup of aero YAML
+    aero_backup = aero_full_path * ".backup"
+    @info "Creating aero backup" original=aero_full_path backup=aero_backup
+    cp(aero_full_path, aero_backup; force=true)
+
+    aero_lines = readlines(aero_full_path)
+    n_aero_updated = 0
+
+    for (i, line) in enumerate(aero_lines)
+        # Match wing section data lines with point references in comments
+        # Format: "- [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]"
+        # Look for comment indicating point mapping
+        comment_match = match(r"#.*points?\s+(\d+).*\(LE\).*and\s+(\d+).*\(TE\)", line)
+
+        if comment_match !== nothing
+            le_idx = parse(Int, comment_match.captures[1])
+            te_idx = parse(Int, comment_match.captures[2])
+
+            # Check next line for the actual data
+            if i < length(aero_lines)
+                data_line = aero_lines[i+1]
+                m = match(r"^(\s*-\s*\[)(\d+)(,\s*)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(\])", data_line)
+
+                if m !== nothing && haskey(positions, le_idx) && haskey(positions, te_idx)
+                    le_pos = positions[le_idx]
+                    te_pos = positions[te_idx]
+
+                    airfoil_id = m.captures[2]
+                    new_data = "$(m.captures[1])$airfoil_id$(m.captures[3])" *
+                              "$(format_coord(le_pos[1])), $(format_coord(le_pos[2])), $(format_coord(le_pos[3])), " *
+                              "$(format_coord(te_pos[1])), $(format_coord(te_pos[2])), $(format_coord(te_pos[3]))$(m.captures[10])"
+
+                    aero_lines[i+1] = new_data
+                    n_aero_updated += 1
+                end
+            end
+        end
+    end
+
+    @info "Updated aerodynamic positions" n_sections=n_aero_updated
+
+    # Write updated aero YAML
+    @info "Writing updated aero YAML to $aero_full_path"
+    open(aero_full_path, "w") do io
+        for line in aero_lines
+            println(io, line)
+        end
+    end
+
+    @info "Done!"
+    return nothing
 end
