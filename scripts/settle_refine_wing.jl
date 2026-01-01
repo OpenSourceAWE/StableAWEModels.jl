@@ -31,7 +31,7 @@ DEPOWER_PERCENTAGE = 40.0   # depower [0, 100]
 # V3 Kite steering/depower calibration (from KCU documentation)
 STEERING_L0 = 1.506  # Neutral steering tape length (m)
 STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
-DEPOWER_L0 = 0.45
+DEPOWER_L0 = 0.2
 DEPOWER_GAIN = 5.0
 
 """

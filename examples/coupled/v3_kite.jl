@@ -39,7 +39,7 @@ STEERING_L0 = 1.506  # Neutral steering tape length (m)
 STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
 
 # Depower calibration
-DEPOWER_L0 = 0.45
+DEPOWER_L0 = 0.2
 DEPOWER_GAIN = 5.0
 
 """

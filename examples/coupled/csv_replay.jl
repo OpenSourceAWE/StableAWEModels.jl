@@ -22,7 +22,7 @@ using KiteUtils: calc_elevation, azimuth_east
 
 # Configuration parameters
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
-START_FRAME = 22068 + 000 # First frame to replay
+START_FRAME = 22068 + 1000 # First frame to replay
 END_FRAME = START_FRAME + 50 # Last frame to replay (use nothing for all frames)
 REMAKE_CACHE = false
 
@@ -32,7 +32,7 @@ STEERING_L0 = 1.506  # Neutral steering tape length (m)
 STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
 
 # Depower calibration
-DEPOWER_L0 = 0.45 # SUPPOSED TO BE 0.2
+DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
 DEPOWER_GAIN = 5.0
 
 INITIAL_DAMPING = 400.0
@@ -473,11 +473,11 @@ function run_physics_replay(csv_path::String;
             substep_count = 0
             min_distance_threshold = 0.01  # meters
 
-            # if t < 0.1
+            if t < 0.1
                 brake = true
-            # else
-            #     brake = false
-            # end
+            else
+                brake = false
+            end
 
             # Step until we match CSV distance (or hit safety limit)
             wing = sam.sys_struct.wings[1]
