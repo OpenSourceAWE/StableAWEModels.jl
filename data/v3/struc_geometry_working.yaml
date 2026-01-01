@@ -155,71 +155,66 @@ segments:
     - [46, 19, 20, POWER_LINE, 1.360356, 1.0, 5000.0, 10.0, 0.00]
 
     # Bridle segments - left front lines (non-compressive, using dyneema material)
-    - [47, 2, 26, BRIDLE,   5.964, 5.0,  dyneema, nothing, 0.01]  # AIII/Br,main,2 or a6 first half (pulley) TODO: 5.686
-    - [48, 2, 34, BRIDLE,   5.964, 5.0,  dyneema, nothing, 0.01]  # AIII/Br,main,2 or a6 second half (pulley) TODO: 5.686
-    - [49, 4, 22, BRIDLE, 2.910, 5.0,  dyneema, nothing, 0.01]  # A4 or A5- original 2.782
-    - [50, 6, 22, BRIDLE, 3.450, 5.0,  dyneema, nothing, 0.01]  # A3
-    - [51, 8, 23, BRIDLE, 3.550, 5.0,  dyneema, nothing, 0.01]  # A2
-    - [52, 10, 23, BRIDLE, 3.710, 5.0,  dyneema, nothing, 0.01]  # A1
+    - [47, 2, 26, BRIDLE,   5.964, 5.0,  dyneema, nothing, 0.01]  # a6 first half (pulley) TODO: 5.686
+    - [48, 2, 34, BRIDLE,   5.964, 5.0,  dyneema, nothing, 0.01]  # a6 second half (pulley) TODO: 5.686
+    - [49, 4, 22, BRIDLE, 2.782, 5.0,  dyneema, nothing, 0.01]  # A5 - original 2.782
+    - [50, 6, 22, BRIDLE, 3.253, 5.0,  dyneema, nothing, 0.01]  # A3
+    - [51, 8, 23, BRIDLE, 3.352, 5.0,  dyneema, nothing, 0.01]  # A2
+    - [52, 10, 23, BRIDLE, 3.520, 5.0,  dyneema, nothing, 0.01]  # A1
 
     # Bridle segments - left rear lines (mirror, non-compressive, using dyneema)
-    - [53, 12, 24, BRIDLE, 3.710, 5.0,  dyneema, nothing, 0.01]  # A1
-    - [54, 14, 24, BRIDLE, 3.550, 5.0,  dyneema, nothing, 0.01]  # A2
-    - [55, 16, 25, BRIDLE, 3.450, 5.0,  dyneema, nothing, 0.01]  # A3
-    - [56, 18, 25, BRIDLE, 2.910, 5.0,  dyneema, nothing, 0.01]  # A4 or A5- original 2.782
+    - [53, 12, 24, BRIDLE, 3.520, 5.0,  dyneema, nothing, 0.01]  # A1
+    - [54, 14, 24, BRIDLE, 3.352, 5.0,  dyneema, nothing, 0.01]  # A2
+    - [55, 16, 25, BRIDLE, 3.253, 5.0,  dyneema, nothing, 0.01]  # A3
+    - [56, 18, 25, BRIDLE, 2.782, 5.0,  dyneema, nothing, 0.01]  # A5 - original 2.782
     - [57, 27, 20, BRIDLE,   5.964, 5.0,  dyneema, nothing, 0.01]  # a6 first half (pulley) TODO: 5.686
     - [58, 20, 36, BRIDLE,   5.964, 5.0,  dyneema, nothing, 0.01]  # a6 second half (pulley) TODO:5.686
 
     # Bridle convergence - left side (non-compressive, using dyneema)
-    - [59, 22, 26, BRIDLE, 3.360, 10.0,  dyneema, nothing, 0.01]  # AII
-    - [60, 23, 26, BRIDLE, 3.670, 10.0,  dyneema, nothing, 0.01]  # AI
-    - [61, 24, 27, BRIDLE, 3.670, 10.0,  dyneema, nothing, 0.01]  # AI
-    - [62, 25, 27, BRIDLE, 3.360, 10.0,  dyneema, nothing, 0.01]  # AII
+    - [59, 22, 26, BRIDLE, 3.188, 10.0,  dyneema, nothing, 0.01]  # AII
+    - [60, 23, 26, BRIDLE, 3.420, 10.0,  dyneema, nothing, 0.01]  # AI
+    - [61, 24, 27, BRIDLE, 3.420, 10.0,  dyneema, nothing, 0.01]  # AI
+    - [62, 25, 27, BRIDLE, 3.188, 10.0,  dyneema, nothing, 0.01]  # AII
 
     # Main power lines to KCU (non-compressive, using dyneema)
-    - [63, 26, 1, BRIDLE, 3.903, 20.0,  dyneema, nothing, 0.01]  # amain
-    - [64, 27, 1, BRIDLE, 3.903, 20.0,  dyneema, nothing, 0.01]  # amain
+    - [63, 26, 1, BRIDLE, 4.297, 20.0,  dyneema, nothing, 0.01]  # amain
+    - [64, 27, 1, BRIDLE, 4.297, 20.0,  dyneema, nothing, 0.01]  # amain
 
     # Bridle segments - right front lines (non-compressive, using dyneema)
-    - [65, 34, 3, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.01]  # Br,5 or br6 first half (pulley) #TODO: was 7.086
-    - [66, 3, 37, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.01]  # Br,5 or br6 second half (pulley) #TODO: was 7.086
-    - [67, 5, 28, BRIDLE, 3.550, 2.0,  dyneema, nothing, 0.01]  # br,4 or br5
-    - [68, 7, 28, BRIDLE, 4.094, 2.0,  dyneema, nothing, 0.01]  # br,3
-    - [69, 9, 29, BRIDLE, 4.180, 2.0,  dyneema, nothing, 0.01]  # br,2
-    - [70, 11, 29, BRIDLE, 4.407, 2.0,  dyneema, nothing, 0.01]  # br,1
+    - [65, 34, 3, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.01]  # br6 first half (pulley) #TODO: was 7.086
+    - [66, 3, 37, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.01]  # br6 second half (pulley) #TODO: was 7.086
+    - [67, 5, 28, BRIDLE, 4.047, 2.0,  dyneema, nothing, 0.01]  # br5
+    - [68, 7, 28, BRIDLE, 4.560, 2.0,  dyneema, nothing, 0.01]  # br3
+    - [69, 9, 29, BRIDLE, 4.300, 2.0,  dyneema, nothing, 0.01]  # br2
+    - [70, 11, 29, BRIDLE, 4.448, 2.0,  dyneema, nothing, 0.01]  # br1
 
     # Bridle segments - right rear lines (mirror, non-compressive, using dyneema)
-    - [71, 13, 30, BRIDLE, 4.407, 2.0,  dyneema, nothing, 0.01]  # br,1
-    - [72, 15, 30, BRIDLE, 4.180, 2.0,  dyneema, nothing, 0.01]  # br,2
-    - [73, 17, 31, BRIDLE, 4.094, 2.0,  dyneema, nothing, 0.01]  # br,3
-    - [74, 19, 31, BRIDLE, 3.550, 2.0,  dyneema, nothing, 0.01]  # br,4 or br5
+    - [71, 13, 30, BRIDLE, 4.448, 2.0,  dyneema, nothing, 0.01]  # br1
+    - [72, 15, 30, BRIDLE, 4.300, 2.0,  dyneema, nothing, 0.01]  # br2
+    - [73, 17, 31, BRIDLE, 4.560, 2.0,  dyneema, nothing, 0.01]  # br3
+    - [74, 19, 31, BRIDLE, 4.047, 2.0,  dyneema, nothing, 0.01]  # br5
     - [75, 36, 21, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.01]  # br6 first half (pulley) #TODO: was 7.086
     - [76, 21, 38, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.01]  # br6 second half (pulley)#TODO: was 7.086
     
     # Bridle convergence - right side (non-compressive, using dyneema)
-    - [77, 28, 32, BRIDLE, 2.045, 2.0,  dyneema, nothing, 0.01]  # BRII
-    - [78, 29, 32, BRIDLE, 2.333, 2.0,  dyneema, nothing, 0.01]  # BRI
-    - [79, 30, 33, BRIDLE, 2.333, 2.0,  dyneema, nothing, 0.01]  # BRI
-    - [80, 31, 33, BRIDLE, 2.045, 2.0,  dyneema, nothing, 0.01]  # BRII
+    - [77, 28, 32, BRIDLE, 1.890, 2.0,  dyneema, nothing, 0.01]  # BRII
+    - [78, 29, 32, BRIDLE, 2.388, 2.0,  dyneema, nothing, 0.01]  # BRI
+    - [79, 30, 33, BRIDLE, 2.388, 2.0,  dyneema, nothing, 0.01]  # BRI
+    - [80, 31, 33, BRIDLE, 1.890, 2.0,  dyneema, nothing, 0.01]  # BRII
 
     # Right main lines (non-compressive, using dyneema)
-    - [81, 32, 34, BRIDLE, 0.610, 2.0,  dyneema, nothing, 0.01]  # BR-main-1
-    - [82, 33, 36, BRIDLE, 0.610, 2.0,  dyneema, nothing, 0.01]  # BR-main-1
+    - [81, 32, 34, BRIDLE, 0.874, 2.0,  dyneema, nothing, 0.01]  # BR-main-1
+    - [82, 33, 36, BRIDLE, 0.874, 2.0,  dyneema, nothing, 0.01]  # BR-main-1
 
     # Central pulley system - M-line (non-compressive, using dyneema)
-    # because Br,main,e is not modelled. Some additional length should be added to the M-line.
-    # it is under an supposably 20deg angle
-    # 0deg would mean the addition was 2x70mm
-    # at 80deg we get, 70/cos(10deg) = 71mm --> addition of 2x71mm = 0.142m
-    # that gives us M = 4856+0.142 = 4.998m --> 2499mm per
-    - [83, 37, 34, BRIDLE, 2.499, 2.0,  dyneema, nothing, 0.01]  # M-line first half (pulley)
-    - [84, 34, 35, BRIDLE, 2.499, 2.0,  dyneema, nothing, 0.01]  # M-line second half (pulley)
-    - [85, 35, 36, BRIDLE, 2.499, 2.0,  dyneema, nothing, 0.01]  # M-line first half (pulley)
-    - [86, 36, 38, BRIDLE, 2.499, 2.0,  dyneema, nothing, 0.01]  # M-line second half (pulley)
+    - [83, 37, 34, BRIDLE, 1.098, 2.0,  dyneema, nothing, 0.01]  # M-line first half (pulley)
+    - [84, 34, 35, BRIDLE, 1.098, 2.0,  dyneema, nothing, 0.01]  # M-line second half (pulley)
+    - [85, 35, 36, BRIDLE, 1.098, 2.0,  dyneema, nothing, 0.01]  # M-line first half (pulley)
+    - [86, 36, 38, BRIDLE, 1.098, 2.0,  dyneema, nothing, 0.01]  # M-line second half (pulley)
 
     # Final attachment to KCU/tethers (non-compressive, using dyneema)
     - [87, 37, 1, BRIDLE, 1.6, 2.0,  dyneema, nothing, 0.01]  # Steering Tape #TODO: was 1.506
-    - [88, 35, 1, BRIDLE, 2.2, 2.0,  dyneema, nothing, 0.01]  # Power Tape
+    - [88, 35, 1, BRIDLE, 3.129, 2.0,  dyneema, nothing, 0.01]  # Power Tape
     - [89, 38, 1, BRIDLE, 1.6, 2.0,  dyneema, nothing, 0.01]  # Steering Tape #TODO: was 1.506
 
     - [90, 1, 39, BRIDLE, 45, 13.5,  dyneema, nothing, 0.01]
