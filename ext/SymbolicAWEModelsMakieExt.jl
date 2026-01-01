@@ -416,6 +416,7 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
             PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
         end
 
+
         # Call zoom functions with stored distance (preserves manual zoom)
         if PLOT_BODY_FRAME[]
             # Body frame mode: continuously track wing orientation
@@ -1136,9 +1137,9 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     if isnothing(distance)
         # Calculate characteristic system length
         if !isempty(sys.points)
-            all_x = [p.pos_w[1] for p in sys.points]
-            all_y = [p.pos_w[2] for p in sys.points]
-            all_z = [p.pos_w[3] for p in sys.points]
+            all_x = [p.pos_w[1] for p in sys.points if p.type == WING]
+            all_y = [p.pos_w[2] for p in sys.points if p.type == WING]
+            all_z = [p.pos_w[3] for p in sys.points if p.type == WING]
 
             xlims = extrema(all_x)
             ylims = extrema(all_y)
@@ -1148,7 +1149,7 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
         else
             char_length = 10.0
         end
-        distance = char_length * 0.5
+        distance = char_length * 2.5
     end
 
     # Camera position: kite_pos - R_b_w * [distance, 0, 0]
@@ -1477,6 +1478,7 @@ function Makie.plot(sys::SystemStructure;
     PLOT_ZOOMED_IN[] = false  # Initialize zoom state (not zoomed in)
     PLOT_ZOOM_RELMARGIN[] = relmargin  # Store relmargin for auto-updates
     PLOT_ZOOM_SEGMENT_IDX[] = -1  # No segment zoomed initially
+    PLOT_CAMERA_DISTANCE[] = nothing  # Clear any stale camera distance
 
     return scene
 end
