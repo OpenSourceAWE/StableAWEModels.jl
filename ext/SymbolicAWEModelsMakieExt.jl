@@ -19,7 +19,7 @@ const PLOT_GEOMETRY_OBS = Ref{Union{Nothing, Observable}}(nothing)  # Single tri
 const PLOT_SEGMENT_COLORS_OBS = Ref{Union{Nothing, Observable}}(nothing)  # Separate for force coloring
 const PLOT_SCENE = Ref{Union{Nothing, Scene}}(nothing)
 const PLOT_BACKGROUND_PANES = Ref{Union{Nothing, Vector}}(nothing)
-const PLOT_MARGIN = Ref{Float64}(10.0)
+const PLOT_MARGIN = Ref{Float64}(1000.0)
 const PLOT_RELEVANT_PLOTS = Ref{Union{Nothing, Vector}}(nothing)
 const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemStructure}}(nothing)
 const PLOT_VECTOR_SCALE = Ref{Float64}(1.0)
@@ -68,7 +68,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
                      show_points = true, show_segments = true, show_orient = true,
-                     show_panes = true, margin = 10.0, force_color = false,
+                     show_panes = true, margin = 1000.0, force_color = false,
                      plot_vsm = true, plot_aero = true,
                      # Optional observable for real-time updates
                      geometry_obs = nothing,
@@ -283,6 +283,7 @@ function Makie.plot!(ax, sys::SystemStructure;
 
     # === Calculate system scale for axes and panes ===
     xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10) # Default limits
+    xlims_data, ylims_data, zlims_data = (-10, 10), (-10, 10), (-10, 10) # Data-only limits
     if !isempty(sys.points)
         all_x = [p.pos_w[1] for p in sys.points]
         all_y = [p.pos_w[2] for p in sys.points]
@@ -297,8 +298,9 @@ function Makie.plot!(ax, sys::SystemStructure;
         zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
     end
 
-    # Calculate characteristic length for scaling arrows
-    char_length = max(xlims[2] - xlims[1], ylims[2] - ylims[1], zlims[2] - zlims[1])
+    # Calculate characteristic length for scaling arrows (exclude panes)
+    char_length = max(xlims_data[2] - xlims_data[1], ylims_data[2] - ylims_data[1],
+                      zlims_data[2] - zlims_data[1])
     axis_length = char_length * 0.15
 
     # === Plot Global Axes ===
@@ -342,9 +344,12 @@ function Makie.plot!(ax, sys::SystemStructure;
         end
 
         # Create mesh plots for the panes
-        xz_pane = mesh!(ax, plots[:pane_observables][1], color=pane_color)
-        yz_pane = mesh!(ax, plots[:pane_observables][2], color=pane_color)
-        xy_pane = mesh!(ax, plots[:pane_observables][3], color=pane_color)
+        xz_pane = mesh!(ax, plots[:pane_observables][1], color=pane_color,
+                        transparency=true)
+        yz_pane = mesh!(ax, plots[:pane_observables][2], color=pane_color,
+                        transparency=true)
+        xy_pane = mesh!(ax, plots[:pane_observables][3], color=pane_color,
+                        transparency=true)
         plots[:panes] = [xz_pane, yz_pane, xy_pane]
     end
 
@@ -1163,7 +1168,7 @@ end
 
 function _plot_with_panes(sys::SystemStructure;
                     size = (1200, 800),
-                    margin = 10.0,
+                    margin = 1000.0,
                     relmargin = 0.2,
                     segment_color = :black,
                     highlight_color = :red,
