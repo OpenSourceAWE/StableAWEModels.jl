@@ -21,12 +21,12 @@ using GLMakie
 
 # Configuration
 BODY_DAMPING = 100.0  # Ns/m
-NUM_STEPS = 1000
+NUM_STEPS = 5000
 DT = 0.05  # seconds
 STRUC_PATH = "data/v3/struc_geometry.yaml"
 AERO_PATH = "data/v3/aero_geometry.yaml"
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
-DEPOWER_PERCENTAGE = 20.0   # depower [0, 100]
+DEPOWER_PERCENTAGE = 40.0   # depower [0, 100]
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 STEERING_L0 = 1.506  # Neutral steering tape length (m)
@@ -103,14 +103,6 @@ sys.segments[89].l0 = L_right  # Right steering tape
 sys.segments[88].l0 = L_depower  # Depower tape
 
 @info "Steering/depower initialized" steering=STEERING_PERCENTAGE depower=DEPOWER_PERCENTAGE L_left L_right L_depower
-
-# Get initial transform values to maintain
-transform = sys.transforms[1]
-target_elevation = transform.elevation
-target_azimuth = transform.azimuth
-initial_heading = sys.wings[1].heading
-
-@info "Initial state" elevation=rad2deg(target_elevation) azimuth=rad2deg(target_azimuth) heading=rad2deg(initial_heading)
 
 # Create logger
 logger = Logger(sam, NUM_STEPS + 1)

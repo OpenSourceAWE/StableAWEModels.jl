@@ -22,7 +22,7 @@ using KiteUtils: calc_elevation, azimuth_east
 
 # Configuration parameters
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
-START_FRAME = 22068 + 1000 # First frame to replay
+START_FRAME = 22068 + 000 # First frame to replay
 END_FRAME = START_FRAME + 50 # Last frame to replay (use nothing for all frames)
 REMAKE_CACHE = false
 
@@ -374,6 +374,8 @@ function run_physics_replay(csv_path::String;
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
     sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml";
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
+    csv_sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml";
+        system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)
 
@@ -385,7 +387,7 @@ function run_physics_replay(csv_path::String;
     logger = Logger(sam, n_steps)
 
     # Create CSV reference model for visualization
-    csv_sam = SymbolicAWEModel(set, deepcopy(sam.sys_struct))
+    csv_sam = SymbolicAWEModel(set, csv_sys_struct)
     init!(csv_sam)
     csv_state = SysState(csv_sam)
     csv_logger = Logger(csv_sam, n_csv_steps)
@@ -471,11 +473,11 @@ function run_physics_replay(csv_path::String;
             substep_count = 0
             min_distance_threshold = 0.01  # meters
 
-            if t < 0.1
+            # if t < 0.1
                 brake = true
-            else
-                brake = false
-            end
+            # else
+            #     brake = false
+            # end
 
             # Step until we match CSV distance (or hit safety limit)
             wing = sam.sys_struct.wings[1]
