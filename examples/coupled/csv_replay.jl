@@ -449,6 +449,7 @@ function run_physics_replay(csv_path::String;
 
             # Update CSV reference model and log
             update_sys_struct_from_csv!(csv_sam.sys_struct, csv_row)
+            reinit!(csv_sam.sys_struct)
             update_sys_state!(csv_state, csv_sam)
             csv_state.time = csv_row.time
             log!(csv_logger, csv_state)
@@ -473,11 +474,11 @@ function run_physics_replay(csv_path::String;
             substep_count = 0
             min_distance_threshold = 0.01  # meters
 
-            if t < 0.1
+            # if t < 0.1
                 brake = true
-            else
-                brake = false
-            end
+            # else
+            #     brake = false
+            # end
 
             # Step until we match CSV distance (or hit safety limit)
             wing = sam.sys_struct.wings[1]
