@@ -22,18 +22,18 @@ using KiteUtils: calc_elevation, azimuth_east
 
 # Configuration parameters
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
-START_FRAME = 22068 + 1000        # First frame to replay
+START_FRAME = 22068 + 1000 # First frame to replay
 END_FRAME = START_FRAME + 50 # Last frame to replay (use nothing for all frames)
 REMAKE_CACHE = false
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 # Steering calibration
 STEERING_L0 = 1.506  # Neutral steering tape length (m)
-STEERING_GAIN = STEERING_L0 * 2  # Maximum differential (m) at |u_s| = 1
+STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
 
 # Depower calibration
-DEPOWER_L0 = 3.129
-DEPOWER_GAIN = 3.129
+DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
+DEPOWER_GAIN = 5.0
 
 INITIAL_DAMPING = 400.0
 DECAY_TIME = 2.0
@@ -45,14 +45,10 @@ HEADING_TAU_I = 0.1  # Integral time constant (seconds)
 HEADING_KD = 0.0     # No derivative gain
 DT_CONTROL = 0.001    # Control timestep
 
-# PID controller parameters for winch velocity control (inner loop)
-WINCH_VEL_KP = 200.0       # Proportional gain for velocity tracking
-WINCH_VEL_TAU_I = 0.05    # Fast integral for velocity matching
-WINCH_VEL_KD = 0.0        # No derivative gain
-
-# Integrator parameters for length compensation (outer loop)
-LENGTH_KI = 2.0           # Slow integrator gain for length mismatch
-LENGTH_LIMIT = 5.0        # Maximum velocity bias from length error (m/s)
+# PI controller parameters for winch length control
+WINCH_LENGTH_KP = 0.0      # Low proportional gain for length tracking
+WINCH_LENGTH_TAU_I = 10.0   # Integral time constant
+WINCH_LENGTH_KD = 0.0      # No derivative gain
 
 
 """
@@ -63,8 +59,8 @@ Percentage convention: negative = left turn, positive = right turn.
 """
 function steering_percentage_to_lengths(percentage)
     u_s = percentage / 100.0  # Convert percentage to [-1, 1]
-    L_left = STEERING_L0 + (STEERING_GAIN / 2.0) * u_s
-    L_right = STEERING_L0 - (STEERING_GAIN / 2.0) * u_s
+    L_left = STEERING_L0 - (STEERING_GAIN / 2.0) * u_s
+    L_right = STEERING_L0 + (STEERING_GAIN / 2.0) * u_s
     return L_left, L_right
 end
 
@@ -75,7 +71,7 @@ Convert CSV depower percentage to tape length (m).
 """
 function depower_percentage_to_length(percentage)
     u_p = percentage / 100.0  # Convert percentage to [0, 1]
-    L_depower = DEPOWER_L0 + (DEPOWER_GAIN / 2) * (u_p - 0.5)
+    L_depower = DEPOWER_L0 + DEPOWER_GAIN * u_p
     return L_depower
 end
 
@@ -191,6 +187,17 @@ function wrap_to_pi(angle)
 end
 
 """
+    calc_feedforward_torque(tether_force_n, winch)
+
+Calculate feed-forward torque from tether force.
+Similar to calc_steady_torque but uses measured force.
+"""
+function calc_feedforward_torque(tether_force_n, winch)
+    torque = -winch.drum_radius / winch.gear_ratio * tether_force_n - winch.friction
+    return torque
+end
+
+"""
     calc_heading(sys_struct::SystemStructure, R_b_w)
 
 Calculate heading angle from rotation matrix, wrapped to [-π, π].
@@ -231,8 +238,7 @@ function apply_force!(sys, control)
     end
 end
 
-function update_vel_from_csv!(sys, row, heading_pid, winch_vel_pid,
-                              length_integral, steady_torque, brake)
+function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid, brake)
     @unpack wings, points, winches, segments = sys
     wing = wings[1]
 
@@ -248,7 +254,7 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_vel_pid,
     u_s_csv = (L_right_csv - L_left_csv) / 2.0  # Convert back to differential (m)
 
     # calculate_control!(pid, r, y, uff) - r:setpoint, y:measurement, uff:feedforward
-    steering_control = DiscretePIDs.calculate_control!(heading_pid, 0.0, delta_heading, 0.0)
+    steering_control = DiscretePIDs.calculate_control!(heading_pid, 0.0, delta_heading, u_s_csv)
 
     tip_push = 10
     points[2].disturb .= wing.R_b_w[:, 2] * tip_push
@@ -260,24 +266,16 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_vel_pid,
     segments[87].l0 = STEERING_L0 - (STEERING_GAIN/2.0)*steering_control  # Left
     segments[89].l0 = STEERING_L0 + (STEERING_GAIN/2.0)*steering_control  # Right
 
-    # Cascaded winch control
+    # Winch length control with feed-forward torque
     winch = winches[1]
 
-    # Outer loop: slow integrator for length compensation
+    # Calculate feed-forward torque from CSV tether force
+    ff_torque = calc_feedforward_torque(row.tether_force, winch)
+
+    # PI control for length tracking with feed-forward torque
     length_error = row.tether_len - winch.tether_len
-    length_integral += LENGTH_KI * length_error * DT_CONTROL
-    # Clamp the velocity bias
-    length_integral = clamp(length_integral, -LENGTH_LIMIT, LENGTH_LIMIT)
-
-    # Inner loop: velocity tracking with length compensation bias
-    target_vel = row.tether_vel + length_integral
-    current_vel = winch.tether_vel
-
-    # PID control for velocity (with steady torque feedforward)
-    torque_damp = 0.5
-    steady_torque = torque_damp * steady_torque + (1-torque_damp) * calc_steady_torque(sys)[1]
     torque_control = DiscretePIDs.calculate_control!(
-        winch_vel_pid, target_vel, current_vel, steady_torque)
+        winch_length_pid, row.tether_len, winch.tether_len, ff_torque)
 
     winch.brake = brake
     winch.set_value = torque_control
@@ -286,7 +284,7 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_vel_pid,
     L_depower = depower_percentage_to_length(row.depower)
     segments[88].l0 = L_depower
 
-    return winch.set_value, steady_torque, length_integral
+    return winch.set_value
 end
 
 """
@@ -376,6 +374,8 @@ function run_physics_replay(csv_path::String;
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
     sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml";
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
+    csv_sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml";
+        system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)
 
@@ -387,7 +387,7 @@ function run_physics_replay(csv_path::String;
     logger = Logger(sam, n_steps)
 
     # Create CSV reference model for visualization
-    csv_sam = SymbolicAWEModel(set, deepcopy(sam.sys_struct))
+    csv_sam = SymbolicAWEModel(set, csv_sys_struct)
     init!(csv_sam)
     csv_state = SysState(csv_sam)
     csv_logger = Logger(csv_sam, n_csv_steps)
@@ -409,19 +409,14 @@ function run_physics_replay(csv_path::String;
         umin = -0.5,
         umax = 0.5)
 
-    # Initialize winch velocity PID controller (inner loop)
-    winch_vel_pid = DiscretePID(;
-        K = WINCH_VEL_KP,
-        Ti = WINCH_VEL_TAU_I,
+    # Initialize winch length PI controller
+    winch_length_pid = DiscretePID(;
+        K = WINCH_LENGTH_KP,
+        Ti = WINCH_LENGTH_TAU_I,
         Td = false,
         Ts = DT_CONTROL,
         umin = -2000.0,
         umax = 2000.0)
-
-    # Initialize outer loop length integrator
-    length_integral = 0.0
-
-    steady_torque = calc_steady_torque(sam)[1]
 
     function get_row(csv_data, step)
         csv_row = (
@@ -437,6 +432,7 @@ function run_physics_replay(csv_path::String;
             vz = csv_data.kite_est_vz[step],
             tether_len = csv_data.ground_tether_length[step],
             tether_vel = csv_data.ground_tether_reelout_speed[step],
+            tether_force = csv_data.ground_tether_force[step] * 9.81,  # Convert kg to N
             steering = csv_data.kite_actual_steering[step],
             depower = csv_data.kite_actual_depower[step],
             distance = csv_data.distance[step],
@@ -453,6 +449,7 @@ function run_physics_replay(csv_path::String;
 
             # Update CSV reference model and log
             update_sys_struct_from_csv!(csv_sam.sys_struct, csv_row)
+            reinit!(csv_sam.sys_struct)
             update_sys_state!(csv_state, csv_sam)
             csv_state.time = csv_row.time
             log!(csv_logger, csv_state)
@@ -477,11 +474,11 @@ function run_physics_replay(csv_path::String;
             substep_count = 0
             min_distance_threshold = 0.01  # meters
 
-            if t < 0.1
+            # if t < 0.1
                 brake = true
-            else
-                brake = false
-            end
+            # else
+            #     brake = false
+            # end
 
             # Step until we match CSV distance (or hit safety limit)
             wing = sam.sys_struct.wings[1]
@@ -490,9 +487,8 @@ function run_physics_replay(csv_path::String;
             required_increases = 3  # Need 3 consecutive increases to stop
             while (substep_count < max_substeps)
                 t += dt
-                set_value, steady_torque, length_integral = update_vel_from_csv!(
-                    sam.sys_struct, csv_row, heading_pid, winch_vel_pid,
-                    length_integral, steady_torque, brake)
+                set_value = update_vel_from_csv!(
+                    sam.sys_struct, csv_row, heading_pid, winch_length_pid, brake)
                 next_step!(sam; dt, set_values=[set_value])
 
                 # Calculate distance moved in this substep
@@ -554,11 +550,11 @@ function run_physics_replay(csv_path::String;
     syslog = load_log("csv_replay")
     csvlog = load_log("csv_reference")
 
-    return sam, syslog, csv_sam, csvlog
+    return sam, syslog, csv_sam, csvlog, csv_data, raw_data
 end
 
 # Main execution
-sam, syslog, csv_sam, csvlog = run_physics_replay(CSV_PATH)
+sam, syslog, csv_sam, csvlog, csv_data, raw_data = run_physics_replay(CSV_PATH)
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
      plot_tether=true)
 
