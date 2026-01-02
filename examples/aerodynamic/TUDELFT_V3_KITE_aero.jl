@@ -4,21 +4,55 @@ using DataFrames
 using DelimitedFiles
 using GLMakie
 
-# Compute CL/CD/CS/CM polars for a solver/body_aero sweep
-function compute_polar_with_cm(solver, body_aero, angle_range;
-        angle_type::String="angle_of_attack",
-        angle_of_attack::Float64=0.0,
-        side_slip::Float64=0.0,
-        v_a::Float64=10.0)
+project_dir = joinpath(@__DIR__, "..", "..")  # Go up two levels from examples to project root
+literature_paths = [
+    joinpath(project_dir, "data", "v3", "literature_results", "CFD_RANS_Rey_5e5_Poland2025_alpha_sweep_beta_0_NoStruts.csv"),
+    joinpath(project_dir, "data", "v3", "literature_results", "CFD_RANS_Rey_10e5_Poland2025_alpha_sweep_beta_0.csv"),
+    joinpath(project_dir, "data", "v3", "literature_results", "Python_VSM_Rey_5e5_Poland2025_alpha_sweep_beta_0.csv"),
+    joinpath(project_dir, "data", "v3", "literature_results", "WindTunnel_Re_5e5_Poland2025_alpha_sweep_beta_0.csv"),
+    ]
+labels= [
+    "Julia VSM 2D CFD PCHIP",
+    "CFD RANS Re=5e5",
+    "CFD RANS Re=10e5 (With Struts)",
+    "Python VSM 2D CFD PCHIP Re=5e5",
+    "Wind Tunnel Re=5e5 (With Struts)"
+    ]
 
+
+# Set up VSM objects for the TU Delft V3 kite
+vsm_settings = VSMSettings(
+    joinpath(project_dir, "data", "v3", "vsm_settings_full.yaml");
+    data_prefix=false,
+)
+wing = VortexStepMethod.Wing(vsm_settings)
+body_aero = VortexStepMethod.BodyAerodynamics([wing])
+solver = VortexStepMethod.Solver(body_aero, vsm_settings)
+
+# Apply flight conditions from settings
+set_va!(body_aero, vsm_settings)
+wind_speed = vsm_settings.condition.wind_speed
+angle_of_attack_deg = vsm_settings.condition.alpha
+sideslip_deg = vsm_settings.condition.beta
+
+# Polar sweep including CMy, using solve! and calculate_results
+function compute_polar_with_cm(
+    solver,
+    body_aero,
+    angle_range;
+    angle_type::String="angle_of_attack",
+    angle_of_attack::Float64=0.0,
+    side_slip::Float64=0.0,
+    v_a::Float64=10.0
+)
     n_angles = length(angle_range)
     cl = zeros(n_angles)
     cd = zeros(n_angles)
     cs = zeros(n_angles)
-    cmy = fill(NaN, n_angles)  # moment coefficient about body y (pitch)
+    cmy = fill(NaN, n_angles)
     reynolds_number = zeros(n_angles)
 
-    gamma_prev = nothing
+    gamma_prev = solver.sol.gamma_distribution
     for (i, angle_i) in enumerate(angle_range)
         if angle_type == "angle_of_attack"
             α = deg2rad(angle_i)
@@ -31,31 +65,55 @@ function compute_polar_with_cm(solver, body_aero, angle_range;
         end
 
         set_va!(body_aero, [cos(α) * cos(β), sin(β), sin(α)] * v_a)
-        results = solve(solver, body_aero, gamma_prev)
+        solve!(solver, body_aero, gamma_prev; log=false)
+        gamma_prev = solver.sol.gamma_distribution
 
-        cl[i] = results["cl"]
-        cd[i] = results["cd"]
-        cs[i] = results["cs"]
-        cmy[i] = get(results, "cmy", NaN)
-        reynolds_number[i] = results["Rey"]
-        gamma_prev = results["gamma_distribution"]
+        results_local = calculate_results(
+            body_aero,
+            solver.lr.gamma_new,
+            zeros(MVec3),
+            solver.density,
+            solver.aerodynamic_model_type,
+            solver.core_radius_fraction,
+            solver.mu,
+            solver.lr.alpha_dist,
+            solver.lr.v_a_dist,
+            solver.sol._chord_dist,
+            solver.sol._x_airf_dist,
+            solver.sol._y_airf_dist,
+            solver.sol._z_airf_dist,
+            solver.sol._va_dist,
+            solver.br.va_norm_dist,
+            solver.br.va_unit_dist,
+            body_aero.panels,
+            solver.is_only_f_and_gamma_output;
+            correct_aoa=solver.correct_aoa
+        )
+
+        cl[i] = results_local["cl"]
+        cd[i] = results_local["cd"]
+        cs[i] = results_local["cs"]
+        cmy[i] = get(results_local, "cmy", NaN)
+        reynolds_number[i] = results_local["Rey"]
     end
 
     return (angle=angle_range, cl=cl, cd=cd, cs=cs, cmy=cmy, rey=reynolds_number)
 end
 
-# Plot polars with optional CM (Makie; plots CM only when available)
-function plot_polars_with_cmy(solver_list, body_aero_list, label_list;
-        literature_path_list::Vector{String}=String[],
-        angle_range=range(-10, 40, step=1),
-        angle_type::String="angle_of_attack",
-        angle_of_attack::Float64=0.0,
-        side_slip::Float64=0.0,
-        v_a::Float64=10.0,
-        title::String="polar_with_cm",
-        fig_size::Tuple{Int,Int}=(1200, 800),
-        angle_xlim::Tuple{Real,Real}=(-10, 40))
-
+function plot_polars_with_cmy(
+    solver_list,
+    body_aero_list,
+    label_list;
+    literature_path_list::Vector{String}=String[],
+    angle_range=range(-10, 40, step=1),
+    angle_type::String="angle_of_attack",
+    angle_of_attack::Float64=0.0,
+    side_slip::Float64=0.0,
+    v_a::Float64=10.0,
+    title::String="polar_with_cm",
+    fig_size::Tuple{Int,Int}=(1200, 800),
+    angle_xlim::Tuple{Real,Real}=(-10, 40)
+)
     total_cases = length(body_aero_list) + length(literature_path_list)
     length(label_list) == total_cases || throw(ArgumentError("labels length ($(length(label_list))) must match number of cases ($total_cases)"))
     length(solver_list) == length(body_aero_list) || throw(ArgumentError("solver_list length must match body_aero_list length"))
@@ -64,12 +122,16 @@ function plot_polars_with_cmy(solver_list, body_aero_list, label_list;
     labels_full = String[]
 
     # Computational cases
-    for (solver, body, lbl) in zip(solver_list, body_aero_list, label_list[1:length(solver_list)])
-        pd = compute_polar_with_cm(solver, body, angle_range;
+    for (solver_i, body, lbl) in zip(solver_list, body_aero_list, label_list[1:length(solver_list)])
+        pd = compute_polar_with_cm(
+            solver_i,
+            body,
+            angle_range;
             angle_type=angle_type,
             angle_of_attack=angle_of_attack,
             side_slip=side_slip,
-            v_a=v_a)
+            v_a=v_a
+        )
         @info "polar sample (solver)" label=lbl first_cl=pd.cl[1] first_cd=pd.cd[1] first_cs=pd.cs[1] first_cmy=pd.cmy[1]
         push!(polar_data_list, pd)
         re_tag = round(Int, first(pd.rey) * 1e-5)
@@ -120,7 +182,6 @@ function plot_polars_with_cmy(solver_list, body_aero_list, label_list;
     ax_cs    = Axis(fig[2, 1], title="CS vs $angle_type [deg]",  xlabel="$angle_type [deg]", ylabel="CS [-]")
     ax_polar = Axis(fig[2, 2], title="CL vs CD", xlabel="CD [-]", ylabel="CL [-]")
 
-    # Fix angle x-limits on all angle-based subplots
     xlims!(ax_cl, angle_xlim...)
     xlims!(ax_cd, angle_xlim...)
     xlims!(ax_cmy, angle_xlim...)
@@ -152,26 +213,28 @@ function plot_polars_with_cmy(solver_list, body_aero_list, label_list;
         end
     end
 
-    # Legend at (2,3) (use CL axis entries)
     Legend(fig[2, 3], ax_cl)
-
     return fig
 end
 
-# --- Your call site (updated angle_range) ---
-PLOT && display(plot_polars_with_cmy(
+
+fig2 = plot_polars_with_cmy(
     [solver],
     [body_aero],
     labels;
     literature_path_list=literature_paths,
-    angle_range=range(-5, 40, step=1),   # alpha-axis data sweep
+    angle_range=range(-5, 40, step=1),
     angle_type="angle_of_attack",
     angle_of_attack=angle_of_attack_deg,
     side_slip=sideslip_deg,
     v_a=wind_speed,
-    title="$(wing.n_panels)_panels_$(wing.spanwise_distribution)_from_yaml_settings",
-    angle_xlim=(-5, 40)                  # enforce x-limits on angle plots
-))
+    title="Testing solve! on V3 kite",
+    angle_xlim=(-5, 40)
+)
+scr2 = display(fig2)
+wait(scr2)
+
+
 
 # # Plotting geometry
 # results = VortexStepMethod.solve(solver, body_aero; log=true)

@@ -341,7 +341,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         # Calculate AoA and Side Slip from apparent wind in body frame
         if ss.v_app > 1e-6 # Avoid division by zero
             # ss.AoA = atan(wing.va_b[3], wing.va_b[1]) # version-1 
-            ss.AoA = wing.vsm_solver.sol.alpha_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
+            ss.AoA = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
             # ss.AoA =wing.vsm_aero.alpha_uncorrected[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-3, hopefullu without induction
             ss.side_slip = asin(wing.va_b[2] / norm(wing.va_b))
         else

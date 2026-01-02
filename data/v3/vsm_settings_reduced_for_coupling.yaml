@@ -44,7 +44,7 @@ condition:
 # Define wing geometry files and discretization parameters
 wings:
     - name: V3_Kite                    # Wing identifier for output labeling
-      geometry_file: data/v3/aero_geometry.yaml
+      geometry_file: data/v3/aero_geometry_reduced_for_coupling.yaml
       n_panels: 36                     # Total number of panels along wingspan
       spanwise_panel_distribution: SPLIT_PROVIDED    # Panel spacing algorithm
       spanwise_direction: [0.0, 1.0, 0.0]   # Unit vector defining wingspan direction
@@ -55,6 +55,7 @@ solver_settings:
     # --- Core Aerodynamic Model ---
     aerodynamic_model_type: VSM      # VSM=3D vortex method, LLT=lifting line theory
     solver_type: LOOP                # LOOP=fixed-point iteration, NEWTON=Newton-Raphson
+    #correct_aoa: false               # Defaults to false, meaning the computed AoA at 3/4c is used
     
     # --- Physical Properties ---
     density: 1.225                   # [kg/m³] Air density (ISA sea level)

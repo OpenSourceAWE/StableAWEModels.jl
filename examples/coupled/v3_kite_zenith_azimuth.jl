@@ -113,7 +113,7 @@ function run_v3_kite(wing_type::WingType;
     struc_yaml_path = joinpath("data", "v3", "struc_geometry.yaml")
 
     # Load VSMSettings
-    vsm_set_path = joinpath(get_data_path(), "vsm_settings.yaml")
+    vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
 
     # Use 36 panels for both wing types (matches vsm_settings.yaml default)
@@ -312,7 +312,7 @@ end
 
 # Run both simulations
 syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
-    sim_time=150, 
+    sim_time=100, 
     fps=60,
     v_wind=15,
     up=0.35, 
@@ -460,17 +460,17 @@ let drag_bridles = 0.0, drag_tether = 0.0, lift_bridles = 0.0, lift_tether = 0.0
 end
 
 
-# Plot results
-# fig = plot(sam_refine.sys_struct, syslog_refine;
-#     plot_turn_rates=true, plot_reelout=false, plot_gk=true,
-#     plot_aoa=true, plot_heading=false, plot_elevation=true,
-#     plot_azimuth=true, plot_winch_force=false, plot_set_values=false)
+#### Plot results#
+fig = plot(sam_refine.sys_struct, syslog_refine;
+    plot_turn_rates=true, plot_reelout=false, plot_gk=true,
+    plot_aoa=true, plot_heading=false, plot_elevation=true,
+    plot_azimuth=true, plot_winch_force=false, plot_set_values=false)
 
-# scene = replay(syslog_refine, sam_refine.sys_struct)
+scene = replay(syslog_refine, sam_refine.sys_struct)
 
-# scr1 = display(fig)
-# wait(scr1)
-# scr2 = display(scene)
-# wait(scr2)
+scr1 = display(fig)
+wait(scr1)
+scr2 = display(scene)
+wait(scr2)
 
 nothing
