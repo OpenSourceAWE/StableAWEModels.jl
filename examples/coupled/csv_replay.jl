@@ -19,6 +19,7 @@ using UnPack
 using LinearAlgebra
 using OrdinaryDiffEqBDF
 using KiteUtils: calc_elevation, azimuth_east
+using NonlinearSolve, ADTypes
 
 # Configuration parameters
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
@@ -59,8 +60,8 @@ Percentage convention: negative = left turn, positive = right turn.
 """
 function steering_percentage_to_lengths(percentage)
     u_s = percentage / 100.0  # Convert percentage to [-1, 1]
-    L_left = STEERING_L0 - (STEERING_GAIN / 2.0) * u_s
-    L_right = STEERING_L0 + (STEERING_GAIN / 2.0) * u_s
+    L_left = STEERING_L0 - STEERING_GAIN * u_s
+    L_right = STEERING_L0 + STEERING_GAIN * u_s
     return L_left, L_right
 end
 
@@ -263,8 +264,8 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid, brake)
     points[21].disturb .= -wing.R_b_w[:, 2] * tip_push
 
     # Apply steering via differential tape lengths
-    segments[87].l0 = STEERING_L0 - (STEERING_GAIN/2.0)*steering_control  # Left
-    segments[89].l0 = STEERING_L0 + (STEERING_GAIN/2.0)*steering_control  # Right
+    segments[87].l0 = STEERING_L0 - STEERING_GAIN*steering_control  # Left
+    segments[89].l0 = STEERING_L0 + STEERING_GAIN*steering_control  # Right
 
     # Winch length control with feed-forward torque
     winch = winches[1]
@@ -292,21 +293,19 @@ end
 
 Update system structure from a single CSV row.
 Updates wing orientation from Euler angles and position via transform system.
+Uses nonlinear solve to find rotation angle that achieves desired heading.
 """
 function update_sys_struct_from_csv!(sys, row)
     @unpack wings, points, winches, segments, transforms = sys
     wing = wings[1]
     transform = transforms[1]
 
-    # calc delta heading
-    quat = euler_to_quaternion(row.roll,
-                               row.pitch,
-                               row.yaw)
-    csv_heading =
-        calc_heading(sys, SymbolicAWEModels.quaternion_to_rotation_matrix(quat)) + pi
+    # calc target heading from CSV
+    quat = euler_to_quaternion(row.roll, row.pitch, row.yaw)
+    csv_heading = calc_heading(sys,
+        SymbolicAWEModels.quaternion_to_rotation_matrix(quat)) + pi
     wing.R_b_w = calc_R_b_w(sys)
     curr_heading = calc_heading(sys, wing.R_b_w)
-    delta_heading = csv_heading - curr_heading
 
     # calc needed transform
     csv_pos = [row.x, row.y, row.z]
@@ -328,8 +327,37 @@ function update_sys_struct_from_csv!(sys, row)
         point.vel_w .= transform_frac * csv_vel
     end
 
-    # apply heading
+    # apply heading using nonlinear solve
     k = normalize(wing.pos_w)
+    wing.R_b_w = calc_R_b_w(sys)
+    R_b_w_original = copy(wing.R_b_w)
+
+    # Residual function: find θ such that heading(rotated) = csv_heading
+    function heading_residual!(resid, θ, p)
+        R_b_w_orig, csv_h, k_axis, sys_ref = p
+        # Rotate R_b_w by θ around k
+        R_rotated = similar(R_b_w_orig)
+        for i in 1:3
+            R_rotated[:, i] = SymbolicAWEModels.rotate_v_around_k(
+                R_b_w_orig[:, i], k_axis, θ[1])
+        end
+        # Calculate heading with rotated system
+        heading = calc_heading(sys_ref, R_rotated)
+        resid[1] = wrap_to_pi(heading - csv_h)
+        return nothing
+    end
+
+    # Initial guess: simple delta
+    θ_init = [wrap_to_pi(csv_heading - curr_heading)]
+
+    # Solve for rotation angle using finite differences
+    prob = NonlinearProblem(heading_residual!, θ_init,
+                           (R_b_w_original, csv_heading, k, sys))
+    sol = solve(prob, NewtonRaphson(autodiff=AutoFiniteDiff());
+                abstol=1e-6, reltol=1e-6)
+    delta_heading = sol.u[1]
+
+    # Apply the solved rotation
     R_b_w = copy(wing.R_b_w)
     R_b_w[:, 1] = SymbolicAWEModels.rotate_v_around_k(R_b_w[:, 1], k, delta_heading)
     R_b_w[:, 2] = SymbolicAWEModels.rotate_v_around_k(R_b_w[:, 2], k, delta_heading)
@@ -449,8 +477,9 @@ function run_physics_replay(csv_path::String;
 
             # Update CSV reference model and log
             update_sys_struct_from_csv!(csv_sam.sys_struct, csv_row)
-            # reinit!(csv_sam.sys_struct)
+            SymbolicAWEModels.reinit!(csv_sam, csv_sam.prob, FBDF())
             update_sys_state!(csv_state, csv_sam)
+            csv_state.winch_force[1] = csv_row.tether_force
             csv_state.time = csv_row.time
             log!(csv_logger, csv_state)
 
@@ -556,5 +585,5 @@ end
 # Main execution
 sam, syslog, csv_sam, csvlog, csv_data, raw_data = run_physics_replay(CSV_PATH)
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
-     plot_tether=true)
+     plot_tether=true, suffixes=["phys", "csv"])
 
