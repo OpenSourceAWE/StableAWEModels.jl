@@ -113,6 +113,8 @@ mutable struct Point
     mass::SimFloat
     body_frame_damping::SimFloat
     world_frame_damping::SimFloat
+    area::SimFloat
+    drag_coeff::SimFloat
     fix_sphere::Bool
     fix_static::Bool
 end
@@ -156,11 +158,13 @@ where:
 function Point(idx, pos_cad, type;
     wing_idx=1, vel_w=zeros(KVec3), transform_idx=1,
     mass=0.0, body_frame_damping=0.0, world_frame_damping=0.0,
+    area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
         vel_w, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), type, mass,
-        body_frame_damping, world_frame_damping, fix_sphere, fix_static)
+        body_frame_damping, world_frame_damping, area, drag_coeff,
+        fix_sphere, fix_static)
 end
 
 """
