@@ -367,7 +367,7 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     up=0.4,
     # settings zenith initialisation flight
     sim_time_zenith=50, 
-    fps_zenith=240,
+    fps_zenith=60,
     start_ramp_time=0.1,
     ramp_time_up=10.0,
     initial_damping=100.0,
@@ -375,8 +375,8 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     max_us_zenith = 0.02,
     target_azimuth = 0.0,
     # settings circular flight
-    sim_time_circles=100,
-    fps_circles=240,
+    sim_time_circles=60,
+    fps_circles=60,
     ramp_time_us = 5.0,
     us=0.15,
 )
