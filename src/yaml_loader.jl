@@ -302,7 +302,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             point = call_yaml_constructor(Point, row,
                 [:idx, :pos_cad, :type],
                 [:wing_idx, :transform_idx, :mass,
-                 :body_frame_damping, :world_frame_damping];
+                 :body_frame_damping, :world_frame_damping,
+                 :area, :drag_coeff];
                 mappings=Dict(
                     :pos_cad => r -> KVec3(r.pos_cad...),
                     :type => r -> parse_dynamics_type(
