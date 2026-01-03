@@ -370,7 +370,7 @@ function run_physics_replay(csv_path::String;
     @info "Loading v3 kite system structure from YAML"
     set_data_path("data/v3")
     set = Settings("system.yaml")
-    vsm_set_path = joinpath(get_data_path(), "vsm_settings.yaml")
+    vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
     sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml";
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
@@ -449,7 +449,7 @@ function run_physics_replay(csv_path::String;
 
             # Update CSV reference model and log
             update_sys_struct_from_csv!(csv_sam.sys_struct, csv_row)
-            reinit!(csv_sam.sys_struct)
+            # reinit!(csv_sam.sys_struct)
             update_sys_state!(csv_state, csv_sam)
             csv_state.time = csv_row.time
             log!(csv_logger, csv_state)
