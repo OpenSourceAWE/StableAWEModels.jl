@@ -372,9 +372,9 @@ function run_physics_replay(csv_path::String;
     set = Settings("system.yaml")
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
-    sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml";
+    sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry_stable.yaml";
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
-    csv_sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml";
+    csv_sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry_stable.yaml";
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)
