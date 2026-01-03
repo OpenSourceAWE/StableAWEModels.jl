@@ -850,68 +850,68 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             @info "alpha-vsm $(rad2deg(sl.AoA[end]))"
 
 
-            @info "--- resolving alpha mystery ---"
-            # ss.AoA = atan(wing.va_b[3], wing.va_b[1]) # version-1 
-            #---> ss.AoA = wing.vsm_solver.sol.alpha_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
-            # ss.AoA =wing.vsm_aero.alpha_uncorrected[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-3, hopefullu without induction
-            @info "alpha VSM (with induction?) $(rad2deg(sl.AoA[end])) deg"
+            # @info "--- resolving alpha mystery ---"
+            # # ss.AoA = atan(wing.va_b[3], wing.va_b[1]) # version-1 
+            # #---> ss.AoA = wing.vsm_solver.sol.alpha_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
+            # # ss.AoA =wing.vsm_aero.alpha_uncorrected[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-3, hopefullu without induction
+            # @info "alpha VSM (with induction?) $(rad2deg(sl.AoA[end])) deg"
 
-            # computing alpha geometrically
-            # Report final geometric AoA using hardcoded mid-panel corners (world frame)
-            last_state = sl[end]
-            X = last_state.X; Y = last_state.Y; Z = last_state.Z
-            # Mid-panel corners: 10,11,12,13 (11/13 front; 10/12 back)
-            back = 0.5 .* ([X[10], Y[10], Z[10]] .+ [X[12], Y[12], Z[12]])
-            front = 0.5 .* ([X[11], Y[11], Z[11]] .+ [X[13], Y[13], Z[13]])
+            # # computing alpha geometrically
+            # # Report final geometric AoA using hardcoded mid-panel corners (world frame)
+            # last_state = sl[end]
+            # X = last_state.X; Y = last_state.Y; Z = last_state.Z
+            # # Mid-panel corners: 10,11,12,13 (11/13 front; 10/12 back)
+            # back = 0.5 .* ([X[10], Y[10], Z[10]] .+ [X[12], Y[12], Z[12]])
+            # front = 0.5 .* ([X[11], Y[11], Z[11]] .+ [X[13], Y[13], Z[13]])
 
-            delta_z = front[3] - back[3]
-            delta_x = front[1] - back[1]
-            aoa_wrt_horizontal = -rad2deg(atan(delta_z, delta_x))
-            @info "alpha wrt horizontal $(round(aoa_wrt_horizontal, digits=2)) deg"
+            # delta_z = front[3] - back[3]
+            # delta_x = front[1] - back[1]
+            # aoa_wrt_horizontal = -rad2deg(atan(delta_z, delta_x))
+            # @info "alpha wrt horizontal $(round(aoa_wrt_horizontal, digits=2)) deg"
 
-            mid_panel_vector = front .- back
-            mid_panel_vector_unit = mid_panel_vector / (norm(mid_panel_vector) + 1e-12)
-            # @info "mid-panel vector" mid_panel_vector_unit=round.(mid_panel_vector_unit, digits=5)
+            # mid_panel_vector = front .- back
+            # mid_panel_vector_unit = mid_panel_vector / (norm(mid_panel_vector) + 1e-12)
+            # # @info "mid-panel vector" mid_panel_vector_unit=round.(mid_panel_vector_unit, digits=5)
             
-            # wind vector in world frame
-            v_wind = sl.v_wind_kite[end]
-            # @info "v_wind_kite" v_wind=round.(v_wind, digits=5)
-            v_wind_unit = v_wind / (norm(v_wind) + 1e-12)
+            # # wind vector in world frame
+            # v_wind = sl.v_wind_kite[end]
+            # # @info "v_wind_kite" v_wind=round.(v_wind, digits=5)
+            # v_wind_unit = v_wind / (norm(v_wind) + 1e-12)
 
-            # compute angle v_a and vector_mid_panel
-            vel_KCU = sl.vel_kite[end]
-            # @info "vel_KCU" vel_kite=round.(vel_KCU, digits=5)
-            va_kcu = vel_KCU - v_wind
-            va_kcu_unit = va_kcu / (norm(va_kcu) + 1e-12)
+            # # compute angle v_a and vector_mid_panel
+            # vel_KCU = sl.vel_kite[end]
+            # # @info "vel_KCU" vel_kite=round.(vel_KCU, digits=5)
+            # va_kcu = vel_KCU - v_wind
+            # va_kcu_unit = va_kcu / (norm(va_kcu) + 1e-12)
 
 
-            # Flip chord direction so it points into the incoming flow (front -> back)
-            cos_theta = dot(-mid_panel_vector_unit, va_kcu_unit)
-            alpha_KCU = rad2deg(acos(clamp(cos_theta, -1.0, 1.0)))
-            @info "KCU" va_kcu=round.(va_kcu, digits=5) va_kcu_norm=norm(va_kcu) alpha_KCU=round(alpha_KCU, digits=2)
-            # @info "alpha wing (v_app_KCU) $(round(alpha_KCU, digits=2))"
+            # # Flip chord direction so it points into the incoming flow (front -> back)
+            # cos_theta = dot(-mid_panel_vector_unit, va_kcu_unit)
+            # alpha_KCU = rad2deg(acos(clamp(cos_theta, -1.0, 1.0)))
+            # @info "KCU" va_kcu=round.(va_kcu, digits=5) va_kcu_norm=norm(va_kcu) alpha_KCU=round(alpha_KCU, digits=2)
+            # # @info "alpha wing (v_app_KCU) $(round(alpha_KCU, digits=2))"
             
-            # compute wing v_a
-            min1 = sl[end - 1]
-            last_state = sl[end]
+            # # compute wing v_a
+            # min1 = sl[end - 1]
+            # last_state = sl[end]
 
-            X_last = last_state.X; Y_last = last_state.Y; Z_last = last_state.Z
-            X_min1 = min1.X; Y_min1 = min1.Y; Z_min1 = min1.Z
+            # X_last = last_state.X; Y_last = last_state.Y; Z_last = last_state.Z
+            # X_min1 = min1.X; Y_min1 = min1.Y; Z_min1 = min1.Z
 
-            dt_last_to_min1 = last_state.time - min1.time + 1e-12
-            va_wing = SVector{3,Float64}(
-                (X_last[1] - X_min1[1]) / (dt_last_to_min1) - v_wind[1],
-                (Y_last[1] - Y_min1[1]) / (dt_last_to_min1) - v_wind[2],
-                (Z_last[1] - Z_min1[1]) / (dt_last_to_min1) - v_wind[3],
-            )
-            # @info "v_app wing" va_wing=round.(va_wing, digits=5)
-            va_wing_unit = va_wing / (norm(va_wing) + 1e-12)
+            # dt_last_to_min1 = last_state.time - min1.time + 1e-12
+            # va_wing = SVector{3,Float64}(
+            #     (X_last[1] - X_min1[1]) / (dt_last_to_min1) - v_wind[1],
+            #     (Y_last[1] - Y_min1[1]) / (dt_last_to_min1) - v_wind[2],
+            #     (Z_last[1] - Z_min1[1]) / (dt_last_to_min1) - v_wind[3],
+            # )
+            # # @info "v_app wing" va_wing=round.(va_wing, digits=5)
+            # va_wing_unit = va_wing / (norm(va_wing) + 1e-12)
             
 
-            # Use the same convention: chord points front -> back, apparent wind approaches from front
-            cos_theta_wing = dot(-mid_panel_vector_unit, va_wing_unit)
-            alpha_wing = rad2deg(acos(clamp(cos_theta_wing, -1.0, 1.0)))
-            @info "WING" va_wing=round.(va_wing, digits=5) va_wing_norm=norm(va_wing) alpha_wing=round(alpha_wing, digits=2)
+            # # Use the same convention: chord points front -> back, apparent wind approaches from front
+            # cos_theta_wing = dot(-mid_panel_vector_unit, va_wing_unit)
+            # alpha_wing = rad2deg(acos(clamp(cos_theta_wing, -1.0, 1.0)))
+            # @info "WING" va_wing=round.(va_wing, digits=5) va_wing_norm=norm(va_wing) alpha_wing=round(alpha_wing, digits=2)
 
             # # computing lift and drag using the total aero force "aero_force_b"
             # # SysLog stores orientation as a quaternion; rebuild R_b_w on the fly
@@ -1366,7 +1366,7 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
         else
             char_length = 10.0
         end
-        distance = char_length * 0.1
+        distance = char_length * 2.5
     end
 
     # Camera position: kite_pos - R_b_w * [distance, 0, 0]

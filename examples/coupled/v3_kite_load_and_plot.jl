@@ -29,7 +29,7 @@ function load_log_and_system(; log_name::String)
 
     # Load YAML structure path
     model_name = "v3_refine"
-    struc_yaml_path = joinpath("data", "v3", "struc_geometry.yaml")
+    struc_yaml_path = joinpath("data", "v3", "struc_geometry_bart_jelle.yaml")
 
     # Load VSMSettings
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
@@ -76,6 +76,16 @@ function print_and_plot_wing(lg, sam)
    #    println("$(lg_last.X[idx]), $(lg_last.Y[idx]), $(lg_last.Z[idx])")
    # end
 
+   println("\n# Wing node positions (world frame):")
+   for idx in wing_point_idxs
+      pos_w = [
+         lg_last.X[idx],
+         lg_last.Y[idx],
+         lg_last.Z[idx],
+      ]
+      println("- [$idx, [$(Float64(pos_w[1])), $(Float64(pos_w[2])), $(Float64(pos_w[3]))], WING, 1, 1, 0.0, 10.0, 0.0]")
+   end
+
    println("\n# Wing node positions (body frame):")
    for idx in wing_point_idxs
       pos_w = [
@@ -84,7 +94,6 @@ function print_and_plot_wing(lg, sam)
          lg_last.Z[idx],
       ]
       pos_b = R_b_w' * (pos_w .- origin_w)
-      wing_point = sam.sys_struct.points[idx]
       println("- [$idx, [$(Float64(pos_b[1])), $(Float64(pos_b[2])), $(Float64(pos_b[3]))], WING, 1, 1, 0.0, 10.0, 0.0]")
    end
 
@@ -99,7 +108,6 @@ function print_and_plot_wing(lg, sam)
          lg_last.Z[idx],
       ]
       pos_b = R_b_w' * (pos_w .- origin_w)
-      bridle_point = sam.sys_struct.points[idx]
       println("- [$idx, [$(Float64(pos_b[1])), $(Float64(pos_b[2])), $(Float64(pos_b[3]))], DYNAMIC, 1, 1, 0.0, 10.0, 0.0]")
    end
 
@@ -208,7 +216,7 @@ function plot_time_series(lg, sam)
 end
 
 
-log_name = "zenith__up_40_us_00_vw_15_date_2025_12_30_15_46"
+log_name = "zenith__up_35_us_00_vw_15_date_2026_01_03_10_16"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 ### plot time series
