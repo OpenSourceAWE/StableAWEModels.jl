@@ -21,26 +21,6 @@ using DiscretePIDs
 using Dates
 using StaticArrays
 
-# --- Helper: geometric AoA of mid panel using panel axes (robust, no corner ordering) ---
-mid_panel_index(n::Integer) = cld(n, 2)  # middle panel index
-
-# AoA from panel body-frame axes: project apparent wind into chord-normal plane
-function aoa_of_panel_body(panel, va_b::AbstractVector{<:Real})
-    v = collect(va_b)
-    vnorm = norm(v)
-    vnorm > 1e-9 || return 0.0
-    v̂ = v ./ vnorm
-    x̂ = panel.x_airf              # chord direction (body frame)
-    ŷ = panel.y_airf              # span direction (body frame)
-    ẑ = panel.z_airf              # normal direction (body frame)
-    v2 = v̂ .- dot(v̂, ŷ) .* ŷ   # remove span component
-    v2_norm = norm(v2)
-    v2_norm > 1e-9 || return 0.0
-    v2̂ = v2 ./ v2_norm
-    return atan(dot(v2̂, ẑ), dot(v2̂, x̂))
-end
-
-
 """
     run_v3_kite(wing_type::WingType; kwargs...)
 
@@ -135,25 +115,10 @@ function run_v3_kite(wing_type::WingType;
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
 
-    # Apply steering
-    # sys.segments[87].l0 += max_steering
-    # sys.segments[89].l0 -= max_steering
-
     # Initialize model
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
 
-    # # Stabilization phase
-    # @info "Stabilizing system..."
-    # [point.fix_static = true for point in sys.points if point.type == WING]
-    # if wing_type == QUATERNION
-    #     sys.wings[1].fix_sphere = true
-    # end
-    # @time next_step!(sam; dt=10.0)
-    # [point.fix_static = false for point in sys.points if point.type == WING]
-    # if wing_type == QUATERNION
-    #     sys.wings[1].fix_sphere = false
-    # end
 
     # Create logger
     n_steps = Int(round(fps * sim_time))
@@ -323,141 +288,6 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     max_us = 0.02,
     target_azimuth = 0
 )
-
-# # Report final geometric AoA using hardcoded mid-panel corners (world frame)
-# last_state = syslog_refine.syslog[end]
-# X = last_state.X; Y = last_state.Y; Z = last_state.Z
-# # Mid-panel corners: 10,11,12,13 (11/13 front; 10/12 back)
-# back = 0.5 .* ([X[10], Y[10], Z[10]] .+ [X[12], Y[12], Z[12]])
-# front = 0.5 .* ([X[11], Y[11], Z[11]] .+ [X[13], Y[13], Z[13]])
-
-# delta_z = front[3] - back[3]
-# delta_x = front[1] - back[1]
-# aoa_wrt_horizontal = -rad2deg(atan(delta_z, delta_x))
-# # @info "alpha wrt horizontal $(round(aoa_wrt_horizontal, digits=2))"
-
-# chord_w = front .- back
-# wing = sam_refine.sys_struct.wings[1]
-# v_app_w = wing.R_b_w * wing.va_b
-# @info "v_app" v_app_w=round.(v_app_w, digits=2)
-# aoa_geom_deg = rad2deg(acos(clamp(dot(chord_w, v_app_w) / (norm(chord_w) * norm(v_app_w) + 1e-12), -1.0, 1.0)))
-# @info "alpha wrt v_app $(round(aoa_geom_deg, digits=2))"
-
-
-# ##########################
-# ### compute L/D system ###
-# ##########################
-# sl = syslog_refine.syslog
-# last_state = sl[end]
-# prev_state = sl[end - 1]
-# dt = (last_state.time - prev_state.time) + 1e-12
-
-# # compute wing v_a
-# min1 = sl[end - 1]
-# last_state = sl[end]
-
-# X_last = last_state.X; Y_last = last_state.Y; Z_last = last_state.Z
-# X_min1 = min1.X; Y_min1 = min1.Y; Z_min1 = min1.Z
-
-# X_last_back = 0.5 * (X_last[10] + X_last[12])
-# Y_last_back = 0.5 * (Y_last[10] + Y_last[12])
-# Z_last_back = 0.5 * (Z_last[10] + Z_last[12])
-
-# X_last_front = 0.5 * (X_last[11] + X_last[13])
-# Y_last_front = 0.5 * (Y_last[11] + Y_last[13])
-# Z_last_front = 0.5 * (Z_last[11] + Z_last[13])
-
-# X_min1_back = 0.5 * (X_min1[10] + X_min1[12])
-# Y_min1_back = 0.5 * (Y_min1[10] + Y_min1[12])
-# Z_min1_back = 0.5 * (Z_min1[10] + Z_min1[12])
-
-# X_min1_front = 0.5 * (X_min1[11] + X_min1[13])
-# Y_min1_front = 0.5 * (Y_min1[11] + Y_min1[13])
-# Z_min1_front = 0.5 * (Z_min1[11] + Z_min1[13])
-
-# va_mid_panel_front = SVector{3,Float64}(
-#     (X_last_front - X_min1_front) / (dt) - last_state.v_wind_kite[1],
-#     (Y_last_front - Y_min1_front) / (dt) - last_state.v_wind_kite[2],
-#     (Z_last_front - Z_min1_front) / (dt) - last_state.v_wind_kite[3],
-# )
-# va_mid_panel_back = SVector{3,Float64}(
-#     (X_last_back - X_min1_back) / (dt) - last_state.v_wind_kite[1],
-#     (Y_last_back - Y_min1_back) / (dt) - last_state.v_wind_kite[2],
-#     (Z_last_back - Z_min1_back) / (dt) - last_state.v_wind_kite[3],
-# )
-# va_mid_panel = -0.5 .* (va_mid_panel_front .+ va_mid_panel_back)
-# va_mid_panel_unit = va_mid_panel / (norm(va_mid_panel) + 1e-12)
-# # @info "v_app mid-panel $(round.(va_mid_panel, digits=5))"
-
-# # Aero forces in world frame
-# R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(last_state.orient)
-# F_aero_b = last_state.aero_force_b
-# F_aero_world = R_b_w * F_aero_b
-
-# drag_dir = va_mid_panel_unit              # drag is positive aligned with v_a
-# lift_dir = cross(drag_dir, SVector(0.0, 1.0, 0.0))  # lift is positive perpendicular to drag and upwards
-# # @info "checking lift dir" lift_dir=round.(lift_dir, digits=4) drag_dir=round.(drag_dir, digits=4)
-
-# drag_wing = dot(F_aero_world, drag_dir)
-# lift_wing = dot(F_aero_world, lift_dir)
-
-# # Recompute tether drag from segment states (using the last two snapshots for velocity)
-# segments = sam_refine.sys_struct.segments
-# points = sam_refine.sys_struct.points
-# n_points = length(last_state.X)
-# pos_last = [SVector(last_state.X[i], last_state.Y[i], last_state.Z[i]) for i in 1:n_points]
-# pos_prev = [SVector(prev_state.X[i], prev_state.Y[i], prev_state.Z[i]) for i in 1:n_points]
-# vel_est = [(pos_last[i] - pos_prev[i]) ./ dt for i in 1:n_points]
-
-# wind_vec_gnd = last_state.v_wind_gnd
-# cd_tether = SymbolicAWEModels.get_cd_tether(sam_refine.set)
-# # @info "cd_tether $(cd_tether)"
-
-# let drag_bridles = 0.0, drag_tether = 0.0, lift_bridles = 0.0, lift_tether = 0.0
-#     for segment in segments
-#         p1, p2 = segment.point_idxs
-#         p1_pos = pos_last[p1]; p2_pos = pos_last[p2]
-#         # Skip structural wing segments (drag handled by VSM)
-#         if points[p1].type == SymbolicAWEModels.WING && points[p2].type == SymbolicAWEModels.WING
-#             continue
-#         end
-#         seg_vec = p2_pos - p1_pos
-#         seg_len = norm(seg_vec) + 1e-12
-#         seg_dir = seg_vec / seg_len
-
-#         seg_vel = 0.5 .* (vel_est[p1] + vel_est[p2])
-#         seg_height = max(0.0, 0.5 * (p1_pos[3] + p2_pos[3]))
-#         wind_factor = SymbolicAWEModels.calc_wind_factor(sam_refine.am, max(seg_height, 1.0), sam_refine.set)
-#         wind_vel = wind_factor .* wind_vec_gnd
-#         va_seg = wind_vel - seg_vel
-#         app_perp = va_seg .- dot(va_seg, seg_dir) * seg_dir
-
-#         area = seg_len * segment.diameter
-#         rho = SymbolicAWEModels.calc_rho(sam_refine.am, seg_height)
-#         v_perp_mag = norm(app_perp)
-#         Tether_force = 0.5 * rho * cd_tether * area * v_perp_mag .* app_perp
-
-#         drag_scalar = dot(Tether_force, drag_dir)
-#         lift_scalar = dot(Tether_force, lift_dir)
-        
-#         if 47 <= segment.idx <= 89
-#             drag_bridles += drag_scalar
-#             lift_bridles += lift_scalar
-#         elseif 90 <= segment.idx <= 95
-#             drag_tether += drag_scalar
-#             lift_tether += lift_scalar
-#         end
-        
-#     end
-
-#     # Total aero (wing + tether drag approximation)
-#     total_drag = drag_wing + drag_bridles + drag_tether
-#     total_lift = lift_wing + lift_tether + lift_bridles
-#     @info "L/D wing" lift_wing = round(lift_wing, digits=2) drag_wing = round(drag_wing, digits=2) L_over_D = round(lift_wing / (drag_wing + 1e-12), digits=2)
-#     @info "Bridle aero" drag_bridles = round(drag_bridles, digits=2) lift_bridles = round(lift_bridles, digits=2)
-#     @info "Tether aero" drag_tether = round(drag_tether, digits=2) lift_tether = round(lift_tether, digits=2)
-#     @info "L/D system" lift_total = round(total_lift, digits=2) drag_total = round(total_drag, digits=2) L_over_D = round(total_lift / (total_drag + 1e-12), digits=2)
-# end
 
 
 #### Plot results#

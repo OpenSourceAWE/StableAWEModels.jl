@@ -23,7 +23,7 @@ using GLMakie
 BODY_DAMPING = 100.0  # Ns/m
 NUM_STEPS = 5000
 DT = 0.05  # seconds
-STRUC_PATH = "data/v3/struc_geometry.yaml"
+STRUC_PATH = "data/v3/struc_geometry_bart_jelle.yaml"
 AERO_PATH = "data/v3/aero_geometry.yaml"
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 40.0   # depower [0, 100]
