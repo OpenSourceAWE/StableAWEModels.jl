@@ -30,7 +30,7 @@ points:
             mass, body_frame_damping, world_frame_damping, area, drag_coeff]
   data:
     # KCU
-    - [1, [0.0, 0.0, 0.0], DYNAMIC, 1, 1, 23.25, 0.0, 0.0, 0.48, 0.69]
+    - [1, [0.0, 0.0, 0.0], DYNAMIC, 1, 1, 23.25, 0.0, 0.0, 0.48, 0.83]
 
     # Wing particles (LE/TE pairs)
     - [2, [-0.16686417, 4.07190711, 8.25938552], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0] #TODO: was 4.07190711
