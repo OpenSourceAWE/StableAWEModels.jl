@@ -545,6 +545,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_us=false,
                    plot_gk=false,
                    plot_v_app=true,
+                   plot_kite_vel=false,
                    plot_aoa=plot_default,
                    plot_heading=plot_default,
                    plot_kiteutils_course=false,
@@ -987,6 +988,25 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         ))
     end
 
+    if plot_kite_vel
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = actual_suffixes[i]
+            v_kite_norm = [norm(v) for v in sl.vel_kite]
+            push!(all_data, v_kite_norm)
+            push!(all_labels, "|v_kite|" * suffix)
+            push!(all_times, sl.time)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            times = all_times,
+            ylabel = "kite velocity [m/s]"
+        ))
+    end
 
     if plot_aoa
         all_data = []
