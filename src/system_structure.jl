@@ -111,8 +111,8 @@ mutable struct Point
     const va_b::KVec3 # apparent velocity in body frame (for VSM per-point va)
     const type::DynamicsType
     mass::SimFloat
-    body_frame_damping::SimFloat
-    world_frame_damping::SimFloat
+    body_frame_damping::KVec3
+    world_frame_damping::KVec3
     area::SimFloat
     drag_coeff::SimFloat
     fix_sphere::Bool
@@ -147,8 +147,8 @@ where:
 - `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
 - `transform_idx::Int16=1`: Index of the transform used for initial positioning.
 - `mass::Float64=0.0`: Mass of the point [kg].
-- `body_frame_damping::Float64=0.0`: Damping coefficient for bridle points.
-- `world_frame_damping::Float64=0.0`: Damping coefficient for world frame damping.
+- `body_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping [x,y,z] for bridle points. Scalar applies to all axes.
+- `world_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping [x,y,z] for world frame damping. Scalar applies to all axes.
 - `fix_sphere::Bool=false`: If true, constrains the point to a sphere.
 - `fix_static::Bool=false`: If true, dynamically freezes the point (behaves like STATIC).
 
@@ -157,13 +157,17 @@ where:
 """
 function Point(idx, pos_cad, type;
     wing_idx=1, vel_w=zeros(KVec3), transform_idx=1,
-    mass=0.0, body_frame_damping=0.0, world_frame_damping=0.0,
+    mass=0.0, body_frame_damping=zeros(KVec3), world_frame_damping=zeros(KVec3),
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
+    # Convert scalar damping to vector (broadcast to all axes)
+    bf_damp = body_frame_damping isa Real ? SVector{3,SimFloat}(body_frame_damping, body_frame_damping, body_frame_damping) : SVector{3,SimFloat}(body_frame_damping)
+    wf_damp = world_frame_damping isa Real ? SVector{3,SimFloat}(world_frame_damping, world_frame_damping, world_frame_damping) : SVector{3,SimFloat}(world_frame_damping)
+
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
         vel_w, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), type, mass,
-        body_frame_damping, world_frame_damping, area, drag_coeff,
+        bf_damp, wf_damp, area, drag_coeff,
         fix_sphere, fix_static)
 end
 
@@ -2547,19 +2551,22 @@ end
 Set the world frame damping coefficient for all points in the system structure.
 
 World frame damping applies a velocity-dependent drag force in the global
-reference frame: ``\\mathbf{F}_{damp} = -c_{damp} \\mathbf{v}``, where
-``c_{damp}`` is the damping coefficient and ``\\mathbf{v}`` is the velocity.
+reference frame: ``\\mathbf{F}_{damp} = -c_{damp} \\odot \\mathbf{v}``, where
+``c_{damp}`` is the damping vector and ``\\odot`` is element-wise multiplication.
 
 # Arguments
 - `sys::SystemStructure`: The system structure to modify.
-- `damping::Real`: The damping coefficient to apply to all points [N·s/m].
+- `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
+  Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
 
 # Returns
 - `nothing`
 """
-function set_world_frame_damping(sys::SystemStructure, damping::Real)
+function set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector})
+    damp_vec = damping isa Real ? SVector{3,SimFloat}(damping, damping, damping) : SVector{3,SimFloat}(damping)
+    @assert length(damp_vec) == 3 "Damping must be scalar or 3-element vector"
     for point in sys.points
-        point.world_frame_damping = damping
+        point.world_frame_damping = damp_vec
     end
     return nothing
 end
@@ -2571,15 +2578,18 @@ Set the body frame damping coefficient for all WING points in the system structu
 
 # Arguments
 - `sys::SystemStructure`: The system structure to modify.
-- `damping::Real`: The damping coefficient to apply to all points [N·s/m].
+- `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
+  Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
 
 # Returns
 - `nothing`
 """
-function set_body_frame_damping(sys::SystemStructure, damping::Real)
+function set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector})
+    damp_vec = damping isa Real ? SVector{3,SimFloat}(damping, damping, damping) : SVector{3,SimFloat}(damping)
+    @assert length(damp_vec) == 3 "Damping must be scalar or 3-element vector"
     for point in sys.points
         if point.type == WING
-            point.body_frame_damping = damping
+            point.body_frame_damping = damp_vec
         end
     end
     return nothing
@@ -2590,7 +2600,8 @@ end
 
 Calculate segment stretch statistics for segments in tension.
 
-Returns the maximum and mean relative stretch of segments where len > l0.
+Returns the maximum and mean relative stretch of segments where len > l0,
+along with the index of the segment with maximum stretch.
 Relative stretch is defined as (current_length - l0) / l0.
 Only segments in tension (stretched) are included in the statistics.
 
@@ -2598,18 +2609,25 @@ Only segments in tension (stretched) are included in the statistics.
 - `sys::SystemStructure`: System structure with current segment states
 
 # Returns
-- `(max_stretch, mean_stretch)`: Tuple of maximum and mean relative stretch
+- `(max_stretch, mean_stretch, max_idx)`: Tuple of maximum stretch, mean stretch,
+  and index of the segment with maximum stretch
 """
 function segment_stretch_stats(sys::SystemStructure)
     if isempty(sys.segments)
-        return (0.0, 0.0)
+        return (0.0, 0.0, 0)
     end
 
-    stretches = [(seg.len - seg.l0) / seg.l0 for seg in sys.segments if seg.len > seg.l0]
+    stretch_data = [(seg.idx, (seg.len - seg.l0) / seg.l0)
+                    for seg in sys.segments if seg.len > seg.l0]
 
-    if isempty(stretches)
-        return (0.0, 0.0)
+    if isempty(stretch_data)
+        return (0.0, 0.0, 0)
     end
 
-    return (maximum(stretches), sum(stretches) / length(stretches))
+    stretches = [s[2] for s in stretch_data]
+    max_stretch = maximum(stretches)
+    mean_stretch = sum(stretches) / length(stretches)
+    max_idx = stretch_data[argmax(stretches)][1]
+
+    return (max_stretch, mean_stretch, max_idx)
 end

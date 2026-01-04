@@ -37,8 +37,10 @@ Run a v3 kite simulation using the REFINE wing type.
 - `sim_time::Float64=300.0`: Simulation duration [s]
 - `fps::Int=1`: Frames per second for logging
 - `remake_cache::Bool=false`: Force rebuild of cached model
-- `initial_damping::Float64=10.0`: Initial world frame damping [N·s/m]
+- `initial_damping::Float64=10.0`: Initial body frame damping [N·s/m]
+- `damping_pattern::Vector{Float64}=[0.0, 1.0, 1.0]`: Per-axis damping pattern [x, y, z]
 - `decay_time::Float64=2.0`: Time for damping decay [s]
+- `min_damping::Float64=0.0`: Minimum damping after decay [N·s/m]
 - `max_steering::Float64=0.2`: Maximum steering line length change [m]
 - `show_plots::Bool=false`: Display 3D plots during simulation
 - `v_wind::Float64=15.4`: Wind speed [m/s]
@@ -61,7 +63,9 @@ function run_v3_kite(;
                      fps=4,
                      remake_cache=false,
                      initial_damping=100.0,
+                     damping_pattern=[0.0, 1.0, 1.0],
                      decay_time=10.0,
+                     min_damping=0.0,
                      up = 0.4,
                      us=0.1,
                      show_plots=false,
@@ -132,8 +136,8 @@ function run_v3_kite(;
     #     winch.brake = true
     # end
 
-    # Initialize damping
-    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
+    # Initialize damping with per-axis values [x, y, z]
+    SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern * initial_damping)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -213,25 +217,20 @@ function run_v3_kite(;
     sim_start_time = time()
     aoa_log_interval_steps = max(1, Int(round(3.0 / Δt)))  # roughly every 3 seconds
 
+    # Storage for segment stretch statistics (after t > 1.0)
+    max_stretch_samples = Float64[]
+    mean_stretch_samples = Float64[]
+    max_idx_samples = Int[]
+
     wings = sam.sys_struct.wings
     wing = wings[1]
 
     for step in 1:n_steps
         t = step * Δt
 
-        # Update damping
-        if t <= decay_time
-            current_damping = initial_damping * (1.0 - t / decay_time)
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
-        else
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
-        end
-
-        # # PID heading control with sine wave setpoint
-        # target_heading_rad = max_heading_rad * sin(angular_freq * t)
-        # current_heading = sam.sys_struct.wings[1].heading
-        # steering_control = heading_pid(target_heading_rad, current_heading, 0.0)
-        # push!(heading_setpoint, target_heading_rad)
+        # Update damping: decay to min_damping
+        current_damping = max(initial_damping * (1.0 - t / decay_time), min_damping)
+        SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * current_damping)
 
         # Fixed tether length: brake engaged; only steering ramp is applied
         ramp_factor = min(t / ramp_time, 1.0)
@@ -284,6 +283,14 @@ function run_v3_kite(;
         sys_state.time = t
         log!(logger, sys_state)
 
+        # Collect segment stretch statistics after t > 1.0
+        if t > 1.0
+            max_stretch, mean_stretch, max_idx = segment_stretch_stats(sam.sys_struct)
+            push!(max_stretch_samples, max_stretch)
+            push!(mean_stretch_samples, mean_stretch)
+            push!(max_idx_samples, max_idx)
+        end
+
         # Log AoA periodically (value stored in sys_state by update_sys_state!)
         # if step % aoa_log_interval_steps == 0
         #     alpha = sys_state.AoA
@@ -305,6 +312,14 @@ function run_v3_kite(;
     total_wall_time = time() - sim_start_time
     final_times_realtime = sim_time / total_wall_time
     @info "Simulation completed: $wing_type_str" wall_time=round(total_wall_time, digits=2) times_realtime=round(final_times_realtime, digits=2)
+
+    # Report segment stretch statistics (for t > 1.0)
+    if !isempty(max_stretch_samples)
+        overall_max_stretch = maximum(max_stretch_samples)
+        overall_mean_stretch = mean(mean_stretch_samples)
+        max_stretch_idx = max_idx_samples[argmax(max_stretch_samples)]
+        @info "Segment stretch statistics (t > 1.0):" max_relative=round(overall_max_stretch, digits=6) max_percentage=round(overall_max_stretch*100, digits=4) mean_relative=round(overall_mean_stretch, digits=6) mean_percentage=round(overall_mean_stretch*100, digits=4) max_segment_idx=max_stretch_idx
+    end
 
     # Save and load log
     log_name = "tmp_run_$(lowercase(wing_type_str))"
@@ -328,7 +343,7 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-us = 0.15  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
+us = 0.5  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
 up = 0.4  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis 
 #0.4151powered and #0.5012depowered #0.39 during turns
 vw = 15  # {{{ 10.  <> 15.0 }}} suitable range?
@@ -336,16 +351,19 @@ lt = 260  # problems when changing...
 
 sim_time = 200.0
 decay_time = 2.0 #2secs works better than 3 somehow
-ramp_time = 10.0
+ramp_time = 2.0
 fps = 60
-initial_damping = 100.0
+initial_damping = 10.0
+damping_pattern = [1.0, 30.0, 30.0]
+min_damping = 1.0
 tube_bending_resistance = 0  # N
 
 
 syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
-    sim_time=sim_time, fps=fps, 
+    sim_time=sim_time, fps=fps,
     up=up, us=us, v_wind=vw, tether_length=lt,
     decay_time=decay_time, ramp_time=ramp_time,
+    initial_damping=initial_damping, damping_pattern=damping_pattern, min_damping=min_damping,
     max_heading=MAX_HEADING, period=PERIOD,
     tube_bending_resistance=tube_bending_resistance,
     heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,

@@ -307,7 +307,23 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 mappings=Dict(
                     :pos_cad => r -> KVec3(r.pos_cad...),
                     :type => r -> parse_dynamics_type(
-                        String(r.type))
+                        String(r.type)),
+                    :body_frame_damping => r -> begin
+                        if haskey(r, :body_frame_damping)
+                            val = r.body_frame_damping
+                            val isa Real ? SVector{3,SimFloat}(val, val, val) : SVector{3,SimFloat}(val...)
+                        else
+                            zeros(KVec3)
+                        end
+                    end,
+                    :world_frame_damping => r -> begin
+                        if haskey(r, :world_frame_damping)
+                            val = r.world_frame_damping
+                            val isa Real ? SVector{3,SimFloat}(val, val, val) : SVector{3,SimFloat}(val...)
+                        else
+                            zeros(KVec3)
+                        end
+                    end
                 ))
 
             point.pos_w .= point.pos_cad
