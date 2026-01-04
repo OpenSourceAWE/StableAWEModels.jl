@@ -584,35 +584,58 @@ end
 
 """
     update_yaml_from_sys_struct!(sys_struct::SystemStructure,
-                                  struc_yaml_path::AbstractString,
-                                  aero_yaml_path::AbstractString)
+                                  source_struc_yaml::AbstractString,
+                                  dest_struc_yaml::AbstractString,
+                                  source_aero_yaml::AbstractString,
+                                  dest_aero_yaml::AbstractString)
 
 Update point positions in structural and aerodynamic YAML files from
-the current state of a SystemStructure. Creates backups before modifying.
+the current state of a SystemStructure.
 
 # Arguments
 - `sys_struct`: SystemStructure with current point positions
-- `struc_yaml_path`: Path to structural geometry YAML file to update
-- `aero_yaml_path`: Path to aero geometry YAML file to update
+- `source_struc_yaml`: Path to source structural geometry YAML file
+- `dest_struc_yaml`: Path to destination structural YAML file
+- `source_aero_yaml`: Path to source aero geometry YAML file
+- `dest_aero_yaml`: Path to destination aero YAML file
+
+Source and destination paths must be different for each pair.
 
 # Example
 ```julia
-# Load, simulate, then save settled positions
 sys = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml"; ...)
 sam = SymbolicAWEModel(set, sys)
 # ... run simulation ...
-update_yaml_from_sys_struct!(sys, "data/v3/struc_geometry.yaml",
-                            "data/v3/aero_geometry.yaml")
+update_yaml_from_sys_struct!(sys,
+    "data/v3/struc_geometry.yaml",
+    "data/v3/struc_geometry_stable.yaml",
+    "data/v3/aero_geometry.yaml",
+    "data/v3/aero_geometry_stable.yaml")
 ```
 """
 function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
-                                      struc_yaml_path::AbstractString,
-                                      aero_yaml_path::AbstractString)
+                                      source_struc_yaml::AbstractString,
+                                      dest_struc_yaml::AbstractString,
+                                      source_aero_yaml::AbstractString,
+                                      dest_aero_yaml::AbstractString)
     # Helper to format coordinate with rounding
     function format_coord(val::Float64)
         # Round to 4 decimals, set small values to 0
         rounded = abs(val) < 1e-4 ? 0.0 : round(val, digits=4)
         return rounded
+    end
+
+    # Validate paths are not the same
+    src_struc = abspath(source_struc_yaml)
+    dst_struc = abspath(dest_struc_yaml)
+    src_aero = abspath(source_aero_yaml)
+    dst_aero = abspath(dest_aero_yaml)
+
+    if src_struc == dst_struc
+        error("Source and destination structural YAML paths cannot be the same: $src_struc")
+    end
+    if src_aero == dst_aero
+        error("Source and destination aero YAML paths cannot be the same: $src_aero")
     end
 
     # Build position dictionary from system structure
@@ -628,17 +651,15 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
     end
 
     # Update structural geometry YAML
-    struc_full_path = isabspath(struc_yaml_path) ? struc_yaml_path :
-                      joinpath(pwd(), struc_yaml_path)
+    struc_full_path = isabspath(source_struc_yaml) ? source_struc_yaml :
+                      joinpath(pwd(), source_struc_yaml)
 
     if !isfile(struc_full_path)
-        error("Structural YAML file not found: $struc_full_path")
+        error("Source structural YAML file not found: $struc_full_path")
     end
 
-    # Create backup of structural YAML
-    struc_backup = struc_full_path * ".backup"
-    @info "Creating structural backup" original=struc_full_path backup=struc_backup
-    cp(struc_full_path, struc_backup; force=true)
+    dest_struc_full_path = isabspath(dest_struc_yaml) ? dest_struc_yaml :
+                          joinpath(pwd(), dest_struc_yaml)
 
     lines = readlines(struc_full_path)
     n_points_updated = 0
@@ -701,25 +722,23 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
     @info "Updated structural positions and segments" n_points=n_points_updated n_segments=n_segments_updated
 
     # Write updated structural YAML
-    @info "Writing updated structural YAML to $struc_full_path"
-    open(struc_full_path, "w") do io
+    @info "Writing updated structural YAML" source=struc_full_path dest=dest_struc_full_path
+    open(dest_struc_full_path, "w") do io
         for line in lines
             println(io, line)
         end
     end
 
     # Update aerodynamic geometry YAML
-    aero_full_path = isabspath(aero_yaml_path) ? aero_yaml_path :
-                    joinpath(pwd(), aero_yaml_path)
+    aero_full_path = isabspath(source_aero_yaml) ? source_aero_yaml :
+                    joinpath(pwd(), source_aero_yaml)
 
     if !isfile(aero_full_path)
-        error("Aero YAML file not found: $aero_full_path")
+        error("Source aero YAML file not found: $aero_full_path")
     end
 
-    # Create backup of aero YAML
-    aero_backup = aero_full_path * ".backup"
-    @info "Creating aero backup" original=aero_full_path backup=aero_backup
-    cp(aero_full_path, aero_backup; force=true)
+    dest_aero_full_path = isabspath(dest_aero_yaml) ? dest_aero_yaml :
+                         joinpath(pwd(), dest_aero_yaml)
 
     aero_lines = readlines(aero_full_path)
     n_aero_updated = 0
@@ -758,8 +777,8 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
     @info "Updated aerodynamic positions" n_sections=n_aero_updated
 
     # Write updated aero YAML
-    @info "Writing updated aero YAML to $aero_full_path"
-    open(aero_full_path, "w") do io
+    @info "Writing updated aero YAML" source=aero_full_path dest=dest_aero_full_path
+    open(dest_aero_full_path, "w") do io
         for line in aero_lines
             println(io, line)
         end
