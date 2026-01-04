@@ -69,7 +69,7 @@ set = Settings("system.yaml")
 model_name = hasproperty(set, :model_name) ? set.model_name : MODEL_NAME
 struc_yaml = hasproperty(set, :struc_geometry_path) ?
     set.struc_geometry_path :
-    joinpath("data", model_name, "struc_geometry.yaml")
+    joinpath("data", model_name, "struc_geometry_stable.yaml")
 sys = load_sys_struct_from_yaml(struc_yaml; system_name=model_name, set=set)
 
 # Initialize damping
