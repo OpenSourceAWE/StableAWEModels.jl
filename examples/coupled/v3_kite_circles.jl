@@ -98,7 +98,7 @@ function run_v3_kite(wing_type::WingType;
 
     # Load YAML structure path
     model_name = wing_type == QUATERNION ? "v3_quat" : "v3_refine"
-    struc_yaml_path = joinpath("data", "v3", "struc_geometry.yaml")
+    struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
 
     # Load VSMSettings
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
@@ -375,7 +375,7 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     max_us_zenith = 0.02,
     target_azimuth = 0.0,
     # settings circular flight
-    sim_time_circles=60,
+    sim_time_circles=100,
     fps_circles=60,
     ramp_time_us = 5.0,
     us=0.15,
@@ -384,9 +384,18 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
 
 #### Plot results#
 fig = plot(sam_refine.sys_struct, syslog_refine;
-    plot_turn_rates=true, plot_reelout=false, plot_gk=true,
-    plot_aoa=true, plot_heading=false, plot_elevation=true,
-    plot_azimuth=true, plot_winch_force=false, plot_set_values=false,
+    plot_turn_rates=true, 
+    plot_yaw_rate=true,
+    plot_yaw_rate_paper=true,
+    plot_reelout=false, 
+    plot_gk=true, 
+    gk_ylims=(0.0, 10.0),
+    plot_aoa=true, 
+    plot_heading=false, 
+    plot_elevation=true,
+    plot_azimuth=true, 
+    plot_winch_force=false, 
+    plot_set_values=false,
     plot_us=true,)
 
 scene = replay(syslog_refine, sam_refine.sys_struct)

@@ -477,11 +477,18 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_twist::Bool=false`: Show the panel with the twist angles for each wing group.
 - `plot_v_app`::Bool=false`: Show the panel with the apparent wind speed at the wing.
 - `plot_aoa::Bool=plot_default`: Show the panel with the angle of attack.
+- `aoa_ylims::Union{Nothing,Tuple}=nothing`: Y-axis limits for the AoA panel (`nothing` leaves autoscaling).
 - `plot_heading::Bool=plot_default`: Show the panel with the kite's heading and course angles.
 - `plot_kiteutils_course::Bool=false`: Also plot course calculated using KiteUtils.calc_course.
+- `gk_ylims::Union{Nothing,Tuple}=(0.0, 10.0)`: Y-axis limits for the gk panel (`nothing` leaves autoscaling).
+- `plot_yaw_rate_paper::Bool=false`: Plot paper-style yaw rate ψ̇ derived from the apparent wind direction in NED (d/dt of yaw(va_w)).
+- `yaw_rate_paper_ylims::Union{Nothing,Tuple}=nothing`: Y-axis limits for the paper yaw-rate panel (`nothing` leaves autoscaling).
 - `plot_elevation::Bool=false`: Show the panel with the kite's elevation angle.
 - `plot_azimuth::Bool=false`: Show the panel with the kite's azimuth angle.
 - `plot_distance::Bool=false`: Show the panel with the kite distance from origin (norm of position).
+- `plot_yaw_rate::Bool=false`: Show yaw rate `dψ/dt` derived from the wind-referenced heading.
+- `plot_gk_paper::Bool=false`: Plot gk using paper-style ψ̇ and reconstructed steering command.
+- `yaw_rate_paper_compare::Bool=false`: Log std/offset comparisons between yaw definitions in the paper panel.
 - `plot_cone_angle::Bool=false`: Show the panel with the cone angle (angle between wind vector and normalized kite position).
 - `plot_old_heading::Bool=false`: Show the old heading calculated from orientation quaternion (angle between -R_b_w[:,1] and -R_v_w[:,1]).
 - `plot_winch_force::Bool=plot_default`: Show the panel with the winch forces.
@@ -520,9 +527,9 @@ Same as the single-syslog version. See `Makie.plot(sys::SystemStructure, lg::Sys
 ```julia
 # Compare REFINE vs QUATERNION models
 plot(sys_struct, [syslog_refine, syslog_quat];
-     plot_turn_rates=true, plot_azimuth=true,
-     plot_heading=true, plot_v_app=true, plot_aoa=true,
-     plot_default=false, plot_aero_force=true)
+     plot_turn_rates=true, plot_azimuth=false,
+     plot_heading=false, plot_v_app=false, plot_aoa=false,
+     plot_default=false, plot_aero_force=false)
 ```
 """
 function Makie.plot(sys::SystemStructure, logs::Vector{<:SysLog}; kwargs...)
@@ -532,13 +539,20 @@ function Makie.plot(sys::SystemStructure, logs::Vector{<:SysLog}; kwargs...)
 end
 
 function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
-                   plot_default=true,
+                   plot_default=false,
                    plot_reelout=plot_default,
                    plot_aero_force=plot_default,
                    plot_twist=false,
                    plot_us=false,
                    plot_gk=false,
-                   plot_v_app=true,
+                   gk_ylims=(0.0, 10.0),
+                   aoa_ylims=nothing,
+                   plot_yaw_rate=false,
+                   plot_yaw_rate_paper=false,
+                   yaw_rate_paper_ylims=nothing,
+                   yaw_rate_paper_compare=false,
+                   plot_gk_paper=false,
+                   plot_v_app=false,
                    plot_aoa=plot_default,
                    plot_heading=plot_default,
                    plot_kiteutils_course=false,
@@ -560,7 +574,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
     # Build list of panels to plot by combining data from all logs
     panels = []
 
-    if plot_turn_rates
+    if plot_yaw_rate
         all_data = []
         all_labels = []
         all_times = []
@@ -580,24 +594,349 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             end
             heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
             push!(all_data, heading_rate)
-            push!(all_labels, "dψ/dt" * suffix)
+            push!(all_labels, "ψ̇" * suffix)
             push!(all_times, sl.time[1:end-1])
-
-            # Also plot z-component (yaw rate ω_z) if available
-            turn_rates_rad = hcat(sl.turn_rates...)
-            if !all(iszero, turn_rates_rad)
-                omega_z_deg = rad2deg.(turn_rates_rad[3, :])
-                push!(all_data, omega_z_deg)
-                push!(all_labels, "ω_z" * suffix)
-                push!(all_times, sl.time)
-            end
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "turn rate [°/s]"
+            ylabel = "dψ/dt [°/s]\nheading⟂wind"
         ))
+    end
+
+    if plot_yaw_rate_paper
+        all_data = []
+        all_labels = []
+        all_times = []
+        compare_results = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = " - " * syss[i].name
+            n = length(sl.time)
+            if isempty(sl.orient) || isempty(sl.X)
+                @warn "Missing orient or position data in syslog; skipping yaw_rate_paper for $suffix"
+                continue
+            end
+
+            # Compute heading rate from diff for quaternion wings
+            heading_unwrapped = copy(sl.heading)
+            for j in 2:length(heading_unwrapped)
+                while heading_unwrapped[j] - heading_unwrapped[j-1] > π
+                    heading_unwrapped[j] -= 2π
+                end
+                while heading_unwrapped[j] - heading_unwrapped[j-1] < -π
+                    heading_unwrapped[j] += 2π
+                end
+            end
+            yaw_rate_perp_wind = Base.diff(rad2deg.(heading_unwrapped)) ./ Base.diff(sl.time)
+
+            # Paper-style yaw from apparent wind (va = vw - vk, ENU -> NED, yaw = atan2(E, N))
+            yaw_va = nothing
+            yaw_rate_va = nothing
+            yaw_vk = nothing
+            yaw_rate_vk = nothing
+            if !isempty(sl.vel_kite) && !isempty(sl.v_wind_kite)
+                yaw_va = Vector{Float64}(undef, n)
+                yaw_vk = Vector{Float64}(undef, n)
+                @inbounds for k in 1:n
+                    v = sl.vel_kite[k]
+                    w = sl.v_wind_kite[k]
+                    va_enu = w .- v
+                    va_ned = SVector{3, Float64}(va_enu[2], va_enu[1], -va_enu[3])
+                    yaw_va[k] = atan(va_ned[2], va_ned[1])
+                    vk_ned = SVector{3, Float64}(v[2], v[1], -v[3])
+                    yaw_vk[k] = atan(vk_ned[2], vk_ned[1])
+                end
+                for k in 2:n
+                    dψ = yaw_va[k] - yaw_va[k - 1]
+                    if dψ > π
+                        yaw_va[k] -= 2π
+                    elseif dψ < -π
+                        yaw_va[k] += 2π
+                    end
+                    dψv = yaw_vk[k] - yaw_vk[k - 1]
+                    if dψv > π
+                        yaw_vk[k] -= 2π
+                    elseif dψv < -π
+                        yaw_vk[k] += 2π
+                    end
+                end
+                yaw_rate_va = Base.diff(rad2deg.(yaw_va)) ./ Base.diff(sl.time)
+                yaw_rate_vk = Base.diff(rad2deg.(yaw_vk)) ./ Base.diff(sl.time)
+            end
+
+            # Tangential sphere heading: use velocity projected into tangent plane
+            yaw_sphere = Vector{Float64}(undef, n)
+            kite_idx = syss[i].wings[1].origin_idx
+            @inbounds for k in 1:n
+                pos = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
+                vel = SVector{3, Float64}(sl.vel_kite[k])
+                
+                if norm(pos) > 1e-9 && norm(vel) > 1e-9
+                    radial = pos / norm(pos)
+                    tang_vel = vel - (vel ⋅ radial) * radial
+                    if norm(tang_vel) > 1e-9
+                        tang_vel /= norm(tang_vel)
+                        up_z = radial
+                        up_y_raw = SVector(-pos[2], pos[1], 0.0)
+                        if norm(up_y_raw) > 1e-9
+                            up_y = up_y_raw / norm(up_y_raw)
+                            up_x = up_z × up_y
+                            if norm(up_x) > 1e-9
+                                up_x /= norm(up_x)
+                                up_y = up_z × up_x  # re-orthonormalize
+                                R_up = SMatrix{3,3,Float64}((up_x[1], up_y[1], up_z[1],
+                                                             up_x[2], up_y[2], up_z[2],
+                                                             up_x[3], up_y[3], up_z[3]))
+                                heading_vec = R_up' * tang_vel
+                                yaw_sphere[k] = atan(heading_vec[2], heading_vec[1])
+                                continue
+                            end
+                        end
+                    end
+                end
+                yaw_sphere[k] = k > 1 ? yaw_sphere[k-1] : NaN
+            end
+
+            # Unwrap sphere yaw angles
+            for k in 2:n
+                if !isnan(yaw_sphere[k]) && !isnan(yaw_sphere[k - 1])
+                    dψ = yaw_sphere[k] - yaw_sphere[k - 1]
+                    if dψ > π
+                        yaw_sphere[k] -= 2π
+                    elseif dψ < -π
+                        yaw_sphere[k] += 2π
+                    end
+                end
+            end
+
+            yaw_rate_sphere = Base.diff(rad2deg.(yaw_sphere)) ./ Base.diff(sl.time)
+
+            # Averages over the last 33 seconds for quick inspection
+            t_rate = sl.time[1:end-1]
+            window_start = sl.time[end] - 10
+            mask = t_rate .>= window_start
+            mask = any(mask) ? mask : trues(length(t_rate))
+            avg_heading = mean(yaw_rate_perp_wind[mask])
+            avg_va = yaw_rate_va === nothing ? NaN : mean(yaw_rate_va[mask])
+            avg_vk = yaw_rate_vk === nothing ? NaN : mean(yaw_rate_vk[mask])
+            avg_sphere = mean(yaw_rate_sphere[mask])
+            @info "yaw_rate_paper averages (last 33 s)" suffix avg_heading avg_va avg_vk avg_sphere
+
+            push!(all_data, yaw_rate_perp_wind)
+            push!(all_labels, "dψ/dt (heading⟂wind)" * suffix)
+            if yaw_rate_va !== nothing
+                push!(all_data, yaw_rate_va)
+                push!(all_labels, "dψ/dt (paper v_app)" * suffix)
+                push!(all_times, sl.time[1:end-1])
+            end
+            if yaw_rate_vk !== nothing
+                push!(all_data, yaw_rate_vk)
+                push!(all_labels, "dψ/dt (paper v_kite)" * suffix)
+                push!(all_times, sl.time[1:end-1])
+            end
+            push!(all_data, yaw_rate_sphere)
+            push!(all_labels, "dψ/dt (HeadingGate)" * suffix)
+            push!(all_times, sl.time[1:end-1])
+            push!(all_times, sl.time[1:end-1])
+
+            if yaw_rate_paper_compare
+                yaw_va_cmp = yaw_va === nothing ? copy(heading_unwrapped) : yaw_va
+                yaw_sph = copy(yaw_sphere)
+                for k in 2:n
+                    dψ = yaw_sph[k] - yaw_sph[k - 1]
+                    if dψ > π
+                        yaw_sph[k] -= 2π
+                    elseif dψ < -π
+                        yaw_sph[k] += 2π
+                    end
+                end
+                mask = .!isnan.(yaw_va_cmp) .& .!isnan.(yaw_sph)
+                yaw_va_f = yaw_va_cmp[mask]
+                yaw_sph_f = yaw_sph[mask]
+                t_f = sl.time[mask]
+                if isempty(t_f)
+                    push!(compare_results, (suffix=suffix,
+                                            std_diff=NaN,
+                                            std_diff_deg=NaN,
+                                            std_rate=NaN,
+                                            std_rate_deg=NaN))
+                else
+                    diff_yaw = yaw_va_f .- yaw_sph_f
+                    diff_yaw .-= mean(diff_yaw)
+                    std_diff = std(diff_yaw)
+                    rate_va = Base.diff(yaw_va_f) ./ Base.diff(t_f)
+                    rate_sph = Base.diff(yaw_sph_f) ./ Base.diff(t_f)
+                    std_rate = std(rate_va .- rate_sph)
+                    push!(compare_results, (suffix=suffix,
+                                            std_diff=std_diff,
+                                            std_diff_deg=rad2deg(std_diff),
+                                            std_rate=std_rate,
+                                            std_rate_deg=rad2deg(std_rate)))
+                end
+            end
+        end
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "dψ/dt paper\n",
+                ylims = yaw_rate_paper_ylims
+            ))
+            if yaw_rate_paper_compare && !isempty(compare_results)
+                for res in compare_results
+                    @info "yaw_rate_paper comparison (paper vs sphere)" res...
+                end
+            end
+        end
+    end
+
+    if plot_gk_paper
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = " - " * syss[i].name
+            n = length(sl.time)
+            if isempty(sl.vel_kite) || isempty(sl.v_wind_kite)
+                @warn "Missing vel_kite or v_wind_kite in syslog; skipping gk_paper for $suffix"
+                continue
+            end
+            # Paper yaw-rate from apparent wind
+            yaw = Vector{Float64}(undef, n)
+            @inbounds for k in 1:n
+                v = sl.vel_kite[k]
+                w = sl.v_wind_kite[k]
+                va_enu = w .- v
+                va_ned = SVector{3, Float64}(va_enu[2], va_enu[1], -va_enu[3])
+                yaw[k] = atan(va_ned[2], va_ned[1])
+            end
+            for k in 2:n
+                dψ = yaw[k] - yaw[k - 1]
+                if dψ > π
+                    yaw[k] -= 2π
+                elseif dψ < -π
+                    yaw[k] += 2π
+                end
+            end
+            yaw_rate = diff(rad2deg.(yaw)) ./ diff(sl.time)
+
+            # Reconstruct steering command from segment 87 (same calibration as controller)
+            seg_left = syss[i].segments[87]
+            p_i, p_j = seg_left.point_idxs
+            xs = sl.X; ys = sl.Y; zs = sl.Z
+            steering_len = similar(sl.time)
+            @inbounds for k in eachindex(sl.time)
+                p1 = SVector{3, Float64}(xs[k][p_i], ys[k][p_i], zs[k][p_i])
+                p2 = SVector{3, Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
+                steering_len[k] = norm(p2 - p1)
+            end
+            steering_l0 = steering_len[1]
+            us_cmd = similar(steering_len)
+            @inbounds for k in eachindex(us_cmd)
+                δ = steering_len[k] - steering_l0
+                us_cmd[k] = abs(δ) > 1e-6 ? δ / 1.4 : 0.0
+            end
+            us_seg = us_cmd[2:end]  # align with diff-based yaw_rate
+
+            v_app = sl.v_app[2:end]  # apparent wind magnitude
+
+            gk = similar(yaw_rate)
+            @inbounds for k in eachindex(gk)
+                gk[k] = abs(us_seg[k]) > 1e-8 ? yaw_rate[k] / (v_app[k] * us_seg[k]) : NaN
+            end
+
+            push!(all_data, gk)
+            push!(all_labels, "gk_paper" * suffix)
+            push!(all_times, sl.time[2:end])
+        end
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "gk (paper ψ̇)\n[s/m]"
+            ))
+        end
+    end
+
+    if plot_turn_rates
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = " - " * syss[i].name
+
+            # View-frame angular velocity components (ω_v) from log turn_rates
+            turn_rates_rad = hcat(sl.turn_rates...)
+            if !all(iszero, turn_rates_rad)
+                push!(all_data, rad2deg.(turn_rates_rad[1, :]))
+                push!(all_labels, "ω_v,x")
+                push!(all_times, sl.time)
+
+                push!(all_data, rad2deg.(turn_rates_rad[2, :]))
+                push!(all_labels, "ω_v,y")
+                push!(all_times, sl.time)
+
+                push!(all_data, rad2deg.(turn_rates_rad[3, :]))
+                push!(all_labels, "ω_v,z")
+                push!(all_times, sl.time)
+            elseif !isempty(sl.orient)
+                # Fallback for REFINE logs: reconstruct ω_v from quaternions
+                kite_idx = syss[i].wings[1].origin_idx
+                n = length(sl.time)
+                ωx = Vector{Float64}(undef, n - 1)
+                ωy = Vector{Float64}(undef, n - 1)
+                ωz = Vector{Float64}(undef, n - 1)
+                @inbounds for k in 1:(n - 1)
+                    dt = sl.time[k + 1] - sl.time[k] + eps()
+                    R1 = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[k])
+                    R2 = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[k + 1])
+                    R_rel = R2 * R1'
+                    trR = clamp((R_rel[1, 1] + R_rel[2, 2] + R_rel[3, 3] - 1) / 2, -1.0, 1.0)
+                    angle = acos(trR)
+                    if angle < 1e-9
+                        axis = SVector{3, Float64}(0.0, 0.0, 0.0)
+                    else
+                        denom = 2 * sin(angle) + eps()
+                        axis = SVector{3, Float64}(
+                            (R_rel[3, 2] - R_rel[2, 3]) / denom,
+                            (R_rel[1, 3] - R_rel[3, 1]) / denom,
+                            (R_rel[2, 1] - R_rel[1, 2]) / denom,
+                        )
+                    end
+                    ω_w = (angle / dt) .* axis
+                    pos_w = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
+                    e_x = SVector{3, Float64}(R1[:, 1])
+                    R_v_w = SymbolicAWEModels.calc_R_v_w(pos_w, e_x)
+                    ω_v = R_v_w' * ω_w
+                    ωx[k], ωy[k], ωz[k] = ω_v
+                end
+                push!(all_data, rad2deg.(ωx))
+                push!(all_labels, "ω_v,x")
+                push!(all_times, sl.time[1:end-1])
+
+                push!(all_data, rad2deg.(ωy))
+                push!(all_labels, "ω_v,y")
+                push!(all_times, sl.time[1:end-1])
+
+                push!(all_data, rad2deg.(ωz))
+                push!(all_labels, "ω_v,z")
+                push!(all_times, sl.time[1:end-1])
+            end
+        end
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "ω_v [°/s]\nturn-rate"
+            ))
+        end
     end
 
     if plot_reelout
@@ -775,23 +1114,24 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 p2 = SVector{3,Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
                 steering_len[k] = norm(p2 - p1)
             end
-            # Convert segment length to steering input (hardcoded calibration)
-            us = similar(steering_len)
-            @inbounds for k in eachindex(us)
-                δ = steering_len[k] - 1.6
-                us[k] = δ > 1e-6 ? δ / 1.4 : 0.0
+            steering_l0 = 1.6  # HARDCODED V3 baseline
+            # Convert segment length change to steering command (same calibration as controller)
+            us_cmd = similar(steering_len)
+            @inbounds for k in eachindex(us_cmd)
+                δ = steering_len[k] - steering_l0
+                us_cmd[k] = abs(δ) > 1e-6 ? δ / 1.4 : 0.0
             end
-            us_seg = us[2:end]
+            us_seg = us_cmd[2:end]
 
             push!(all_data, us_seg)
-            push!(all_labels, "u_s" * suffix)
+            push!(all_labels, "us_cmd" * suffix)
             push!(all_times, sl.time[2:end])  # align with us_seg length
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "u_s"
+            ylabel = "us [%]\nsteering"
         ))
     end
 
@@ -816,11 +1156,12 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 p2 = SVector{3,Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
                 steering_len[k] = norm(p2 - p1)
             end
-            # Convert segment length to steering input (hardcoded calibration)
+            steering_l0 = 1.6  #TODO: hardcoded V3 baseline
+            # Convert segment length change to steering command (same calibration as controller)
             us = similar(steering_len)
             @inbounds for k in eachindex(us)
-                δ = steering_len[k] - 1.6
-                us[k] = δ > 1e-6 ? δ / 1.4 : 0.0
+                δ = steering_len[k] - steering_l0
+                us[k] = abs(δ) > 1e-6 ? δ / 1.4 : 0.0
             end
 
             # Calculate heading rate from diff for quaternion wings
@@ -843,6 +1184,8 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 gk[k] = abs(us_seg[k]) > 1e-8 ? heading_rate[k] / (v_app[k] * us_seg[k]) : NaN
             end
             
+            # force ylimits from 0 to 10 for gk axis
+
             @info "turn-rate $(heading_rate[end])"
             @info "v_app $(v_app[end])"
             @info "us_seg $(us_seg[end])"
@@ -945,12 +1288,18 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(all_labels, "gk" * suffix)
             push!(all_times, sl.time[2:end])
         end
-        push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = "gk"
-        ))
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "gk [°/m]\n(dψ/dt)/va·us",
+                ylims = gk_ylims
+            ))
+        end
+
+
+    if plot_gk_paper
+        @warn "plot_gk_paper not yet implemented"
     end
 
     if plot_v_app
@@ -969,7 +1318,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "v_app [m/s]"
+            ylabel = "va [m/s]"
         ))
     end
 
@@ -990,7 +1339,8 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "angle of attack [°]"
+            ylabel = "α_w [°]\nangle of attack",
+            ylims = aoa_ylims
         ))
     end
 
@@ -1145,7 +1495,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "elevation [°]"
+            ylabel = "β [°]\nelevation"
         ))
     end
 
@@ -1165,7 +1515,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "azimuth [°]"
+            ylabel = "ɸ [°]\nazimuth"
         ))
     end
 
@@ -1253,7 +1603,10 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
 
         # Add legend if multiple traces
         if length(panel.data) > 1
-            axislegend(ax, position=:rt)
+            axislegend(ax, position=:lb)
+        end
+        if hasproperty(panel, :ylims) && !isnothing(panel.ylims)
+            ylims!(ax, panel.ylims...)
         end
 
         push!(axes, ax)
@@ -1366,7 +1719,7 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
         else
             char_length = 10.0
         end
-        distance = char_length * 2.5
+        distance = char_length * 0.1
     end
 
     # Camera position: kite_pos - R_b_w * [distance, 0, 0]

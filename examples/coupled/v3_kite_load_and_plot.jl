@@ -29,7 +29,7 @@ function load_log_and_system(; log_name::String)
 
     # Load YAML structure path
     model_name = "v3_refine"
-    struc_yaml_path = joinpath("data", "v3", "struc_geometry_bart_jelle.yaml")
+    struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
 
     # Load VSMSettings
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
@@ -56,7 +56,7 @@ function load_log_and_system(; log_name::String)
     return lg, sam, up, us, v_wind
 end
 
-function print_and_plot_wing(lg, sam)
+function print_and_plot_wing(lg, sam; is_print::Bool=false)
 
    # Grab the last recorded SysState from the log
    lg_last = lg.syslog[end]
@@ -76,39 +76,41 @@ function print_and_plot_wing(lg, sam)
    #    println("$(lg_last.X[idx]), $(lg_last.Y[idx]), $(lg_last.Z[idx])")
    # end
 
-   println("\n# Wing node positions (world frame):")
-   for idx in wing_point_idxs
-      pos_w = [
-         lg_last.X[idx],
-         lg_last.Y[idx],
-         lg_last.Z[idx],
-      ]
-      println("- [$idx, [$(Float64(pos_w[1])), $(Float64(pos_w[2])), $(Float64(pos_w[3]))], WING, 1, 1, 0.0, 10.0, 0.0]")
-   end
+   if is_print
+      println("\n# Wing node positions (world frame):")
+      for idx in wing_point_idxs
+         pos_w = [
+            lg_last.X[idx],
+            lg_last.Y[idx],
+            lg_last.Z[idx],
+         ]
+         println("- [$idx, [$(Float64(pos_w[1])), $(Float64(pos_w[2])), $(Float64(pos_w[3]))], WING, 1, 1, 0.0, 10.0, 0.0]")
+      end
 
-   println("\n# Wing node positions (body frame):")
-   for idx in wing_point_idxs
-      pos_w = [
-         lg_last.X[idx],
-         lg_last.Y[idx],
-         lg_last.Z[idx],
-      ]
-      pos_b = R_b_w' * (pos_w .- origin_w)
-      println("- [$idx, [$(Float64(pos_b[1])), $(Float64(pos_b[2])), $(Float64(pos_b[3]))], WING, 1, 1, 0.0, 10.0, 0.0]")
-   end
+      println("\n# Wing node positions (body frame):")
+      for idx in wing_point_idxs
+         pos_w = [
+            lg_last.X[idx],
+            lg_last.Y[idx],
+            lg_last.Z[idx],
+         ]
+         pos_b = R_b_w' * (pos_w .- origin_w)
+         println("- [$idx, [$(Float64(pos_b[1])), $(Float64(pos_b[2])), $(Float64(pos_b[3]))], WING, 1, 1, 0.0, 10.0, 0.0]")
+      end
 
-   ## print bridle nodes in body frame
-   # Bridle points are points 22:38 in the v3 geometry (DYNAMIC points tied by bridle segments)
-   bridle_point_idxs = collect(22:38)
-   println("\n# Bridle node positions (body frame):")
-   for idx in bridle_point_idxs
-      pos_w = [
-         lg_last.X[idx],
-         lg_last.Y[idx],
-         lg_last.Z[idx],
-      ]
-      pos_b = R_b_w' * (pos_w .- origin_w)
-      println("- [$idx, [$(Float64(pos_b[1])), $(Float64(pos_b[2])), $(Float64(pos_b[3]))], DYNAMIC, 1, 1, 0.0, 10.0, 0.0]")
+      ## print bridle nodes in body frame
+      # Bridle points are points 22:38 in the v3 geometry (DYNAMIC points tied by bridle segments)
+      bridle_point_idxs = collect(22:38)
+      println("\n# Bridle node positions (body frame):")
+      for idx in bridle_point_idxs
+         pos_w = [
+            lg_last.X[idx],
+            lg_last.Y[idx],
+            lg_last.Z[idx],
+         ]
+         pos_b = R_b_w' * (pos_w .- origin_w)
+         println("- [$idx, [$(Float64(pos_b[1])), $(Float64(pos_b[2])), $(Float64(pos_b[3]))], DYNAMIC, 1, 1, 0.0, 10.0, 0.0]")
+      end
    end
 
    # 2D scatter plots of wing nodes in body frame
@@ -194,38 +196,44 @@ end
 
 function plot_time_series(lg, sam)
     fig = plot(sam.sys_struct, lg;
-            plot_turn_rates=true,
             plot_reelout=false,
+            plot_yaw_rate=true,
+            plot_yaw_rate_paper=true,
+            yaw_rate_paper_ylims=(-100, 100),
+            yaw_rate_paper_compare=true,
+            # plot_turn_rates=true,
          #    plot_tether=true,
-            plot_gk=true,
-            plot_us=true,
-         #    plot_aero_force=true,
+            # plot_gk=true,
+            # plot_gk_paper=true,
+            # plot_us=true,
+            plot_aero_force=false,
          #    plot_aero_moment=true,
          #    plot_tether_moment=true,
          #    plot_twist=true,
-            plot_aoa=true,
+            plot_aoa=false,
+         #    aoa_ylims=(0, 10.0),
             plot_heading=false,
-         #    plot_old_heading=true,
-         #    plot_distance=true,
-         #    plot_cone_angle=true,
+            #  plot_old_heading=true,
+         # #    plot_distance=true,
+         # #    plot_cone_angle=true,
             plot_elevation=true,
             plot_azimuth=true,
             plot_winch_force=false,
-            plot_set_values=false)
+            plot_set_values=false
+         )
       return fig
 end
 
 
-log_name = "zenith__up_35_us_00_vw_15_date_2026_01_03_10_16"
+log_name = "zenith_circle__up_40_us_15_vw_15_date_2026_01_04_11_48"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 ### plot time series
 fig_time = plot_time_series(lg, sam)
 ## show 3D animation
 scene = replay(lg, sam.sys_struct; autoplay=false, loop=true)
-
 ### show 2D wing node plots
-fig_wing = print_and_plot_wing(lg, sam)
+fig_wing = print_and_plot_wing(lg, sam,is_print=false)
 
 scr1=display(fig_time)
 wait(scr1)
