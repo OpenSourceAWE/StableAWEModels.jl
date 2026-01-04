@@ -221,6 +221,10 @@ get_body_frame_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].body_
 @register_symbolic get_body_frame_damping(sys::SystemStructure, idx::Int16)
 get_world_frame_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].world_frame_damping
 @register_symbolic get_world_frame_damping(sys::SystemStructure, idx::Int16)
+get_point_area(sys::SystemStructure, idx::Int16) = sys.points[idx].area
+@register_symbolic get_point_area(sys::SystemStructure, idx::Int16)
+get_point_drag_coeff(sys::SystemStructure, idx::Int16) = sys.points[idx].drag_coeff
+@register_symbolic get_point_drag_coeff(sys::SystemStructure, idx::Int16)
 get_point_aero_force(sys::SystemStructure, idx::Int16, component::Int) = sys.points[idx].aero_force_b[component]
 @register_symbolic get_point_aero_force(sys::SystemStructure, idx::Int16, component::Int)
 get_brake(sys::SystemStructure, idx::Int16) = sys.winches[idx].brake
@@ -320,6 +324,7 @@ function force_eqs!(
         acc(t)[1:3, eachindex(points)]
         # Point forces and geometry
         point_force(t)[1:3, eachindex(points)]
+        point_drag_force(t)[1:3, eachindex(points)]
         disturb_force(t)[1:3, eachindex(points)]
         tether_r(t)[1:3, eachindex(points)]
         point_mass(t)[eachindex(points)]
@@ -400,6 +405,12 @@ function force_eqs!(
                     wind_at_point[:, point.idx] - vel[:, point.idx]
                 va_point_b[:, point.idx] ~
                     R_b_w[wing_idx_for_transform, :, :]' * va_point_w[:, point.idx]
+                point_drag_force[:, point.idx] ~
+                    0.5 * calc_rho(s.am, height[point.idx]) *
+                    get_point_drag_coeff(psys, point.idx) *
+                    norm(va_point_w[:, point.idx]) *
+                    get_point_area(psys, point.idx) *
+                    va_point_w[:, point.idx]
             ]
         else
             # No wings, just set to zeros
@@ -409,6 +420,7 @@ function force_eqs!(
                 wind_at_point[:, point.idx] ~ zeros(3)
                 va_point_w[:, point.idx] ~ zeros(3)
                 va_point_b[:, point.idx] ~ zeros(3)
+                point_drag_force[:, point.idx] ~ zeros(3)
             ]
         end
 
@@ -427,7 +439,7 @@ function force_eqs!(
                 eqs = [
                     eqs
                     point_force[:, point.idx] ~
-                        F + aero_force_w + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
+                        F + aero_force_w + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 ]
 
                 # Damping terms
@@ -469,7 +481,7 @@ function force_eqs!(
                 eqs = [
                     eqs
                     point_force[:, point.idx] ~
-                        F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
+                        F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 ]
 
                 found = 0
@@ -536,7 +548,7 @@ function force_eqs!(
             eqs = [
                 eqs
                 point_force[:, point.idx] ~
-                    F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
+                    F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 pos[:, point.idx] ~ get_pos_w(psys, point.idx)
                 vel[:, point.idx] ~ zeros(3)
                 acc[:, point.idx] ~ zeros(3)
@@ -546,7 +558,7 @@ function force_eqs!(
             eqs = [
                 eqs
                 point_force[:, point.idx] ~
-                    F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
+                    F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
             ]
 
             if length(wings) > 0
@@ -589,7 +601,7 @@ function force_eqs!(
             eqs = [
                 eqs
                 point_force[:, point.idx] ~
-                    F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx]
+                    F + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 fix_static[point.idx] ~ get_fix_static(psys, point.idx)
                 vel[:, point.idx] ~ zeros(3)
                 acc[:, point.idx] ~ zeros(3)
