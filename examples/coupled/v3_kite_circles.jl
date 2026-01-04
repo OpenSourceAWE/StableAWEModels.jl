@@ -98,7 +98,7 @@ function run_v3_kite(wing_type::WingType;
 
     # Load YAML structure path
     model_name = wing_type == QUATERNION ? "v3_quat" : "v3_refine"
-    struc_yaml_path = joinpath("data", "v3", "struc_geometry.yaml")
+    struc_yaml_path = joinpath("data", "v3", "struc_geometry_stable.yaml")
 
     # Load VSMSettings
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
