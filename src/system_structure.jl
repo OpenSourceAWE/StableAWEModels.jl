@@ -2584,3 +2584,32 @@ function set_body_frame_damping(sys::SystemStructure, damping::Real)
     end
     return nothing
 end
+
+"""
+    segment_stretch_stats(sys::SystemStructure)
+
+Calculate segment stretch statistics for segments in tension.
+
+Returns the maximum and mean relative stretch of segments where len > l0.
+Relative stretch is defined as (current_length - l0) / l0.
+Only segments in tension (stretched) are included in the statistics.
+
+# Arguments
+- `sys::SystemStructure`: System structure with current segment states
+
+# Returns
+- `(max_stretch, mean_stretch)`: Tuple of maximum and mean relative stretch
+"""
+function segment_stretch_stats(sys::SystemStructure)
+    if isempty(sys.segments)
+        return (0.0, 0.0)
+    end
+
+    stretches = [(seg.len - seg.l0) / seg.l0 for seg in sys.segments if seg.len > seg.l0]
+
+    if isempty(stretches)
+        return (0.0, 0.0)
+    end
+
+    return (maximum(stretches), sum(stretches) / length(stretches))
+end
