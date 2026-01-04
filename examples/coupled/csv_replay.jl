@@ -19,16 +19,17 @@ using UnPack
 using LinearAlgebra
 using OrdinaryDiffEqBDF
 using KiteUtils: calc_elevation, azimuth_east
+using NonlinearSolve, ADTypes
 
 # Configuration parameters
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
-START_FRAME = 22068 + 1000 # First frame to replay
-END_FRAME = START_FRAME + 50 # Last frame to replay (use nothing for all frames)
+START_FRAME = 22068 # First frame to replay
+END_FRAME = START_FRAME + 100 # Last frame to replay (use nothing for all frames)
 REMAKE_CACHE = false
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 # Steering calibration
-STEERING_L0 = 1.506  # Neutral steering tape length (m)
+STEERING_L0 = 1.6  # Neutral steering tape length (m)
 STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
 
 # Depower calibration
@@ -59,8 +60,8 @@ Percentage convention: negative = left turn, positive = right turn.
 """
 function steering_percentage_to_lengths(percentage)
     u_s = percentage / 100.0  # Convert percentage to [-1, 1]
-    L_left = STEERING_L0 - (STEERING_GAIN / 2.0) * u_s
-    L_right = STEERING_L0 + (STEERING_GAIN / 2.0) * u_s
+    L_left = STEERING_L0 + STEERING_GAIN * u_s
+    L_right = STEERING_L0 - STEERING_GAIN * u_s
     return L_left, L_right
 end
 
@@ -193,7 +194,7 @@ Calculate feed-forward torque from tether force.
 Similar to calc_steady_torque but uses measured force.
 """
 function calc_feedforward_torque(tether_force_n, winch)
-    torque = -winch.drum_radius / winch.gear_ratio * tether_force_n - winch.friction
+    torque = -winch.drum_radius / winch.gear_ratio * tether_force_n + winch.friction
     return torque
 end
 
@@ -250,7 +251,8 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid, brake)
 
     # PID control for steering based on heading error
     # Use CSV steering as feedforward
-    L_left_csv, L_right_csv = steering_percentage_to_lengths(row.steering)
+    # L_left_csv, L_right_csv = steering_percentage_to_lengths(row.steering)
+    L_left_csv, L_right_csv = steering_percentage_to_lengths(-20)
     u_s_csv = (L_right_csv - L_left_csv) / 2.0  # Convert back to differential (m)
 
     # calculate_control!(pid, r, y, uff) - r:setpoint, y:measurement, uff:feedforward
@@ -263,8 +265,10 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid, brake)
     points[21].disturb .= -wing.R_b_w[:, 2] * tip_push
 
     # Apply steering via differential tape lengths
-    segments[87].l0 = STEERING_L0 - (STEERING_GAIN/2.0)*steering_control  # Left
-    segments[89].l0 = STEERING_L0 + (STEERING_GAIN/2.0)*steering_control  # Right
+    # segments[87].l0 = STEERING_L0 + STEERING_GAIN*steering_control  # Left
+    # segments[89].l0 = STEERING_L0 - STEERING_GAIN*steering_control  # Right
+    segments[87].l0 = L_left_csv
+    segments[89].l0 = L_right_csv
 
     # Winch length control with feed-forward torque
     winch = winches[1]
@@ -278,7 +282,8 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid, brake)
         winch_length_pid, row.tether_len, winch.tether_len, ff_torque)
 
     winch.brake = brake
-    winch.set_value = torque_control
+    winch.set_value = ff_torque
+    @show ff_torque
 
     # update depower (from CSV)
     L_depower = depower_percentage_to_length(row.depower)
@@ -292,21 +297,19 @@ end
 
 Update system structure from a single CSV row.
 Updates wing orientation from Euler angles and position via transform system.
+Uses nonlinear solve to find rotation angle that achieves desired heading.
 """
 function update_sys_struct_from_csv!(sys, row)
     @unpack wings, points, winches, segments, transforms = sys
     wing = wings[1]
     transform = transforms[1]
 
-    # calc delta heading
-    quat = euler_to_quaternion(row.roll,
-                               row.pitch,
-                               row.yaw)
-    csv_heading =
-        calc_heading(sys, SymbolicAWEModels.quaternion_to_rotation_matrix(quat)) + pi
+    # calc target heading from CSV
+    quat = euler_to_quaternion(row.roll, row.pitch, row.yaw)
+    csv_heading = calc_heading(sys,
+        SymbolicAWEModels.quaternion_to_rotation_matrix(quat)) + pi
     wing.R_b_w = calc_R_b_w(sys)
     curr_heading = calc_heading(sys, wing.R_b_w)
-    delta_heading = csv_heading - curr_heading
 
     # calc needed transform
     csv_pos = [row.x, row.y, row.z]
@@ -328,8 +331,37 @@ function update_sys_struct_from_csv!(sys, row)
         point.vel_w .= transform_frac * csv_vel
     end
 
-    # apply heading
+    # apply heading using nonlinear solve
     k = normalize(wing.pos_w)
+    wing.R_b_w = calc_R_b_w(sys)
+    R_b_w_original = copy(wing.R_b_w)
+
+    # Residual function: find θ such that heading(rotated) = csv_heading
+    function heading_residual!(resid, θ, p)
+        R_b_w_orig, csv_h, k_axis, sys_ref = p
+        # Rotate R_b_w by θ around k
+        R_rotated = similar(R_b_w_orig)
+        for i in 1:3
+            R_rotated[:, i] = SymbolicAWEModels.rotate_v_around_k(
+                R_b_w_orig[:, i], k_axis, θ[1])
+        end
+        # Calculate heading with rotated system
+        heading = calc_heading(sys_ref, R_rotated)
+        resid[1] = wrap_to_pi(heading - csv_h)
+        return nothing
+    end
+
+    # Initial guess: simple delta
+    θ_init = [wrap_to_pi(csv_heading - curr_heading)]
+
+    # Solve for rotation angle using finite differences
+    prob = NonlinearProblem(heading_residual!, θ_init,
+                           (R_b_w_original, csv_heading, k, sys))
+    sol = solve(prob, NewtonRaphson(autodiff=AutoFiniteDiff());
+                abstol=1e-6, reltol=1e-6)
+    delta_heading = sol.u[1]
+
+    # Apply the solved rotation
     R_b_w = copy(wing.R_b_w)
     R_b_w[:, 1] = SymbolicAWEModels.rotate_v_around_k(R_b_w[:, 1], k, delta_heading)
     R_b_w[:, 2] = SymbolicAWEModels.rotate_v_around_k(R_b_w[:, 2], k, delta_heading)
@@ -372,19 +404,19 @@ function run_physics_replay(csv_path::String;
     set = Settings("system.yaml")
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
-    sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml";
+    sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry_stable.yaml";
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
-    csv_sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml";
+    csv_sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry_stable.yaml";
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)
 
-    max_substeps = 1000
     n_csv_steps = length(csv_data.time)
-    n_steps = length(csv_data.time) * max_substeps
-    @info "Creating log with $n_steps timesteps"
+    n_substeps = 10
+    n_total_steps = n_csv_steps * n_substeps
+    @info "Creating log with $n_total_steps timesteps ($n_substeps substeps per CSV step)"
     sys_state = SysState(sam)
-    logger = Logger(sam, n_steps)
+    logger = Logger(sam, n_total_steps)
 
     # Create CSV reference model for visualization
     csv_sam = SymbolicAWEModel(set, csv_sys_struct)
@@ -397,15 +429,18 @@ function run_physics_replay(csv_path::String;
     replay_start = time()
     sys = sam.sys_struct
     SymbolicAWEModels.set_body_frame_damping(sys, INITIAL_DAMPING)
-    t = 0.0
-    dt = DT_CONTROL
+
+    # Calculate dt from CSV timesteps
+    csv_dt = csv_data.time[2] - csv_data.time[1]
+    substep_dt = csv_dt / n_substeps
+    @info "Using CSV dt = $csv_dt s, substep dt = $substep_dt s"
 
     # Initialize heading PID controller
     heading_pid = DiscretePID(;
         K = HEADING_KP,
         Ti = HEADING_TAU_I,
         Td = false,
-        Ts = DT_CONTROL,
+        Ts = substep_dt,
         umin = -0.5,
         umax = 0.5)
 
@@ -414,7 +449,7 @@ function run_physics_replay(csv_path::String;
         K = WINCH_LENGTH_KP,
         Ti = WINCH_LENGTH_TAU_I,
         Td = false,
-        Ts = DT_CONTROL,
+        Ts = substep_dt,
         umin = -2000.0,
         umax = 2000.0)
 
@@ -437,6 +472,8 @@ function run_physics_replay(csv_path::String;
             depower = csv_data.kite_actual_depower[step],
             distance = csv_data.distance[step],
             cumulative_distance = csv_data.cumulative_distance[step],
+            wind_at_kite = csv_data.lidar_wind_velocity_at_kite_mps[step],
+            angle_of_attack = deg2rad(csv_data.airspeed_angle_of_attack[step])
         )
     end
 
@@ -449,17 +486,12 @@ function run_physics_replay(csv_path::String;
 
             # Update CSV reference model and log
             update_sys_struct_from_csv!(csv_sam.sys_struct, csv_row)
-            # reinit!(csv_sam.sys_struct)
+            SymbolicAWEModels.reinit!(csv_sam, csv_sam.prob, FBDF())
             update_sys_state!(csv_state, csv_sam)
+            csv_state.winch_force[1] = csv_row.tether_force
+            csv_state.AoA = csv_row.angle_of_attack
             csv_state.time = csv_row.time
             log!(csv_logger, csv_state)
-
-            if t <= DECAY_TIME
-                current_damping = (INITIAL_DAMPING - MIN_DAMPING) * (1.0 - t / DECAY_TIME) + MIN_DAMPING
-                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping)
-            else
-                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, MIN_DAMPING)
-            end
 
             # Update system structure from CSV
             if step==1
@@ -467,69 +499,32 @@ function run_physics_replay(csv_path::String;
                 SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
             end
 
-            # Distance-based stepping
-            target_distance = csv_row.distance
-            simulated_distance = 0.0
-            last_pos_w = copy(sam.sys_struct.wings[1].pos_w)
-            substep_count = 0
-            min_distance_threshold = 0.01  # meters
+            # Run substeps
+            brake = true
+            for substep in 1:n_substeps
+                # Update damping
+                t = csv_row.time + (substep - 1) * substep_dt
+                if t <= DECAY_TIME
+                    current_damping = (INITIAL_DAMPING - MIN_DAMPING) *
+                                      (1.0 - t / DECAY_TIME) + MIN_DAMPING
+                    SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping)
+                end
 
-            # if t < 0.1
-                brake = true
-            # else
-            #     brake = false
-            # end
-
-            # Step until we match CSV distance (or hit safety limit)
-            wing = sam.sys_struct.wings[1]
-            last_sphere_distance = Inf
-            consecutive_increases = 0
-            required_increases = 3  # Need 3 consecutive increases to stop
-            while (substep_count < max_substeps)
-                t += dt
                 set_value = update_vel_from_csv!(
                     sam.sys_struct, csv_row, heading_pid, winch_length_pid, brake)
-                next_step!(sam; dt, set_values=[set_value])
+                sam.sys_struct.set.v_wind = csv_row.wind_at_kite
+                next_step!(sam; dt=substep_dt, set_values=[set_value])
 
-                # Calculate distance moved in this substep
-                next_pos = [next_row.x, next_row.y, next_row.z]
-                next_elevation = KiteUtils.calc_elevation(next_pos)
-                next_azimuth = KiteUtils.azimuth_east(next_pos)
-                sphere_distance = norm([next_elevation, next_azimuth] -
-                                       [wing.elevation, wing.azimuth])
-
-                current_pos_w = wing.pos_w
-                step_distance = norm(current_pos_w - last_pos_w)
-                simulated_distance += step_distance
-                last_pos_w = copy(current_pos_w)
+                # Log state
                 update_sys_state!(sys_state, sam)
                 sys_state.time = t
                 log!(logger, sys_state)
-                substep_count += 1
-
-                # Track consecutive increases in sphere distance
-                if sphere_distance > last_sphere_distance
-                    consecutive_increases += 1
-                    if consecutive_increases >= required_increases
-                        break
-                    end
-                else
-                    consecutive_increases = 0
-                end
-                last_sphere_distance = sphere_distance
-            end
-
-            # Warn if we hit the safety limit
-            if substep_count >= max_substeps
-                @warn "Hit max substeps at step $step " *
-                      "(simulated: $(round(simulated_distance, digits=3))m / " *
-                      "target: $(round(target_distance, digits=3))m)"
             end
 
             # Progress reporting
-            if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
+            if step % max(1, div(n_csv_steps, 10)) == 0 || step == n_csv_steps
                 elapsed = time() - replay_start
-                @info "  Logged $step/$n_steps points " *
+                @info "  Step $step/$n_csv_steps " *
                       "(t = $(round(csv_row.time, digits=2)) s)"
             end
         end
@@ -556,5 +551,6 @@ end
 # Main execution
 sam, syslog, csv_sam, csvlog, csv_data, raw_data = run_physics_replay(CSV_PATH)
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
-     plot_tether=true)
+     plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
+     suffixes=["phys", "csv"])
 

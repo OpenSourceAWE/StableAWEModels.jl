@@ -545,6 +545,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_us=false,
                    plot_gk=false,
                    plot_v_app=true,
+                   plot_kite_vel=false,
                    plot_aoa=plot_default,
                    plot_heading=plot_default,
                    plot_kiteutils_course=false,
@@ -561,10 +562,18 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_tether=false,
                    heading_setpoint=nothing,
                    tether_len_setpoint=nothing,
+                   suffixes=nothing,
                    size=(1200, 800))
 
     # Build list of panels to plot by combining data from all logs
     panels = []
+
+    # Generate suffixes: use custom if provided, otherwise use system names
+    actual_suffixes = if isnothing(suffixes)
+        [" - " * sys.name for sys in syss]
+    else
+        [" - " * s for s in suffixes]
+    end
 
     if plot_turn_rates
         all_data = []
@@ -572,7 +581,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
 
             # Calculate heading rate from diff for quaternion wings
             heading_unwrapped = copy(sl.heading)
@@ -612,7 +621,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             v_ro = [[sl.v_reelout[i][j] for i in eachindex(sl.v_reelout)] for j in 1:3]
             for j in 1:3
                 # Only plot if non-zero or if it's index 1
@@ -639,7 +648,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             # Extract tether length (first element if vector, otherwise scalar)
             l_tether = [length(sl.l_tether[j]) > 0 ? sl.l_tether[j][1] : 0.0
                         for j in eachindex(sl.l_tether)]
@@ -680,7 +689,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             aero_force_z = [sl.aero_force_b[i][3] for i in eachindex(sl.aero_force_b)]
             push!(all_data, aero_force_z)
             push!(all_labels, "F_aero,z" * suffix)
@@ -700,7 +709,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             aero_moment_z = [sl.aero_moment_b[i][3] for i in eachindex(sl.aero_moment_b)]
             push!(all_data, aero_moment_z)
             push!(all_labels, "M_aero,z" * suffix)
@@ -720,7 +729,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             tether_moment_y = [sl.tether_induced_moment[i][2] for i in eachindex(sl.tether_induced_moment)]
             push!(all_data, tether_moment_y)
             push!(all_labels, "M_tether,y" * suffix)
@@ -740,7 +749,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             n_groups = length(sl.twist_angles[1])
             if n_groups > 0
                 twist_deg = rad2deg.(hcat(sl.twist_angles...))
@@ -767,7 +776,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             # Reconstruct steering tape length of segment 87 from logged node positions
             seg_left = syss[i].segments[87]
             p_i, p_j = seg_left.point_idxs
@@ -807,7 +816,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
 
             # Reconstruct steering tape length of segment 87 from logged node positions
             seg_left = syss[i].segments[87]
@@ -965,7 +974,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             v_app = sl.v_app
             push!(all_data, v_app)
             push!(all_labels, "v_app" * suffix)
@@ -979,6 +988,25 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         ))
     end
 
+    if plot_kite_vel
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = actual_suffixes[i]
+            v_kite_norm = [norm(v) for v in sl.vel_kite]
+            push!(all_data, v_kite_norm)
+            push!(all_labels, "|v_kite|" * suffix)
+            push!(all_times, sl.time)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            times = all_times,
+            ylabel = "kite velocity [m/s]"
+        ))
+    end
 
     if plot_aoa
         all_data = []
@@ -986,7 +1014,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             aoa_deg = rad2deg.(sl.AoA)
             push!(all_data, aoa_deg)
             push!(all_labels, "α" * suffix)
@@ -1006,7 +1034,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             heading_deg = rad2deg.(sl.heading)
             course_deg = rad2deg.(sl.course)
             push!(all_data, heading_deg)
@@ -1060,7 +1088,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             # Calculate old heading from orientation quaternion
             old_heading_rad = similar(sl.heading)
             for i in eachindex(sl.orient)
@@ -1089,7 +1117,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             # Get wing origin index
             kite_idx = syss[i].wings[1].origin_idx
             distance = [norm([sl.X[j][kite_idx], sl.Y[j][kite_idx], sl.Z[j][kite_idx]]) for j in eachindex(sl.X)]
@@ -1111,7 +1139,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             # Get wing origin index
             kite_idx = syss[i].wings[1].origin_idx
             # Assuming wind_vec_gnd is available in syslog
@@ -1141,7 +1169,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             elevation_deg = rad2deg.(sl.elevation)
             push!(all_data, elevation_deg)
             push!(all_labels, "elevation" * suffix)
@@ -1161,7 +1189,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             azimuth_deg = rad2deg.(sl.azimuth)
             push!(all_data, azimuth_deg)
             push!(all_labels, "azimuth" * suffix)
@@ -1181,7 +1209,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
             for j in 1:3
                 # Only plot if non-zero or if it's index 1
@@ -1208,7 +1236,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = actual_suffixes[i]
             set_values = [[sl.set_torque[i][j] for i in eachindex(sl.set_torque)] for j in 1:3]
             for j in 1:3
                 # Only plot if non-zero or if it's index 1

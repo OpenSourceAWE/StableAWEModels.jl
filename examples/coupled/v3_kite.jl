@@ -35,7 +35,7 @@ WINCH_I = 100.0     # Integral gain [N/(m·s)]
 WINCH_D = 50.0      # Derivative gain [N·s/m]
 
 # V3 Kite steering/depower calibration (from KCU documentation)
-STEERING_L0 = 1.506  # Neutral steering tape length (m)
+STEERING_L0 = 1.6  # Neutral steering tape length (m)
 STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
 
 # Depower calibration

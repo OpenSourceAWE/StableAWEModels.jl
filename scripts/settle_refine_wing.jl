@@ -23,13 +23,15 @@ using GLMakie
 BODY_DAMPING = 1000.0  # Ns/m
 NUM_STEPS = 5000
 DT = 0.05  # seconds
-STRUC_PATH = "data/v3/struc_geometry_stable.yaml"
-AERO_PATH = "data/v3/aero_geometry_stable.yaml"
+SOURCE_STRUC_PATH = "data/v3/struc_geometry.yaml"
+DEST_STRUC_PATH = "data/v3/struc_geometry_stable.yaml"
+SOURCE_AERO_PATH = "data/v3/aero_geometry.yaml"
+DEST_AERO_PATH = "data/v3/aero_geometry_stable.yaml"
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 40.0   # depower [0, 100]
 
 # V3 Kite steering/depower calibration (from KCU documentation)
-STEERING_L0 = 1.506  # Neutral steering tape length (m)
+STEERING_L0 = 1.6  # Neutral steering tape length (m)
 STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
 DEPOWER_L0 = 0.2
 DEPOWER_GAIN = 5.0
@@ -141,7 +143,8 @@ end
 @info "Simulation completed. Updating YAML with settled positions..."
 
 # Update YAML files with settled positions
-update_yaml_from_sys_struct!(sys, STRUC_PATH, AERO_PATH)
+update_yaml_from_sys_struct!(sys, SOURCE_STRUC_PATH, DEST_STRUC_PATH,
+                            SOURCE_AERO_PATH, DEST_AERO_PATH)
 
 # Save and load the log
 log_name = "settle_refine_wing"
