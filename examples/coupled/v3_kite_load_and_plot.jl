@@ -254,11 +254,90 @@ function report_tether_direction_alignment(lg)
 end
 
 
+"""
+    compute_line_stretch(lg, sam; window_seconds=50.0)
+
+Compute line stretch ratios using the log data and segment rest lengths from `sam`.
+Returns a NamedTuple with the time window used and per-category stretch matrices
+(rows = samples, cols = segments). Also logs mean/max stretch over the selected
+window for each category.
+"""
+function compute_line_stretch(lg, sam; window_seconds::Real=50.0)
+   sl = hasproperty(lg, :syslog) ? lg.syslog : lg
+   if isempty(sl)
+      @warn "compute_line_stretch: empty log provided"
+      return (window=(0.0, 0.0), ratio=Dict{Symbol, Matrix{Float64}}())
+   end
+
+   segments = sam.sys_struct.segments
+   t_end = sl[end].time
+   t_start = t_end - window_seconds
+   start_idx = 1
+   for i in 1:length(sl)
+      if sl[i].time >= t_start
+         start_idx = i
+         break
+      end
+   end
+   window = (sl[start_idx].time, t_end)
+   window_span = window[2] - window[1]
+   n_samples = length(sl) - start_idx + 1
+
+   categories = (
+      (:tubular_frame, "Tubular frame", 1:19),
+      (:te_wires_and_diagonals, "TE wires and diagonals", 20:46),
+      (:bridles, "Bridles", 47:89),
+      (:tether, "Tether", 90:95),
+   )
+
+   ratio_by_category = Dict{Symbol, Matrix{Float64}}()
+
+   for (key, label, seg_idxs) in categories
+      ratios = fill(NaN, n_samples, length(seg_idxs))
+      @inbounds for (sample_idx, log_idx) in enumerate(start_idx:length(sl))
+         state = sl[log_idx]
+         X, Y, Z = state.X, state.Y, state.Z
+         for (col_idx, seg_idx) in enumerate(seg_idxs)
+            seg = segments[seg_idx]
+            l0 = Float64(seg.l0)
+            if !isfinite(l0) || l0 <= 0
+               continue
+            end
+            p1, p2 = seg.point_idxs
+            dx = X[p2] - X[p1]
+            dy = Y[p2] - Y[p1]
+            dz = Z[p2] - Z[p1]
+            len = sqrt(dx * dx + dy * dy + dz * dz)
+            if isfinite(len)
+               delta = max(len - l0, 0.0)
+               ratios[sample_idx, col_idx] = delta / l0
+            end
+         end
+      end
+
+      finite_mask = isfinite.(ratios)
+      if any(finite_mask)
+         vals = ratios[finite_mask]
+         mean_ratio = mean(vals)
+         max_ratio = maximum(vals)
+         @info "Line stretch ($label, last $(round(window_span, digits=2)) s)" mean_ratio max_ratio mean_percent=mean_ratio * 100 max_percent=max_ratio * 100
+      else
+         @warn "Line stretch ($label) has no finite values in the selected window"
+      end
+
+      ratio_by_category[key] = ratios
+   end
+
+   return (window=window, ratio=ratio_by_category)
+end
+
 log_name = "zenith_circle__up_40_us_15_vw_15_date_2026_01_05_13_40"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 # Log alignment info before plotting to decide tension source
 report_tether_direction_alignment(lg)
+# Compute line stretch ratios over the last 50 seconds
+stretch_info = compute_line_stretch(lg, sam; window_seconds=50.0)
 
 ### plot time series
 fig_time = plot_time_series(lg, sam)
