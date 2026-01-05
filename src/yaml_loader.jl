@@ -451,11 +451,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         tether_rows = parse_table(data["tethers"])
         for (i, row) in enumerate(tether_rows)
             tether = call_yaml_constructor(Tether, row,
-                [:idx, :segment_idxs, :winch_idx],
+                [:idx, :segment_idxs, :winch_point_idx],
                 [];
                 mappings=Dict(
                     :segment_idxs => r -> isnothing(r.segment_idxs) ? Int16[] : Vector{Int16}(r.segment_idxs),
-                    :winch_idx => r -> isnothing(r.winch_idx) ? Int16(0) : Int16(r.winch_idx)
+                    :winch_point_idx => r -> isnothing(r.winch_point_idx) ? Int16(0) : Int16(r.winch_point_idx)
                 ))
             push!(tethers, tether)
         end

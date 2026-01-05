@@ -971,10 +971,10 @@ function force_eqs!(
     for winch in winches
         F = zeros(Num, 3)
         for tether_idx in winch.tether_idxs
-            winch_idx = tethers[tether_idx].winch_idx
-            (winch_idx > length(points)) &&
-                error("Point number $winch_idx does not exist.")
-            F .+= point_force[:, winch_idx]
+            winch_point_idx = tethers[tether_idx].winch_point_idx
+            (winch_point_idx > length(points)) &&
+                error("Point number $winch_point_idx does not exist.")
+            F .+= point_force[:, winch_point_idx]
         end
 
         gear_ratio = get_winch_gear_ratio(psys, winch.idx)

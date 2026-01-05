@@ -438,12 +438,12 @@ $(TYPEDFIELDS)
 mutable struct Tether
     const idx::Int16
     const segment_idxs::Vector{Int16}
-    const winch_idx::Int16
+    const winch_point_idx::Int16
     stretched_len::SimFloat
 end
 
 """
-    Tether(idx, segment_idxs, winch_idx)
+    Tether(idx, segment_idxs, winch_point_idx)
 
 Constructs a `Tether` object representing a flexible line composed of multiple segments.
 
@@ -460,13 +460,13 @@ The unstretched tether length `L` is controlled by a winch.
 # Arguments
 - `idx::Int16`: Unique identifier for the tether.
 - `segment_idxs::Vector{Int16}`: Indices of segments that form this tether.
-- `winch_idx::Int16`: Index of the winch controlling this tether.
+- `winch_point_idx::Int16`: Index of the ground point where tether attaches to winch.
 
 # Returns
 - `Tether`: A new `Tether` object.
 """
-function Tether(idx, segment_idxs, winch_idx)
-    return Tether(idx, segment_idxs, winch_idx, 0.0)
+function Tether(idx, segment_idxs, winch_point_idx)
+    return Tether(idx, segment_idxs, winch_point_idx, 0.0)
 end
 
 """
@@ -1960,7 +1960,7 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
     winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z) .+ d_pos
     dir = winch_pos - attach_point.pos_cad
     segment_idxs = Int16[]
-    winch_idx = 0
+    winch_point_idx = 0
     for i in 1:set.segments
         frac = i / set.segments
         pos = attach_point.pos_cad + frac * dir
@@ -1973,7 +1973,7 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
         end
         if i == set.segments
             points = [points; Point(point_idx, pos, STATIC)]
-            winch_idx = points[end].idx
+            winch_point_idx = points[end].idx
         else
             points = [points; Point(point_idx, pos, dynamics_type)]
         end
@@ -1981,7 +1981,7 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
                                       axial_stiffness, axial_damping)]
         push!(segment_idxs, segment_idx)
     end
-    tethers = [tethers; Tether(tether_idx, segment_idxs, winch_idx)]
+    tethers = [tethers; Tether(tether_idx, segment_idxs, winch_point_idx)]
     return points, segments, tethers, tethers[end].idx
 end
 

@@ -306,8 +306,7 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid,
 
     # PID control for steering based on heading error
     # Use CSV steering as feedforward
-    # L_left_csv, L_right_csv = steering_percentage_to_lengths(row.steering)
-    L_left_csv, L_right_csv = steering_percentage_to_lengths(-20)
+    L_left_csv, L_right_csv = steering_percentage_to_lengths(row.steering)
     u_s_csv = (L_right_csv - L_left_csv) / 2.0  # Convert back to differential (m)
 
     # calculate_control!(pid, r, y, uff) - r:setpoint, y:measurement, uff:feedforward

@@ -271,9 +271,9 @@ groups:
 # This is typically handled by the simulation setup rather than structure definition
 
 tethers:
-  headers: [idx, segment_idxs, winch_idx]
+  headers: [idx, segment_idxs, winch_point_idx]
   data:
-    - [1, [90, 91, 92, 93, 94, 95], 1]
+    - [1, [90, 91, 92, 93, 94, 95], 44]
 
 ###########################
 ## Winches ################
