@@ -36,9 +36,9 @@ STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
 DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
 DEPOWER_GAIN = 5.0
 
-INITIAL_DAMPING = 400.0
-DECAY_TIME = 2.0
-MIN_DAMPING = 300.0
+INITIAL_DAMPING = [0.0, 300.0, 600.0]
+DECAY_TIME = 1.0
+MIN_DAMPING = [0.0, 30, 60]
 
 # PID controller parameters for heading control
 HEADING_KP = 0.1    # Low proportional gain
@@ -50,6 +50,11 @@ DT_CONTROL = 0.001    # Control timestep
 WINCH_LENGTH_KP = 0.0      # Low proportional gain for length tracking
 WINCH_LENGTH_TAU_I = 10.0   # Integral time constant
 WINCH_LENGTH_KD = 0.0      # No derivative gain
+
+# PI controller parameters for speed matching
+SPEED_KP = 10.0            # Proportional gain for speed error
+SPEED_TAU_I = 10.0          # Integral time constant
+SPEED_KD = 0.0             # No derivative gain
 
 
 """
@@ -138,6 +143,55 @@ function add_distance_column(data)
 
     # Add new fields to the named tuple
     return merge(data, (distance=distances, cumulative_distance=cumulative_distances))
+end
+
+"""
+    interpolate_csv_data(data, n_substeps)
+
+Linearly interpolate CSV data to create n_substeps points between each pair
+of original data points. Handles missing values by propagating them.
+"""
+function interpolate_csv_data(data, n_substeps)
+    n_original = length(data.time)
+    n_interp = (n_original - 1) * n_substeps + 1
+
+    # Create interpolated arrays for each field
+    interp_data = Dict{Symbol, Vector}()
+
+    for field in keys(data)
+        # Determine element type (handle Union{Float64, Missing})
+        eltype_field = eltype(data[field])
+        interp_values = Vector{eltype_field}(undef, n_interp)
+
+        for i in 1:(n_original-1)
+            # Starting index in interpolated array
+            start_idx = (i-1) * n_substeps + 1
+
+            val_i = data[field][i]
+            val_next = data[field][i+1]
+
+            # Interpolate between data[i] and data[i+1]
+            for j in 0:(n_substeps-1)
+                idx = start_idx + j
+                alpha = j / n_substeps
+
+                # Handle missing values
+                if ismissing(val_i) || ismissing(val_next)
+                    interp_values[idx] = missing
+                else
+                    interp_values[idx] = (1 - alpha) * val_i + alpha * val_next
+                end
+            end
+        end
+
+        # Add the last point
+        interp_values[end] = data[field][end]
+        interp_data[field] = interp_values
+    end
+
+    # Convert back to named tuple
+    col_names = Tuple(keys(data))
+    return NamedTuple{col_names}(Tuple(interp_data[k] for k in col_names))
 end
 
 """
@@ -239,7 +293,8 @@ function apply_force!(sys, control)
     end
 end
 
-function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid, brake)
+function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid,
+                               speed_pid, brake)
     @unpack wings, points, winches, segments = sys
     wing = wings[1]
 
@@ -257,6 +312,25 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid, brake)
 
     # calculate_control!(pid, r, y, uff) - r:setpoint, y:measurement, uff:feedforward
     steering_control = DiscretePIDs.calculate_control!(heading_pid, 0.0, delta_heading, u_s_csv)
+
+    # Speed matching PI controller
+    csv_speed = sqrt(row.vx^2 + row.vy^2 + row.vz^2)
+    sim_speed = norm(wing.vel_w)
+    speed_error = csv_speed - sim_speed  # Positive when sim is slower
+
+    # PI control for speed
+    force_magnitude = DiscretePIDs.calculate_control!(
+        speed_pid, csv_speed, sim_speed, 0.0)
+    force_magnitude = 0.0
+
+    # Apply force to all WING-type points
+    force_direction = wing.R_b_w[:, 1]
+    force_mag = -force_magnitude
+    for point in points
+        if point.type == SymbolicAWEModels.WING
+            point.disturb .= force_direction * force_mag
+        end
+    end
 
     tip_push = 10
     points[2].disturb .= wing.R_b_w[:, 2] * tip_push
@@ -283,7 +357,6 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid, brake)
 
     winch.brake = brake
     winch.set_value = ff_torque
-    @show ff_torque
 
     # update depower (from CSV)
     L_depower = depower_percentage_to_length(row.depower)
@@ -393,15 +466,21 @@ Updates tether length and steering/depower segments from CSV data at each step.
 """
 function run_physics_replay(csv_path::String;
                         start_frame=START_FRAME,
-                        end_frame=END_FRAME)
+                        end_frame=END_FRAME,
+                        n_substeps=10)
 
     raw_data = load_flight_data(csv_path)
-    csv_data = limit_frames(raw_data; start_frame, end_frame)
-    csv_data = add_distance_column(csv_data)
+    limited_data = limit_frames(raw_data; start_frame, end_frame)
+    limited_data = add_distance_column(limited_data)
+
+    # Interpolate CSV data for smoother control
+    @info "Interpolating CSV data with $n_substeps substeps"
+    csv_data = interpolate_csv_data(limited_data, n_substeps)
 
     @info "Loading v3 kite system structure from YAML"
     set_data_path("data/v3")
     set = Settings("system.yaml")
+    set.g_earth = 9.81
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
     sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry_stable.yaml";
@@ -411,18 +490,16 @@ function run_physics_replay(csv_path::String;
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)
 
-    n_csv_steps = length(csv_data.time)
-    n_substeps = 10
-    n_total_steps = n_csv_steps * n_substeps
-    @info "Creating log with $n_total_steps timesteps ($n_substeps substeps per CSV step)"
+    n_steps = length(csv_data.time)
+    @info "Creating log with $n_steps timesteps"
     sys_state = SysState(sam)
-    logger = Logger(sam, n_total_steps)
+    logger = Logger(sam, n_steps)
 
     # Create CSV reference model for visualization
     csv_sam = SymbolicAWEModel(set, csv_sys_struct)
     init!(csv_sam)
     csv_state = SysState(csv_sam)
-    csv_logger = Logger(csv_sam, n_csv_steps)
+    csv_logger = Logger(csv_sam, n_steps)
 
     # Loop through CSV data and update sys_struct
     @info "Replaying CSV data..."
@@ -430,17 +507,16 @@ function run_physics_replay(csv_path::String;
     sys = sam.sys_struct
     SymbolicAWEModels.set_body_frame_damping(sys, INITIAL_DAMPING)
 
-    # Calculate dt from CSV timesteps
-    csv_dt = csv_data.time[2] - csv_data.time[1]
-    substep_dt = csv_dt / n_substeps
-    @info "Using CSV dt = $csv_dt s, substep dt = $substep_dt s"
+    # Calculate dt from interpolated CSV timesteps
+    dt = csv_data.time[2] - csv_data.time[1]
+    @info "Using timestep dt = $dt s"
 
     # Initialize heading PID controller
     heading_pid = DiscretePID(;
         K = HEADING_KP,
         Ti = HEADING_TAU_I,
         Td = false,
-        Ts = substep_dt,
+        Ts = dt,
         umin = -0.5,
         umax = 0.5)
 
@@ -449,9 +525,18 @@ function run_physics_replay(csv_path::String;
         K = WINCH_LENGTH_KP,
         Ti = WINCH_LENGTH_TAU_I,
         Td = false,
-        Ts = substep_dt,
+        Ts = dt,
         umin = -2000.0,
         umax = 2000.0)
+
+    # Initialize speed matching PI controller
+    speed_pid = DiscretePID(;
+        K = SPEED_KP,
+        Ti = SPEED_TAU_I,
+        Td = false,
+        Ts = dt,
+        umin = -10000.0,
+        umax = 10000.0)
 
     function get_row(csv_data, step)
         csv_row = (
@@ -478,11 +563,10 @@ function run_physics_replay(csv_path::String;
     end
 
     try
-        for step in 1:n_csv_steps-1
+        for step in 1:n_steps-1
             @show step
             # Create row data structure
             csv_row = get_row(csv_data, step)
-            next_row = get_row(csv_data, step+1)
 
             # Update CSV reference model and log
             update_sys_struct_from_csv!(csv_sam.sys_struct, csv_row)
@@ -493,38 +577,42 @@ function run_physics_replay(csv_path::String;
             csv_state.time = csv_row.time
             log!(csv_logger, csv_state)
 
-            # Update system structure from CSV
-            if step==1
+            # Update system structure from CSV on first step
+            if step == 1
                 update_sys_struct_from_csv!(sam.sys_struct, csv_row)
                 SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
             end
 
-            # Run substeps
-            brake = true
-            for substep in 1:n_substeps
-                # Update damping
-                t = csv_row.time + (substep - 1) * substep_dt
-                if t <= DECAY_TIME
-                    current_damping = (INITIAL_DAMPING - MIN_DAMPING) *
-                                      (1.0 - t / DECAY_TIME) + MIN_DAMPING
-                    SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping)
-                end
-
-                set_value = update_vel_from_csv!(
-                    sam.sys_struct, csv_row, heading_pid, winch_length_pid, brake)
-                sam.sys_struct.set.v_wind = csv_row.wind_at_kite
-                next_step!(sam; dt=substep_dt, set_values=[set_value])
-
-                # Log state
-                update_sys_state!(sys_state, sam)
-                sys_state.time = t
-                log!(logger, sys_state)
+            # Update damping
+            t = csv_row.time
+            if t <= DECAY_TIME
+                current_damping = (INITIAL_DAMPING - MIN_DAMPING) *
+                                  (1.0 - t / DECAY_TIME) + MIN_DAMPING
+                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping)
             end
 
+            # Apply control and step
+            brake = true
+            set_value = update_vel_from_csv!(
+                sam.sys_struct, csv_row, heading_pid, winch_length_pid,
+                speed_pid, brake)
+            sam.sys_struct.set.v_wind = csv_row.wind_at_kite
+
+            # Update winch tether length from CSV and reinit to apply differential
+            sam.sys_struct.winches[1].tether_len = csv_row.tether_len
+            sam.sys_struct.winches[1].tether_vel = csv_row.tether_vel
+            SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
+            next_step!(sam; dt=dt, set_values=[set_value])
+
+            # Log state
+            update_sys_state!(sys_state, sam)
+            sys_state.time = t
+            log!(logger, sys_state)
+
             # Progress reporting
-            if step % max(1, div(n_csv_steps, 10)) == 0 || step == n_csv_steps
+            if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
                 elapsed = time() - replay_start
-                @info "  Step $step/$n_csv_steps " *
+                @info "  Step $step/$n_steps " *
                       "(t = $(round(csv_row.time, digits=2)) s)"
             end
         end

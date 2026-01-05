@@ -21,7 +21,7 @@ using GLMakie
 
 # Configuration
 BODY_DAMPING = 1000.0  # Ns/m
-NUM_STEPS = 5000
+NUM_STEPS = 500
 DT = 0.05  # seconds
 SOURCE_STRUC_PATH = "data/v3/struc_geometry.yaml"
 DEST_STRUC_PATH = "data/v3/struc_geometry_stable.yaml"
@@ -66,10 +66,12 @@ end
 # Load settings
 set_data_path("data/v3")
 set = Settings("system.yaml")
+set.g_earth = 9.81
 
 # Load VSMSettings
 vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
 vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+vsm_set.wings[1].geometry_file = "data/v3/aero_geometry.yaml"
 vsm_set.wings[1].n_panels = 36
 
 # Load system structure with REFINE wing type

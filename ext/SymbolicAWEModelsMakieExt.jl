@@ -1409,11 +1409,12 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     cam_offset_world = R_b_w * cam_offset_body
     cam_pos = kite_pos + cam_offset_world
 
-    # Set up vector to align with body z-axis BEFORE updating camera
-    cam.upvector[] = Vec3f(R_b_w[:, 3])
-
     # Set camera position and lookat
     update_cam!(scene, Vec3f(cam_pos), Vec3f(kite_pos))
+
+    # Set up vector to align with body z-axis AFTER updating camera
+    # This ensures the kite's z-axis always points straight up on screen
+    cam.upvector[] = Vec3f(R_b_w[:, 3])
 
     return distance
 end

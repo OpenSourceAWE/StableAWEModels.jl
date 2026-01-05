@@ -349,9 +349,9 @@ up = 0.4  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis
 vw = 15  # {{{ 10.  <> 15.0 }}} suitable range?
 lt = 260  # problems when changing...
 
-sim_time = 20.0
-decay_time = 1.0 #2secs works better than 3 somehow
-ramp_time = 1.0
+sim_time = 200.0
+decay_time = 2.0 #2secs works better than 3 somehow
+ramp_time = 2.0
 fps = 120
 initial_damping = 10.0
 damping_pattern = [0.0, 30.0, 60.0]
