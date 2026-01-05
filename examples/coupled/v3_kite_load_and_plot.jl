@@ -201,7 +201,7 @@ function plot_time_series(lg, sam)
             plot_yaw_rate_paper=true,
             yaw_rate_paper_ylims=(-100, 100),
             yaw_rate_paper_compare=true,
-            # plot_turn_rates=true,
+            plot_turn_rates=true,
          #    plot_tether=true,
             # plot_gk=true,
             # plot_gk_paper=true,
@@ -224,9 +224,41 @@ function plot_time_series(lg, sam)
       return fig
 end
 
+"""
+    report_tether_direction_alignment(lg)
 
-log_name = "zenith_circle__up_40_us_15_vw_15_date_2026_01_04_11_48"
+Print the key directions for tension derivation:
+- Bridle (mid-LE → KCU/point 1)
+- Segment 90 (point 1 → point 39)
+"""
+function report_tether_direction_alignment(lg)
+    if !isempty(lg.syslog)
+        idxs = unique([1, cld(length(lg.syslog), 2), length(lg.syslog)])
+        for idx in idxs
+            sl = lg.syslog[idx]
+            p1 = [sl.X[1], sl.Y[1], sl.Z[1]]                # KCU/bridle hub
+            ple12 = [sl.X[12], sl.Y[12], sl.Z[12]]
+            ple14 = [sl.X[14], sl.Y[14], sl.Z[14]]
+            p_le_mid = (ple12 .+ ple14) ./ 2
+            bridle_dir = p1 .- p_le_mid
+            midLE_to_KCU = norm(bridle_dir) > 0 ? bridle_dir / norm(bridle_dir) : bridle_dir
+
+            # Segment 90 endpoints (KCU point 1 to point 39)
+            p39 = [sl.X[39], sl.Y[39], sl.Z[39]]
+            seg90_dir = p39 .- p1
+            seg90_dir_unit = norm(seg90_dir) > 0 ? seg90_dir / norm(seg90_dir) : seg90_dir
+
+            @info "Direction (sample $idx)" midLE_to_KCU seg90_dir_unit
+        end
+    end
+end
+
+
+log_name = "zenith_circle__up_40_us_15_vw_15_date_2026_01_05_13_40"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
+
+# Log alignment info before plotting to decide tension source
+report_tether_direction_alignment(lg)
 
 ### plot time series
 fig_time = plot_time_series(lg, sam)

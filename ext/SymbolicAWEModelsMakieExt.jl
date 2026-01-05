@@ -458,6 +458,391 @@ function point_line_segment_distance(p, a, b)
     return norm(p - closest_point)
 end
 
+const R_ENU2NED = @SMatrix [0.0 1.0 0.0;
+                            1.0 0.0 0.0;
+                            0.0 0.0 -1.0]
+
+normalize_safe(v::SVector{3, Float64}; eps=1e-12) = begin
+    n = norm(v)
+    if !isfinite(n) || n < eps
+        return (SVector{3, Float64}(NaN, NaN, NaN), n)
+    end
+    return (v / n, n)
+end
+
+function bridle_frame_va(va_enu::SVector{3, Float64},
+                         tension_enu::SVector{3, Float64};
+                         pos_enu::Union{Nothing, SVector{3, Float64}}=nothing,
+                         eps=1e-12,
+                         ey_prev::Union{Nothing, SVector{3, Float64}}=nothing)
+    # Use provided tension direction; higher-level code enforces sign continuity
+    ez, nT = normalize_safe(tension_enu; eps=eps)
+    if !isfinite(nT) || nT < eps
+        return (SMatrix{3, 3, Float64}(ntuple(_ -> NaN, 9)), ey_prev)
+    end
+
+    ey_raw = cross(ez, -va_enu)
+    ey, nEy = normalize_safe(ey_raw; eps=eps)
+    # Keep ey continuous to avoid frame flips when va grazes ez
+    if ey_prev !== nothing && isfinite(nEy) && nEy >= eps && dot(ey, ey_prev) < 0
+        ey = -ey
+    end
+    if !isfinite(nEy) || nEy < eps
+        if ey_prev !== nothing
+            ey = ey_prev
+        else
+            tmp = abs(ez[1]) < 0.9 ? SVector(1.0, 0.0, 0.0) : SVector(0.0, 1.0, 0.0)
+            ey, _ = normalize_safe(cross(ez, tmp); eps=eps)
+        end
+    end
+
+    ex = cross(ey, ez)
+    DCM = @SMatrix [ex[1] ey[1] ez[1];
+                    ex[2] ey[2] ez[2];
+                    ex[3] ey[3] ez[3]]
+    return DCM, ey
+end
+
+function yaw_from_dcm_ned(DCM::SMatrix{3, 3, Float64}; eps=1e-9)
+    x = clamp(-DCM[3, 1], -1.0, 1.0)
+    pitch = asin(x)
+    if abs(abs(x) - 1.0) < eps
+        yaw = atan(-DCM[1, 2], DCM[2, 2])
+        roll = 0.0
+        return roll, pitch, yaw
+    end
+    roll = atan(DCM[3, 2], DCM[3, 3])
+    yaw = atan(DCM[2, 1], DCM[1, 1])
+    return roll, pitch, yaw
+end
+
+function unwrap_phase!(vals::AbstractVector{<:Real}; period=2π, thresh=π)
+    if isempty(vals)
+        return vals
+    end
+    offset = 0.0
+    prev = vals[1]
+    for i in 2:length(vals)
+        δ = vals[i] - prev
+        if δ > thresh
+            offset -= period
+        elseif δ < -thresh
+            offset += period
+        end
+        prev = vals[i]
+        vals[i] += offset
+    end
+    return vals
+end
+
+function gradient_uniform(y::AbstractVector{<:Real}, ts::Real)
+    n = length(y)
+    grad = Vector{Float64}(undef, n)
+    if n == 0
+        return grad
+    elseif n == 1
+        grad[1] = 0.0
+        return grad
+    end
+    grad[1] = (y[2] - y[1]) / ts
+    for i in 2:(n - 1)
+        grad[i] = (y[i + 1] - y[i - 1]) / (2 * ts)
+    end
+    grad[n] = (y[n] - y[n - 1]) / ts
+    return grad
+end
+
+function moving_average_same(x::AbstractVector{<:Real}, window::Int)
+    n = length(x)
+    if window <= 1 || n == 0
+        return Float64.(x)
+    end
+    left = window ÷ 2
+    right = window - 1 - left
+    padded = Vector{Float64}(undef, n + left + right)
+    padded[1:left] .= 0.0
+    padded[(left + 1):(left + n)] .= x
+    padded[(left + n + 1):end] .= 0.0
+    out = Vector{Float64}(undef, n)
+    @inbounds for i in 1:n
+        s = 0.0
+        for k in 0:(window - 1)
+            s += padded[i + k]
+        end
+        out[i] = s / window
+    end
+    return out
+end
+
+"""
+    midle_to_kcu_dir(sl, k; eps=1e-12)
+
+Compute the unit vector from the mid leading-edge (avg of points 12 & 14)
+to the KCU/bridle hub (point 1) for sample `k` of a syslog entry.
+Returns `nothing` if the required points are unavailable or degenerate.
+"""
+function midle_to_kcu_dir(sl, k; eps=1e-12)
+    Xk = sl.X[k]; Yk = sl.Y[k]; Zk = sl.Z[k]
+    if length(Xk) < 14 || length(Yk) < 14 || length(Zk) < 14
+        return nothing
+    end
+    p1 = SVector{3, Float64}(Xk[1], Yk[1], Zk[1])
+    ple12 = SVector{3, Float64}(Xk[12], Yk[12], Zk[12])
+    ple14 = SVector{3, Float64}(Xk[14], Yk[14], Zk[14])
+    p_le_mid = (ple12 + ple14) / 2
+    dir = p1 - p_le_mid
+    n = norm(dir)
+    return n > eps ? dir / n : nothing
+end
+
+"""
+    compute_ekf_yaw_and_rate(sl_in, sys::SystemStructure; eps=1e-12)
+
+Compute EKF-style yaw and yaw rate using a velocity-based tangent frame.
+
+This matches the Python reference implementation which uses the kite's velocity
+direction in the tangent plane (perpendicular to position) to define heading.
+This approach is more robust than using apparent wind × tension because it
+avoids singularities when these vectors align.
+
+# Returns
+- `(yaw, yaw_rate)`: Tuple of unwrapped yaw angles [rad] and yaw rates [deg/s]
+- `nothing` if required data is missing
+"""
+function compute_ekf_yaw_and_rate(sl_in, sys::SystemStructure; eps=1e-12)
+    # Accept either a SysLog wrapper or the raw syslog StructVector
+    sl = hasproperty(sl_in, :syslog) ? sl_in.syslog : sl_in
+    n = length(sl.time)
+    if n < 2 || isempty(sl.vel_kite)
+        return nothing
+    end
+    if length(sys.wings) == 0 || length(sl.X) < n || length(sl.Y) < n || length(sl.Z) < n
+        return nothing
+    end
+    
+    kite_idx = sys.wings[1].origin_idx
+    yaw = Vector{Float64}(undef, n)
+    nan_count = 0
+    
+    # Use velocity-based tangent frame (same as HeadingGate/sphere method)
+    # This is more robust than tension × apparent wind
+    @inbounds for k in 1:n
+        pos = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
+        vel = SVector{3, Float64}(sl.vel_kite[k])
+        
+        npos = norm(pos)
+        nvel = norm(vel)
+        
+        if npos > eps && nvel > eps
+            # Define tangent plane perpendicular to radial direction
+            radial = pos / npos
+            
+            # Project velocity into tangent plane
+            tang_vel = vel - (vel ⋅ radial) * radial
+            ntang = norm(tang_vel)
+            
+            if ntang > eps
+                tang_vel_unit = tang_vel / ntang
+                
+                # Build local "up" frame at kite position
+                # up_z = radial (points away from origin)
+                # up_y = perpendicular in horizontal plane
+                # up_x = up_y × up_z
+                up_z = radial
+                up_y_raw = SVector(-pos[2], pos[1], 0.0)
+                nup_y = norm(up_y_raw)
+                
+                if nup_y > eps
+                    up_y = up_y_raw / nup_y
+                    up_x = up_z × up_y
+                    nup_x = norm(up_x)
+                    
+                    if nup_x > eps
+                        up_x = up_x / nup_x
+                        # Re-orthonormalize
+                        up_y = up_z × up_x
+                        
+                        # Rotation matrix from world to "up" frame
+                        R_up = @SMatrix [up_x[1] up_y[1] up_z[1];
+                                         up_x[2] up_y[2] up_z[2];
+                                         up_x[3] up_y[3] up_z[3]]
+                        
+                        # Express tangent velocity in "up" frame
+                        heading_vec = R_up' * tang_vel_unit
+                        
+                        # Yaw from x-y components in "up" frame
+                        yaw[k] = atan(heading_vec[2], heading_vec[1])
+                        continue
+                    end
+                end
+            end
+        end
+        
+        # Fallback: copy previous or NaN
+        yaw[k] = k > 1 ? yaw[k-1] : NaN
+        nan_count += 1
+    end
+    
+    if nan_count > 0
+        @info "compute_ekf_yaw_and_rate: $nan_count samples with degenerate geometry"
+    end
+    
+    # Unwrap phase
+    yaw_unwrapped = copy(yaw)
+    unwrap_phase!(yaw_unwrapped)
+    
+    # Compute yaw rate
+    ts = mean(diff(sl.time))
+    ts = isfinite(ts) && ts > eps ? ts : eps
+    
+    yaw_rate = gradient_uniform(yaw_unwrapped, ts)
+    # Match Python's smoothing window
+    yaw_rate = moving_average_same(yaw_rate, 10)
+    
+    @info "EKF yaw rate stats" mean=mean(yaw_rate) std=std(yaw_rate) min=minimum(yaw_rate) max=maximum(yaw_rate)
+    
+    return yaw_unwrapped, rad2deg.(yaw_rate)
+end
+
+
+"""
+    compute_ekf_yaw_and_rate_tension(sl_in, sys::SystemStructure; eps=1e-12)
+
+Alternative implementation using tension × apparent wind frame.
+
+This version uses the bridle frame (tension direction as z-axis, apparent wind
+to define y-axis). It's more physically motivated but can be less robust when
+apparent wind aligns with tension.
+
+# Returns  
+- `(yaw, yaw_rate)`: Tuple of unwrapped yaw angles [rad] and yaw rates [deg/s]
+- `nothing` if required data is missing
+"""
+function compute_ekf_yaw_and_rate_tension(sl_in, sys::SystemStructure; eps=1e-12)
+    sl = hasproperty(sl_in, :syslog) ? sl_in.syslog : sl_in
+    n = length(sl.time)
+    if n < 2 || isempty(sl.vel_kite) || isempty(sl.v_wind_kite) || isempty(sl.tether_induced_force)
+        return nothing
+    end
+    if length(sys.wings) == 0 ||
+       length(sl.vel_kite) < n || length(sl.v_wind_kite) < n ||
+       length(sl.tether_induced_force) < n || length(sl.X) < n ||
+       length(sl.Y) < n || length(sl.Z) < n
+        return nothing
+    end
+    
+    kite_idx = sys.wings[1].origin_idx
+    yaw = Vector{Float64}(undef, n)
+    ey_prev = nothing
+    ex_prev = nothing
+    tension_prev = nothing
+    missing_tension = 0
+    missing_pos = 0
+    nan_yaw = 0
+    flip_count = 0
+    t_min = Inf
+    t_max = -Inf
+    t_sum = 0.0
+    t_cnt = 0
+    
+    @inbounds for k in 1:n
+        v_kite = SVector{3, Float64}(sl.vel_kite[k])
+        v_wind = SVector{3, Float64}(sl.v_wind_kite[k])
+        pos = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
+        tension_raw = SVector{3, Float64}(sl.tether_induced_force[k])
+
+        # Prefer geometry-based bridle direction
+        tension_dir = midle_to_kcu_dir(sl, k; eps=eps)
+        
+        # Enforce continuity on tension direction
+        if tension_dir !== nothing && all(isfinite, tension_dir) && norm(tension_dir) >= eps
+            if tension_prev !== nothing && dot(tension_dir, tension_prev) < 0
+                tension_dir = -tension_dir
+                flip_count += 1
+            end
+        else
+            if tension_prev !== nothing
+                tension_dir = tension_prev
+            else
+                tension_dir = tension_raw
+                nT_raw = norm(tension_raw)
+                if !isfinite(nT_raw) || nT_raw < eps
+                    npos = norm(pos)
+                    if isfinite(npos) && npos >= eps
+                        tension_dir = -pos / npos
+                        missing_tension += 1
+                    else
+                        missing_pos += 1
+                        yaw[k] = k > 1 ? yaw[k - 1] : NaN
+                        continue
+                    end
+                else
+                    t_min = min(t_min, nT_raw)
+                    t_max = max(t_max, nT_raw)
+                    t_sum += nT_raw
+                    t_cnt += 1
+                    if tension_prev !== nothing && dot(tension_dir, tension_prev) < 0
+                        tension_dir = -tension_dir
+                        flip_count += 1
+                    end
+                end
+            end
+        end
+        tension_prev = tension_dir
+
+        va = v_wind - v_kite
+        DCM_b2w, ey_prev = bridle_frame_va(va, tension_dir; pos_enu=pos, ey_prev=ey_prev, eps=eps)
+        
+        # Check ex continuity to detect frame flips
+        ex_curr = SVector{3, Float64}(DCM_b2w[1, 1], DCM_b2w[2, 1], DCM_b2w[3, 1])
+        if ex_prev !== nothing && dot(ex_curr, ex_prev) < 0
+            # Flip ex and ez (keep ey)
+            DCM_b2w = @SMatrix [-DCM_b2w[1,1]  DCM_b2w[1,2] -DCM_b2w[1,3];
+                                -DCM_b2w[2,1]  DCM_b2w[2,2] -DCM_b2w[2,3];
+                                -DCM_b2w[3,1]  DCM_b2w[3,2] -DCM_b2w[3,3]]
+            ex_curr = SVector{3, Float64}(DCM_b2w[1, 1], DCM_b2w[2, 1], DCM_b2w[3, 1])
+        end
+        ex_prev = ex_curr
+        
+        # Convert to NED and extract yaw
+        DCM_b2ned = R_ENU2NED * DCM_b2w
+        yaw_raw = atan(DCM_b2ned[2, 1], DCM_b2ned[1, 1])
+        
+        # Unwrap-style continuity
+        if k == 1
+            yaw[k] = yaw_raw
+        else
+            diff = yaw_raw - yaw[k-1]
+            while diff > π
+                diff -= 2π
+            end
+            while diff < -π
+                diff += 2π
+            end
+            yaw[k] = yaw[k-1] + diff
+        end
+        
+        nan_yaw += isfinite(yaw[k]) ? 0 : 1
+    end
+    
+    if missing_tension > 0 || missing_pos > 0 || nan_yaw > 0 || flip_count > 0
+        t_mean = t_cnt > 0 ? t_sum / t_cnt : NaN
+        @info "compute_ekf_yaw_and_rate_tension stats" missing_tension missing_pos nan_yaw flip_count t_min t_max t_mean
+    end
+    
+    ts = mean(diff(sl.time))
+    ts = isfinite(ts) && ts > eps ? ts : eps
+    
+    yaw_rate = gradient_uniform(yaw, ts)
+    yaw_rate = moving_average_same(yaw_rate, 10)
+    
+    if missing_tension > 0 || missing_pos > 0
+        @info "EKF yaw rate (tension) stats" mean=mean(yaw_rate) std=std(yaw_rate) min=minimum(yaw_rate) max=maximum(yaw_rate)
+    end
+    
+    return yaw, rad2deg.(yaw_rate)
+end
+
 """
     Makie.plot(sys::SystemStructure, lg::SysLog; kwargs...)
 
@@ -481,7 +866,7 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_heading::Bool=plot_default`: Show the panel with the kite's heading and course angles.
 - `plot_kiteutils_course::Bool=false`: Also plot course calculated using KiteUtils.calc_course.
 - `gk_ylims::Union{Nothing,Tuple}=(0.0, 10.0)`: Y-axis limits for the gk panel (`nothing` leaves autoscaling).
-- `plot_yaw_rate_paper::Bool=false`: Plot paper-style yaw rate ψ̇ derived from the apparent wind direction in NED (d/dt of yaw(va_w)).
+- `plot_yaw_rate_paper::Bool=false`: Plot EKF bridle yaw rate ψ̇ derived from the ENU tension/apparent wind frame (paper yaw-rate).
 - `yaw_rate_paper_ylims::Union{Nothing,Tuple}=nothing`: Y-axis limits for the paper yaw-rate panel (`nothing` leaves autoscaling).
 - `plot_elevation::Bool=false`: Show the panel with the kite's elevation angle.
 - `plot_azimuth::Bool=false`: Show the panel with the kite's azimuth angle.
@@ -631,39 +1016,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             end
             yaw_rate_perp_wind = Base.diff(rad2deg.(heading_unwrapped)) ./ Base.diff(sl.time)
 
-            # Paper-style yaw from apparent wind (va = vw - vk, ENU -> NED, yaw = atan2(E, N))
-            yaw_va = nothing
-            yaw_rate_va = nothing
-            yaw_vk = nothing
-            yaw_rate_vk = nothing
-            if !isempty(sl.vel_kite) && !isempty(sl.v_wind_kite)
-                yaw_va = Vector{Float64}(undef, n)
-                yaw_vk = Vector{Float64}(undef, n)
-                @inbounds for k in 1:n
-                    v = sl.vel_kite[k]
-                    w = sl.v_wind_kite[k]
-                    va_enu = w .- v
-                    va_ned = SVector{3, Float64}(va_enu[2], va_enu[1], -va_enu[3])
-                    yaw_va[k] = atan(va_ned[2], va_ned[1])
-                    vk_ned = SVector{3, Float64}(v[2], v[1], -v[3])
-                    yaw_vk[k] = atan(vk_ned[2], vk_ned[1])
+            yaw_ekf = nothing
+            yaw_rate_EKF = nothing
+            if !isempty(sl.vel_kite) && !isempty(sl.v_wind_kite) && !isempty(sl.tether_induced_force)
+                ekf = compute_ekf_yaw_and_rate(lg, syss[i])
+                if ekf !== nothing
+                    yaw_ekf, yaw_rate_EKF = ekf
                 end
-                for k in 2:n
-                    dψ = yaw_va[k] - yaw_va[k - 1]
-                    if dψ > π
-                        yaw_va[k] -= 2π
-                    elseif dψ < -π
-                        yaw_va[k] += 2π
-                    end
-                    dψv = yaw_vk[k] - yaw_vk[k - 1]
-                    if dψv > π
-                        yaw_vk[k] -= 2π
-                    elseif dψv < -π
-                        yaw_vk[k] += 2π
-                    end
-                end
-                yaw_rate_va = Base.diff(rad2deg.(yaw_va)) ./ Base.diff(sl.time)
-                yaw_rate_vk = Base.diff(rad2deg.(yaw_vk)) ./ Base.diff(sl.time)
             end
 
             # Tangential sphere heading: use velocity projected into tangent plane
@@ -686,9 +1045,9 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                             if norm(up_x) > 1e-9
                                 up_x /= norm(up_x)
                                 up_y = up_z × up_x  # re-orthonormalize
-                                R_up = SMatrix{3,3,Float64}((up_x[1], up_y[1], up_z[1],
-                                                             up_x[2], up_y[2], up_z[2],
-                                                             up_x[3], up_y[3], up_z[3]))
+                                R_up = @SMatrix [up_x[1] up_y[1] up_z[1];
+                                                 up_x[2] up_y[2] up_z[2];
+                                                 up_x[3] up_y[3] up_z[3]]
                                 heading_vec = R_up' * tang_vel
                                 yaw_sphere[k] = atan(heading_vec[2], heading_vec[1])
                                 continue
@@ -699,52 +1058,44 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 yaw_sphere[k] = k > 1 ? yaw_sphere[k-1] : NaN
             end
 
-            # Unwrap sphere yaw angles
-            for k in 2:n
-                if !isnan(yaw_sphere[k]) && !isnan(yaw_sphere[k - 1])
-                    dψ = yaw_sphere[k] - yaw_sphere[k - 1]
-                    if dψ > π
-                        yaw_sphere[k] -= 2π
-                    elseif dψ < -π
-                        yaw_sphere[k] += 2π
-                    end
-                end
-            end
-
-            yaw_rate_sphere = Base.diff(rad2deg.(yaw_sphere)) ./ Base.diff(sl.time)
+            yaw_sphere_unwrapped = copy(yaw_sphere)
+            unwrap_phase!(yaw_sphere_unwrapped)
+            yaw_rate_sphere = Base.diff(rad2deg.(yaw_sphere_unwrapped)) ./ Base.diff(sl.time)
 
             # Averages over the last 33 seconds for quick inspection
-            t_rate = sl.time[1:end-1]
+            t_rate_diff = sl.time[1:end-1]
             window_start = sl.time[end] - 10
-            mask = t_rate .>= window_start
-            mask = any(mask) ? mask : trues(length(t_rate))
-            avg_heading = mean(yaw_rate_perp_wind[mask])
-            avg_va = yaw_rate_va === nothing ? NaN : mean(yaw_rate_va[mask])
-            avg_vk = yaw_rate_vk === nothing ? NaN : mean(yaw_rate_vk[mask])
-            avg_sphere = mean(yaw_rate_sphere[mask])
-            @info "yaw_rate_paper averages (last 33 s)" suffix avg_heading avg_va avg_vk avg_sphere
+            mask_diff = t_rate_diff .>= window_start
+            mask_diff = any(mask_diff) ? mask_diff : trues(length(t_rate_diff))
+            mask_full = sl.time .>= window_start
+            mask_full = any(mask_full) ? mask_full : trues(length(sl.time))
+            avg_heading = mean(yaw_rate_perp_wind[mask_diff])
+            avg_ekf = yaw_rate_EKF === nothing ? NaN : mean(yaw_rate_EKF[mask_full])
+            avg_sphere = mean(yaw_rate_sphere[mask_diff])
+            @info "yaw_rate_paper averages (last 33 s)" suffix avg_heading avg_ekf avg_sphere
 
-            push!(all_data, yaw_rate_perp_wind)
-            push!(all_labels, "dψ/dt (heading⟂wind)" * suffix)
-            if yaw_rate_va !== nothing
-                push!(all_data, yaw_rate_va)
-                push!(all_labels, "dψ/dt (paper v_app)" * suffix)
-                push!(all_times, sl.time[1:end-1])
+            push_trace!(data, label, time) = begin
+                push!(all_data, data); push!(all_labels, label); push!(all_times, time)
             end
-            if yaw_rate_vk !== nothing
-                push!(all_data, yaw_rate_vk)
-                push!(all_labels, "dψ/dt (paper v_kite)" * suffix)
-                push!(all_times, sl.time[1:end-1])
+            push_trace!(yaw_rate_perp_wind, "dψ/dt (heading⟂wind)" * suffix, sl.time[1:end-1])
+            if yaw_rate_EKF !== nothing
+                push_trace!(yaw_rate_EKF, "dψ/dt (EKF yaw)" * suffix, sl.time)
+                # push_trace!(yaw_ekf, "ψ (EKF yaw)" * suffix, sl.time)
             end
-            push!(all_data, yaw_rate_sphere)
-            push!(all_labels, "dψ/dt (HeadingGate)" * suffix)
-            push!(all_times, sl.time[1:end-1])
-            push!(all_times, sl.time[1:end-1])
+            # push_trace!(yaw_rate_sphere, "dψ/dt (HeadingGate)" * suffix, sl.time[1:end-1])
 
             if yaw_rate_paper_compare
-                yaw_va_cmp = yaw_va === nothing ? copy(heading_unwrapped) : yaw_va
+                yaw_cmp = yaw_ekf === nothing ? copy(heading_unwrapped) : copy(yaw_ekf)
                 yaw_sph = copy(yaw_sphere)
                 for k in 2:n
+                    if !isnan(yaw_cmp[k]) && !isnan(yaw_cmp[k - 1])
+                        dψ = yaw_cmp[k] - yaw_cmp[k - 1]
+                        if dψ > π
+                            yaw_cmp[k] -= 2π
+                        elseif dψ < -π
+                            yaw_cmp[k] += 2π
+                        end
+                    end
                     dψ = yaw_sph[k] - yaw_sph[k - 1]
                     if dψ > π
                         yaw_sph[k] -= 2π
@@ -752,8 +1103,8 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                         yaw_sph[k] += 2π
                     end
                 end
-                mask = .!isnan.(yaw_va_cmp) .& .!isnan.(yaw_sph)
-                yaw_va_f = yaw_va_cmp[mask]
+                mask = .!isnan.(yaw_cmp) .& .!isnan.(yaw_sph)
+                yaw_cmp_f = yaw_cmp[mask]
                 yaw_sph_f = yaw_sph[mask]
                 t_f = sl.time[mask]
                 if isempty(t_f)
@@ -763,12 +1114,12 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                                             std_rate=NaN,
                                             std_rate_deg=NaN))
                 else
-                    diff_yaw = yaw_va_f .- yaw_sph_f
+                    diff_yaw = yaw_cmp_f .- yaw_sph_f
                     diff_yaw .-= mean(diff_yaw)
                     std_diff = std(diff_yaw)
-                    rate_va = Base.diff(yaw_va_f) ./ Base.diff(t_f)
+                    rate_cmp = Base.diff(yaw_cmp_f) ./ Base.diff(t_f)
                     rate_sph = Base.diff(yaw_sph_f) ./ Base.diff(t_f)
-                    std_rate = std(rate_va .- rate_sph)
+                    std_rate = std(rate_cmp .- rate_sph)
                     push!(compare_results, (suffix=suffix,
                                             std_diff=std_diff,
                                             std_diff_deg=rad2deg(std_diff),
@@ -787,7 +1138,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             ))
             if yaw_rate_paper_compare && !isempty(compare_results)
                 for res in compare_results
-                    @info "yaw_rate_paper comparison (paper vs sphere)" res...
+                    @info "yaw_rate_paper comparison (EKF vs sphere)" res...
                 end
             end
         end
