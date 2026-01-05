@@ -218,9 +218,15 @@ get_axial_damping(sys::SystemStructure, idx::Int16) =
     sys.segments[idx].axial_damping
 @register_symbolic get_axial_damping(sys::SystemStructure, idx::Int16)
 get_body_frame_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].body_frame_damping
-@register_symbolic get_body_frame_damping(sys::SystemStructure, idx::Int16)
+@register_array_symbolic get_body_frame_damping(sys::SystemStructure, idx::Int16) begin
+    size = (3,)
+    eltype = SimFloat
+end
 get_world_frame_damping(sys::SystemStructure, idx::Int16) = sys.points[idx].world_frame_damping
-@register_symbolic get_world_frame_damping(sys::SystemStructure, idx::Int16)
+@register_array_symbolic get_world_frame_damping(sys::SystemStructure, idx::Int16) begin
+    size = (3,)
+    eltype = SimFloat
+end
 get_point_area(sys::SystemStructure, idx::Int16) = sys.points[idx].area
 @register_symbolic get_point_area(sys::SystemStructure, idx::Int16)
 get_point_drag_coeff(sys::SystemStructure, idx::Int16) = sys.points[idx].drag_coeff
@@ -334,6 +340,9 @@ function force_eqs!(
         pos_b(t)[1:3, eachindex(points)]
         fix_point_sphere(t)[eachindex(points)]
         fix_static(t)[eachindex(points)]
+        # Point damping (per-axis)
+        body_frame_damping(t)[1:3, eachindex(points)]
+        world_frame_damping(t)[1:3, eachindex(points)]
         # Segment forces and rest length
         spring_force_vec(t)[1:3, eachindex(segments)]
         drag_force(t)[1:3, eachindex(segments)]
@@ -381,6 +390,8 @@ function force_eqs!(
             eqs
             point_mass[point.idx] ~ mass
             disturb_force[:, point.idx] ~ get_disturb(psys, point.idx)
+            body_frame_damping[:, point.idx] ~ get_body_frame_damping(psys, point.idx)
+            world_frame_damping[:, point.idx] ~ get_world_frame_damping(psys, point.idx)
         ]
 
         # Calculate apparent velocity for ALL points (needed for REFINE wings and generally useful)
@@ -442,9 +453,12 @@ function force_eqs!(
                         F + aero_force_w + [0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 ]
 
-                # Damping terms
-                body_frame_damp_vec = get_body_frame_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
-                world_frame_damp_vec = get_world_frame_damping(psys, point.idx) * vel[:, point.idx]
+                # Damping terms (applied in body frame, then transformed to world frame)
+                vel_diff_w = vel[:, point.idx] - wing_vel[point.wing_idx, :]
+                vel_diff_b = R_b_w[wing.idx, :, :]' * vel_diff_w
+                body_frame_damp_b = body_frame_damping[:, point.idx] .* vel_diff_b
+                body_frame_damp_vec = R_b_w[wing.idx, :, :] * body_frame_damp_b
+                world_frame_damp_vec = world_frame_damping[:, point.idx] .* vel[:, point.idx]
 
                 # DYNAMIC point equations
                 axis = sym_normalize(pos[:, point.idx])
@@ -562,11 +576,15 @@ function force_eqs!(
             ]
 
             if length(wings) > 0
-                body_frame_damp_vec = get_body_frame_damping(psys, point.idx) * (vel[:, point.idx] - wing_vel[point.wing_idx, :])
+                # Damping applied in body frame, then transformed to world frame
+                vel_diff_w = vel[:, point.idx] - wing_vel[point.wing_idx, :]
+                vel_diff_b = R_b_w[point.wing_idx, :, :]' * vel_diff_w
+                body_frame_damp_b = body_frame_damping[:, point.idx] .* vel_diff_b
+                body_frame_damp_vec = R_b_w[point.wing_idx, :, :] * body_frame_damp_b
             else
                 body_frame_damp_vec = zeros(3)
             end
-            world_frame_damp_vec = get_world_frame_damping(psys, point.idx) * vel[:, point.idx]
+            world_frame_damp_vec = world_frame_damping[:, point.idx] .* vel[:, point.idx]
 
             axis = sym_normalize(pos[:, point.idx])
             eqs = [

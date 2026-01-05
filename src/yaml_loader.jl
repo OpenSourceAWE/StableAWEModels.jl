@@ -307,7 +307,23 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 mappings=Dict(
                     :pos_cad => r -> KVec3(r.pos_cad...),
                     :type => r -> parse_dynamics_type(
-                        String(r.type))
+                        String(r.type)),
+                    :body_frame_damping => r -> begin
+                        if haskey(r, :body_frame_damping)
+                            val = r.body_frame_damping
+                            val isa Real ? SVector{3,SimFloat}(val, val, val) : SVector{3,SimFloat}(val...)
+                        else
+                            zeros(KVec3)
+                        end
+                    end,
+                    :world_frame_damping => r -> begin
+                        if haskey(r, :world_frame_damping)
+                            val = r.world_frame_damping
+                            val isa Real ? SVector{3,SimFloat}(val, val, val) : SVector{3,SimFloat}(val...)
+                        else
+                            zeros(KVec3)
+                        end
+                    end
                 ))
 
             point.pos_w .= point.pos_cad
@@ -551,12 +567,19 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         for row in transform_rows
             transform = call_yaml_constructor(Transform, row,
                 [:idx, :elevation, :azimuth, :heading],
-                [:base_point_idx, :base_pos,
-                 :base_transform_idx, :wing_idx, :rot_point_idx];
+                [:base_point_idx, :base_pos, :base_transform_idx,
+                 :wing_idx, :rot_point_idx,
+                 :elevation_vel, :azimuth_vel, :turn_rate];
                 mappings=Dict(
                     :elevation => r -> deg2rad(r.elevation),
                     :azimuth => r -> deg2rad(r.azimuth),
                     :heading => r -> deg2rad(r.heading),
+                    :elevation_vel => r -> hasfield(typeof(r), :elevation_vel) ?
+                        deg2rad(r.elevation_vel) : 0.0,
+                    :azimuth_vel => r -> hasfield(typeof(r), :azimuth_vel) ?
+                        deg2rad(r.azimuth_vel) : 0.0,
+                    :turn_rate => r -> hasfield(typeof(r), :turn_rate) ?
+                        deg2rad(r.turn_rate) : 0.0,
                     :base_pos => r -> KVec3(r.base_pos...),
                     :base_point_idx => r ->
                         Int16(r.base_point_idx),
@@ -570,9 +593,18 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             elev_deg = rad2deg(transform.elevation)
             azim_deg = rad2deg(transform.azimuth)
             head_deg = rad2deg(transform.heading)
-            @info "  ✓ Transform $(transform.idx) created: " *
-                  "elevation=$(elev_deg)°, " *
-                  "azimuth=$(azim_deg)°, heading=$(head_deg)°"
+            elev_vel_deg = rad2deg(transform.elevation_vel)
+            azim_vel_deg = rad2deg(transform.azimuth_vel)
+            turn_rate_deg = rad2deg(transform.turn_rate)
+            info_msg = "  ✓ Transform $(transform.idx) created: " *
+                       "elevation=$(elev_deg)°, azimuth=$(azim_deg)°, heading=$(head_deg)°"
+            if elev_vel_deg != 0.0 || azim_vel_deg != 0.0
+                info_msg *= ", elevation_vel=$(elev_vel_deg)°/s, azimuth_vel=$(azim_vel_deg)°/s"
+            end
+            if turn_rate_deg != 0.0
+                info_msg *= ", turn_rate=$(turn_rate_deg)°/s"
+            end
+            @info info_msg
         end
     end
 

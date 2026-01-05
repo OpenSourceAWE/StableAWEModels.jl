@@ -111,8 +111,8 @@ mutable struct Point
     const va_b::KVec3 # apparent velocity in body frame (for VSM per-point va)
     const type::DynamicsType
     mass::SimFloat
-    body_frame_damping::SimFloat
-    world_frame_damping::SimFloat
+    body_frame_damping::KVec3
+    world_frame_damping::KVec3
     area::SimFloat
     drag_coeff::SimFloat
     fix_sphere::Bool
@@ -147,8 +147,8 @@ where:
 - `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
 - `transform_idx::Int16=1`: Index of the transform used for initial positioning.
 - `mass::Float64=0.0`: Mass of the point [kg].
-- `body_frame_damping::Float64=0.0`: Damping coefficient for bridle points.
-- `world_frame_damping::Float64=0.0`: Damping coefficient for world frame damping.
+- `body_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping [x,y,z] for bridle points. Scalar applies to all axes.
+- `world_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping [x,y,z] for world frame damping. Scalar applies to all axes.
 - `fix_sphere::Bool=false`: If true, constrains the point to a sphere.
 - `fix_static::Bool=false`: If true, dynamically freezes the point (behaves like STATIC).
 
@@ -157,13 +157,17 @@ where:
 """
 function Point(idx, pos_cad, type;
     wing_idx=1, vel_w=zeros(KVec3), transform_idx=1,
-    mass=0.0, body_frame_damping=0.0, world_frame_damping=0.0,
+    mass=0.0, body_frame_damping=zeros(KVec3), world_frame_damping=zeros(KVec3),
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
+    # Convert scalar damping to vector (broadcast to all axes)
+    bf_damp = body_frame_damping isa Real ? SVector{3,SimFloat}(body_frame_damping, body_frame_damping, body_frame_damping) : SVector{3,SimFloat}(body_frame_damping)
+    wf_damp = world_frame_damping isa Real ? SVector{3,SimFloat}(world_frame_damping, world_frame_damping, world_frame_damping) : SVector{3,SimFloat}(world_frame_damping)
+
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
         vel_w, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), type, mass,
-        body_frame_damping, world_frame_damping, area, drag_coeff,
+        bf_damp, wf_damp, area, drag_coeff,
         fix_sphere, fix_static)
 end
 
@@ -1005,9 +1009,12 @@ mutable struct Transform
     const rot_point_idx::Union{Int16, Nothing}
     const base_point_idx::Union{Int16, Nothing}
     const base_transform_idx::Union{Int16, Nothing}
-    elevation::SimFloat # The elevation of the rotating point or kite as seen from the base point
-    azimuth::SimFloat # The azimuth of the rotating point or kite as seen from the base point
-    heading::SimFloat
+    elevation::SimFloat  # [rad]
+    azimuth::SimFloat    # [rad]
+    heading::SimFloat    # [rad]
+    elevation_vel::SimFloat  # [rad/s] angular velocity in elevation direction
+    azimuth_vel::SimFloat    # [rad/s] angular velocity in azimuth direction
+    turn_rate::SimFloat      # [rad/s] angular velocity around radial axis (not yet implemented)
     base_pos::Union{KVec3, Nothing}
 end
 
@@ -1045,11 +1052,13 @@ All points and wings with a matching `transform_idx` are transformed together as
 """
 function Transform(idx, elevation, azimuth, heading;
         base_point_idx=nothing, base_pos=nothing, base_transform_idx=nothing,
-        wing_idx=nothing, rot_point_idx=nothing)
+        wing_idx=nothing, rot_point_idx=nothing,
+        elevation_vel=0.0, azimuth_vel=0.0, turn_rate=0.0)
     (isnothing(wing_idx) == isnothing(rot_point_idx)) && error("Either provide a wing_idx or a rot_point_idx, not both or none.")
     (isnothing(base_pos) == isnothing(base_transform_idx)) && error("Either provide the base_pos or the base_transform_idx, not both or none.")
     (isnothing(base_pos) !== isnothing(base_point_idx)) && error("When providing a base_pos, also provide a base_point_idx.")
-    Transform(idx, wing_idx, rot_point_idx, base_point_idx, base_transform_idx, elevation, azimuth, heading, base_pos)
+    Transform(idx, wing_idx, rot_point_idx, base_point_idx, base_transform_idx,
+              elevation, azimuth, heading, elevation_vel, azimuth_vel, turn_rate, base_pos)
 end
 
 """
@@ -1058,7 +1067,11 @@ end
 Constructor helper to create a `Transform` from a `Settings` object.
 """
 function Transform(idx, set, base_point_idx; kwargs...)
-    Transform(idx, set.elevations[idx], set.azimuths[idx], set.headings[idx], base_point_idx; kwargs...)
+    elevation_vel = hasfield(typeof(set), :elevation_vels) ? set.elevation_vels[idx] : 0.0
+    azimuth_vel = hasfield(typeof(set), :azimuth_vels) ? set.azimuth_vels[idx] : 0.0
+    turn_rate = hasfield(typeof(set), :turn_rates) ? set.turn_rates[idx] : 0.0
+    Transform(idx, set.elevations[idx], set.azimuths[idx], set.headings[idx];
+              base_point_idx, elevation_vel, azimuth_vel, turn_rate, kwargs...)
 end
 
 """
@@ -1662,6 +1675,12 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
     
     # Apply transforms
     for transform in transforms
+        # Warn if turn_rate is not zero (not yet implemented)
+        if transform.turn_rate != 0.0
+            @warn "Transform #$(transform.idx): turn_rate = $(rad2deg(transform.turn_rate))°/s is not zero, " *
+                  "but turn_rate dynamics are not yet implemented. This field will be ignored."
+        end
+
         # ==================== TRANSLATE ==================== #
         base_pos, curr_base_pos = get_base_pos(transform, wings, points)
         T = base_pos - curr_base_pos
@@ -1695,11 +1714,24 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
                                         -transform.azimuth)
         R_t_w = calc_R_t_w(transform_pos)
 
+        # Compute velocity components from spherical coordinate motion
+        # elevation_vel and azimuth_vel are angular velocities in rad/s
+        elev = transform.elevation
+        azim = transform.azimuth
+        rot_pos = get_rot_pos(transform, wings, points)
+        r_rot = norm(rot_pos - base_pos)
+        vel_spherical = rotate_around_y([0, 0, r_rot * transform.elevation_vel], -elev) +
+                        rotate_around_z([0, r_rot * transform.azimuth_vel, 0], -azim)
+
         for point in points
             if point.transform_idx == transform.idx
                 vec = point.pos_w - base_pos
                 point.pos_w .= base_pos +
                     apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
+
+                # Calculate velocity from spherical coordinate motion
+                point.vel_w .= norm(point.pos_w - base_pos) / norm(rot_pos - base_pos) *
+                               vel_spherical
             end
             if point.type == WING
                 wing = wings[point.wing_idx]
@@ -1714,6 +1746,12 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
             if wing.transform_idx == transform.idx
                 vec = wing.pos_w - base_pos
                 wing.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
+
+                # Calculate velocity from spherical coordinate motion
+                wing.vel_w .= norm(wing.pos_w - base_pos) / norm(rot_pos - base_pos) *
+                              vel_spherical
+                wing.ω_b .= 0.0  # Angular velocity in body frame (turn_rate not yet implemented)
+
                 R_b_w = zeros(3,3)
                 for i in 1:3
                     R_b_w[:, i] .= apply_heading(wing.R_b_c[:, i], R_t_w, curr_R_t_w, transform.heading)
@@ -2171,11 +2209,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=fal
         group.twist_ω = 0.0
     end
 
-    for transform in transforms
-        transform.elevation = deg2rad(set.elevations[transform.idx])
-        transform.azimuth   = deg2rad(set.azimuths[transform.idx])
-        transform.heading   = deg2rad(set.headings[transform.idx])
-    end
+    # Transforms are not updated from Settings - YAML structure geometry has priority
 
     for segment in segments
         len = norm(points[segment.point_idxs[1]].pos_cad -
@@ -2547,19 +2581,22 @@ end
 Set the world frame damping coefficient for all points in the system structure.
 
 World frame damping applies a velocity-dependent drag force in the global
-reference frame: ``\\mathbf{F}_{damp} = -c_{damp} \\mathbf{v}``, where
-``c_{damp}`` is the damping coefficient and ``\\mathbf{v}`` is the velocity.
+reference frame: ``\\mathbf{F}_{damp} = -c_{damp} \\odot \\mathbf{v}``, where
+``c_{damp}`` is the damping vector and ``\\odot`` is element-wise multiplication.
 
 # Arguments
 - `sys::SystemStructure`: The system structure to modify.
-- `damping::Real`: The damping coefficient to apply to all points [N·s/m].
+- `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
+  Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
 
 # Returns
 - `nothing`
 """
-function set_world_frame_damping(sys::SystemStructure, damping::Real)
+function set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector})
+    damp_vec = damping isa Real ? SVector{3,SimFloat}(damping, damping, damping) : SVector{3,SimFloat}(damping)
+    @assert length(damp_vec) == 3 "Damping must be scalar or 3-element vector"
     for point in sys.points
-        point.world_frame_damping = damping
+        point.world_frame_damping = damp_vec
     end
     return nothing
 end
@@ -2571,16 +2608,56 @@ Set the body frame damping coefficient for all WING points in the system structu
 
 # Arguments
 - `sys::SystemStructure`: The system structure to modify.
-- `damping::Real`: The damping coefficient to apply to all points [N·s/m].
+- `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
+  Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
 
 # Returns
 - `nothing`
 """
-function set_body_frame_damping(sys::SystemStructure, damping::Real)
+function set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector})
+    damp_vec = damping isa Real ? SVector{3,SimFloat}(damping, damping, damping) : SVector{3,SimFloat}(damping)
+    @assert length(damp_vec) == 3 "Damping must be scalar or 3-element vector"
     for point in sys.points
         if point.type == WING
-            point.body_frame_damping = damping
+            point.body_frame_damping = damp_vec
         end
     end
     return nothing
+end
+
+"""
+    segment_stretch_stats(sys::SystemStructure)
+
+Calculate segment stretch statistics for segments in tension.
+
+Returns the maximum and mean relative stretch of segments where len > l0,
+along with the index of the segment with maximum stretch.
+Relative stretch is defined as (current_length - l0) / l0.
+Only segments in tension (stretched) are included in the statistics.
+
+# Arguments
+- `sys::SystemStructure`: System structure with current segment states
+
+# Returns
+- `(max_stretch, mean_stretch, max_idx)`: Tuple of maximum stretch, mean stretch,
+  and index of the segment with maximum stretch
+"""
+function segment_stretch_stats(sys::SystemStructure)
+    if isempty(sys.segments)
+        return (0.0, 0.0, 0)
+    end
+
+    stretch_data = [(seg.idx, (seg.len - seg.l0) / seg.l0)
+                    for seg in sys.segments if seg.len > seg.l0]
+
+    if isempty(stretch_data)
+        return (0.0, 0.0, 0)
+    end
+
+    stretches = [s[2] for s in stretch_data]
+    max_stretch = maximum(stretches)
+    mean_stretch = sum(stretches) / length(stretches)
+    max_idx = stretch_data[argmax(stretches)][1]
+
+    return (max_stretch, mean_stretch, max_idx)
 end
