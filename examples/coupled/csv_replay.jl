@@ -24,7 +24,7 @@ using NonlinearSolve, ADTypes
 # Configuration parameters
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
 START_FRAME = 22068 # First frame to replay
-END_FRAME = START_FRAME + 100 # Last frame to replay (use nothing for all frames)
+END_FRAME = START_FRAME + 200 # Last frame to replay (use nothing for all frames)
 REMAKE_CACHE = false
 
 # V3 Kite steering/depower calibration (from KCU documentation)
@@ -41,10 +41,10 @@ DECAY_TIME = 1.0
 MIN_DAMPING = [0.0, 30, 60]
 
 # PID controller parameters for heading control
-HEADING_KP = 0.1    # Low proportional gain
-HEADING_TAU_I = 0.1  # Integral time constant (seconds)
-HEADING_KD = 0.0     # No derivative gain
-DT_CONTROL = 0.001    # Control timestep
+HEADING_KP = 0.5
+HEADING_TAU_I = 0.1
+HEADING_KD = 0.0
+DT_CONTROL = 0.001
 
 # PI controller parameters for winch length control
 WINCH_LENGTH_KP = 0.0      # Low proportional gain for length tracking
@@ -302,15 +302,7 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid,
     csv_heading = calc_csv_heading(row.roll, row.pitch, row.yaw, sys)
     wing.R_b_w = calc_R_b_w(sys)
     curr_heading = calc_heading(sys, wing.R_b_w)
-    delta_heading = wrap_to_pi(csv_heading - curr_heading)
-
-    # PID control for steering based on heading error
-    # Use CSV steering as feedforward
-    L_left_csv, L_right_csv = steering_percentage_to_lengths(row.steering)
-    u_s_csv = (L_right_csv - L_left_csv) / 2.0  # Convert back to differential (m)
-
-    # calculate_control!(pid, r, y, uff) - r:setpoint, y:measurement, uff:feedforward
-    steering_control = DiscretePIDs.calculate_control!(heading_pid, 0.0, delta_heading, u_s_csv)
+    delta_heading = -wrap_to_pi(csv_heading - curr_heading)
 
     # Speed matching PI controller
     csv_speed = sqrt(row.vx^2 + row.vy^2 + row.vz^2)
@@ -338,10 +330,14 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid,
     points[21].disturb .= -wing.R_b_w[:, 2] * tip_push
 
     # Apply steering via differential tape lengths
+    # PID control for steering based on heading error
+    steering_control = DiscretePIDs.calculate_control!(heading_pid, 0.0, delta_heading, 0.0)
+    steering = clamp(row.steering + steering_control, -100.0, 100.0)
+    L_left, L_right = steering_percentage_to_lengths(steering)
     # segments[87].l0 = STEERING_L0 + STEERING_GAIN*steering_control  # Left
     # segments[89].l0 = STEERING_L0 - STEERING_GAIN*steering_control  # Right
-    segments[87].l0 = L_left_csv
-    segments[89].l0 = L_right_csv
+    segments[87].l0 = L_left
+    segments[89].l0 = L_right
 
     # Winch length control with feed-forward torque
     winch = winches[1]
@@ -500,6 +496,14 @@ function run_physics_replay(csv_path::String;
     csv_state = SysState(csv_sam)
     csv_logger = Logger(csv_sam, n_steps)
 
+    # Storage for tape lengths (for plotting)
+    csv_tape_times = Float64[]
+    csv_tape_right_steering = Float64[]
+    csv_tape_depower = Float64[]
+    phys_tape_times = Float64[]
+    phys_tape_right_steering = Float64[]
+    phys_tape_depower = Float64[]
+
     # Loop through CSV data and update sys_struct
     @info "Replaying CSV data..."
     replay_start = time()
@@ -516,8 +520,8 @@ function run_physics_replay(csv_path::String;
         Ti = HEADING_TAU_I,
         Td = false,
         Ts = dt,
-        umin = -0.5,
-        umax = 0.5)
+        umin = -100.0,
+        umax = 100.0)
 
     # Initialize winch length PI controller
     winch_length_pid = DiscretePID(;
@@ -576,6 +580,11 @@ function run_physics_replay(csv_path::String;
             csv_state.time = csv_row.time
             log!(csv_logger, csv_state)
 
+            # Store CSV tape lengths for plotting
+            push!(csv_tape_times, csv_row.time)
+            push!(csv_tape_right_steering, csv_sam.sys_struct.segments[89].l0)
+            push!(csv_tape_depower, csv_sam.sys_struct.segments[88].l0)
+
             # Update system structure from CSV on first step
             if step == 1
                 update_sys_struct_from_csv!(sam.sys_struct, csv_row)
@@ -608,6 +617,11 @@ function run_physics_replay(csv_path::String;
             sys_state.time = t
             log!(logger, sys_state)
 
+            # Store physics tape lengths for plotting
+            push!(phys_tape_times, t)
+            push!(phys_tape_right_steering, sam.sys_struct.segments[89].l0)
+            push!(phys_tape_depower, sam.sys_struct.segments[88].l0)
+
             # Progress reporting
             if step % max(1, div(n_steps, 10)) == 0 || step == n_steps
                 elapsed = time() - replay_start
@@ -632,12 +646,25 @@ function run_physics_replay(csv_path::String;
     syslog = load_log("csv_replay")
     csvlog = load_log("csv_reference")
 
-    return sam, syslog, csv_sam, csvlog, csv_data, raw_data
+    # Create tape lengths data for plotting
+    phys_tape_lengths = (
+        time = phys_tape_times,
+        right_steering = phys_tape_right_steering,
+        depower = phys_tape_depower
+    )
+    csv_tape_lengths = (
+        time = csv_tape_times,
+        right_steering = csv_tape_right_steering,
+        depower = csv_tape_depower
+    )
+
+    return sam, syslog, csv_sam, csvlog, csv_data, raw_data, phys_tape_lengths, csv_tape_lengths
 end
 
 # Main execution
-sam, syslog, csv_sam, csvlog, csv_data, raw_data = run_physics_replay(CSV_PATH)
+sam, syslog, csv_sam, csvlog, csv_data, raw_data, phys_tape_lengths, csv_tape_lengths = run_physics_replay(CSV_PATH)
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
      plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
+     tape_lengths=[phys_tape_lengths, csv_tape_lengths],
      suffixes=["phys", "csv"])
 

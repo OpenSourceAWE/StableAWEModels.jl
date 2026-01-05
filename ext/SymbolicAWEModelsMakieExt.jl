@@ -562,6 +562,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_tether=false,
                    heading_setpoint=nothing,
                    tether_len_setpoint=nothing,
+                   tape_lengths=nothing,
                    suffixes=nothing,
                    size=(1200, 800))
 
@@ -681,6 +682,33 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             times = all_times,
             ylabel = "tether length [m]"
         ))
+    end
+
+    if !isnothing(tape_lengths)
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, tl) in enumerate(tape_lengths)
+            suffix = actual_suffixes[i]
+            if hasproperty(tl, :right_steering) && !isempty(tl.right_steering)
+                push!(all_data, tl.right_steering)
+                push!(all_labels, "L_right" * suffix)
+                push!(all_times, tl.time)
+            end
+            if hasproperty(tl, :depower) && !isempty(tl.depower)
+                push!(all_data, tl.depower)
+                push!(all_labels, "L_depower" * suffix)
+                push!(all_times, tl.time)
+            end
+        end
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "tape length [m]"
+            ))
+        end
     end
 
     if plot_aero_force

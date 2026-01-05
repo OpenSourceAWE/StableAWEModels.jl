@@ -396,7 +396,7 @@ function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEMode
         elseif isequal(sym, sys.winch_force[3])
             ss.winch_force[3] = y[i]
         elseif isequal(sym, sys.angle_of_attack[1])
-            ss.AoA = y[i]
+            ss.AoA = mod(y[i] + π, 2π) - π  # Wrap to [-π, π]
         elseif isequal(sym, sys.elevation[1])
             ss.elevation = y[i]
         elseif isequal(sym, sys.azimuth[1])
