@@ -323,15 +323,10 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid,
         end
     end
 
-    tip_push = 10
-    points[2].disturb .= wing.R_b_w[:, 2] * tip_push
-    points[3].disturb .= wing.R_b_w[:, 2] * tip_push
-    points[20].disturb .= -wing.R_b_w[:, 2] * tip_push
-    points[21].disturb .= -wing.R_b_w[:, 2] * tip_push
-
     # Apply steering via differential tape lengths
     # PID control for steering based on heading error
     steering_control = DiscretePIDs.calculate_control!(heading_pid, 0.0, delta_heading, 0.0)
+    steering_control = 0.0
     steering = clamp(row.steering + steering_control, -100.0, 100.0)
     L_left, L_right = steering_percentage_to_lengths(steering)
     # segments[87].l0 = STEERING_L0 + STEERING_GAIN*steering_control  # Left
@@ -462,7 +457,7 @@ Updates tether length and steering/depower segments from CSV data at each step.
 function run_physics_replay(csv_path::String;
                         start_frame=START_FRAME,
                         end_frame=END_FRAME,
-                        n_substeps=10)
+                        n_substeps=5)
 
     raw_data = load_flight_data(csv_path)
     limited_data = limit_frames(raw_data; start_frame, end_frame)
@@ -601,6 +596,7 @@ function run_physics_replay(csv_path::String;
 
             # Apply control and step
             brake = true
+            @show csv_row.steering
             set_value = update_vel_from_csv!(
                 sam.sys_struct, csv_row, heading_pid, winch_length_pid,
                 speed_pid, brake)

@@ -181,8 +181,8 @@ segments:
     - [64, 27, 1, BRIDLE, 3.903, 20.0,  dyneema, nothing, 0.010]  # amain
 
     # Bridle segments - right front lines (non-compressive, using dyneema)
-    - [65, 34, 3, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.010]  # Br,5 or br6 first half (pulley) #TODO: was 7.086
-    - [66, 3, 37, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.010]  # Br,5 or br6 second half (pulley) #TODO: was 7.086
+    - [65, 34, 3, BRIDLE, 6.809, 2.0,  dyneema, nothing, 0.010]  # Br,5 or br6 first half (pulley) #TODO: was 7.086
+    - [66, 3, 37, BRIDLE, 6.809, 2.0,  dyneema, nothing, 0.010]  # Br,5 or br6 second half (pulley) #TODO: was 7.086
     - [67, 5, 28, BRIDLE, 3.55, 2.0,  dyneema, nothing, 0.010]  # br,4 or br5
     - [68, 7, 28, BRIDLE, 4.094, 2.0,  dyneema, nothing, 0.010]  # br,3
     - [69, 9, 29, BRIDLE, 4.18, 2.0,  dyneema, nothing, 0.010]  # br,2
@@ -193,8 +193,8 @@ segments:
     - [72, 15, 30, BRIDLE, 4.18, 2.0,  dyneema, nothing, 0.010]  # br,2
     - [73, 17, 31, BRIDLE, 4.094, 2.0,  dyneema, nothing, 0.010]  # br,3
     - [74, 19, 31, BRIDLE, 3.55, 2.0,  dyneema, nothing, 0.010]  # br,4 or br5
-    - [75, 36, 21, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.010]  # br6 first half (pulley) #TODO: was 7.086
-    - [76, 21, 38, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.010]  # br6 second half (pulley)#TODO: was 7.086
+    - [75, 36, 21, BRIDLE, 6.809, 2.0,  dyneema, nothing, 0.010]  # br6 first half (pulley) #TODO: was 7.086
+    - [76, 21, 38, BRIDLE, 6.809, 2.0,  dyneema, nothing, 0.010]  # br6 second half (pulley)#TODO: was 7.086
     
     # Bridle convergence - right side (non-compressive, using dyneema)
     - [77, 28, 32, BRIDLE, 2.045, 2.0,  dyneema, nothing, 0.010]  # BRII

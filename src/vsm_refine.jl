@@ -193,22 +193,32 @@ function compute_section_le_te_forces(x_airf, y_airf, z_airf, chord, width,
     D_LE = D_total / 2.0
     D_TE = D_total / 2.0
 
-    # Compute force directions using corrected alpha (matches VortexStepMethod)
+    # Compute force directions (matches VortexStepMethod solver.jl lines 300-308)
     # Induced apparent wind direction in airfoil frame
     dir_induced_va_airfoil = cos(alpha_corrected) * x_airf +
                              sin(alpha_corrected) * z_airf
+    dir_induced_va_norm = norm(dir_induced_va_airfoil)
+    if dir_induced_va_norm > 1e-12
+        dir_induced_va_airfoil = dir_induced_va_airfoil / dir_induced_va_norm
+    end
 
-    # Drag direction: along induced apparent wind
-    drag_dir = dir_induced_va_airfoil / (norm(dir_induced_va_airfoil) + 1e-12)
-
-    # Lift direction: perpendicular to drag and spanwise axis
-    lift_dir = cross(drag_dir, y_airf)
+    # Lift direction: induced_va × y_airf (perpendicular to both)
+    lift_dir = cross(dir_induced_va_airfoil, y_airf)
     lift_dir_mag = norm(lift_dir)
     if lift_dir_mag > 1e-12
         lift_dir = lift_dir / lift_dir_mag
     else
-        # Fallback to z_airf if cross product is degenerate
         lift_dir = z_airf
+    end
+
+    # Drag direction: spanwise × lift (matches VSM)
+    spanwise_direction = SVector(0.0, 1.0, 0.0)
+    drag_dir = cross(spanwise_direction, lift_dir)
+    drag_dir_mag = norm(drag_dir)
+    if drag_dir_mag > 1e-12
+        drag_dir = drag_dir / drag_dir_mag
+    else
+        drag_dir = dir_induced_va_airfoil
     end
 
     # Combine lift and drag components at LE and TE

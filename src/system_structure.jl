@@ -2635,20 +2635,48 @@ along with the index of the segment with maximum stretch.
 Relative stretch is defined as (current_length - l0) / l0.
 Only segments in tension (stretched) are included in the statistics.
 
+For pulley segments, the combined length of both segments is used against
+the pulley's sum_l0, since the pulley constraint distributes length between them.
+
 # Arguments
 - `sys::SystemStructure`: System structure with current segment states
 
 # Returns
 - `(max_stretch, mean_stretch, max_idx)`: Tuple of maximum stretch, mean stretch,
-  and index of the segment with maximum stretch
+  and index of the segment with maximum stretch (or first pulley segment index)
 """
 function segment_stretch_stats(sys::SystemStructure)
     if isempty(sys.segments)
         return (0.0, 0.0, 0)
     end
 
-    stretch_data = [(seg.idx, (seg.len - seg.l0) / seg.l0)
-                    for seg in sys.segments if seg.len > seg.l0]
+    # Build set of segment indices that belong to pulleys
+    pulley_seg_idxs = Set{Int16}()
+    for pulley in sys.pulleys
+        push!(pulley_seg_idxs, pulley.segment_idxs[1])
+        push!(pulley_seg_idxs, pulley.segment_idxs[2])
+    end
+
+    stretch_data = Tuple{Int16, Float64}[]
+
+    # Add pulley stretches (combined length of both segments)
+    for pulley in sys.pulleys
+        seg1 = sys.segments[pulley.segment_idxs[1]]
+        seg2 = sys.segments[pulley.segment_idxs[2]]
+        combined_len = seg1.len + seg2.len
+        sum_l0 = pulley.sum_len  # sum_len stores seg1.l0 + seg2.l0
+        if combined_len > sum_l0
+            push!(stretch_data, (pulley.segment_idxs[1],
+                                 (combined_len - sum_l0) / sum_l0))
+        end
+    end
+
+    # Add non-pulley segment stretches
+    for seg in sys.segments
+        if seg.idx ∉ pulley_seg_idxs && seg.len > seg.l0
+            push!(stretch_data, (seg.idx, (seg.len - seg.l0) / seg.l0))
+        end
+    end
 
     if isempty(stretch_data)
         return (0.0, 0.0, 0)
