@@ -350,6 +350,7 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid,
 
     # update depower (from CSV)
     L_depower = depower_percentage_to_length(row.depower)
+    L_depower -= 0.6
     segments[88].l0 = L_depower
 
     return winch.set_value
@@ -596,10 +597,10 @@ function run_physics_replay(csv_path::String;
 
             # Apply control and step
             brake = true
-            @show csv_row.steering
             set_value = update_vel_from_csv!(
                 sam.sys_struct, csv_row, heading_pid, winch_length_pid,
                 speed_pid, brake)
+            @show norm(sam.sys_struct.wind_vec_gnd)
             sam.sys_struct.set.v_wind = csv_row.wind_at_kite
 
             # Update winch tether length from CSV and reinit to apply differential
@@ -661,6 +662,7 @@ end
 sam, syslog, csv_sam, csvlog, csv_data, raw_data, phys_tape_lengths, csv_tape_lengths = run_physics_replay(CSV_PATH)
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
      plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
+     plot_elevation=true, plot_azimuth=true,
      tape_lengths=[phys_tape_lengths, csv_tape_lengths],
      suffixes=["phys", "csv"])
 
