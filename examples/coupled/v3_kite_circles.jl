@@ -378,7 +378,7 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     sim_time_circles=60,
     fps_circles=60,
     ramp_time_us = 5.0,
-    us=0.15,
+    us=0.3,
 )
 
 
