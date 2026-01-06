@@ -29,7 +29,7 @@ function load_log_and_system(; log_name::String)
 
     # Load YAML structure path
     model_name = "v3_refine"
-    struc_yaml_path = joinpath("data", "v3", "struc_geometry_bart_jelle.yaml")
+    struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
 
     # Load VSMSettings
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
@@ -216,7 +216,7 @@ function plot_time_series(lg, sam)
 end
 
 
-log_name = "zenith__up_35_us_00_vw_15_date_2026_01_03_10_16"
+log_name = "zenith_circle__up_40_us_15_vw_15_date_2026_01_06_15_08"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 ### plot time series
