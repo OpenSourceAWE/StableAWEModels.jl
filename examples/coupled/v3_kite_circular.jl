@@ -346,10 +346,10 @@ end
 us = 0.2  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
 up = 0.2  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis 
 #0.4151powered and #0.5012depowered #0.39 during turns
-vw = 15  # {{{ 10.  <> 15.0 }}} suitable range?
+vw = 8.0  # {{{ 10.  <> 15.0 }}} suitable range?
 lt = 260  # problems when changing...
 
-sim_time = 200.0
+sim_time = 50.0
 decay_time = 2.0 #2secs works better than 3 somehow
 ramp_time = 2.0
 fps = 120
