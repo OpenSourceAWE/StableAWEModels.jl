@@ -257,12 +257,21 @@ end
 """
     compute_line_stretch(lg, sam; window_seconds=50.0)
 
-Compute line stretch ratios using the log data and segment rest lengths from `sam`.
-Returns a NamedTuple with the time window used and per-category stretch matrices
-(rows = samples, cols = segments). Also logs mean/max stretch over the selected
-window for each category.
+Compute signed line stretch ratios (elongation positive, compression negative)
+using the log data and segment rest lengths from `sam`. Returns a NamedTuple
+with the time window used, per-category stretch matrices (rows = samples,
+cols = segments), and per-pulley combined stretch vectors. Also logs mean/max
+stretch for elongation and compression over the selected window, including the
+sample/segment index where the maxima occur. Bridle category excludes segments
+that belong to pulleys; those are grouped under a separate pulley category.
+
+Optional `segment_l0_adjustments` lets you account for commanded line changes
+(e.g. steering/power). Provide a Dict from segment idx to either a scalar offset
+to add to the nominal `l0`, or a vector of offsets (one per sample) for
+time-varying commands. Pulley pairs are evaluated using the combined length of
+both segments (accounting for any `l0` adjustments).
 """
-function compute_line_stretch(lg, sam; window_seconds::Real=50.0)
+function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adjustments=nothing)
    sl = hasproperty(lg, :syslog) ? lg.syslog : lg
    if isempty(sl)
       @warn "compute_line_stretch: empty log provided"
@@ -282,24 +291,35 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0)
    window = (sl[start_idx].time, t_end)
    window_span = window[2] - window[1]
    n_samples = length(sl) - start_idx + 1
+   sample_times = [sl[i].time for i in start_idx:length(sl)]
+   l0_adjustments = segment_l0_adjustments === nothing ? Dict{Int, Any}() : segment_l0_adjustments
+   pulleys = sam.sys_struct.pulleys
+   pulley_seg_set = Set{Int}()
+   for p in pulleys
+      push!(pulley_seg_set, Int(p.segment_idxs[1]))
+      push!(pulley_seg_set, Int(p.segment_idxs[2]))
+   end
+   seg_len_for_pulleys = Dict(seg => fill(NaN, n_samples) for seg in pulley_seg_set)
+   seg_l0_for_pulleys = Dict(seg => fill(NaN, n_samples) for seg in pulley_seg_set)
+   bridle_seg_idxs = [i for i in 47:89 if !(i in pulley_seg_set)]
 
-   categories = (
-      (:tubular_frame, "Tubular frame", 1:19),
-      (:te_wires_and_diagonals, "TE wires and diagonals", 20:46),
-      (:bridles, "Bridles", 47:89),
-      (:tether, "Tether", 90:95),
-   )
-
-   ratio_by_category = Dict{Symbol, Matrix{Float64}}()
-
-   for (key, label, seg_idxs) in categories
-      ratios = fill(NaN, n_samples, length(seg_idxs))
+   # Precompute lengths for pulley segments (kept separate from bridle category)
+   if !isempty(pulley_seg_set)
       @inbounds for (sample_idx, log_idx) in enumerate(start_idx:length(sl))
          state = sl[log_idx]
          X, Y, Z = state.X, state.Y, state.Z
-         for (col_idx, seg_idx) in enumerate(seg_idxs)
+         for seg_idx in pulley_seg_set
             seg = segments[seg_idx]
             l0 = Float64(seg.l0)
+            adj = get(l0_adjustments, seg_idx, nothing)
+            if adj !== nothing
+               if adj isa AbstractVector
+                  idx = min(sample_idx, length(adj))
+                  l0 += adj[idx]
+               elseif adj isa Real
+                  l0 += adj
+               end
+            end
             if !isfinite(l0) || l0 <= 0
                continue
             end
@@ -309,35 +329,226 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0)
             dz = Z[p2] - Z[p1]
             len = sqrt(dx * dx + dy * dy + dz * dz)
             if isfinite(len)
-               delta = max(len - l0, 0.0)
-               ratios[sample_idx, col_idx] = delta / l0
+               seg_len_for_pulleys[seg_idx][sample_idx] = len
+               seg_l0_for_pulleys[seg_idx][sample_idx] = l0
+            end
+         end
+      end
+   end
+
+   categories = (
+      (:tubular_frame, "Tubular frame", 1:19),
+      (:te_wires_and_diagonals, "TE wires and diagonals", 20:46),
+      (:bridles, "Bridles", bridle_seg_idxs),
+      (:tether, "Tether", 90:95),
+   )
+
+   ratio_by_category = Dict{Symbol, Matrix{Float64}}()
+
+   for (key, label, seg_idxs) in categories
+      ratios = fill(NaN, n_samples, length(seg_idxs))
+      l0_used = fill(NaN, n_samples, length(seg_idxs))
+      @inbounds for (sample_idx, log_idx) in enumerate(start_idx:length(sl))
+         state = sl[log_idx]
+         X, Y, Z = state.X, state.Y, state.Z
+         for (col_idx, seg_idx) in enumerate(seg_idxs)
+            seg = segments[seg_idx]
+            l0 = Float64(seg.l0)
+            adj = get(l0_adjustments, seg_idx, nothing)
+            if adj !== nothing
+               if adj isa AbstractVector
+                  idx = min(sample_idx, length(adj))
+                  l0 += adj[idx]
+               elseif adj isa Real
+                  l0 += adj
+               end
+            end
+            if !isfinite(l0) || l0 <= 0
+               continue
+            end
+            p1, p2 = seg.point_idxs
+            dx = X[p2] - X[p1]
+            dy = Y[p2] - Y[p1]
+            dz = Z[p2] - Z[p1]
+            len = sqrt(dx * dx + dy * dy + dz * dz)
+            if isfinite(len)
+               ratios[sample_idx, col_idx] = (len - l0) / l0
+               l0_used[sample_idx, col_idx] = l0
+               if seg_idx in pulley_seg_set
+                  seg_len_for_pulleys[seg_idx][sample_idx] = len
+                  seg_l0_for_pulleys[seg_idx][sample_idx] = l0
+               end
             end
          end
       end
 
       finite_mask = isfinite.(ratios)
       if any(finite_mask)
-         vals = ratios[finite_mask]
-         mean_ratio = mean(vals)
-         max_ratio = maximum(vals)
-         @info "Line stretch ($label, last $(round(window_span, digits=2)) s)" mean_ratio max_ratio mean_percent=mean_ratio * 100 max_percent=max_ratio * 100
+         elong_mask = finite_mask .& (ratios .> 0)
+         comp_mask = finite_mask .& (ratios .< 0)
+
+         mean_elong = any(elong_mask) ? mean(ratios[elong_mask]) : NaN
+         mean_comp = any(comp_mask) ? mean(ratios[comp_mask]) : NaN
+         mean_elong_abs = any(elong_mask) ? mean(ratios[elong_mask] .* l0_used[elong_mask]) : NaN
+         mean_comp_abs = any(comp_mask) ? mean(ratios[comp_mask] .* l0_used[comp_mask]) : NaN
+
+         max_elong = NaN
+         max_elong_info = missing
+         max_elong_abs = NaN
+         if any(elong_mask)
+            masked = copy(ratios)
+            masked[.!elong_mask] .= -Inf
+            max_elong, linear_idx = findmax(masked)
+            cart_idx = CartesianIndices(size(ratios))[linear_idx]
+            row, col = cart_idx[1], cart_idx[2]
+            max_elong_info = (; sample=row, segment=seg_idxs[col], time=sample_times[row])
+            max_elong_abs = max_elong * l0_used[row, col]
+         end
+
+         max_comp = NaN
+         max_comp_info = missing
+         max_comp_abs = NaN
+         if any(comp_mask)
+            masked = copy(ratios)
+            masked[.!comp_mask] .= Inf
+            max_comp, linear_idx = findmin(masked)
+            cart_idx = CartesianIndices(size(ratios))[linear_idx]
+            row, col = cart_idx[1], cart_idx[2]
+            max_comp_info = (; sample=row, segment=seg_idxs[col], time=sample_times[row])
+            max_comp_abs = max_comp * l0_used[row, col]
+         end
+
+         elong_mean_str = any(elong_mask) ?
+            "mean = $(round(mean_elong_abs, digits=4)) [m], $(round(mean_elong * 100, digits=4)) [%]" :
+            "mean = n/a"
+         elong_max_str = any(elong_mask) ?
+            "max  = $(round(max_elong_abs, digits=4)) [m], $(round(max_elong * 100, digits=4)) [%] segment_idx = $(max_elong_info.segment), time = $(round(max_elong_info.time, digits=2)) [s]" :
+            "max  = n/a"
+
+         comp_mean_str = any(comp_mask) ?
+            "mean = $(round(mean_comp_abs, digits=4)) [m], $(round(mean_comp * 100, digits=4)) [%]" :
+            "mean = n/a"
+         comp_max_str = any(comp_mask) ?
+            "max  = $(round(max_comp_abs, digits=4)) [m], $(round(max_comp * 100, digits=4)) [%] segment_idx = $(max_comp_info.segment), time = $(round(max_comp_info.time, digits=2)) [s]" :
+            "max  = n/a"
+
+         msg = """
+           Elongation
+             $elong_mean_str
+             $elong_max_str
+           Compression
+             $comp_mean_str
+             $comp_max_str
+         """
+         @info "$label, last $(round(window_span, digits=2)) s\n$msg"
       else
-         @warn "Line stretch ($label) has no finite values in the selected window"
+         @warn "$label has no finite values in the selected window"
       end
 
       ratio_by_category[key] = ratios
    end
 
-   return (window=window, ratio=ratio_by_category)
+   pulley_ratio = Dict{Int, Vector{Float64}}()
+   if !isempty(pulleys)
+      np = length(pulleys)
+      pulley_mat = fill(NaN, n_samples, np)
+      pulley_l0 = fill(NaN, n_samples, np)
+      for (col_idx, pulley) in enumerate(pulleys)
+         s1, s2 = Int.(pulley.segment_idxs)
+         len1 = get(seg_len_for_pulleys, s1, fill(NaN, n_samples))
+         len2 = get(seg_len_for_pulleys, s2, fill(NaN, n_samples))
+         l01 = get(seg_l0_for_pulleys, s1, fill(NaN, n_samples))
+         l02 = get(seg_l0_for_pulleys, s2, fill(NaN, n_samples))
+         total_l0 = l01 .+ l02
+         total_len = len1 .+ len2
+         ratios = (total_len .- total_l0) ./ total_l0
+         pulley_mat[:, col_idx] .= ratios
+         pulley_l0[:, col_idx] .= total_l0
+         pulley_ratio[Int(pulley.idx)] = ratios
+      end
+
+      ratio_by_category[:pulleys] = pulley_mat
+
+      finite_mask = isfinite.(pulley_mat)
+      if any(finite_mask)
+         elong_mask = finite_mask .& (pulley_mat .> 0)
+         comp_mask = finite_mask .& (pulley_mat .< 0)
+
+         mean_elong = any(elong_mask) ? mean(pulley_mat[elong_mask]) : NaN
+         mean_comp = any(comp_mask) ? mean(pulley_mat[comp_mask]) : NaN
+         mean_elong_abs = any(elong_mask) ? mean(pulley_mat[elong_mask] .* pulley_l0[elong_mask]) : NaN
+         mean_comp_abs = any(comp_mask) ? mean(pulley_mat[comp_mask] .* pulley_l0[comp_mask]) : NaN
+
+         max_elong = NaN
+         max_elong_abs = NaN
+         max_elong_info = missing
+         if any(elong_mask)
+            masked = copy(pulley_mat)
+            masked[.!elong_mask] .= -Inf
+            max_elong, linear_idx = findmax(masked)
+            cart_idx = CartesianIndices(size(pulley_mat))[linear_idx]
+            row, col = cart_idx[1], cart_idx[2]
+            max_elong_abs = max_elong * pulley_l0[row, col]
+            max_elong_info = (; sample=row, pulley=Int(pulleys[col].idx), segments=Tuple(Int.(pulleys[col].segment_idxs)), time=sample_times[row])
+         end
+
+         max_comp = NaN
+         max_comp_abs = NaN
+         max_comp_info = missing
+         if any(comp_mask)
+            masked = copy(pulley_mat)
+            masked[.!comp_mask] .= Inf
+            max_comp, linear_idx = findmin(masked)
+            cart_idx = CartesianIndices(size(pulley_mat))[linear_idx]
+            row, col = cart_idx[1], cart_idx[2]
+            max_comp_abs = max_comp * pulley_l0[row, col]
+            max_comp_info = (; sample=row, pulley=Int(pulleys[col].idx), segments=Tuple(Int.(pulleys[col].segment_idxs)), time=sample_times[row])
+         end
+
+         msg = """
+           Elongation
+             $(any(elong_mask) ? "mean = $(round(mean_elong_abs, digits=4)) [m], $(round(mean_elong * 100, digits=4)) [%]" : "mean = n/a")
+             $(any(elong_mask) ? "max  = $(round(max_elong_abs, digits=4)) [m], $(round(max_elong * 100, digits=4)) [%] pulley_idx = $(max_elong_info.pulley), segments = $(max_elong_info.segments), time = $(round(max_elong_info.time, digits=2)) [s]" : "max  = n/a")
+           Compression
+             $(any(comp_mask) ? "mean = $(round(mean_comp_abs, digits=4)) [m], $(round(mean_comp * 100, digits=4)) [%]" : "mean = n/a")
+             $(any(comp_mask) ? "max  = $(round(max_comp_abs, digits=4)) [m], $(round(max_comp * 100, digits=4)) [%] pulley_idx = $(max_comp_info.pulley), segments = $(max_comp_info.segments), time = $(round(max_comp_info.time, digits=2)) [s]" : "max  = n/a")
+         """
+         @info "Pulleys, last $(round(window_span, digits=2)) s\n$msg"
+      else
+         @warn "Pulleys has no finite values in the selected window"
+      end
+   end
+
+   return (window=window, ratio=ratio_by_category, pulley_ratio=pulley_ratio)
 end
 
-log_name = "zenith_circle__up_40_us_15_vw_15_date_2026_01_05_13_40"
+log_name = "zenith_circle__up_40_us_15_vw_15_date_2026_01_06_10_19"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 # Log alignment info before plotting to decide tension source
 report_tether_direction_alignment(lg)
+
+# Account for commanded steering/power when evaluating stretch of segments 87/88/89.
+# Mapping matches v3_kite_circles.jl: 1400 mm steering span, 200 mm + 5 m * up for power.
+up_fraction = up / 100
+us_fraction = us / 100
+seg87_nom = Float64(sam.sys_struct.segments[87].l0)
+seg88_nom = Float64(sam.sys_struct.segments[88].l0)
+seg89_nom = Float64(sam.sys_struct.segments[89].l0)
+steering_tape_change = 1.4 * us_fraction
+power_target_l0 = 0.2 + 5.0 * up_fraction
+segment_l0_adjustments = Dict(
+   87 => steering_tape_change,
+   88 => power_target_l0 - seg88_nom,
+   89 => -steering_tape_change,
+)
+
 # Compute line stretch ratios over the last 50 seconds
-stretch_info = compute_line_stretch(lg, sam; window_seconds=50.0)
+stretch_info = compute_line_stretch(
+   lg, sam;
+   window_seconds=50.0,
+   segment_l0_adjustments=segment_l0_adjustments,
+)
 
 ### plot time series
 fig_time = plot_time_series(lg, sam)
