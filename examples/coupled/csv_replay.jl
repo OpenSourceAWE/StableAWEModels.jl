@@ -33,8 +33,8 @@ STEERING_L0 = 1.6  # Neutral steering tape length (m)
 STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
 
 # Depower calibration
-DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
-DEPOWER_GAIN = 5.0
+DEPOWER_L0 = 3.129
+DEPOWER_GAIN = 3.129
 
 INITIAL_DAMPING = [0.0, 300.0, 600.0]
 DECAY_TIME = 1.0
@@ -77,7 +77,7 @@ Convert CSV depower percentage to tape length (m).
 """
 function depower_percentage_to_length(percentage)
     u_p = percentage / 100.0  # Convert percentage to [0, 1]
-    L_depower = DEPOWER_L0 + DEPOWER_GAIN * u_p
+    L_depower = DEPOWER_L0 + (DEPOWER_GAIN / 2) * (u_p - 0.5)
     return L_depower
 end
 
@@ -337,13 +337,21 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid,
     # Winch length control with feed-forward torque
     winch = winches[1]
 
-    # Calculate feed-forward torque from CSV tether force
-    ff_torque = calc_feedforward_torque(row.tether_force, winch)
-
-    # PI control for length tracking with feed-forward torque
+    # Outer loop: slow integrator for length compensation
     length_error = row.tether_len - winch.tether_len
+    length_integral += LENGTH_KI * length_error * DT_CONTROL
+    # Clamp the velocity bias
+    length_integral = clamp(length_integral, -LENGTH_LIMIT, LENGTH_LIMIT)
+
+    # Inner loop: velocity tracking with length compensation bias
+    target_vel = row.tether_vel + length_integral
+    current_vel = winch.tether_vel
+
+    # PID control for velocity (with steady torque feedforward)
+    torque_damp = 0.5
+    steady_torque = torque_damp * steady_torque + (1-torque_damp) * calc_steady_torque(sys)[1]
     torque_control = DiscretePIDs.calculate_control!(
-        winch_length_pid, row.tether_len, winch.tether_len, ff_torque)
+        winch_vel_pid, target_vel, current_vel, steady_torque)
 
     winch.brake = brake
     winch.set_value = ff_torque
@@ -353,7 +361,7 @@ function update_vel_from_csv!(sys, row, heading_pid, winch_length_pid,
     L_depower -= 0.6
     segments[88].l0 = L_depower
 
-    return winch.set_value
+    return winch.set_value, steady_torque, length_integral
 end
 
 """
@@ -487,7 +495,7 @@ function run_physics_replay(csv_path::String;
     logger = Logger(sam, n_steps)
 
     # Create CSV reference model for visualization
-    csv_sam = SymbolicAWEModel(set, csv_sys_struct)
+    csv_sam = SymbolicAWEModel(set, deepcopy(sam.sys_struct))
     init!(csv_sam)
     csv_state = SysState(csv_sam)
     csv_logger = Logger(csv_sam, n_steps)
@@ -519,10 +527,10 @@ function run_physics_replay(csv_path::String;
         umin = -100.0,
         umax = 100.0)
 
-    # Initialize winch length PI controller
-    winch_length_pid = DiscretePID(;
-        K = WINCH_LENGTH_KP,
-        Ti = WINCH_LENGTH_TAU_I,
+    # Initialize winch velocity PID controller (inner loop)
+    winch_vel_pid = DiscretePID(;
+        K = WINCH_VEL_KP,
+        Ti = WINCH_VEL_TAU_I,
         Td = false,
         Ts = dt,
         umin = -2000.0,
@@ -551,7 +559,6 @@ function run_physics_replay(csv_path::String;
             vz = csv_data.kite_est_vz[step],
             tether_len = csv_data.ground_tether_length[step],
             tether_vel = csv_data.ground_tether_reelout_speed[step],
-            tether_force = csv_data.ground_tether_force[step] * 9.81,  # Convert kg to N
             steering = csv_data.kite_actual_steering[step],
             depower = csv_data.kite_actual_depower[step],
             distance = csv_data.distance[step],

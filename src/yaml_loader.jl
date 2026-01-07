@@ -519,7 +519,6 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Build kwargs based on wing type
             if wt == REFINE
                 # REFINE wings need z_ref_points, y_ref_points, origin_idx
-                # and pos_cad from origin point
                 wing = call_yaml_constructor(VSMWing, row,
                     [:idx, :set, :group_idxs, :vsm_set],
                     [:transform_idx, :y_damping, :wing_type,

@@ -23,7 +23,7 @@ REFINE = true
 QUAT = false
 
 # Heading PID controller parameters
-MAX_HEADING = 30.0  # Maximum heading amplitude [degrees]
+MAX_HEADING = 10.0  # Maximum heading amplitude [degrees]
 PERIOD = 60.0       # Oscillation period [seconds]
 HEADING_P = 0.0     # Proportional gain
 HEADING_I = 0.1     # Integral gain
@@ -81,8 +81,6 @@ Run a v3 kite simulation with the specified wing type.
 - `initial_damping::Float64=10.0`: Initial world frame damping [N·s/m]
 - `decay_time::Float64=2.0`: Time for damping decay [s]
 - `max_steering::Float64=0.2`: Maximum steering line length change [m]
-- `steering::Float64=0.0`: Constant steering percentage (positive = right turn)
-- `depower::Float64=20.0`: Depower percentage (0=full power, 100=full depower)
 - `show_plots::Bool=false`: Display 3D plots during simulation
 - `v_wind::Float64=15.4`: Wind speed [m/s]
 - `upwind_dir::Float64=-90.0`: Wind direction [°]
@@ -105,8 +103,6 @@ function run_v3_kite(wing_type::WingType;
                      initial_damping=100.0,
                      decay_time=2.0,
                      max_steering=0.1,
-                     steering=0.0,
-                     depower=20.0,
                      show_plots=false,
                      v_wind=15.4,
                      upwind_dir=-90.0,
@@ -146,7 +142,7 @@ function run_v3_kite(wing_type::WingType;
 
 
     # Initialize damping
-    SymbolicAWEModels.set_body_frame_damping(sys, initial_damping)
+    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -155,20 +151,13 @@ function run_v3_kite(wing_type::WingType;
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
 
+    # Apply steering
+    # sys.segments[87].l0 += max_steering
+    # sys.segments[89].l0 -= max_steering
+
     # Initialize model
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
-
-    # Apply initial steering and depower AFTER initialization
-    # Convert percentages to tape lengths
-    L_left, L_right = steering_percentage_to_lengths(steering)
-    L_depower = depower_percentage_to_length(depower)
-
-    sys.segments[87].l0 = L_left    # Left steering tape
-    sys.segments[89].l0 = L_right   # Right steering tape
-    sys.segments[88].l0 = L_depower # Depower tape
-
-    @info "Applied initial control inputs" steering_pct=steering depower_pct=depower L_left L_right L_depower
 
     # # Stabilization phase
     # @info "Stabilizing system..."
@@ -190,7 +179,7 @@ function run_v3_kite(wing_type::WingType;
     sys_state.time = 0.0
     log!(logger, sys_state)
 
-    # Store nominal segment lengths for PID control (already includes steering/depower offset)
+    # Store nominal segment lengths for PID control
     nominal_l0_87 = sys.segments[87].l0
     nominal_l0_89 = sys.segments[89].l0
 
@@ -214,7 +203,6 @@ function run_v3_kite(wing_type::WingType;
 
     # Store nominal tether length for winch controller
     nominal_tether_length = sys.winches[1].tether_len
-    sys.winches[1].brake = true
 
     # Initialize winch torque based on initial tether force
     winch = sys.winches[1]
@@ -250,8 +238,12 @@ function run_v3_kite(wing_type::WingType;
         t = step * Δt
 
         # Update damping
-        current_damping = initial_damping * (1.0 - t / decay_time)
-        SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, max(20, current_damping))
+        if t <= decay_time
+            current_damping = initial_damping * (1.0 - t / decay_time)
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+        else
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
+        end
 
         # PID heading control with sine wave setpoint
         target_heading_rad = max_heading_rad * sin(angular_freq * t)

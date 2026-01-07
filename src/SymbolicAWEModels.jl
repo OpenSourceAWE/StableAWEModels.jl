@@ -99,7 +99,6 @@ export init_module
 export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
-export update_yaml_from_sys_struct!
 export replay
 export record
 
