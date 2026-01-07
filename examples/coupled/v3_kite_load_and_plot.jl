@@ -196,31 +196,25 @@ function print_and_plot_wing(lg, sam; is_print::Bool=false)
 end
 
 function plot_time_series(lg, sam)
-    fig = plot(sam.sys_struct, lg;
-            plot_reelout=false,
-            plot_yaw_rate=true,
-            plot_yaw_rate_paper=true,
-            yaw_rate_paper_ylims=(-100, 100),
-            yaw_rate_paper_compare=true,
-            plot_turn_rates=true,
-         #    plot_tether=true,
-            # plot_gk=true,
-            # plot_gk_paper=true,
-            # plot_us=true,
-            plot_aero_force=false,
-         #    plot_aero_moment=true,
-         #    plot_tether_moment=true,
-         #    plot_twist=true,
-            plot_aoa=false,
-         #    aoa_ylims=(0, 10.0),
-            plot_heading=false,
-            #  plot_old_heading=true,
-         # #    plot_distance=true,
-         # #    plot_cone_angle=true,
-            plot_elevation=true,
-            plot_azimuth=true,
-            plot_winch_force=false,
-            plot_set_values=false
+    fig = plot(sam.sys_struct, 
+               lg;
+               plot_turn_rates=false, 
+               plot_reelout=false,
+               plot_twist=false,
+               plot_yaw_rate_paper=true,
+               yaw_rate_paper_ylims=(-90.0, 90.0),
+               yaw_rate_paper_compare=true, 
+               plot_v_app=true,
+               plot_kite_vel=true,
+               plot_gk=true,
+               gk_ylims=(0.0, 15.0),
+               plot_aoa=true,
+               aoa_ylims=(0.0, 15.0), 
+               plot_heading=false, 
+               plot_elevation=true,
+               plot_azimuth=true, 
+               plot_winch_force=false, 
+               plot_set_values=false,             
          )
       return fig
 end
@@ -523,7 +517,7 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
    return (window=window, ratio=ratio_by_category, pulley_ratio=pulley_ratio)
 end
 
-log_name = "zenith_circle__up_40_us_15_vw_15_date_2026_01_06_10_19"
+log_name = "circle__up_20_us_20_vw_8_date_2026_01_07_09_39"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 # Log alignment info before plotting to decide tension source

@@ -15,6 +15,7 @@ using GLMakie
 using KiteUtils
 using DiscretePIDs
 using Dates
+using StaticArrays: SVector
 
 # Heading PID controller parameters
 MAX_HEADING = 10.0  # Maximum heading amplitude [degrees]
@@ -349,7 +350,7 @@ up = 0.2  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis
 vw = 8.0  # {{{ 10.  <> 15.0 }}} suitable range?
 lt = 260  # problems when changing...
 
-sim_time = 50.0
+sim_time = 150.0
 decay_time = 2.0 #2secs works better than 3 somehow
 ramp_time = 2.0
 fps = 120
@@ -370,10 +371,25 @@ syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
     winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
 
 
-fig = plot(sam_refine.sys_struct, syslog_refine;
-    plot_turn_rates=true, plot_reelout=false, plot_gk=true,
-    plot_aoa=true, plot_heading=false, plot_elevation=true,
-    plot_azimuth=true, plot_winch_force=false, plot_set_values=false)
+fig = plot(
+    sam_refine.sys_struct, 
+    syslog_refine;
+    plot_turn_rates=false, 
+    plot_reelout=false,
+    plot_twist=true,
+    plot_yaw_rate_paper=true, 
+    plot_v_app=true,
+    plot_kite_vel=true,
+    plot_gk=true,
+    plot_aoa=true, 
+    plot_heading=false, 
+    plot_elevation=true,
+    plot_azimuth=true, 
+    plot_winch_force=false, 
+    plot_set_values=false,
+    gk_ylims=(0.0, 15.0), 
+    aoa_ylims=(0.0, 15.0),
+    yaw_rate_paper_ylims=(0.0, 50.0))
 
 scene = replay(syslog_refine, sam_refine.sys_struct)
 

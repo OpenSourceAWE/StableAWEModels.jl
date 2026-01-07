@@ -930,14 +930,15 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_twist=false,
                    plot_us=false,
                    plot_gk=false,
-                   gk_ylims=(0.0, 10.0),
-                   aoa_ylims=nothing,
+                   gk_ylims=(0.0, 15.0),
+                   aoa_ylims=(0.0, 15.0),
                    plot_yaw_rate=false,
                    plot_yaw_rate_paper=false,
-                   yaw_rate_paper_ylims=nothing,
+                   yaw_rate_paper_ylims=(-90.0, 90.0),
                    yaw_rate_paper_compare=false,
                    plot_gk_paper=false,
                    plot_v_app=false,
+                   plot_kite_vel=false,
                    plot_aoa=plot_default,
                    plot_heading=plot_default,
                    plot_kiteutils_course=false,
@@ -960,6 +961,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
 
     # Build list of panels to plot by combining data from all logs
     panels = []
+
+    # Generate suffixes: use custom if provided, otherwise use system names
+    actual_suffixes = if isnothing(suffixes)
+        [" - " * sys.name for sys in syss]
+    else
+        [" - " * s for s in suffixes]
+    end
 
     if plot_yaw_rate
         all_data = []
