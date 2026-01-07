@@ -54,7 +54,7 @@ WINCH_LENGTH_TAU_I = 10.0   # Integral time constant
 WINCH_LENGTH_KD = 0.0      # No derivative gain
 
 # PI controller parameters for speed matching
-SPEED_KP = 1.0            # Proportional gain for speed error
+SPEED_KP = 0.01            # Proportional gain for speed error
 SPEED_TAU_I = 10.0          # Integral time constant
 SPEED_KD = 0.0             # No derivative gain
 
@@ -338,6 +338,26 @@ function apply_force!(sys, control)
     end
 end
 
+# Mutable state for simulation cumulative distance
+const SIM_PREV_POS = Ref{Vector{Float64}}(zeros(3))
+const SIM_CUMULATIVE_DIST = Ref{Float64}(0.0)
+
+function reset_distance_tracker!()
+    SIM_PREV_POS[] = zeros(3)
+    SIM_CUMULATIVE_DIST[] = 0.0
+end
+
+function update_sim_distance!(wing_pos)
+    if SIM_PREV_POS[] == zeros(3)
+        SIM_PREV_POS[] = copy(wing_pos)
+        return 0.0
+    end
+    dist = norm(wing_pos - SIM_PREV_POS[])
+    SIM_CUMULATIVE_DIST[] += dist
+    SIM_PREV_POS[] = copy(wing_pos)
+    return SIM_CUMULATIVE_DIST[]
+end
+
 function update_vel_from_csv!(sys, row, brake, heading_pid, speed_pid)
     @unpack wings, points, winches, segments = sys
     wing = wings[1]
@@ -349,13 +369,13 @@ function update_vel_from_csv!(sys, row, brake, heading_pid, speed_pid)
     curr_heading = calc_heading(sys, wing.R_b_w)
     delta_heading = -wrap_to_pi(csv_heading - curr_heading)
 
-    # Speed matching PI controller - adjusts wind speed
-    csv_speed = sqrt(row.vx^2 + row.vy^2 + row.vz^2)
-    sim_speed = norm(wing.vel_w)
+    # Distance matching PI controller - adjusts wind speed
+    sim_cumulative_dist = update_sim_distance!(wing.pos_w)
 
-    # PI control for speed - output to wind speed (CSV wind as feedforward)
+    # PI control for distance - output to wind speed (CSV wind as feedforward)
     wind_adjustment = DiscretePIDs.calculate_control!(
-        speed_pid, csv_speed, sim_speed, row.wind_at_kite)
+        speed_pid, row.cumulative_distance, sim_cumulative_dist, row.wind_at_kite)
+    @show row.cumulative_distance - sim_cumulative_dist
     sys.set.v_wind = wind_adjustment
 
     # Apply steering via differential tape lengths
@@ -509,8 +529,9 @@ function run_physics_replay(csv_path::String;
     tether_len_delta = set.l_tether - first_csv_tether_len
     @info "Tether length delta" set_l_tether=set.l_tether csv_tether=first_csv_tether_len delta=tether_len_delta
 
-    # Reset heading spike filter
+    # Reset heading spike filter and distance tracker
     PREV_CSV_HEADING[] = NaN
+    reset_distance_tracker!()
 
     # Initialize heading PID controller
     heading_pid = DiscretePID(;
@@ -568,6 +589,7 @@ function run_physics_replay(csv_path::String;
             csv_state.AoA = csv_row.angle_of_attack
             csv_state.time = csv_row.time
             csv_state.l_tether[1] = csv_row.tether_len
+            csv_state.v_reelout[1] = csv_row.tether_vel
             log!(csv_logger, csv_state)
 
             # Store CSV tape percentages for plotting
@@ -656,7 +678,6 @@ end
 sam, syslog, csv_sam, csvlog, csv_data, raw_data, phys_tape_pct, csv_tape_pct = run_physics_replay(CSV_PATH)
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
      plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
-     # plot_elevation=true, plot_azimuth=true,
      tape_lengths=[phys_tape_pct, csv_tape_pct],
      suffixes=["phys", "csv"])
 display(fig)
