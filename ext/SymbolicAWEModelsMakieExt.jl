@@ -553,6 +553,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_turn_rates=false,
                    plot_elevation=false,
                    plot_azimuth=false,
+                   plot_wind=false,
                    plot_tether_moment=false,
                    plot_winch_force=plot_default,
                    plot_set_values=false,
@@ -1228,6 +1229,27 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             labels = all_labels,
             times = all_times,
             ylabel = "azimuth [°]"
+        ))
+    end
+
+    if plot_wind
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = actual_suffixes[i]
+            # v_wind_gnd is a vector, take norm
+            wind_speed = [norm(sl.v_wind_gnd[j]) for j in eachindex(sl.v_wind_gnd)]
+            push!(all_data, wind_speed)
+            push!(all_labels, "v_wind" * suffix)
+            push!(all_times, sl.time)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            times = all_times,
+            ylabel = "wind [m/s]"
         ))
     end
 

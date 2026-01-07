@@ -36,7 +36,7 @@ STEERING_MULTIPLIER = 1.0
 # Depower calibration
 DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
 DEPOWER_GAIN = 5.0
-DEPOWER_OFFSET = -20.0
+DEPOWER_OFFSET = -15.0
 
 INITIAL_DAMPING = [0.0, 300.0, 600.0]
 DECAY_TIME = 1.0
@@ -49,13 +49,13 @@ HEADING_KD = 0.0
 DT_CONTROL = 0.001
 
 # PI controller parameters for winch length control
-WINCH_LENGTH_KP = 0.0      # Low proportional gain for length tracking
+WINCH_LENGTH_KP = 0.01      # Low proportional gain for length tracking
 WINCH_LENGTH_TAU_I = 10.0   # Integral time constant
 WINCH_LENGTH_KD = 0.0      # No derivative gain
 
 # PI controller parameters for speed matching
-SPEED_KP = 0.01            # Proportional gain for speed error
-SPEED_TAU_I = 10.0          # Integral time constant
+SPEED_KP = 0.0            # Proportional gain for speed error
+SPEED_TAU_I = 50.0          # Integral time constant
 SPEED_KD = 0.0             # No derivative gain
 
 
@@ -373,10 +373,10 @@ function update_vel_from_csv!(sys, row, brake, heading_pid, speed_pid)
     sim_cumulative_dist = update_sim_distance!(wing.pos_w)
 
     # PI control for distance - output to wind speed (CSV wind as feedforward)
-    wind_adjustment = DiscretePIDs.calculate_control!(
+    # Too slow (sim behind) → more wind, too fast (sim ahead) → less wind
+    wind_speed = DiscretePIDs.calculate_control!(
         speed_pid, row.cumulative_distance, sim_cumulative_dist, row.wind_at_kite)
-    @show row.cumulative_distance - sim_cumulative_dist
-    sys.set.v_wind = wind_adjustment
+    sys.set.v_wind = wind_speed
 
     # Apply steering via differential tape lengths
     # PID control for steering based on heading error
@@ -401,7 +401,7 @@ function update_vel_from_csv!(sys, row, brake, heading_pid, speed_pid)
     winch.brake = brake
     winch.set_value = ff_torque
 
-    # update depower (from CSV)
+    # Update depower from CSV
     L_depower = depower_percentage_to_length(row.depower + DEPOWER_OFFSET)
     segments[88].l0 = L_depower
 
@@ -485,6 +485,7 @@ function run_physics_replay(csv_path::String;
     set_data_path("data/v3")
     set = Settings("system.yaml")
     set.g_earth = 9.81
+    set.l_tether = 212.68
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
     vsm_set.wings[1].geometry_file = "data/v3/aero_geometry_stable.yaml"
@@ -542,7 +543,7 @@ function run_physics_replay(csv_path::String;
         umin = -1.0,
         umax = 1.0)
 
-    # Initialize speed matching PI controller
+    # Initialize distance->wind PI controller
     speed_pid = DiscretePID(;
         K = SPEED_KP,
         Ti = SPEED_TAU_I,
@@ -590,6 +591,7 @@ function run_physics_replay(csv_path::String;
             csv_state.time = csv_row.time
             csv_state.l_tether[1] = csv_row.tether_len
             csv_state.v_reelout[1] = csv_row.tether_vel
+            csv_state.v_wind_gnd[1] = csv_row.wind_at_kite
             log!(csv_logger, csv_state)
 
             # Store CSV tape percentages for plotting
@@ -621,7 +623,23 @@ function run_physics_replay(csv_path::String;
             sam.sys_struct.winches[1].tether_vel = csv_row.tether_vel
             SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
 
-            next_step!(sam; dt=dt, set_values=[set_value])
+            # Distance-based step adjustment:
+            # Skip phys step if sim is ahead, extra step if sim is behind
+            csv_dist = csv_row.cumulative_distance
+            sim_dist = SIM_CUMULATIVE_DIST[]
+            dist_error = csv_dist - sim_dist
+
+            if dist_error < -dt * 10  # Sim ahead by more than ~10m/s worth
+                # Skip physics step (sim traveled too far)
+                @warn "Skipping phys step: sim ahead by $(round(-dist_error, digits=2))m"
+            else
+                next_step!(sam; dt=dt, set_values=[set_value])
+                # Extra step if sim is behind
+                if dist_error > dt * 10  # Sim behind by more than ~10m/s worth
+                    @warn "Extra phys step: sim behind by $(round(dist_error, digits=2))m"
+                    next_step!(sam; dt=dt, set_values=[set_value])
+                end
+            end
 
             # Log state
             update_sys_state!(sys_state, sam)
@@ -678,8 +696,9 @@ end
 sam, syslog, csv_sam, csvlog, csv_data, raw_data, phys_tape_pct, csv_tape_pct = run_physics_replay(CSV_PATH)
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
      plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
+     plot_wind=true,
      tape_lengths=[phys_tape_pct, csv_tape_pct],
      suffixes=["phys", "csv"])
 display(fig)
-plot_sphere_trajectory([syslog,csvlog])
+sphere = plot_sphere_trajectory([syslog,csvlog])
 

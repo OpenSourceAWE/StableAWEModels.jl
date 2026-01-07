@@ -32,6 +32,7 @@ STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 20.0   # depower [0, 100]
 WIND_VEL = 20.0
 ELEVATION = 75
+TETHER_LENGTH = 212.68  # Total tether length (m), 6 segments
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 STEERING_L0 = 1.6  # Neutral steering tape length (m)
@@ -71,6 +72,7 @@ set_data_path("data/v3")
 set = Settings("system.yaml")
 set.g_earth = 9.81
 set.v_wind = WIND_VEL
+set.l_tether = TETHER_LENGTH
 
 # Load VSMSettings
 vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
@@ -84,6 +86,16 @@ sys = load_sys_struct_from_yaml(struc_yaml_path;
     system_name="v3", set,
     wing_type=SymbolicAWEModels.REFINE, vsm_set)
 sys.transforms[1].elevation = deg2rad(ELEVATION)
+
+# Update tether length: points 39-44 and segments 90-95
+segment_len = TETHER_LENGTH / 6.0
+for (i, point_idx) in enumerate(39:44)
+    sys.points[point_idx].pos_b .= [0.0, 0.0, -i * segment_len]
+end
+for seg_idx in 90:95
+    sys.segments[seg_idx].l0 = segment_len
+end
+@info "Tether configured" TETHER_LENGTH segment_len
 
 # Set initial world frame damping (will decay over DECAY_STEPS)
 SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING)
