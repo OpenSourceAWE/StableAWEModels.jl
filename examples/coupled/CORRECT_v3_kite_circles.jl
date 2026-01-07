@@ -101,7 +101,7 @@ function run_v3_kite(wing_type::WingType;
     struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
 
     # Load VSMSettings
-    vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
+    vsm_set_path = joinpath(get_data_path(), "CORRECT_vsm_settings.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
 
     # Use 36 panels for both wing types (matches vsm_settings.yaml default)
@@ -362,11 +362,11 @@ end
 # Run both simulations
 syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
     # general settings
-    v_wind=15,
+    v_wind=8,
     v_wind_base=15,
-    up=0.4,
+    up=0.2,
     # settings zenith initialisation flight
-    sim_time_zenith=50, 
+    sim_time_zenith=100, 
     fps_zenith=60,
     start_ramp_time=0.1,
     ramp_time_up=10.0,
@@ -375,10 +375,10 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     max_us_zenith = 0.02,
     target_azimuth = 0.0,
     # settings circular flight
-    sim_time_circles=200,
+    sim_time_circles=300,
     fps_circles=60,
-    ramp_time_us = 5.0,
-    us=0.15,
+    ramp_time_us = 15.0,
+    us=0.2,
 )
 
 

@@ -6,6 +6,10 @@ Helper functions for REFINE wing type that applies VSM panel forces directly to
 structural points.
 """
 
+# Baseline chord-based aero scaling for REFINE wings.
+# Effective multiplier = 1 + (wing.aero_scale_chord or default below).
+const AERO_SCALE_CHORD = 0.0
+
 """
     identify_wing_segments(wing_points::Vector{Point})
 
@@ -252,8 +256,9 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point}
     for local_panel_idx in 1:n_panels_wing
         panel_idx = start_idx + local_panel_idx - 1
         panel = panels[local_panel_idx]
-        Fp = SVector{3}(f_body[:, panel_idx])
-        Mp = SVector{3}(m_body[:, panel_idx])
+        scale = 1.0 + (isfinite(wing.aero_scale_chord) ? wing.aero_scale_chord : AERO_SCALE_CHORD)
+        Fp = scale .* SVector{3}(f_body[:, panel_idx])
+        Mp = scale .* SVector{3}(m_body[:, panel_idx])
 
         section_idx = panel_to_section[local_panel_idx]
         section = wing.vsm_wing.unrefined_sections[section_idx]

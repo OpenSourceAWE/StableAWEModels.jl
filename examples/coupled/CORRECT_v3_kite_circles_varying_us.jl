@@ -21,9 +21,9 @@ using StaticArrays
 """
     run_v3_kite(wing_type::WingType; kwargs...)
 
-Run a two-phase v3 kite simulation with the specified wing type
-(zenith azimuth hold, then circular flight). The two phases can have
-independent durations/FPS.
+Run a v3 kite simulation with a zenith azimuth hold followed by one or more
+circular flight phases. Zenith settings are scalar; circular-flight settings
+can be scalar (single phase) or vectors (multi-phase) of equal length.
 
 # Arguments
 - `wing_type::WingType`: Either `REFINE` or `QUATERNION`
@@ -31,17 +31,17 @@ independent durations/FPS.
 # Keyword Arguments
 - `sim_time_zenith::Float64=300.0`: Duration of zenith phase [s]
 - `fps_zenith::Int=1`: Frames per second for zenith logging
-- `sim_time_circles::Float64=300.0`: Duration of circular flight phase [s]
-- `fps_circles::Int=1`: Frames per second for circular flight logging
+- `sim_time_circles::Union{Float64,AbstractVector}=300.0`: Duration(s) of circular flight phase(s) [s]
+- `fps_circles::Union{Int,AbstractVector}=1`: Frames per second for circular flight logging
 - `remake_cache::Bool=false`: Force rebuild of cached model
 - `initial_damping::Float64=10.0`: Initial world frame damping [N·s/m]
 - `decay_time::Float64=2.0`: Time for damping decay [s] (applied in both phases)
 - `up::Float64=0.4`: Power-tape input (0–1) mapped to segment 88 length
 - `ramp_time_up::Float64=25.0`: Power-tape ramp time during zenith phase [s]
-- `ramp_time_us::Float64=25.0`: Steering/power ramp time during circular phase [s]
+- `ramp_time_us::Union{Float64,AbstractVector}=25.0`: Steering/power ramp time during circular phase(s) [s]
 - `start_ramp_time::Float64=0.0`: Time offset before starting power-tape ramp [s] (zenith phase)
 - `max_us_zenith::Float64=0.1`: Max steering tape change for azimuth PID [m/1.4]
-- `us::Float64=0.1`: Steering tape command for the circular phase
+- `us::Union{Float64,AbstractVector}=0.1`: Steering tape command for the circular phase(s)
 - `show_plots::Bool=false`: Display 3D plots during simulation
 - `v_wind::Float64=15.4`: Wind speed [m/s]
 - `v_wind_base::Float64=15.0`: Baseline wind used for circular phase ramp [m/s]
@@ -53,6 +53,9 @@ independent durations/FPS.
 - `winch_p::Float64=1000.0`: Proportional gain for winch controller [N/m]
 - `winch_i::Float64=100.0`: Integral gain for winch controller [N/(m·s)]
 - `winch_d::Float64=50.0`: Derivative gain for winch controller [N·s/m]
+- `tube_bending_resistance::Float64=0.0`: Outward body-frame force magnitude applied to tube nodes during circular flight
+- `initial_body_damping::Union{Float64,AbstractVector}=[0.0, 0.0, 0.0]`: Initial body-frame damping (scalar or 3-element vector) applied to wing points
+- `min_body_damping::Union{Float64,AbstractVector}=[0.0, 0.0, 0.0]`: Minimum body-frame damping reached after decay
 
 # Returns
 - `SysLog`: The simulation log containing time history data
@@ -83,6 +86,9 @@ function run_v3_kite(wing_type::WingType;
                      target_azimuth=0.0,
                      us=0.1,
                      v_wind_base=15.0,
+                     tube_bending_resistance=0.0,
+                     initial_body_damping=[0.0, 0.0, 0.0],
+                     min_body_damping=[0.0, 0.0, 0.0]
                      )
 
     wing_type_str = wing_type == SymbolicAWEModels.REFINE ? "REFINE" : "QUATERNION"
@@ -113,6 +119,11 @@ function run_v3_kite(wing_type::WingType;
 
     # Initialize damping
     SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
+    # Normalize body damping inputs to 3-vectors (or scalar replicated)
+    to_vec3(x) = x isa AbstractVector ? collect(x) : fill(x, 3)
+    body_damping_init = to_vec3(initial_body_damping)
+    body_damping_min = to_vec3(min_body_damping)
+    SymbolicAWEModels.set_body_frame_damping(sys, body_damping_init)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -126,12 +137,23 @@ function run_v3_kite(wing_type::WingType;
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
 
 
-    # Create logger (two phases with independent settings)
+    # Normalize circular-phase inputs to vectors (support multi-phase)
+    sim_time_circles_vec = sim_time_circles isa AbstractVector ? collect(sim_time_circles) : [sim_time_circles]
+    fps_circles_vec = fps_circles isa AbstractVector ? collect(fps_circles) : [fps_circles]
+    ramp_time_us_vec = ramp_time_us isa AbstractVector ? collect(ramp_time_us) : [ramp_time_us]
+    us_vec = us isa AbstractVector ? collect(us) : [us]
+
+    n_circle_phases = maximum(length.((sim_time_circles_vec, fps_circles_vec, ramp_time_us_vec, us_vec)))
+    if !all(length(x) == n_circle_phases for x in (sim_time_circles_vec, fps_circles_vec, ramp_time_us_vec, us_vec))
+        throw(ArgumentError("Circular flight parameters must all have the same length."))
+    end
+
+    # Create logger (zenith + multiple circular phases)
     n_steps_zenith = max(1, Int(round(fps_zenith * sim_time_zenith)))
     Δt_zenith = sim_time_zenith / n_steps_zenith
-    n_steps_circles = max(1, Int(round(fps_circles * sim_time_circles)))
-    Δt_circles = sim_time_circles / n_steps_circles
-    total_steps = n_steps_zenith + n_steps_circles
+    n_steps_circles_vec = [max(1, Int(round(fps_circles_vec[i] * sim_time_circles_vec[i]))) for i in 1:n_circle_phases]
+    Δt_circles_vec = [sim_time_circles_vec[i] / n_steps_circles_vec[i] for i in 1:n_circle_phases]
+    total_steps = n_steps_zenith + sum(n_steps_circles_vec)
     logger = Logger(sam, total_steps + 1)
     sys_state = SysState(sam)
     sys_state.time = 0.0
@@ -201,8 +223,11 @@ function run_v3_kite(wing_type::WingType;
         if t <= decay_time
             current_damping = initial_damping * (1.0 - t / decay_time)
             SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+            current_body_damping = (body_damping_init .- body_damping_min) .* (1.0 - t / decay_time) .+ body_damping_min
+            SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_body_damping)
         else
             SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
+            SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, body_damping_min)
         end
 
         # PID azimuth control: drive azimuth to target
@@ -252,77 +277,110 @@ function run_v3_kite(wing_type::WingType;
         end
     end
 
-    # Phase 2: Circular flight
-    @info "Switching to circular flight phase" phase_time=round(sys_state.time, digits=2)
+    # Phase 2: Circular flight(s)
+    @info "Switching to circular flight phases" phase_time=round(sys_state.time, digits=2) n_phases=n_circle_phases
     SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, initial_damping)
+    SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, body_damping_init)
 
     # Fix tether length for circular flight
     winch.brake = true
     winch.set_value = 0.0
 
-    steering_tape_change = 1400 * us / 1000  # Convert mm to m
     vw_change = v_wind - v_wind_base
 
     power_target = nominal_l0_88 + power_tape_change
-    steer_target_87 = nominal_l0_87 + steering_tape_change
-    steer_target_89 = nominal_l0_89 - steering_tape_change
     power_start = sys.segments[88].l0
     steer_start_87 = sys.segments[87].l0
     steer_start_89 = sys.segments[89].l0
+    current_time = sim_time_zenith
 
-    for step in 1:n_steps_circles
-        t_stage = step * Δt_circles
-        t_total = sim_time_zenith + t_stage
+    for phase in 1:n_circle_phases
+        n_steps_circles = n_steps_circles_vec[phase]
+        Δt_circles = Δt_circles_vec[phase]
+        ramp_time_us_phase = ramp_time_us_vec[phase]
+        us_phase = us_vec[phase]
+        sim_time_phase = sim_time_circles_vec[phase]
 
-        # Update damping (reset for this phase)
-        if t_stage <= decay_time
-            current_damping = initial_damping * (1.0 - t_stage / decay_time)
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
-        else
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
-        end
+        steering_tape_change = 1400 * us_phase / 1000  # Convert mm to m
+        steer_target_87 = nominal_l0_87 + steering_tape_change
+        steer_target_89 = nominal_l0_89 - steering_tape_change
 
-        ramp_factor = min(t_stage / ramp_time_us, 1.0)
+        @info "Starting circular phase $phase/$n_circle_phases" steps=n_steps_circles duration=sim_time_phase us=us_phase
 
-        # Power and steering ramp toward circular flight targets
-        sys.segments[88].l0 = power_start + (power_target - power_start) * ramp_factor
-        sys.segments[87].l0 = steer_start_87 + (steer_target_87 - steer_start_87) * ramp_factor
-        sys.segments[89].l0 = steer_start_89 + (steer_target_89 - steer_start_89) * ramp_factor
+        for step in 1:n_steps_circles
+            t_stage = step * Δt_circles
+            t_total = current_time + t_stage
 
-        # Update wind speed (kept constant here, ramp hook retained)
-        sam.sys_struct.set.v_wind = v_wind_base + vw_change
-
-        # Fixed tether length: brake engaged; no winch torque
-        winch_torque = 0.0
-        sys.winches[1].set_value = -winch_torque
-
-        # Advance simulation
-        try
-            next_step!(sam; set_values=[-winch_torque], dt=Δt_circles, vsm_interval=1)
-        catch err
-            if err isa AssertionError
-                @error "next_step! failed during circular phase" step
-                break
+            # Update damping (reset for this phase)
+            if t_stage <= decay_time
+                current_damping = initial_damping * (1.0 - t_stage / decay_time)
+                SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+                current_body_damping = (body_damping_init .- body_damping_min) .* (1.0 - t_stage / decay_time) .+ body_damping_min
+                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_body_damping)
+            else
+                SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
+                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, body_damping_min)
             end
-            rethrow(err)
+
+            ramp_factor = ramp_time_us_phase > 0 ? min(t_stage / ramp_time_us_phase, 1.0) : 1.0
+
+            # Power and steering ramp toward circular flight targets
+            sys.segments[88].l0 = power_start + (power_target - power_start) * ramp_factor
+            sys.segments[87].l0 = steer_start_87 + (steer_target_87 - steer_start_87) * ramp_factor
+            sys.segments[89].l0 = steer_start_89 + (steer_target_89 - steer_start_89) * ramp_factor
+
+            # Update wind speed (kept constant here, ramp hook retained)
+            sam.sys_struct.set.v_wind = v_wind_base + vw_change
+
+            # Apply outward tube bending resistance forces in body-frame ±y directions
+            if tube_bending_resistance != 0
+                R_b_w = sam.sys_struct.wings[1].R_b_w
+                force_pos_y = R_b_w * [0.0, tube_bending_resistance, 0.0]
+                force_neg_y = R_b_w * [0.0, -tube_bending_resistance, 0.0]
+                sam.sys_struct.points[2].disturb .= force_pos_y
+                sam.sys_struct.points[3].disturb .= force_pos_y
+                sam.sys_struct.points[20].disturb .= force_neg_y
+                sam.sys_struct.points[21].disturb .= force_neg_y
+            end
+
+            # Fixed tether length: brake engaged; no winch torque
+            winch_torque = 0.0
+            sys.winches[1].set_value = -winch_torque
+
+            # Advance simulation
+            try
+                next_step!(sam; set_values=[-winch_torque], dt=Δt_circles, vsm_interval=1)
+            catch err
+                if err isa AssertionError
+                    @error "next_step! failed during circular phase $phase" step
+                    break
+                end
+                rethrow(err)
+            end
+
+            # Log state
+            update_sys_state!(sys_state, sam)
+            sys_state.time = t_total
+            log!(logger, sys_state)
+
+            # Progress updates
+            if step % max(1, div(n_steps_circles, 10)) == 0 || step == n_steps_circles
+                elapsed = time() - sim_start_time
+                times_realtime = t_total / elapsed
+                @info "  Circle step $step/$n_steps_circles (phase $phase, t = $(round(t_total, digits=2)) s)" times_realtime=round(times_realtime, digits=2)
+            end
         end
 
-        # Log state
-        update_sys_state!(sys_state, sam)
-        sys_state.time = t_total
-        log!(logger, sys_state)
-
-        # Progress updates
-        if step % max(1, div(n_steps_circles, 10)) == 0 || step == n_steps_circles
-            elapsed = time() - sim_start_time
-            times_realtime = t_total / elapsed
-            @info "  Circle step $step/$n_steps_circles (t = $(round(t_total, digits=2)) s)" times_realtime=round(times_realtime, digits=2)
-        end
+        # Set next phase start points from current state
+        power_start = sys.segments[88].l0
+        steer_start_87 = sys.segments[87].l0
+        steer_start_89 = sys.segments[89].l0
+        current_time += sim_time_phase
     end
 
     # Calculate performance
     total_wall_time = time() - sim_start_time
-    total_sim_time = sim_time_zenith + sim_time_circles
+    total_sim_time = sim_time_zenith + sum(sim_time_circles_vec)
     final_times_realtime = total_sim_time / total_wall_time
     @info "Simulation completed: $wing_type_str (zenith + circular)" wall_time=round(total_wall_time, digits=2) times_realtime=round(final_times_realtime, digits=2)
 
@@ -336,7 +394,8 @@ function run_v3_kite(wing_type::WingType;
     isdir(save_dir) || mkpath(save_dir)
     timestamp = Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM")
     up_tag = Int(round(up*100))
-    us_tag = Int(round(us*100))
+    us_tag = length(us_vec) == 1 ? string(Int(round(us_vec[1]*100))) :
+        join(Int.(round.(us_vec .* 100)), "_")
     v_wind_tag = Int(round(v_wind))
     log_name = "zenith_circle__up_$(up_tag)_us_$(us_tag)_vw_$(v_wind_tag)_date_$(timestamp)"
     save_log(logger, log_name; path=save_dir)
@@ -351,9 +410,11 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     # general settings
     v_wind=15,
     v_wind_base=15,
-    up=0.25,
+    up=0.3,
+    initial_body_damping=[0.0, 0.0, 0.0],
+    min_body_damping=[0.0, 30, 60],
     # settings zenith initialisation flight
-    sim_time_zenith=150, 
+    sim_time_zenith=50, 
     fps_zenith=60,
     start_ramp_time=0.1,
     ramp_time_up=10.0,
@@ -362,19 +423,26 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     max_us_zenith = 0.02,
     target_azimuth = 0.0,
     # settings circular flight
-    sim_time_circles=0,
-    fps_circles=60,
-    ramp_time_us = 5.0,
-    us=0.3,
+    sim_time_circles=[150,150,150,150,150],
+    fps_circles=[60,60,60,60,60],
+    ramp_time_us = [10.0,10.0,10.0,10.0,10.0],
+    us=[0.1,0.2,0.25,0.2,0.1],
 )
 
 
-#### Plot results#
+#### Plot results
 fig = plot(sam_refine.sys_struct, syslog_refine;
-    plot_turn_rates=true, plot_reelout=false, plot_gk=true,
-    plot_aoa=true, plot_heading=false, plot_elevation=true,
-    plot_azimuth=true, plot_winch_force=false, plot_set_values=false,
-    plot_us=true,)
+    plot_turn_rates=true,
+    plot_reelout=false,
+    plot_gk=true,
+    plot_aoa=true,
+    plot_heading=false,
+    plot_elevation=true,
+    plot_azimuth=true,
+    plot_winch_force=false,
+    plot_set_values=false,
+    plot_us=true,
+    plot_aero_moment=true,)
 
 scene = replay(syslog_refine, sam_refine.sys_struct)
 

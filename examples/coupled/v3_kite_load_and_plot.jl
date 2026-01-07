@@ -8,13 +8,14 @@ using DiscretePIDs
 using Dates
 
 function load_log_and_system(; log_name::String)
-    # Extract up, us, and v_wind from log_name with a single regex; safer than manual slicing
-    m = match(r"_up_([0-9.]+)_us_([-0-9.]+)_vw_([0-9.]+)", log_name)
+    # Extract up, us, and v_wind from log_name. Support multi-us tags like ..._us_10_25_50_...
+    m = match(r"_up_([0-9.]+)_us_([0-9._-]+)_vw_([0-9.]+)", log_name)
     m === nothing && error("Could not parse up/us/vw from log name: $log_name")
     up = parse(Float64, m.captures[1])
-    us = parse(Float64, m.captures[2])
+    us_tokens = split(m.captures[2], "_")
+    us_vals = parse.(Float64, us_tokens)
     v_wind = parse(Float64, m.captures[3])
-    @info "up=$up/100 [-]" us=us/100 v_wind=v_wind
+    @info "up=$(up/100) [-]" us=us_vals ./ 100 v_wind=v_wind
     initial_damping = 100.0
 
     # Load settings
@@ -32,7 +33,7 @@ function load_log_and_system(; log_name::String)
     struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
 
     # Load VSMSettings
-    vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
+    vsm_set_path = joinpath(get_data_path(), "CORRECT_vsm_settings.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
 
     # Use 36 panels for both wing types (matches vsm_settings.yaml default)
@@ -53,7 +54,7 @@ function load_log_and_system(; log_name::String)
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
     lg = KiteUtils.load_log(log_name; path="processed_data/v3_kite")
-    return lg, sam, up, us, v_wind
+    return lg, sam, up, us_vals, v_wind
 end
 
 function print_and_plot_wing(lg, sam)
@@ -216,7 +217,7 @@ function plot_time_series(lg, sam)
 end
 
 
-log_name = "zenith_circle__up_40_us_15_vw_15_date_2026_01_06_15_08"
+log_name = "zenith_circle__up_40_us_10_25_50_vw_15_date_2026_01_06_16_42"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 ### plot time series
