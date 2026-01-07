@@ -517,7 +517,7 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
    return (window=window, ratio=ratio_by_category, pulley_ratio=pulley_ratio)
 end
 
-log_name = "circle__up_20_us_20_vw_8_date_2026_01_07_09_39"
+log_name = "circle__up_22_us_20_vw_8_date_2026_01_07_10_23_42"
 lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
 
 # Log alignment info before plotting to decide tension source

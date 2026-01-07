@@ -931,7 +931,6 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_us=false,
                    plot_gk=false,
                    gk_ylims=(0.0, 15.0),
-                   aoa_ylims=(0.0, 15.0),
                    plot_yaw_rate=false,
                    plot_yaw_rate_paper=false,
                    yaw_rate_paper_ylims=(-90.0, 90.0),
@@ -940,6 +939,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_v_app=false,
                    plot_kite_vel=false,
                    plot_aoa=plot_default,
+                   aoa_ylims=(0.0, 15.0),
                    plot_heading=plot_default,
                    plot_kiteutils_course=false,
                    plot_aero_moment=false,
@@ -1684,11 +1684,6 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 ylims = gk_ylims
             ))
         end
-
-
-    if plot_gk_paper
-        @warn "plot_gk_paper not yet implemented"
-    end
 
     if plot_v_app
         all_data = []
