@@ -44,7 +44,7 @@ MIN_DAMPING = [0.0, 30, 60]
 
 # PID controller parameters for heading control
 HEADING_KP = 0.5
-HEADING_TAU_I = 0.1
+HEADING_TAU_I = 0.0
 HEADING_KD = 0.0
 DT_CONTROL = 0.001
 
@@ -54,7 +54,7 @@ WINCH_LENGTH_TAU_I = 10.0   # Integral time constant
 WINCH_LENGTH_KD = 0.0      # No derivative gain
 
 # PI controller parameters for speed matching
-SPEED_KP = 10.0            # Proportional gain for speed error
+SPEED_KP = 1.0            # Proportional gain for speed error
 SPEED_TAU_I = 10.0          # Integral time constant
 SPEED_KD = 0.0             # No derivative gain
 
@@ -306,6 +306,29 @@ function calc_csv_heading(roll_deg, pitch_deg, yaw_deg, sys_struct)
     return wrap_to_pi(heading + π)
 end
 
+# Mutable state for heading spike filter
+const PREV_CSV_HEADING = Ref{Float64}(NaN)
+const MAX_HEADING_CHANGE = deg2rad(20.0)  # Max allowed change per step
+
+"""
+    filter_csv_heading(heading)
+
+Filter out spikes in CSV heading data. Rejects changes > MAX_HEADING_CHANGE.
+"""
+function filter_csv_heading(heading)
+    if isnan(PREV_CSV_HEADING[])
+        PREV_CSV_HEADING[] = heading
+        return heading
+    end
+    delta = wrap_to_pi(heading - PREV_CSV_HEADING[])
+    if abs(delta) > MAX_HEADING_CHANGE
+        # Spike detected, keep previous value
+        return PREV_CSV_HEADING[]
+    end
+    PREV_CSV_HEADING[] = heading
+    return heading
+end
+
 function apply_force!(sys, control)
     wing = sys.wings[1]
     R_b_w = wing.R_b_w
@@ -319,25 +342,21 @@ function update_vel_from_csv!(sys, row, brake, heading_pid, speed_pid)
     @unpack wings, points, winches, segments = sys
     wing = wings[1]
 
-    # Calc delta heading
-    csv_heading = calc_csv_heading(row.roll, row.pitch, row.yaw, sys)
+    # Calc delta heading (with spike filter on CSV heading)
+    raw_csv_heading = calc_csv_heading(row.roll, row.pitch, row.yaw, sys)
+    csv_heading = filter_csv_heading(raw_csv_heading)
     wing.R_b_w = calc_R_b_w(sys)
     curr_heading = calc_heading(sys, wing.R_b_w)
     delta_heading = -wrap_to_pi(csv_heading - curr_heading)
 
-    # Speed matching PI controller
+    # Speed matching PI controller - adjusts wind speed
     csv_speed = sqrt(row.vx^2 + row.vy^2 + row.vz^2)
     sim_speed = norm(wing.vel_w)
 
-    # PI control for speed - apply force in flight direction
-    force_magnitude = DiscretePIDs.calculate_control!(
-        speed_pid, csv_speed, sim_speed, 0.0)
-    force_direction = wing.R_b_w[:, 1]
-    for point in points
-        if point.type == SymbolicAWEModels.WING
-            point.disturb .= -force_direction * force_magnitude
-        end
-    end
+    # PI control for speed - output to wind speed (CSV wind as feedforward)
+    wind_adjustment = DiscretePIDs.calculate_control!(
+        speed_pid, csv_speed, sim_speed, row.wind_at_kite)
+    sys.set.v_wind = wind_adjustment
 
     # Apply steering via differential tape lengths
     # PID control for steering based on heading error
@@ -490,6 +509,9 @@ function run_physics_replay(csv_path::String;
     tether_len_delta = set.l_tether - first_csv_tether_len
     @info "Tether length delta" set_l_tether=set.l_tether csv_tether=first_csv_tether_len delta=tether_len_delta
 
+    # Reset heading spike filter
+    PREV_CSV_HEADING[] = NaN
+
     # Initialize heading PID controller
     heading_pid = DiscretePID(;
         K = HEADING_KP,
@@ -505,8 +527,8 @@ function run_physics_replay(csv_path::String;
         Ti = SPEED_TAU_I,
         Td = false,
         Ts = dt,
-        umin = -10000.0,
-        umax = 10000.0)
+        umin = 5.0,
+        umax = 50.0)
 
     function get_row(csv_data, step)
         csv_row = (
@@ -571,11 +593,11 @@ function run_physics_replay(csv_path::String;
             brake = true
             set_value = update_vel_from_csv!(
                 sam.sys_struct, csv_row, brake, heading_pid, speed_pid)
-            sam.sys_struct.set.v_wind = csv_row.wind_at_kite
 
             # Update winch tether length and velocity from CSV
             sam.sys_struct.winches[1].tether_len = csv_row.tether_len + tether_len_delta
             sam.sys_struct.winches[1].tether_vel = csv_row.tether_vel
+            SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
 
             next_step!(sam; dt=dt, set_values=[set_value])
 
