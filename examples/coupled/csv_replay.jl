@@ -36,7 +36,7 @@ STEERING_MULTIPLIER = 1.0
 # Depower calibration
 DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
 DEPOWER_GAIN = 5.0
-DEPOWER_OFFSET = -25.0
+DEPOWER_OFFSET = -20.0
 
 INITIAL_DAMPING = [0.0, 300.0, 600.0]
 DECAY_TIME = 1.0
@@ -315,45 +315,38 @@ function apply_force!(sys, control)
     end
 end
 
-function update_vel_from_csv!(sys, row, brake)
+function update_vel_from_csv!(sys, row, brake, heading_pid, speed_pid)
     @unpack wings, points, winches, segments = sys
     wing = wings[1]
 
-    # # calc delta heading
-    # csv_heading = calc_csv_heading(row.roll, row.pitch, row.yaw, sys)
-    # wing.R_b_w = calc_R_b_w(sys)
-    # curr_heading = calc_heading(sys, wing.R_b_w)
-    # delta_heading = -wrap_to_pi(csv_heading - curr_heading)
+    # Calc delta heading
+    csv_heading = calc_csv_heading(row.roll, row.pitch, row.yaw, sys)
+    wing.R_b_w = calc_R_b_w(sys)
+    curr_heading = calc_heading(sys, wing.R_b_w)
+    delta_heading = -wrap_to_pi(csv_heading - curr_heading)
 
-    # # Speed matching PI controller
-    # csv_speed = sqrt(row.vx^2 + row.vy^2 + row.vz^2)
-    # sim_speed = norm(wing.vel_w)
-    # speed_error = csv_speed - sim_speed  # Positive when sim is slower
+    # Speed matching PI controller
+    csv_speed = sqrt(row.vx^2 + row.vy^2 + row.vz^2)
+    sim_speed = norm(wing.vel_w)
 
-    # # PI control for speed
-    # force_magnitude = DiscretePIDs.calculate_control!(
-    #     speed_pid, csv_speed, sim_speed, 0.0)
-    # force_magnitude = 0.0
-
-    # # Apply force to all WING-type points
-    # force_direction = wing.R_b_w[:, 1]
-    # force_mag = -force_magnitude
-    # for point in points
-    #     if point.type == SymbolicAWEModels.WING
-    #         point.disturb .= force_direction * force_mag
-    #     end
-    # end
+    # PI control for speed - apply force in flight direction
+    force_magnitude = DiscretePIDs.calculate_control!(
+        speed_pid, csv_speed, sim_speed, 0.0)
+    force_direction = wing.R_b_w[:, 1]
+    for point in points
+        if point.type == SymbolicAWEModels.WING
+            point.disturb .= -force_direction * force_magnitude
+        end
+    end
 
     # Apply steering via differential tape lengths
     # PID control for steering based on heading error
-    # steering_control = DiscretePIDs.calculate_control!(heading_pid, 0.0, delta_heading, 0.0)
-    # steering_control = 0.0
+    steering_control = DiscretePIDs.calculate_control!(
+        heading_pid, 0.0, delta_heading, 0.0)
     steering = clamp(row.steering, -100.0, 100.0)
     L_left, L_right = steering_percentage_to_lengths(steering)
-    # segments[87].l0 = STEERING_L0 + STEERING_GAIN*steering_control  # Left
-    # segments[89].l0 = STEERING_L0 - STEERING_GAIN*steering_control  # Right
-    segments[87].l0 = L_left
-    segments[89].l0 = L_right
+    segments[87].l0 = L_left + STEERING_GAIN * steering_control
+    segments[89].l0 = L_right - STEERING_GAIN * steering_control
 
     # Winch length control with feed-forward torque
     winch = winches[1]
@@ -497,32 +490,23 @@ function run_physics_replay(csv_path::String;
     tether_len_delta = set.l_tether - first_csv_tether_len
     @info "Tether length delta" set_l_tether=set.l_tether csv_tether=first_csv_tether_len delta=tether_len_delta
 
-    # # Initialize heading PID controller
-    # heading_pid = DiscretePID(;
-    #     K = HEADING_KP,
-    #     Ti = HEADING_TAU_I,
-    #     Td = false,
-    #     Ts = dt,
-    #     umin = -100.0,
-    #     umax = 100.0)
+    # Initialize heading PID controller
+    heading_pid = DiscretePID(;
+        K = HEADING_KP,
+        Ti = HEADING_TAU_I,
+        Td = false,
+        Ts = dt,
+        umin = -1.0,
+        umax = 1.0)
 
-    # # Initialize winch length PI controller
-    # winch_length_pid = DiscretePID(;
-    #     K = WINCH_LENGTH_KP,
-    #     Ti = WINCH_LENGTH_TAU_I,
-    #     Td = false,
-    #     Ts = dt,
-    #     umin = -2000.0,
-    #     umax = 2000.0)
-
-    # # Initialize speed matching PI controller
-    # speed_pid = DiscretePID(;
-    #     K = SPEED_KP,
-    #     Ti = SPEED_TAU_I,
-    #     Td = false,
-    #     Ts = dt,
-    #     umin = -10000.0,
-    #     umax = 10000.0)
+    # Initialize speed matching PI controller
+    speed_pid = DiscretePID(;
+        K = SPEED_KP,
+        Ti = SPEED_TAU_I,
+        Td = false,
+        Ts = dt,
+        umin = -10000.0,
+        umax = 10000.0)
 
     function get_row(csv_data, step)
         csv_row = (
@@ -586,7 +570,7 @@ function run_physics_replay(csv_path::String;
             # Apply control and step
             brake = true
             set_value = update_vel_from_csv!(
-                sam.sys_struct, csv_row, brake)
+                sam.sys_struct, csv_row, brake, heading_pid, speed_pid)
             sam.sys_struct.set.v_wind = csv_row.wind_at_kite
 
             # Update winch tether length and velocity from CSV
@@ -653,4 +637,6 @@ fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
      # plot_elevation=true, plot_azimuth=true,
      tape_lengths=[phys_tape_pct, csv_tape_pct],
      suffixes=["phys", "csv"])
+display(fig)
+plot_sphere_trajectory([syslog,csvlog])
 

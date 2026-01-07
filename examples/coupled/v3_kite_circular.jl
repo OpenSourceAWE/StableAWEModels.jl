@@ -343,7 +343,7 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-us = 0.2  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
+us = 0.15  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
 up = 0.2  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis 
 #0.4151powered and #0.5012depowered #0.39 during turns
 vw = 8.0  # {{{ 10.  <> 15.0 }}} suitable range?
