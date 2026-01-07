@@ -101,7 +101,7 @@ function run_v3_kite(;
     struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
 
     # Load VSMSettings
-    vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
+    vsm_set_path = joinpath(get_data_path(), "CORRECT_vsm_settings.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
 
     # Use 36 panels for both wing types (matches vsm_settings.yaml default)
