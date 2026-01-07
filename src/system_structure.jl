@@ -688,19 +688,22 @@ mutable struct VSMWing <: AbstractWing
     # Defines wing.pos_w = pos[:, origin_idx] to track structural deformation
     origin_idx::Union{Nothing, Int16}
 
+    # Additional aerodynamic force scale to compensate chord length errors (REFINE)
+    aero_scale_chord::SimFloat
+
     # Body frame z-axis offset for VSM aerodynamics (QUATERNION only)
     # Shifts VSM panel positions in positive z direction (body frame)
     # to adjust moment arm for improved stability
     aero_z_offset::SimFloat
 
-    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx, aero_z_offset)
-        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx, aero_z_offset)
+    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx, aero_scale_chord, aero_z_offset)
+        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx, aero_scale_chord, aero_z_offset)
     end
 end
 
 # Delegate property access to base wing for VSMWing
 function Base.getproperty(wing::VSMWing, sym::Symbol)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx, :aero_z_offset)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx, :aero_scale_chord, :aero_z_offset)
         return getfield(wing, sym)
     elseif sym == :vsm_aoa
         # Compute mean angle of attack from VSM solver solution
@@ -712,7 +715,7 @@ function Base.getproperty(wing::VSMWing, sym::Symbol)
 end
 
 function Base.setproperty!(wing::VSMWing, sym::Symbol, value)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx, :aero_z_offset)
+    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx, :aero_scale_chord, :aero_z_offset)
         setfield!(wing, sym, value)
     else
         setproperty!(getfield(wing, :base), sym, value)
@@ -804,6 +807,7 @@ function VSMWing(idx::Int, set::Settings,
                  y_ref_points::Union{Nothing,
                      Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}=nothing,
                  origin_idx::Union{Nothing, Int16}=nothing,
+                 aero_scale_chord::SimFloat=0.0,
                  aero_z_offset::SimFloat=0.0)
 
     # Validation
@@ -861,7 +865,7 @@ function VSMWing(idx::Int, set::Settings,
                    zeros(SimFloat, ny), zeros(SimFloat, nx),
                    zeros(SimFloat, nx, ny),
                    point_to_vsm_point, wing_segments,
-                   z_ref_points, y_ref_points, origin_idx,
+                   z_ref_points, y_ref_points, origin_idx, aero_scale_chord,
                    aero_z_offset)
 end
 
@@ -897,7 +901,7 @@ function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, ny), zeros(SimFloat, nx),
         zeros(SimFloat, nx, ny),
-        nothing, nothing, nothing, nothing, nothing, 0.0)
+        nothing, nothing, nothing, nothing, nothing, 0.0, 0.0)
 end
 
 """
