@@ -30,7 +30,7 @@ REMAKE_CACHE = false
 # V3 Kite steering/depower calibration (from KCU documentation)
 # Steering calibration
 STEERING_L0 = 1.6  # Neutral steering tape length (m)
-STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
+STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
 
 # Depower calibration
 DEPOWER_L0 = 3.129
