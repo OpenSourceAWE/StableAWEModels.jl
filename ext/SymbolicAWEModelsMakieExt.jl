@@ -690,14 +690,14 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, tl) in enumerate(tape_lengths)
             suffix = actual_suffixes[i]
-            if hasproperty(tl, :right_steering) && !isempty(tl.right_steering)
-                push!(all_data, tl.right_steering)
-                push!(all_labels, "L_right" * suffix)
+            if hasproperty(tl, :steering) && !isempty(tl.steering)
+                push!(all_data, tl.steering)
+                push!(all_labels, "steering" * suffix)
                 push!(all_times, tl.time)
             end
             if hasproperty(tl, :depower) && !isempty(tl.depower)
                 push!(all_data, tl.depower)
-                push!(all_labels, "L_depower" * suffix)
+                push!(all_labels, "depower" * suffix)
                 push!(all_times, tl.time)
             end
         end
@@ -706,7 +706,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 data = all_data,
                 labels = all_labels,
                 times = all_times,
-                ylabel = "tape length [m]"
+                ylabel = "tape [%]"
             ))
         end
     end
@@ -2202,6 +2202,86 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     end
 
     return scene
+end
+
+"""
+    plot_sphere_trajectory(logs; radius=1.0, colors=nothing, labels=nothing, ...)
+
+Plot elevation-azimuth trajectories as lines on a sphere surface.
+
+# Arguments
+- `logs`: Vector of SysLog objects (or single SysLog)
+- `radius`: Sphere radius (default 1.0)
+- `colors`: Optional vector of colors for each trajectory
+- `labels`: Optional vector of labels for legend
+- `sphere_alpha`: Transparency of reference sphere (default 0.2)
+- `linewidth`: Line width for trajectories (default 2.0)
+- `size`: Figure size tuple (default (800, 800))
+"""
+function SymbolicAWEModels.plot_sphere_trajectory(lg::SysLog; kwargs...)
+    SymbolicAWEModels.plot_sphere_trajectory([lg]; kwargs...)
+end
+
+function SymbolicAWEModels.plot_sphere_trajectory(logs::Vector{<:SysLog};
+    radius=1.0,
+    colors=nothing,
+    labels=nothing,
+    sphere_alpha=0.2,
+    linewidth=2.0,
+    size=(800, 800)
+)
+    fig = Figure(; size)
+    ax = LScene(fig[1, 1], show_axis=false)
+
+    # Draw semi-transparent sphere
+    sphere_mesh = Sphere(Point3f(0, 0, 0), Float32(radius))
+    mesh!(ax, sphere_mesh, color=(:gray, sphere_alpha), transparency=true)
+
+    # Draw origin and reference axes
+    axis_len = radius * 1.3
+    scatter!(ax, [Point3f(0, 0, 0)], color=:black, markersize=10)
+    # X axis: azimuth=0 (east)
+    lines!(ax, [Point3f(0, 0, 0), Point3f(axis_len, 0, 0)],
+           color=:red, linewidth=3)
+    text!(ax, Point3f(axis_len * 1.1, 0, 0), text="X (az=0°)",
+          fontsize=14, color=:red)
+    # Y axis: azimuth=-90° (north)
+    lines!(ax, [Point3f(0, 0, 0), Point3f(0, axis_len, 0)],
+           color=:green, linewidth=3)
+    text!(ax, Point3f(0, axis_len * 1.1, 0), text="Y (az=-90°)",
+          fontsize=14, color=:green)
+    # Z axis: elevation=90° (up)
+    lines!(ax, [Point3f(0, 0, 0), Point3f(0, 0, axis_len)],
+           color=:blue, linewidth=3)
+    text!(ax, Point3f(0, 0, axis_len * 1.1), text="Z (el=90°)",
+          fontsize=14, color=:blue)
+
+    # Default colors if not provided
+    default_colors = [:blue, :red, :green, :orange, :purple, :cyan]
+    actual_colors = isnothing(colors) ? default_colors : colors
+
+    # Plot each trajectory
+    for (i, lg) in enumerate(logs)
+        sl = lg.syslog
+        elevation = sl.elevation
+        azimuth = sl.azimuth
+
+        # Convert to Cartesian (ENU frame, azimuth_east convention)
+        x = radius .* cos.(elevation) .* cos.(azimuth)
+        y = -radius .* cos.(elevation) .* sin.(azimuth)
+        z = radius .* sin.(elevation)
+
+        color = actual_colors[mod1(i, length(actual_colors))]
+        label = isnothing(labels) ? "trajectory $i" : labels[i]
+        lines!(ax, x, y, z; color, linewidth, label)
+    end
+
+    # Add legend if multiple logs
+    if length(logs) > 1 || !isnothing(labels)
+        Legend(fig[1, 2], ax)
+    end
+
+    return fig
 end
 
 end

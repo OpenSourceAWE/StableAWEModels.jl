@@ -102,6 +102,7 @@ export load_sys_struct_from_yaml
 export update_yaml_from_sys_struct!
 export replay
 export record
+export plot_sphere_trajectory
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -146,6 +147,7 @@ function update_plot_observables! end
 function animate end
 function replay end
 function record end
+function plot_sphere_trajectory end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")

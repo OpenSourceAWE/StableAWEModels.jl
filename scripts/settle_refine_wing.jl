@@ -20,15 +20,18 @@ using OrdinaryDiffEqCore
 using GLMakie
 
 # Configuration
-BODY_DAMPING = 1000.0  # Ns/m
-NUM_STEPS = 500
-DT = 0.05  # seconds
-SOURCE_STRUC_PATH = "data/v3/struc_geometry.yaml"
+WORLD_DAMPING = 100.0  # Ns/m
+DECAY_STEPS = 5000     # Steps over which damping decays to zero
+NUM_STEPS = 5000
+DT = 0.1  # seconds
+SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
 DEST_STRUC_PATH = "data/v3/struc_geometry_stable.yaml"
-SOURCE_AERO_PATH = "data/v3/aero_geometry.yaml"
+SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
 DEST_AERO_PATH = "data/v3/aero_geometry_stable.yaml"
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
-DEPOWER_PERCENTAGE = 40.0   # depower [0, 100]
+DEPOWER_PERCENTAGE = 20.0   # depower [0, 100]
+WIND_VEL = 20.0
+ELEVATION = 75
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 STEERING_L0 = 1.6  # Neutral steering tape length (m)
@@ -61,12 +64,13 @@ function depower_percentage_to_length(percentage)
 end
 
 @info "Settling REFINE wing with world frame damping..."
-@info "Configuration" BODY_DAMPING NUM_STEPS DT total_time=NUM_STEPS*DT
+@info "Configuration" WORLD_DAMPING DECAY_STEPS NUM_STEPS DT total_time=NUM_STEPS*DT
 
 # Load settings
 set_data_path("data/v3")
 set = Settings("system.yaml")
 set.g_earth = 9.81
+set.v_wind = WIND_VEL
 
 # Load VSMSettings
 vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
@@ -75,13 +79,14 @@ vsm_set.wings[1].geometry_file = "data/v3/aero_geometry.yaml"
 vsm_set.wings[1].n_panels = 36
 
 # Load system structure with REFINE wing type
-struc_yaml_path = joinpath("data", "v3", "struc_geometry.yaml")
+struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
 sys = load_sys_struct_from_yaml(struc_yaml_path;
     system_name="v3", set,
     wing_type=SymbolicAWEModels.REFINE, vsm_set)
+sys.transforms[1].elevation = deg2rad(ELEVATION)
 
-# Set constant world frame damping
-SymbolicAWEModels.set_body_frame_damping(sys, BODY_DAMPING)
+# Set initial world frame damping (will decay over DECAY_STEPS)
+SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING)
 
 wing_points = [p for p in sys.points if p.type == WING]
 @info "System setup" n_wing_points=length(wing_points) n_points=length(sys.points) n_segments=length(sys.segments)
@@ -119,6 +124,12 @@ log!(logger, sys_state)
 for step in 1:NUM_STEPS
     t = step * DT
 
+    # Decay world damping linearly over DECAY_STEPS
+    if step <= DECAY_STEPS
+        damping = WORLD_DAMPING * (1.0 - step / DECAY_STEPS)
+        SymbolicAWEModels.set_world_frame_damping(sys, damping)
+    end
+
     # Advance one timestep
     try
         next_step!(sam; dt=DT, vsm_interval=1)
@@ -138,7 +149,9 @@ for step in 1:NUM_STEPS
     # Progress updates
     if step % 20 == 0 || step == NUM_STEPS
         wing = sys.wings[1]
-        @info "Step $step/$NUM_STEPS (t = $(round(t, digits=2)) s)" elevation=round(rad2deg(wing.elevation), digits=2) azimuth=round(rad2deg(wing.azimuth), digits=2) heading=round(rad2deg(wing.heading), digits=2)
+        current_damping = step <= DECAY_STEPS ?
+            WORLD_DAMPING * (1.0 - step / DECAY_STEPS) : 0.0
+        @info "Step $step/$NUM_STEPS (t = $(round(t, digits=2)) s)" damping=round(current_damping, digits=1) elevation=round(rad2deg(wing.elevation), digits=2) azimuth=round(rad2deg(wing.azimuth), digits=2) heading=round(rad2deg(wing.heading), digits=2)
     end
 end
 

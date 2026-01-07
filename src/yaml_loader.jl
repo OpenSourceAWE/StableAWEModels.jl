@@ -663,13 +663,6 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
     src_aero = abspath(source_aero_yaml)
     dst_aero = abspath(dest_aero_yaml)
 
-    if src_struc == dst_struc
-        error("Source and destination structural YAML paths cannot be the same: $src_struc")
-    end
-    if src_aero == dst_aero
-        error("Source and destination aero YAML paths cannot be the same: $src_aero")
-    end
-
     # Build position dictionary from system structure
     positions = Dict{Int, Vector{Float64}}()
     for point in sys_struct.points
