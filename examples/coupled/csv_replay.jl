@@ -13,6 +13,8 @@ using SymbolicAWEModels, VortexStepMethod, KiteUtils
 using SymbolicAWEModels: reposition!, rotate_around_z, rotate_around_y, calc_steady_torque
 using CSV, DataFrames, DiscretePIDs
 using GLMakie
+using CairoMakie
+GLMakie.activate!()
 using Statistics
 using Rotations
 using UnPack
@@ -23,6 +25,9 @@ using NonlinearSolve, ADTypes
 using Dates
 
 # Configuration parameters
+SECTION = "straight_right"
+STRUC_YAML_PATH = "data/v3/struc_geometry_$(SECTION).yaml"
+AERO_YAML_PATH = "data/v3/aero_geometry_$(SECTION).yaml"
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
 REMAKE_CACHE = false
 WARN_STEP = false  # Show distance warnings
@@ -32,16 +37,19 @@ VIDEO_FRAME_REF = 7182
 UTC_REF_SECONDS = 15*3600 + 36*60 + 31.0  # UTC 15:36:31.0 in seconds since midnight
 VIDEO_FPS = 29.97
 
-# Maneuver selection - specify by UTC time (uncomment desired maneuver)
-# straight > right turn
-START_UTC = "15:36:31.0"
-END_UTC = "15:36:37.0"
-# straight > left turn
-# START_UTC = "15:36:49.0"
-# END_UTC = "15:36:52.0"
-# powered > depowered
-# START_UTC = "15:42:11.0"
-# END_UTC = "15:42:22.0"
+# Maneuver selection - specify by UTC time
+if SECTION == "straight_right"
+    START_UTC = "15:36:31.0"
+    END_UTC = "15:36:37.0"
+elseif SECTION == "straight_left"
+    START_UTC = "15:36:49.0"
+    END_UTC = "15:36:52.0"
+elseif SECTION == "power_depower"
+    START_UTC = "15:42:11.0"
+    END_UTC = "15:42:22.0"
+else
+    error("Unknown section: $SECTION")
+end
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 # Steering calibration
@@ -566,12 +574,10 @@ function run_physics_replay(csv_path::String;
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
     depower_int = Int(round(40+DEPOWER_OFFSET))
     @info "Using depower int $(depower_int)"
-    struc_yaml_path = "data/v3/struc_geometry_stable_$(depower_int).yaml"
-    aero_yaml_path = "data/v3/aero_geometry_stable_$(depower_int).yaml"
-    vsm_set.wings[1].geometry_file = aero_yaml_path
-    sys_struct = load_sys_struct_from_yaml(struc_yaml_path;
+    vsm_set.wings[1].geometry_file = AERO_YAML_PATH
+    sys_struct = load_sys_struct_from_yaml(STRUC_YAML_PATH;
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
-    csv_sys_struct = load_sys_struct_from_yaml(struc_yaml_path;
+    csv_sys_struct = load_sys_struct_from_yaml(STRUC_YAML_PATH;
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)
@@ -756,9 +762,9 @@ function run_physics_replay(csv_path::String;
     if RESTABLE
         @info "Restabilizing: updating YAML files with final positions..."
         SymbolicAWEModels.update_yaml_from_sys_struct!(
-            sam.sys_struct, struc_yaml_path, struc_yaml_path,
-            aero_yaml_path, aero_yaml_path)
-        @info "YAML files updated: $struc_yaml_path, $aero_yaml_path"
+            sam.sys_struct, STRUC_YAML_PATH, STRUC_YAML_PATH,
+            AERO_YAML_PATH, AERO_YAML_PATH)
+        @info "YAML files updated: $STRUC_YAML_PATH, $AERO_YAML_PATH"
     end
 
     # Create tape percentages data for plotting
@@ -784,5 +790,7 @@ fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
      tape_lengths=[phys_tape_pct, csv_tape_pct],
      suffixes=["phys", "csv"])
 display(fig)
+CairoMakie.save("csv_replay_$(SECTION).pdf", fig)
+@info "Saved plot to csv_replay_$(SECTION).pdf"
 sphere = plot_sphere_trajectory([syslog,csvlog])
 
