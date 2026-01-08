@@ -52,7 +52,10 @@ STEERING_MULTIPLIER = 1.0
 # Depower calibration
 DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
 DEPOWER_GAIN = 5.0
-DEPOWER_OFFSET = -20.0
+DEPOWER_OFFSET = -1.0
+
+# Restabilize: if not nothing, update YAML with final sys_struct positions
+RESTABLE = nothing  # Set to 1.0 to enable
 
 INITIAL_DAMPING = [0.0, 300.0, 600.0]
 DECAY_TIME = 1.0
@@ -561,10 +564,14 @@ function run_physics_replay(csv_path::String;
     set.l_tether = 212.68
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
-    vsm_set.wings[1].geometry_file = "data/v3/aero_geometry_stable.yaml"
-    sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry_stable.yaml";
+    depower_int = Int(round(40+DEPOWER_OFFSET))
+    @info "Using depower int $(depower_int)"
+    struc_yaml_path = "data/v3/struc_geometry_stable_$(depower_int).yaml"
+    aero_yaml_path = "data/v3/aero_geometry_stable_$(depower_int).yaml"
+    vsm_set.wings[1].geometry_file = aero_yaml_path
+    sys_struct = load_sys_struct_from_yaml(struc_yaml_path;
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
-    csv_sys_struct = load_sys_struct_from_yaml("data/v3/struc_geometry_stable.yaml";
+    csv_sys_struct = load_sys_struct_from_yaml(struc_yaml_path;
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)

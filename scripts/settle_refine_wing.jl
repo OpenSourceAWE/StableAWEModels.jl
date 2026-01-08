@@ -22,14 +22,14 @@ using GLMakie
 # Configuration
 WORLD_DAMPING = 1000.0  # Ns/m
 DECAY_STEPS = 5000     # Steps over which damping decays to zero
-NUM_STEPS = 5000
+NUM_STEPS = 2000
 DT = 0.1  # seconds
-SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
-DEST_STRUC_PATH = "data/v3/struc_geometry_stable.yaml"
-SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
-DEST_AERO_PATH = "data/v3/aero_geometry_stable.yaml"
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
-DEPOWER_PERCENTAGE = 20.0   # depower [0, 100]
+DEPOWER_PERCENTAGE = 35   # depower [0, 100]
+SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
+DEST_STRUC_PATH = "data/v3/struc_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
+SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
+DEST_AERO_PATH = "data/v3/aero_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
 WIND_VEL = 20.0
 ELEVATION = 75
 TETHER_LENGTH = 212.68  # Total tether length (m), 6 segments
@@ -90,7 +90,7 @@ sys.transforms[1].elevation = deg2rad(ELEVATION)
 # Update tether length: points 39-44 and segments 90-95
 segment_len = TETHER_LENGTH / 6.0
 for (i, point_idx) in enumerate(39:44)
-    sys.points[point_idx].pos_b .= [0.0, 0.0, -i * segment_len]
+    sys.points[point_idx].pos_cad .= [0.0, 0.0, -i * segment_len]
 end
 for seg_idx in 90:95
     sys.segments[seg_idx].l0 = segment_len
