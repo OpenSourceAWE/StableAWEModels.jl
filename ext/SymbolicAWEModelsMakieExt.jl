@@ -547,6 +547,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_v_app=true,
                    plot_kite_vel=false,
                    plot_aoa=plot_default,
+                   plot_sideslip=false,
                    plot_heading=plot_default,
                    plot_kiteutils_course=false,
                    plot_aero_moment=false,
@@ -596,6 +597,12 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 end
             end
             heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
+            # Filter out high jumps (> 200 °/s)
+            for j in eachindex(heading_rate)
+                if abs(heading_rate[j]) > 200
+                    heading_rate[j] = j > 1 ? heading_rate[j-1] : 0.0
+                end
+            end
             push!(all_data, heading_rate)
             push!(all_labels, "dψ/dt" * suffix)
             push!(all_times, sl.time[1:end-1])
@@ -1054,6 +1061,26 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             labels = all_labels,
             times = all_times,
             ylabel = "angle of attack [°]"
+        ))
+    end
+
+    if plot_sideslip
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = actual_suffixes[i]
+            sideslip_deg = rad2deg.(sl.side_slip)
+            push!(all_data, sideslip_deg)
+            push!(all_labels, "β" * suffix)
+            push!(all_times, sl.time)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            times = all_times,
+            ylabel = "sideslip [°]"
         ))
     end
 

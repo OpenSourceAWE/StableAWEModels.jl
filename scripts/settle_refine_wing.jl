@@ -20,7 +20,7 @@ using OrdinaryDiffEqCore
 using GLMakie
 
 # Configuration
-WORLD_DAMPING = 100.0  # Ns/m
+WORLD_DAMPING = 1000.0  # Ns/m
 DECAY_STEPS = 5000     # Steps over which damping decays to zero
 NUM_STEPS = 5000
 DT = 0.1  # seconds

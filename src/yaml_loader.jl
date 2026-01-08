@@ -94,7 +94,7 @@ function calculate_derived_properties!(props::Dict{Symbol, Any})
             A = π * (d_m / 2)^2
             E = Float64(props[:youngs_modulus])
             l0 = Float64(props[:l0])
-            props[:axial_stiffness] = E * A / l0
+            props[:axial_stiffness] = E * A
         end
     end
 
