@@ -37,12 +37,14 @@ UTC_REF_SECONDS = 15*3600 + 36*60 + 31.0  # UTC 15:36:31.0 in seconds since midn
 VIDEO_FPS = 29.97
 
 # Extra points comparison (set to nothing to disable)
-EXTRA_POINTS_CSV = "data/v3/right_turn_reelout_frame_7362.csv"
-EXTRA_POINTS_FRAME = 7362
+EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
+EXTRA_POINTS_FRAME = 7182
+# EXTRA_POINTS_CSV = "data/v3/right_turn_reelout_frame_7362.csv"
+# EXTRA_POINTS_FRAME = 7362
 
 # Maneuver selection - specify by UTC time
 if SECTION == "straight_right"
-    START_UTC = "15:36:31.0"
+    START_UTC = "15:36:29.0"
     END_UTC = "15:36:37.1"  # Extended to include frame 7362
 elseif SECTION == "straight_left"
     START_UTC = "15:36:49.0"
@@ -121,47 +123,53 @@ end
 
 Load extra points from CSV and transform from camera frame to simulation frame.
 CSV has columns: group, idx_in_group, x, y, z.
-Alignment uses center LE points and strut directions.
+
+Alignment constraints:
+1. Spanwise: CSV LE[10], LE[11] align with sim points 10, 12 (center LE)
+2. To-kite direction: camera→LE matches bridle(point 27)→LE
 """
 function load_extra_points(csv_path::String, sys_struct)
     df = CSV.read(csv_path, DataFrame)
 
-    # Group CSV points by name
+    # CSV reference: LE[10], LE[11] (0-indexed in CSV, so Julia indices 11, 12)
     le_pts = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "LE"]
-    strut3 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut3"]
-    strut4 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut4"]
-
-    # CSV reference (0-indexed in CSV, so LE[10] is index 11 in Julia)
     csv_le10, csv_le11 = le_pts[11], le_pts[12]
-    csv_center = (csv_le10 + csv_le11) / 2
+    csv_le_center = (csv_le10 + csv_le11) / 2
 
-    # Sim reference (points 10, 12 are center LE)
+    # Sim reference: points 10, 12 (center LE), point 27 (bridle)
     sim_p10 = collect(sys_struct.points[10].pos_w)
-    sim_p11 = collect(sys_struct.points[11].pos_w)
     sim_p12 = collect(sys_struct.points[12].pos_w)
-    sim_p13 = collect(sys_struct.points[13].pos_w)
-    sim_center = (sim_p10 + sim_p12) / 2
+    sim_le_center = (sim_p10 + sim_p12) / 2
+    point_27 = collect(sys_struct.points[27].pos_w)
+    cam_pos = point_27 + sys_struct.wings[1].R_b_w * [0, 0.44, 0]
 
-    # X direction (chord direction)
-    sim_x = normalize((sim_p10 - sim_p11 + sim_p12 - sim_p13) / 2)
-    csv_x = normalize((csv_le10 - strut3[1] + csv_le11 - strut4[1]) / 2)
+    # Direction vectors
+    csv_to_le = normalize(csv_le_center)  # from origin (camera)
+    sim_to_le = normalize(sim_le_center - cam_pos)
+    csv_span = normalize(csv_le11 - csv_le10)
+    sim_span = normalize(sim_p10 - sim_p12)
 
-    # Y direction (spanwise along LE)
-    sim_y = normalize(sim_p10 - sim_p12)
-    csv_y = normalize(csv_le11 - csv_le10)  # LE[11] - LE[10]
+    # Build orthonormal bases using Gram-Schmidt
+    csv_x = csv_to_le
+    csv_y = normalize(csv_span - dot(csv_span, csv_x) * csv_x)
+    csv_z = cross(csv_x, csv_y)
 
-    # Z direction from cross product
-    sim_z = normalize(cross(sim_x, sim_y))
-    csv_z = normalize(cross(csv_x, csv_y))
+    sim_x = sim_to_le
+    sim_y = normalize(sim_span - dot(sim_span, sim_x) * sim_x)
+    sim_z = cross(sim_x, sim_y)
 
-    # Rotation matrix: R * csv_basis = sim_basis
+    # Rotation: R * csv_basis = sim_basis
     csv_basis = hcat(csv_x, csv_y, csv_z)
     sim_basis = hcat(sim_x, sim_y, sim_z)
     R = sim_basis * csv_basis'
 
-    # Transform all points
+    # Translation: align LE centers
+    T = sim_le_center - R * csv_le_center
+
+    # Transform all points (including camera origin marker)
     all_pts = [[row.x, row.y, row.z] for row in eachrow(df)]
-    transformed = [Tuple(R * (p - csv_center) + sim_center) for p in all_pts]
+    push!(all_pts, zeros(3))
+    transformed = [Tuple(R * p + T) for p in all_pts]
 
     return transformed
 end

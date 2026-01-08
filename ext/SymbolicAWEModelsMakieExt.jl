@@ -33,6 +33,26 @@ const PLOT_CAMERA_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)  # Stored cam
 const PLOT_PREV_BODY_FRAME = Ref{Bool}(false)  # Previous body frame state
 const PLOT_PREV_ZOOMED_IN = Ref{Bool}(false)  # Previous zoomed state
 const PLOT_PREV_SEGMENT_IDX = Ref{Int}(-1)  # Previous segment index
+const PLOT_PERSPECTIVE = Ref{Bool}(true)  # Whether perspective projection is enabled
+
+"""
+    apply_orthographic!(scene)
+
+Apply orthographic projection to the scene camera if PLOT_PERSPECTIVE is false.
+"""
+function apply_orthographic!(scene)
+    if !PLOT_PERSPECTIVE[]
+        cam = scene.camera
+        widths = scene.viewport[].widths
+        aspect = Float32(widths[1] / widths[2])
+        scale = 300f0
+        cam.projection[] = Makie.orthographicprojection(
+            -scale * aspect, scale * aspect,
+            -scale, scale,
+            -10_000f0, 10_000f0
+        )
+    end
+end
 
 """
     calculate_segment_force_colors(segments, segment_color)
@@ -70,6 +90,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                      show_points = true, show_segments = true, show_orient = true,
                      show_panes = true, margin = 1000.0, force_color = false,
                      plot_vsm = true, plot_aero = true,
+                     extra_points = nothing,
                      # Optional observable for real-time updates
                      geometry_obs = nothing,
                      pane_observables = nothing)
@@ -351,6 +372,14 @@ function Makie.plot!(ax, sys::SystemStructure;
         xy_pane = mesh!(ax, plots[:pane_observables][3], color=pane_color,
                         transparency=true)
         plots[:panes] = [xz_pane, yz_pane, xy_pane]
+    end
+
+    # === Plot Extra Points (e.g., from external CSV) ===
+    if !isnothing(extra_points)
+        extra_positions = [Point3f(p...) for p in extra_points]
+        plots[:extra_points] = scatter!(ax, extra_positions, color=:cyan,
+                                        markersize=10, label="Extra Points",
+                                        transparency=true)
     end
 
     return plots
@@ -830,7 +859,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             us = similar(steering_len)
             @inbounds for k in eachindex(us)
                 δ = steering_len[k] - 1.6
-                us[k] = δ > 1e-6 ? δ / 1.4 : 0.0
+                us[k] = abs(δ) > 1e-6 ? δ / 1.4 : 0.0
             end
             us_seg = us[2:end]
 
@@ -871,7 +900,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             us = similar(steering_len)
             @inbounds for k in eachindex(us)
                 δ = steering_len[k] - 1.6
-                us[k] = δ > 1e-6 ? δ / 1.4 : 0.0
+                us[k] = abs(δ) > 1e-6 ? δ / 1.4 : 0.0
             end
 
             # Calculate heading rate from diff for quaternion wings
@@ -891,7 +920,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             # calculate gk, guarding against zero steering
             gk = similar(heading_rate)
             @inbounds for k in eachindex(gk)
-                gk[k] = abs(us_seg[k]) > 1e-8 ? heading_rate[k] / (v_app[k] * us_seg[k]) : NaN
+                gk[k] = abs(us_seg[k]) > 1e-2 ? heading_rate[k] / (v_app[k] * us_seg[k]) : NaN
             end
             
             @info "turn-rate $(heading_rate[end])"
@@ -1401,6 +1430,8 @@ function zoom_out!(scene, cam, plots, distance=nothing; relmargin=0.2)
     new_eyepos = center + cam_dir_vec * distance
     # 5. Update the camera to the new "fit-all" view
     update_cam!(scene, new_eyepos, center)
+    # 6. Reapply orthographic if needed
+    apply_orthographic!(scene)
 
     return distance
 end
@@ -1432,6 +1463,8 @@ function zoom_in!(scene, cam, sys, segment_idx, distance=nothing)
 
     # Update camera
     update_cam!(scene, new_eyepos, center)
+    # Reapply orthographic if needed
+    apply_orthographic!(scene)
 
     return distance
 end
@@ -1493,6 +1526,9 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     # This ensures the kite's z-axis always points straight up on screen
     cam.upvector[] = Vec3f(R_b_w[:, 3])
 
+    # Reapply orthographic if needed
+    apply_orthographic!(scene)
+
     return distance
 end
 
@@ -1505,10 +1541,11 @@ function _plot_with_panes(sys::SystemStructure;
                     force_color = false,
                     body_frame = false,
                     perspective = false,
+                    extra_points = nothing,
                     kwargs...)
     # Use LScene for advanced camera controls
     scene = Scene(; camera=cam3d!, show_axis = false, size, zoommode = :free, samples = 16)
-    plots = plot!(scene, sys; segment_color, margin, force_color, kwargs...)
+    plots = plot!(scene, sys; segment_color, margin, force_color, extra_points, kwargs...)
     
     relevant_plots = AbstractPlot[]
     if haskey(plots, :segments)
@@ -1670,6 +1707,7 @@ function _plot_with_panes(sys::SystemStructure;
                         new_eyepos = center + dist_heuristic * cam_dir_vec
                         
                         update_cam!(scene, new_eyepos, center)
+                        apply_orthographic!(scene)
                         zoomed_in[] = true
                         PLOT_ZOOMED_IN[] = true  # Track global zoom state
                         PLOT_ZOOM_SEGMENT_IDX[] = hover_idx  # Track which segment we're zoomed into
@@ -1730,28 +1768,20 @@ function _plot_with_panes(sys::SystemStructure;
     # Extract pane observables from plots (created by plot!())
     pane_observables = haskey(plots, :pane_observables) ? plots[:pane_observables] : nothing
 
-    # Set camera projection type
-    cam = scene.camera
-    if !perspective
-        # Use orthographic projection
-        # Get current projection view bounds
-        widths = scene.viewport[].widths
-        w_half = Float32(widths[1] / 2)
-        h_half = Float32(widths[2] / 2)
-        cam.projection[] = Makie.orthographicprojection(
-            -w_half, w_half,
-            -h_half, h_half,
-            -10_000f0, 10_000f0
-        )
-    end
+    # Store perspective setting globally
+    PLOT_PERSPECTIVE[] = perspective
 
     # Set initial camera position
+    cam = scene.camera
     if body_frame
         zoom_body_frame!(scene, cam, sys)
     else
         update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
         zoom_out!(scene, cam, relevant_plots, nothing; relmargin)
     end
+
+    # Apply orthographic projection if needed
+    apply_orthographic!(scene)
 
     # Return scene along with pane_observables, margin, plots dict, and relevant_plots
     # These will be used by time-based plotting
@@ -1767,6 +1797,7 @@ function Makie.plot(sys::SystemStructure;
                     relmargin=0.2,
                     body_frame=false,
                     perspective=false,
+                    extra_points=nothing,
                     kwargs...)
     # Store SystemStructure globally FIRST so @lift expressions can access it
     PLOT_SYSTEM_STRUCTURE[] = sys
@@ -1788,6 +1819,7 @@ function Makie.plot(sys::SystemStructure;
                 relmargin,
                 body_frame,
                 perspective,
+                extra_points,
                 kwargs...)
 
     # Get the segment colors observable from the plots if available
@@ -2281,6 +2313,9 @@ function SymbolicAWEModels.plot_sphere_trajectory(logs::Vector{<:SysLog};
 )
     fig = Figure(; size)
     ax = LScene(fig[1, 1], show_axis=false)
+    # Disable perspective (orthographic projection)
+    ax.scene.camera.projection[] = Makie.orthographicprojection(
+        -2f0, 2f0, -2f0, 2f0, -10f0, 10f0)
 
     # Draw semi-transparent sphere
     sphere_mesh = Sphere(Point3f(0, 0, 0), Float32(radius))
