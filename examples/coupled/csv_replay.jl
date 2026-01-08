@@ -29,7 +29,6 @@ SECTION = "straight_right"
 STRUC_YAML_PATH = "data/v3/struc_geometry_$(SECTION).yaml"
 AERO_YAML_PATH = "data/v3/aero_geometry_$(SECTION).yaml"
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
-REMAKE_CACHE = false
 WARN_STEP = false  # Show distance warnings
 
 # Video frame mapping (video_frame 7182 = UTC 15:36:31.0)
@@ -37,10 +36,14 @@ VIDEO_FRAME_REF = 7182
 UTC_REF_SECONDS = 15*3600 + 36*60 + 31.0  # UTC 15:36:31.0 in seconds since midnight
 VIDEO_FPS = 29.97
 
+# Extra points comparison (set to nothing to disable)
+EXTRA_POINTS_CSV = "data/v3/right_turn_reelout_frame_7362.csv"
+EXTRA_POINTS_FRAME = 7362
+
 # Maneuver selection - specify by UTC time
 if SECTION == "straight_right"
     START_UTC = "15:36:31.0"
-    END_UTC = "15:36:37.0"
+    END_UTC = "15:36:37.1"  # Extended to include frame 7362
 elseif SECTION == "straight_left"
     START_UTC = "15:36:49.0"
     END_UTC = "15:36:52.0"
@@ -80,12 +83,6 @@ WINCH_LENGTH_KP = 0.01      # Low proportional gain for length tracking
 WINCH_LENGTH_TAU_I = 10.0   # Integral time constant
 WINCH_LENGTH_KD = 0.0      # No derivative gain
 
-# PI controller parameters for speed matching
-SPEED_KP = 0.0            # Proportional gain for speed error
-SPEED_TAU_I = 50.0          # Integral time constant
-SPEED_KD = 0.0             # No derivative gain
-
-
 """
     parse_time_to_seconds(time_str)
 
@@ -117,6 +114,56 @@ function unix_to_utc_seconds(unix_timestamp::Float64)
     dt = Dates.unix2datetime(unix_timestamp)
     return Dates.hour(dt)*3600 + Dates.minute(dt)*60 +
            Dates.second(dt) + Dates.millisecond(dt)/1000
+end
+
+"""
+    load_extra_points(csv_path, sys_struct)
+
+Load extra points from CSV and transform from camera frame to simulation frame.
+CSV has columns: group, idx_in_group, x, y, z.
+Alignment uses center LE points and strut directions.
+"""
+function load_extra_points(csv_path::String, sys_struct)
+    df = CSV.read(csv_path, DataFrame)
+
+    # Group CSV points by name
+    le_pts = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "LE"]
+    strut3 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut3"]
+    strut4 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut4"]
+
+    # CSV reference (0-indexed in CSV, so LE[10] is index 11 in Julia)
+    csv_le10, csv_le11 = le_pts[11], le_pts[12]
+    csv_center = (csv_le10 + csv_le11) / 2
+
+    # Sim reference (points 10, 12 are center LE)
+    sim_p10 = collect(sys_struct.points[10].pos_w)
+    sim_p11 = collect(sys_struct.points[11].pos_w)
+    sim_p12 = collect(sys_struct.points[12].pos_w)
+    sim_p13 = collect(sys_struct.points[13].pos_w)
+    sim_center = (sim_p10 + sim_p12) / 2
+
+    # X direction (chord direction)
+    sim_x = normalize((sim_p10 - sim_p11 + sim_p12 - sim_p13) / 2)
+    csv_x = normalize((csv_le10 - strut3[1] + csv_le11 - strut4[1]) / 2)
+
+    # Y direction (spanwise along LE)
+    sim_y = normalize(sim_p10 - sim_p12)
+    csv_y = normalize(csv_le11 - csv_le10)  # LE[11] - LE[10]
+
+    # Z direction from cross product
+    sim_z = normalize(cross(sim_x, sim_y))
+    csv_z = normalize(cross(csv_x, csv_y))
+
+    # Rotation matrix: R * csv_basis = sim_basis
+    csv_basis = hcat(csv_x, csv_y, csv_z)
+    sim_basis = hcat(sim_x, sim_y, sim_z)
+    R = sim_basis * csv_basis'
+
+    # Transform all points
+    all_pts = [[row.x, row.y, row.z] for row in eachrow(df)]
+    transformed = [Tuple(R * (p - csv_center) + sim_center) for p in all_pts]
+
+    return transformed
 end
 
 """
@@ -439,7 +486,7 @@ function update_sim_distance!(wing_pos)
     return SIM_CUMULATIVE_DIST[]
 end
 
-function update_vel_from_csv!(sys, row, brake, heading_pid, speed_pid)
+function update_vel_from_csv!(sys, row, brake, heading_pid)
     @unpack wings, points, winches, segments = sys
     wing = wings[1]
 
@@ -450,14 +497,8 @@ function update_vel_from_csv!(sys, row, brake, heading_pid, speed_pid)
     curr_heading = calc_heading(sys, wing.R_b_w)
     delta_heading = -wrap_to_pi(csv_heading - curr_heading)
 
-    # Distance matching PI controller - adjusts wind speed
     sim_cumulative_dist = update_sim_distance!(wing.pos_w)
-
-    # PI control for distance - output to wind speed (CSV wind as feedforward)
-    # Too slow (sim behind) → more wind, too fast (sim ahead) → less wind
-    wind_speed = DiscretePIDs.calculate_control!(
-        speed_pid, row.cumulative_distance, sim_cumulative_dist, row.wind_at_kite)
-    sys.set.v_wind = wind_speed
+    sys.set.v_wind = row.wind_at_kite
 
     # Apply steering via differential tape lengths
     # PID control for steering based on heading error
@@ -629,15 +670,6 @@ function run_physics_replay(csv_path::String;
         umin = -1.0,
         umax = 1.0)
 
-    # Initialize distance->wind PI controller
-    speed_pid = DiscretePID(;
-        K = SPEED_KP,
-        Ti = SPEED_TAU_I,
-        Td = false,
-        Ts = dt,
-        umin = 5.0,
-        umax = 50.0)
-
     function get_row(csv_data, step)
         csv_row = (
             time = csv_data.time[step],
@@ -702,7 +734,7 @@ function run_physics_replay(csv_path::String;
             # Apply control and step
             brake = true
             set_value, eff_steering, eff_depower = update_vel_from_csv!(
-                sam.sys_struct, csv_row, brake, heading_pid, speed_pid)
+                sam.sys_struct, csv_row, brake, heading_pid)
 
             # Update winch tether length and velocity from CSV
             sam.sys_struct.winches[1].tether_len = csv_row.tether_len + tether_len_delta
@@ -722,6 +754,17 @@ function run_physics_replay(csv_path::String;
             end
 
             next_step!(sam; dt=dt, set_values=[set_value])
+
+            # Plot comparison at specified frame
+            if !isnothing(EXTRA_POINTS_CSV) &&
+               Int(round(csv_row.video_frame)) == EXTRA_POINTS_FRAME
+                @info "Plotting comparison at frame $(EXTRA_POINTS_FRAME)..."
+                extra_pts = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
+                comparison_scene = plot(sam.sys_struct; extra_points=extra_pts)
+                scr = display(comparison_scene)
+                @info "Close the plot window to continue..."
+                wait(scr)
+            end
 
             # Log state
             update_sys_state!(sys_state, sam)
@@ -784,13 +827,26 @@ end
 
 # Main execution
 sam, syslog, csv_sam, csvlog, csv_data, phys_tape_pct, csv_tape_pct = run_physics_replay(CSV_PATH)
+
+# Display with GLMakie
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
      plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
      plot_wind=true, plot_reelout=false, plot_v_app=false, plot_turn_rates=true,
      tape_lengths=[phys_tape_pct, csv_tape_pct],
      suffixes=["phys", "csv"])
 display(fig)
-CairoMakie.save("csv_replay_$(SECTION).pdf", fig)
+
+# Save PDF with CairoMakie
+CairoMakie.activate!()
+fig_pdf = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
+     plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
+     plot_wind=true, plot_reelout=false, plot_v_app=false, plot_turn_rates=true,
+     plot_gk=true,
+     tape_lengths=[phys_tape_pct, csv_tape_pct],
+     suffixes=["phys", "csv"])
+CairoMakie.save("csv_replay_$(SECTION).pdf", fig_pdf)
 @info "Saved plot to csv_replay_$(SECTION).pdf"
+GLMakie.activate!()
+
 sphere = plot_sphere_trajectory([syslog,csvlog])
 
