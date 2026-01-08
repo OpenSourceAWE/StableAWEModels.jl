@@ -663,10 +663,22 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
     src_aero = abspath(source_aero_yaml)
     dst_aero = abspath(dest_aero_yaml)
 
-    # Build position dictionary from system structure
+    # Update pos_b for REFINE wing points based on current wing orientation
+    for wing in sys_struct.wings
+        if wing.wing_type == REFINE
+            R_w_b = wing.R_b_w'  # transpose to get world-to-body
+            for point in sys_struct.points
+                if point.wing_idx == wing.idx
+                    point.pos_b .= R_w_b * (point.pos_w - wing.pos_w)
+                end
+            end
+        end
+    end
+
+    # Build position dictionary from system structure (body-frame positions)
     positions = Dict{Int, Vector{Float64}}()
     for point in sys_struct.points
-        positions[point.idx] = copy(point.pos_w)
+        positions[point.idx] = copy(point.pos_b)
     end
 
     # Build segment l0 dictionary from system structure

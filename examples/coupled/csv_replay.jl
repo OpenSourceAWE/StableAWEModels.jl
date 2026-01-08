@@ -52,10 +52,10 @@ STEERING_MULTIPLIER = 1.0
 # Depower calibration
 DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
 DEPOWER_GAIN = 5.0
-DEPOWER_OFFSET = -1.0
+DEPOWER_OFFSET = 0.0
 
-# Restabilize: if not nothing, update YAML with final sys_struct positions
-RESTABLE = nothing  # Set to 1.0 to enable
+# Restabilize: update YAML with final sys_struct positions
+RESTABLE = false
 
 INITIAL_DAMPING = [0.0, 300.0, 600.0]
 DECAY_TIME = 1.0
@@ -751,6 +751,15 @@ function run_physics_replay(csv_path::String;
     save_log(csv_logger, "csv_reference")
     syslog = load_log("csv_replay")
     csvlog = load_log("csv_reference")
+
+    # Restabilize: update YAML with final sys_struct positions if enabled
+    if RESTABLE
+        @info "Restabilizing: updating YAML files with final positions..."
+        SymbolicAWEModels.update_yaml_from_sys_struct!(
+            sam.sys_struct, struc_yaml_path, struc_yaml_path,
+            aero_yaml_path, aero_yaml_path)
+        @info "YAML files updated: $struc_yaml_path, $aero_yaml_path"
+    end
 
     # Create tape percentages data for plotting
     phys_tape_pct = (
