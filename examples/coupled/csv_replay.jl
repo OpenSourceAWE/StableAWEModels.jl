@@ -136,6 +136,11 @@ function load_extra_points(csv_path::String, sys_struct)
     csv_le10, csv_le11 = le_pts[11], le_pts[12]
     csv_le_center = (csv_le10 + csv_le11) / 2
 
+    # CSV trailing edge: strut3 and strut4 last points (center TE)
+    strut3 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut3"]
+    strut4 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut4"]
+    csv_te_center = (strut3[end] + strut4[end]) / 2
+
     # Sim reference: points 10, 12 (center LE), point 27 (bridle)
     sim_p10 = collect(sys_struct.points[10].pos_w)
     sim_p12 = collect(sys_struct.points[12].pos_w)
@@ -149,14 +154,17 @@ function load_extra_points(csv_path::String, sys_struct)
     csv_span = normalize(csv_le11 - csv_le10)
     sim_span = normalize(sim_p10 - sim_p12)
 
-    # Build orthonormal bases using Gram-Schmidt
-    csv_x = csv_to_le
-    csv_y = normalize(csv_span - dot(csv_span, csv_x) * csv_x)
-    csv_z = cross(csv_x, csv_y)
+    # CSV basis: y=spanwise, z from wing center geometry, x from cross
+    csv_y = csv_span
+    csv_wing_center = (csv_le_center + csv_te_center) / 2
+    csv_z = normalize(csv_wing_center - csv_y * 0.84/2)
+    csv_x = cross(csv_y, csv_z)
 
-    sim_x = sim_to_le
-    sim_y = normalize(sim_span - dot(sim_span, sim_x) * sim_x)
-    sim_z = cross(sim_x, sim_y)
+    # Sim basis: directly from wing rotation matrix
+    R_b_w = sys_struct.wings[1].R_b_w
+    sim_x = R_b_w[:, 1]
+    sim_y = R_b_w[:, 2]
+    sim_z = R_b_w[:, 3]
 
     # Rotation: R * csv_basis = sim_basis
     csv_basis = hcat(csv_x, csv_y, csv_z)
