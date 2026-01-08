@@ -16,6 +16,9 @@ function plot_batch(df::DataFrame; batch_dir::AbstractString)
     df = filter(row -> isfinite(row.us) && isfinite(row.v_app) &&
                        isfinite(row.yaw_rate) && isfinite(row.yaw_rate_paper) &&
                        isfinite(row.up), df)
+    if :lt in names(df)
+        df = filter(row -> isfinite(row.lt), df)
+    end
 
     ups = sort(unique(df.up))
     colors = 1:length(ups)
@@ -64,7 +67,14 @@ function plot_batch(df::DataFrame; batch_dir::AbstractString)
 
     axislegend(ax1; position=:rb)
 
-    out_path = joinpath(batch_dir, "circle_batch_plot.png")
+    lt_tag = ""
+    if :lt in names(df)
+        lt_vals = unique(df.lt)
+        if length(lt_vals) == 1
+            lt_tag = "_lt_$(Int(round(lt_vals[1])))"
+        end
+    end
+    out_path = joinpath(batch_dir, "circle_batch_plot$(lt_tag).png")
     save(out_path, fig)
     @info "Saved plot" path=out_path
 end

@@ -7,15 +7,69 @@ using KiteUtils
 using DiscretePIDs
 using Dates
 
+function resolve_log_path(log_name::String, base_dir::String)
+    candidates = String[]
+    push!(candidates, log_name)
+    if !endswith(log_name, ".arrow")
+        push!(candidates, log_name * ".arrow")
+    end
+    push!(candidates, joinpath(base_dir, log_name))
+    if !endswith(log_name, ".arrow")
+        push!(candidates, joinpath(base_dir, log_name * ".arrow"))
+    end
+    for candidate in candidates
+        if isfile(candidate)
+            return candidate
+        end
+    end
+    return candidates[end]
+end
+
+function adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
+    tether_length = float(tether_length_raw)
+    sys = sam.sys_struct
+    set = sam.set
+
+    if !isempty(set.l_tethers)
+        set.l_tethers[1] = tether_length
+    end
+
+    n_points = length(tether_point_idxs)
+    for (n, p_idx) in enumerate(tether_point_idxs)
+        pos = (0.0, 0.0, -n * tether_length / n_points)
+        sys.points[p_idx].pos_cad .= pos
+        sys.points[p_idx].pos_b .= pos
+    end
+
+    if !isempty(sys.transforms)
+        transform = sys.transforms[1]
+        if !isempty(sys.wings) && norm(sys.wings[1].pos_w) > 0
+            target_pos = normalize(sys.wings[1].pos_w) * tether_length
+            transform.elevation = KiteUtils.calc_elevation(target_pos)
+            transform.azimuth = KiteUtils.azimuth_east(target_pos)
+        end
+        SymbolicAWEModels.reinit!([transform], sys)
+    end
+
+    if !isempty(sys.winches)
+        winch = sys.winches[1]
+        winch.tether_len = tether_length
+        winch.tether_vel = 0.0
+        winch.brake = true
+    end
+    return nothing
+end
+
 function load_log_and_system(; log_name::String)
-    # Extract up, us, and v_wind from log_name. Support multi-us tags like ..._us_10_25_50_...
-    m = match(r"_up_([0-9.]+)_us_([0-9._-]+)_vw_([0-9.]+)", log_name)
-    m === nothing && error("Could not parse up/us/vw from log name: $log_name")
+    # Extract up, us, v_wind, and lt from log_name. Support multi-us tags like ..._us_10_25_50_...
+    m = match(r"_up_([0-9]+)_us_([0-9._-]+)_vw_([0-9]+)_lt_([0-9]+)", log_name)
+    m === nothing && error("Could not parse up/us/vw/lt from log name: $log_name")
     up = parse(Float64, m.captures[1])
     us_tokens = split(m.captures[2], "_")
     us_vals = parse.(Float64, us_tokens)
-    v_wind = parse(Float64, m.captures[3])
-    @info "up=$(up/100) [-]" us=us_vals ./ 100 v_wind=v_wind
+    v_wind = parse(Int, m.captures[3])
+    lt = parse(Int, m.captures[4])
+    @info "up=$(up/100) [-]" us=us_vals ./ 100 v_wind=v_wind tether_length=lt
     initial_damping = 100.0
 
     # Load settings
@@ -27,6 +81,9 @@ function load_log_and_system(; log_name::String)
     set = Settings("system.yaml")
     set.v_wind = v_wind
     set.upwind_dir = -90.0
+    if !isempty(set.l_tethers)
+        set.l_tethers[1] = lt
+    end
 
     # Load YAML structure path
     model_name = "v3_refine"
@@ -53,8 +110,11 @@ function load_log_and_system(; log_name::String)
 
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
-    lg = KiteUtils.load_log(log_name; path="processed_data/v3_kite")
-    return lg, sam, up, us_vals, v_wind
+    adjust_tether_length!(sam, lt)
+    data_dir = normpath(joinpath(@__DIR__, "..", "..", "processed_data", "v3_kite"))
+    log_path = resolve_log_path(log_name, data_dir)
+    lg = KiteUtils.load_log(log_path)
+    return lg, sam, up, us_vals, v_wind, lt
 end
 
 function print_and_plot_wing(lg, sam; is_print::Bool=false)
@@ -131,7 +191,7 @@ function print_and_plot_wing(lg, sam; is_print::Bool=false)
    fig2 = Figure(resolution=(900, 300))
    ax_xy = Axis(fig2[1, 1], title="Top (x,y)", xlabel="y_b", ylabel="x_b")
    ax_xz = Axis(fig2[1, 2], title="Side (x,z)", xlabel="x_b", ylabel="z_b")
-   ax_yz = Axis(fig2[1, 3], title="Front (y,z)", xlabel="y_b", ylabel="z_b")
+   ax_yz = Axis(fig2[1, 3], title="Rear (y,z)", xlabel="y_b", ylabel="z_b")
 
    ax_xy.aspect = DataAspect()
    ax_xz.aspect = DataAspect()
@@ -203,7 +263,7 @@ function plot_time_series(lg, sam)
                plot_twist=false,
                plot_yaw_rate_paper=true,
                yaw_rate_paper_ylims=(-90.0, 90.0),
-               yaw_rate_paper_compare=true, 
+               yaw_rate_paper_compare=false, 
                plot_v_app=true,
                plot_kite_vel=true,
                plot_gk=true,
@@ -214,7 +274,10 @@ function plot_time_series(lg, sam)
                plot_elevation=true,
                plot_azimuth=true, 
                plot_winch_force=false, 
-               plot_set_values=false,             
+               plot_set_values=false,
+               plot_us=true,
+               plot_tether=true,
+               plot_tether_actual=true,             
          )
       return fig
 end
@@ -517,11 +580,12 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
    return (window=window, ratio=ratio_by_category, pulley_ratio=pulley_ratio)
 end
 
-log_name = "circle__up_22_us_20_vw_8_date_2026_01_07_10_23_42"
-lg, sam, up, us, v_wind = load_log_and_system(log_name=log_name)
+# log_name = "batch_2026_01_07_10_58_14/circle__up_24_us_15_vw_8_lt_260_run_008_date_2026_01_07_11_26_11"
+log_name = "circle__up_22_us_20_vw_11_lt_460_date_2026_01_08_10_58_14"
+lg, sam, up, us, v_wind, lt = load_log_and_system(log_name=log_name)
 
 # Log alignment info before plotting to decide tension source
-report_tether_direction_alignment(lg)
+# report_tether_direction_alignment(lg)
 
 # Account for commanded steering/power when evaluating stretch of segments 87/88/89.
 # Mapping matches v3_kite_circles.jl: 1400 mm steering span, 200 mm + 5 m * up for power.

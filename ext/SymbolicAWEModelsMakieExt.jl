@@ -859,6 +859,8 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_aero_force::Bool=plot_default`: Show the panel with the z-component of aerodynamic force.
 - `plot_aero_moment::Bool=false`: Show the panel with the y-component of aerodynamic moment.
 - `plot_tether_moment::Bool=false`: Show the panel with the y-component of tether-induced moment.
+- `plot_tether::Bool=false`: Show the panel with winched tether length.
+- `plot_tether_actual::Bool=false`: Show the panel with actual tether length from nodal positions.
 - `plot_twist::Bool=false`: Show the panel with the twist angles for each wing group.
 - `plot_v_app`::Bool=false`: Show the panel with the apparent wind speed at the wing.
 - `plot_aoa::Bool=plot_default`: Show the panel with the angle of attack.
@@ -953,6 +955,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_cone_angle=false,
                    plot_old_heading=false,
                    plot_tether=false,
+                   plot_tether_actual=false,
                    heading_setpoint=nothing,
                    tether_len_setpoint=nothing,
                    tape_lengths=nothing,
@@ -1364,8 +1367,62 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "tether length [m]"
+            ylabel = "winched tether length [m]"
         ))
+    end
+
+    if plot_tether_actual
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = actual_suffixes[i]
+            sys = syss[i]
+            if isempty(sys.tethers)
+                @warn "No tethers found in system; skipping plot_tether_actual for $suffix"
+                continue
+            end
+            if isempty(sl.X) || isempty(sl.Y) || isempty(sl.Z)
+                @warn "Missing position data in syslog; skipping plot_tether_actual for $suffix"
+                continue
+            end
+            tether = sys.tethers[1]
+            seg_idxs = tether.segment_idxs
+            if isempty(seg_idxs)
+                @warn "Tether has no segments; skipping plot_tether_actual for $suffix"
+                continue
+            end
+            segs = sys.segments
+            n_samples = length(sl.time)
+            actual_len = Vector{Float64}(undef, n_samples)
+            for j in 1:n_samples
+                X = sl.X[j]
+                Y = sl.Y[j]
+                Z = sl.Z[j]
+                total = 0.0
+                for seg_idx in seg_idxs
+                    seg = segs[seg_idx]
+                    p1, p2 = seg.point_idxs
+                    dx = X[p2] - X[p1]
+                    dy = Y[p2] - Y[p1]
+                    dz = Z[p2] - Z[p1]
+                    total += sqrt(dx * dx + dy * dy + dz * dz)
+                end
+                actual_len[j] = total
+            end
+            push!(all_data, actual_len)
+            push!(all_labels, "l_tether_actual" * suffix)
+            push!(all_times, sl.time)
+        end
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "actual tether length [m]"
+            ))
+        end
     end
 
     if !isnothing(tape_lengths)

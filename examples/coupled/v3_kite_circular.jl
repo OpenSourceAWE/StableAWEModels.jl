@@ -30,6 +30,47 @@ WINCH_I = 100.0     # Integral gain [N/(m·s)]
 WINCH_D = 50.0      # Derivative gain [N·s/m]
 
 """
+    adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
+
+Update the winch rest length, reposition tether points in CAD/body frames,
+and reapply the main transform so the wing stays at the requested tether radius.
+"""
+function adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
+    tether_length = float(tether_length_raw)
+    sys = sam.sys_struct
+    set = sam.set
+
+    if !isempty(set.l_tethers)
+        set.l_tethers[1] = tether_length
+    end
+
+    n_points = length(tether_point_idxs)
+    for (n, p_idx) in enumerate(tether_point_idxs)
+        pos = (0.0, 0.0, -n * tether_length / n_points)
+        sys.points[p_idx].pos_cad .= pos
+        sys.points[p_idx].pos_b .= pos
+    end
+
+    if !isempty(sys.transforms)
+        transform = sys.transforms[1]
+        if !isempty(sys.wings) && norm(sys.wings[1].pos_w) > 0
+            target_pos = normalize(sys.wings[1].pos_w) * tether_length
+            transform.elevation = KiteUtils.calc_elevation(target_pos)
+            transform.azimuth = KiteUtils.azimuth_east(target_pos)
+        end
+        SymbolicAWEModels.reinit!([transform], sys)
+    end
+
+    if !isempty(sys.winches)
+        winch = sys.winches[1]
+        winch.tether_len = tether_length
+        winch.tether_vel = 0.0
+        winch.brake = true
+    end
+    return nothing
+end
+
+"""
     run_v3_kite(; kwargs...)
 
 Run a v3 kite simulation using the REFINE wing type.
@@ -117,30 +158,6 @@ function run_v3_kite(;
     sys = load_sys_struct_from_yaml(struc_yaml_path;
         system_name=model_name, set, wing_type, vsm_set)
 
-    # function reset_tether_length!(sam::SymbolicAWEModel, tether_length_raw)
-    #     tether_length = float(tether_length_raw)
-    #     sys = sam.sys_struct
-    #     set = sam.set
-    #     set.l_tethers[1] = tether_length
-
-    #     # Space tether points uniformly along body frame z (downward from wing/KCU)
-    #     for (n, p_idx) in enumerate(39:44)
-    #         sys.points[p_idx].pos_b .= [0.0, 0.0, -n * tether_length / 6]
-    #     end
-
-    #     # Aim transform to place wing at the new distance along its current direction
-    #     transform = sys.transforms[1]
-    #     target_pos = normalize(sys.wings[1].pos_w) * tether_length
-    #     transform.elevation = KiteUtils.calc_elevation(target_pos)
-    #     transform.azimuth = KiteUtils.azimuth_east(target_pos)
-    #     SymbolicAWEModels.reinit!([transform], sys)
-
-    #     winch = sys.winches[1]
-    #     winch.tether_len = tether_length
-    #     winch.tether_vel = 0.0
-    #     winch.brake = true
-    # end
-
     # Initialize damping with per-axis values [x, y, z]
     SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern * initial_damping)
 
@@ -150,6 +167,7 @@ function run_v3_kite(;
 
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
+    adjust_tether_length!(sam, tether_length)
 
     # Apply steering
     # sys.segments[87].l0 += max_steering
@@ -326,8 +344,10 @@ function run_v3_kite(;
         @info "Segment stretch statistics (t > 1.0):" max_relative=round(overall_max_stretch, digits=6) max_percentage=round(overall_max_stretch*100, digits=4) mean_relative=round(overall_mean_stretch, digits=6) mean_percentage=round(overall_mean_stretch*100, digits=4) max_segment_idx=max_stretch_idx
     end
 
+    lt_tag = Int(round(tether_length))
+
     # Save and load log
-    log_name = "tmp_run_$(lowercase(wing_type_str))"
+    log_name = "tmp_run_$(lowercase(wing_type_str))_lt_$(lt_tag)"
     save_log(logger, log_name)
     syslog = load_log(log_name)
 
@@ -339,7 +359,7 @@ function run_v3_kite(;
     up_tag = Int(round(up*100))
     us_tag = Int(round(us*100))
     v_wind_tag = Int(round(v_wind))
-    log_name = "circle__up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind_tag)"
+    log_name = "circle__up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind_tag)" * "_" * "lt_$(lt_tag)"
     if !isempty(run_tag)
         log_name *= "_" * run_tag
     end
@@ -356,8 +376,8 @@ end
     us = 0.2  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
     up = 0.22  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis
     #0.4151powered and #0.5012depowered #0.39 during turns
-    vw = 8.0  # {{{ 10.  <> 15.0 }}} suitable range?
-    lt = 260  # problems when changing...
+    vw = 11.0  # {{{ 10.  <> 15.0 }}} suitable range?
+    lt = 460  # problems when changing...
 
     sim_time = 150.0
     decay_time = 2.0 #2secs works better than 3 somehow
@@ -384,7 +404,7 @@ end
                syslog_refine;
                plot_turn_rates=false,
                plot_reelout=false,
-               plot_twist=true,
+               plot_twist=false,
                plot_yaw_rate_paper=true,
                plot_v_app=true,
                plot_kite_vel=true,
@@ -397,7 +417,9 @@ end
                plot_set_values=false,
                gk_ylims=(0.0, 15.0), 
                aoa_ylims=(0.0, 15.0),
-               yaw_rate_paper_ylims=(0.0, 50.0))
+               yaw_rate_paper_ylims=(0.0, 50.0),
+               plot_tether_actual=true,
+               plot_us=true)
 
 scene = replay(syslog_refine, sam_refine.sys_struct)
 

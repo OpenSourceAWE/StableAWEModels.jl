@@ -83,6 +83,7 @@ Modifies props in-place.
 """
 function calculate_derived_properties!(props::Dict{Symbol, Any})
     # Calculate axial_stiffness from material properties if missing or if it's a string (material name)
+    # Store EA; the spring k is computed later as EA / len in generate_system.jl.
     if haskey(props, :youngs_modulus) && haskey(props, :diameter_mm) && haskey(props, :l0)
         # Check if we need to calculate (missing, nothing, or is a string reference)
         need_calculation = !haskey(props, :axial_stiffness) ||
@@ -93,8 +94,7 @@ function calculate_derived_properties!(props::Dict{Symbol, Any})
             d_m = Float64(props[:diameter_mm]) / 1000.0  # mm to m
             A = π * (d_m / 2)^2
             E = Float64(props[:youngs_modulus])
-            l0 = Float64(props[:l0])
-            props[:axial_stiffness] = E * A / l0
+            props[:axial_stiffness] = E * A
         end
     end
 

@@ -8,22 +8,59 @@ using KiteUtils
 
 const WINDOW_SEC = 200.0
 
-function parse_up_us_vw(log_name::AbstractString)
-    m = match(r"_up_([0-9.]+)_us_([0-9._-]+)_vw_([0-9.]+)", log_name)
+function parse_up_us_vw_lt(log_name::AbstractString)
+    m = match(r"_up_([0-9]+)_us_([0-9._-]+)_vw_([0-9]+)_lt_([0-9]+)", log_name)
     m === nothing && return nothing
     up_raw = parse(Float64, m.captures[1])
     us_tokens = split(m.captures[2], "_")
     us_raw = parse(Float64, us_tokens[1])
-    v_wind = parse(Float64, m.captures[3])
-    return up_raw / 100, us_raw / 100, v_wind
+    v_wind = parse(Int, m.captures[3])
+    lt = parse(Int, m.captures[4])
+    return up_raw / 100, us_raw / 100, v_wind, lt
 end
 
-function build_sys(; v_wind=10.0)
+function adjust_tether_length!(sys::SystemStructure, set::Settings, tether_length_raw; tether_point_idxs=39:44)
+    tether_length = float(tether_length_raw)
+
+    if !isempty(set.l_tethers)
+        set.l_tethers[1] = tether_length
+    end
+
+    n_points = length(tether_point_idxs)
+    for (n, p_idx) in enumerate(tether_point_idxs)
+        pos = (0.0, 0.0, -n * tether_length / n_points)
+        sys.points[p_idx].pos_cad .= pos
+        sys.points[p_idx].pos_b .= pos
+    end
+
+    if !isempty(sys.transforms)
+        transform = sys.transforms[1]
+        if !isempty(sys.wings) && norm(sys.wings[1].pos_w) > 0
+            target_pos = normalize(sys.wings[1].pos_w) * tether_length
+            transform.elevation = KiteUtils.calc_elevation(target_pos)
+            transform.azimuth = KiteUtils.azimuth_east(target_pos)
+        end
+        SymbolicAWEModels.reinit!([transform], sys)
+    end
+
+    if !isempty(sys.winches)
+        winch = sys.winches[1]
+        winch.tether_len = tether_length
+        winch.tether_vel = 0.0
+        winch.brake = true
+    end
+    return nothing
+end
+
+function build_sys(; v_wind=10.0, tether_length=150.0)
     wing_type = SymbolicAWEModels.REFINE
     set_data_path("data/v3")
     set = Settings("system.yaml")
     set.v_wind = v_wind
     set.upwind_dir = -90.0
+    if !isempty(set.l_tethers)
+        set.l_tethers[1] = tether_length
+    end
 
     model_name = "v3_refine"
     struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
@@ -31,8 +68,10 @@ function build_sys(; v_wind=10.0)
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
     vsm_set.wings[1].n_panels = 36
 
-    return load_sys_struct_from_yaml(struc_yaml_path;
+    sys = load_sys_struct_from_yaml(struc_yaml_path;
         system_name=model_name, set, wing_type, vsm_set)
+    adjust_tether_length!(sys, set, tether_length)
+    return sys
 end
 
 function unwrap_phase!(vals::AbstractVector{<:Real}; period=2 * pi, thresh=pi)
@@ -408,19 +447,19 @@ function find_log_names(batch_dir::AbstractString)
         isfile(file) || continue
         endswith(file, ".txt") && continue
         name = splitext(basename(file))[1]
-        parse_up_us_vw(name) === nothing && continue
+        parse_up_us_vw_lt(name) === nothing && continue
         push!(names, name)
     end
     return sort(unique(names))
 end
 
 function write_csv(path::AbstractString, rows)
-    header = "vw,up,us,aero_force,v_app,yaw_rate,yaw_rate_paper,gk,gk_paper,kite_vel,aoa,elevation,azimuth,cs"
+    header = "vw,up,us,lt,aero_force,v_app,yaw_rate,yaw_rate_paper,gk,gk_paper,kite_vel,aoa,elevation,azimuth,cs"
     open(path, "w") do io
         println(io, header)
         for r in rows
             println(io, join([
-                r.vw, r.up, r.us, r.aero_force, r.v_app, r.yaw_rate, r.yaw_rate_paper,
+                r.vw, r.up, r.us, r.lt, r.aero_force, r.v_app, r.yaw_rate, r.yaw_rate_paper,
                 r.gk, r.gk_paper, r.kite_vel, r.aoa, r.elevation, r.azimuth, r.cs
             ], ","))
         end
@@ -440,19 +479,23 @@ function main()
     log_names = find_log_names(batch_dir)
     isempty(log_names) && error("No logs found in: $batch_dir")
 
-    sys = build_sys()
     rows = NamedTuple[]
+    sys_cache = Dict{Tuple{Int, Int}, SystemStructure}()
 
     for log_name in log_names
-        tags = parse_up_us_vw(log_name)
+        tags = parse_up_us_vw_lt(log_name)
         tags === nothing && continue
-        up, us, vw = tags
+        up, us, vw, lt = tags
+        sys = get!(sys_cache, (vw, lt)) do
+            build_sys(v_wind=float(vw), tether_length=float(lt))
+        end
         lg = KiteUtils.load_log(log_name; path=batch_dir)
         metrics = analyze_log(lg, sys)
         push!(rows, (
             vw=vw,
             up=up,
             us=us,
+            lt=lt,
             aero_force=metrics.aero_force,
             v_app=metrics.v_app,
             yaw_rate=metrics.yaw_rate,
@@ -467,7 +510,7 @@ function main()
         ))
     end
 
-    sort!(rows, by=r -> (r.vw, r.up, r.us))
+    sort!(rows, by=r -> (r.vw, r.up, r.us, r.lt))
 
     out_path = joinpath(batch_dir, "circle_batch_analysis.csv")
     write_csv(out_path, rows)
