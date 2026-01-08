@@ -263,7 +263,7 @@ starting from 1 with no gaps.
 - `wings`: (optional, typically from VSM configuration)
 - `transforms`: (optional, typically from settings)
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing(), ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, vsm_set=nothing)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing(), ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, vsm_set=nothing, sort_sections::Bool=false)
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
@@ -523,7 +523,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 wing = call_yaml_constructor(VSMWing, row,
                     [:idx, :set, :group_idxs, :vsm_set],
                     [:transform_idx, :y_damping, :wing_type,
-                     :z_ref_points, :y_ref_points, :origin_idx, :pos_cad];
+                     :z_ref_points, :y_ref_points, :origin_idx, :pos_cad,
+                     :sort_sections];
                     mappings=Dict(
                         :set => r -> set,
                         :group_idxs => r -> Int16[],
@@ -538,18 +539,21 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         :pos_cad => r -> begin
                             oidx = get_field_or_nothing(Int16, r, :origin_idx)
                             isnothing(oidx) ? nothing : KVec3(points[oidx].pos_cad)
-                        end
+                        end,
+                        :sort_sections => r -> sort_sections
                     ))
             else  # QUATERNION
                 # QUATERNION wings don't use these fields
                 wing = call_yaml_constructor(VSMWing, row,
                     [:idx, :set, :group_idxs, :vsm_set],
-                    [:transform_idx, :y_damping, :wing_type, :aero_z_offset];
+                    [:transform_idx, :y_damping, :wing_type, :aero_z_offset,
+                     :sort_sections];
                     mappings=Dict(
                         :set => r -> set,
                         :group_idxs => r -> Int16[],
                         :vsm_set => r -> vsm_set,
-                        :wing_type => r -> wt
+                        :wing_type => r -> wt,
+                        :sort_sections => r -> sort_sections
                     ))
             end
             push!(wings, wing)

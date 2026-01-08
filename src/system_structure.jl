@@ -804,7 +804,8 @@ function VSMWing(idx::Int, set::Settings,
                  y_ref_points::Union{Nothing,
                      Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}=nothing,
                  origin_idx::Union{Nothing, Int16}=nothing,
-                 aero_z_offset::SimFloat=0.0)
+                 aero_z_offset::SimFloat=0.0,
+                 sort_sections::Bool=false)
 
     # Validation
     if wing_type == REFINE
@@ -825,9 +826,8 @@ function VSMWing(idx::Int, set::Settings,
             "QUATERNION wings don't use origin_idx"
     end
 
-    # Create VSM wing, aero, and solver
-    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false)
-    refine!(vsm_wing)
+    # Create VSM wing, aero, and solver (sort_sections passed to prevent sorting)
+    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false, sort_sections)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero;
         solver_type=VortexStepMethod.NONLIN,
@@ -2366,8 +2366,9 @@ function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=fal
     # Recreate VSM wing and aero if requested
     if remake_vsm
         for wing in wings
-            # Recreate VSM wing from settings
-            wing.vsm_wing = VortexStepMethod.Wing(set, sys_struct.vsm_set; prn=false)
+            # Recreate VSM wing from settings (sort_sections=false for YAML systems)
+            wing.vsm_wing = VortexStepMethod.Wing(set, sys_struct.vsm_set;
+                prn=false, sort_sections=false)
             wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
             wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero;
                 solver_type=VortexStepMethod.NONLIN,
