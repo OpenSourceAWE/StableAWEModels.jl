@@ -18,6 +18,7 @@ using LinearAlgebra
 using KiteUtils
 using OrdinaryDiffEqCore
 using GLMakie
+using CSV, DataFrames
 
 # Configuration
 WORLD_DAMPING = 1000.0  # Ns/m
@@ -25,7 +26,7 @@ DECAY_STEPS = 5000     # Steps over which damping decays to zero
 NUM_STEPS = 2000
 DT = 0.1  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
-DEPOWER_PERCENTAGE = 40   # depower [0, 100]
+DEPOWER_PERCENTAGE = 25   # depower [0, 100]
 SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
 DEST_STRUC_PATH = "data/v3/struc_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
 SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
@@ -33,6 +34,8 @@ DEST_AERO_PATH = "data/v3/aero_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
 WIND_VEL = 20.0
 ELEVATION = 75
 TETHER_LENGTH = 212.68  # Total tether length (m), 6 segments
+EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
+LE_FRAC = 0.95  # Factor to reduce l0 of LE struts (segments 20-28)
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 STEERING_L0 = 1.6  # Neutral steering tape length (m)
@@ -62,6 +65,64 @@ function depower_percentage_to_length(percentage)
     u_p = percentage / 100.0  # Convert percentage to [0, 1]
     L_depower = DEPOWER_L0 + DEPOWER_GAIN * u_p
     return L_depower
+end
+
+"""
+    load_extra_points(csv_path, sys_struct)
+
+Load extra points from CSV and transform from camera frame to simulation frame.
+"""
+function load_extra_points(csv_path::String, sys_struct; body_offset=[0.3, 0.0, 0.2])
+    df = CSV.read(csv_path, DataFrame)
+
+    # CSV reference: LE[10], LE[11] (0-indexed in CSV, so Julia indices 11, 12)
+    le_pts = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "LE"]
+    csv_le10, csv_le11 = le_pts[11], le_pts[12]
+    csv_le_center = (csv_le10 + csv_le11) / 2
+
+    # CSV strut centers: strut3[1]/strut4[1] are at TE, [end] are at LE
+    strut3 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut3"]
+    strut4 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut4"]
+    csv_le_center = (strut3[end] + strut4[end]) / 2
+    csv_te_center = (strut3[1] + strut4[1]) / 2
+
+    # Sim reference: points 10, 12 (center LE), point 27 (bridle)
+    sim_p10 = collect(sys_struct.points[10].pos_w)
+    sim_p12 = collect(sys_struct.points[12].pos_w)
+    sim_le_center = (sim_p10 + sim_p12) / 2
+    point_27 = collect(sys_struct.points[27].pos_w)
+    cam_pos = point_27 + sys_struct.wings[1].R_b_w * [0, 0.2, 0]
+
+    # Direction vectors
+    csv_span = normalize(strut4[end] - strut3[end])
+
+    # CSV basis: y=spanwise, z from wing center geometry, x from cross
+    csv_y = csv_span
+    csv_wing_center = (csv_le_center + csv_te_center) / 2
+    @show csv_wing_center
+    csv_z = normalize(csv_wing_center - csv_y * 0.84/2)
+    csv_x = cross(csv_y, csv_z)
+
+    # Sim basis: directly from wing rotation matrix
+    R_b_w = sys_struct.wings[1].R_b_w
+    sim_x = R_b_w[:, 1]
+    sim_y = R_b_w[:, 2]
+    sim_z = R_b_w[:, 3]
+
+    # Rotation: R * csv_basis = sim_basis
+    csv_basis = hcat(csv_x, csv_y, csv_z)
+    sim_basis = hcat(sim_x, sim_y, sim_z)
+    R = sim_basis * csv_basis'
+
+    # Translation: align LE centers
+    T = sim_le_center - R * csv_le_center + R_b_w * body_offset
+
+    # Transform all points (including camera origin marker)
+    all_pts = [[row.x, row.y, row.z] for row in eachrow(df)]
+    push!(all_pts, zeros(3))
+    transformed = [Tuple(R * p + T) for p in all_pts]
+
+    return transformed
 end
 
 @info "Settling REFINE wing with world frame damping..."
@@ -96,6 +157,26 @@ for seg_idx in 90:95
     sys.segments[seg_idx].l0 = segment_len
 end
 @info "Tether configured" TETHER_LENGTH segment_len
+
+# Apply LE strut l0 reduction factor (segments 20-28)
+if LE_FRAC != 1.0
+    for seg_idx in 20:28
+        sys.segments[seg_idx].l0 *= LE_FRAC
+    end
+    @info "LE struts l0 reduced" LE_FRAC
+end
+sys.segments[59].l0 -= 0.2
+sys.segments[62].l0 -= 0.2
+
+sys.segments[47].l0 -= 0.4
+sys.segments[48].l0 -= 0.4
+sys.segments[57].l0 -= 0.4
+sys.segments[58].l0 -= 0.4
+
+sys.segments[65].l0 -= 0.3
+sys.segments[66].l0 -= 0.3
+sys.segments[75].l0 -= 0.3
+sys.segments[76].l0 -= 0.3
 
 # Set initial world frame damping (will decay over DECAY_STEPS)
 SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING)
@@ -180,10 +261,11 @@ syslog = load_log(log_name)
 
 @info "Creating plots..."
 
-# Create plots using the Makie extension
-fig = plot(sam.sys_struct, syslog;
-           plot_tether=true,
-           plot_aero_force=true)
-display(fig)
+# Load extra points for comparison
+extra_pts = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
+
+# Create 3D plot with extra points
+scene = plot(sam.sys_struct; extra_points=extra_pts)
+display(scene)
 
 @info "Plot created! Settling complete."

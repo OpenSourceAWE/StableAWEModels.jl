@@ -128,7 +128,7 @@ Alignment constraints:
 1. Spanwise: CSV LE[10], LE[11] align with sim points 10, 12 (center LE)
 2. To-kite direction: camera→LE matches bridle(point 27)→LE
 """
-function load_extra_points(csv_path::String, sys_struct)
+function load_extra_points(csv_path::String, sys_struct; body_offset=[0.3, 0.0, 0.2])
     df = CSV.read(csv_path, DataFrame)
 
     # CSV reference: LE[10], LE[11] (0-indexed in CSV, so Julia indices 11, 12)
@@ -136,27 +136,26 @@ function load_extra_points(csv_path::String, sys_struct)
     csv_le10, csv_le11 = le_pts[11], le_pts[12]
     csv_le_center = (csv_le10 + csv_le11) / 2
 
-    # CSV trailing edge: strut3 and strut4 last points (center TE)
+    # CSV strut centers: strut3[1]/strut4[1] are at TE, [end] are at LE
     strut3 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut3"]
     strut4 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut4"]
-    csv_te_center = (strut3[end] + strut4[end]) / 2
+    csv_le_center = (strut3[end] + strut4[end]) / 2
+    csv_te_center = (strut3[1] + strut4[1]) / 2
 
     # Sim reference: points 10, 12 (center LE), point 27 (bridle)
     sim_p10 = collect(sys_struct.points[10].pos_w)
     sim_p12 = collect(sys_struct.points[12].pos_w)
     sim_le_center = (sim_p10 + sim_p12) / 2
     point_27 = collect(sys_struct.points[27].pos_w)
-    cam_pos = point_27 + sys_struct.wings[1].R_b_w * [0, 0.44, 0]
+    cam_pos = point_27 + sys_struct.wings[1].R_b_w * [0, 0.2, 0]
 
     # Direction vectors
-    csv_to_le = normalize(csv_le_center)  # from origin (camera)
-    sim_to_le = normalize(sim_le_center - cam_pos)
-    csv_span = normalize(csv_le11 - csv_le10)
-    sim_span = normalize(sim_p10 - sim_p12)
+    csv_span = normalize(strut4[end] - strut3[end])
 
     # CSV basis: y=spanwise, z from wing center geometry, x from cross
     csv_y = csv_span
     csv_wing_center = (csv_le_center + csv_te_center) / 2
+    @show csv_wing_center
     csv_z = normalize(csv_wing_center - csv_y * 0.84/2)
     csv_x = cross(csv_y, csv_z)
 
@@ -172,7 +171,7 @@ function load_extra_points(csv_path::String, sys_struct)
     R = sim_basis * csv_basis'
 
     # Translation: align LE centers
-    T = sim_le_center - R * csv_le_center
+    T = sim_le_center - R * csv_le_center + R_b_w * body_offset
 
     # Transform all points (including camera origin marker)
     all_pts = [[row.x, row.y, row.z] for row in eachrow(df)]
