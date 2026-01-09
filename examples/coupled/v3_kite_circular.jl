@@ -103,6 +103,7 @@ function run_v3_kite(;
     # Load VSMSettings
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+    vsm_set.wings[1].geometry_file = "data/v3/CORRECT_aero_geometry.yaml"
 
     # Use 36 panels for both wing types (matches vsm_settings.yaml default)
     vsm_set.wings[1].n_panels = 36

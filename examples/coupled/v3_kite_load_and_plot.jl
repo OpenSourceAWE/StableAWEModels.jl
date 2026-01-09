@@ -35,6 +35,7 @@ function load_log_and_system(; log_name::String)
     # Load VSMSettings
     vsm_set_path = joinpath(get_data_path(), "CORRECT_vsm_settings.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+    vsm_set.wings[1].geometry_file = "data/v3/CORRECT_aero_geometry.yaml"
 
     # Use 36 panels for both wing types (matches vsm_settings.yaml default)
     vsm_set.wings[1].n_panels = 36
