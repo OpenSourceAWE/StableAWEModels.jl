@@ -33,26 +33,6 @@ const PLOT_CAMERA_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)  # Stored cam
 const PLOT_PREV_BODY_FRAME = Ref{Bool}(false)  # Previous body frame state
 const PLOT_PREV_ZOOMED_IN = Ref{Bool}(false)  # Previous zoomed state
 const PLOT_PREV_SEGMENT_IDX = Ref{Int}(-1)  # Previous segment index
-const PLOT_PERSPECTIVE = Ref{Bool}(true)  # Whether perspective projection is enabled
-
-"""
-    apply_orthographic!(scene)
-
-Apply orthographic projection to the scene camera if PLOT_PERSPECTIVE is false.
-"""
-function apply_orthographic!(scene)
-    if !PLOT_PERSPECTIVE[]
-        cam = scene.camera
-        widths = scene.viewport[].widths
-        aspect = Float32(widths[1] / widths[2])
-        scale = 300f0
-        cam.projection[] = Makie.orthographicprojection(
-            -scale * aspect, scale * aspect,
-            -scale, scale,
-            -10_000f0, 10_000f0
-        )
-    end
-end
 
 """
     calculate_segment_force_colors(segments, segment_color)
@@ -1430,8 +1410,6 @@ function zoom_out!(scene, cam, plots, distance=nothing; relmargin=0.2)
     new_eyepos = center + cam_dir_vec * distance
     # 5. Update the camera to the new "fit-all" view
     update_cam!(scene, new_eyepos, center)
-    # 6. Reapply orthographic if needed
-    apply_orthographic!(scene)
 
     return distance
 end
@@ -1463,8 +1441,6 @@ function zoom_in!(scene, cam, sys, segment_idx, distance=nothing)
 
     # Update camera
     update_cam!(scene, new_eyepos, center)
-    # Reapply orthographic if needed
-    apply_orthographic!(scene)
 
     return distance
 end
@@ -1526,9 +1502,6 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     # This ensures the kite's z-axis always points straight up on screen
     cam.upvector[] = Vec3f(R_b_w[:, 3])
 
-    # Reapply orthographic if needed
-    apply_orthographic!(scene)
-
     return distance
 end
 
@@ -1540,7 +1513,6 @@ function _plot_with_panes(sys::SystemStructure;
                     highlight_color = :red,
                     force_color = false,
                     body_frame = false,
-                    perspective = false,
                     extra_points = nothing,
                     kwargs...)
     # Use LScene for advanced camera controls
@@ -1705,9 +1677,9 @@ function _plot_with_panes(sys::SystemStructure;
                         inv_view_matrix = inv(cam.view[])
                         cam_dir_vec = normalize(Vec3f(inv_view_matrix[1, 3], inv_view_matrix[2, 3], inv_view_matrix[3, 3]))
                         new_eyepos = center + dist_heuristic * cam_dir_vec
-                        
+
                         update_cam!(scene, new_eyepos, center)
-                        apply_orthographic!(scene)
+                        PLOT_CAMERA_DISTANCE[] = dist_heuristic
                         zoomed_in[] = true
                         PLOT_ZOOMED_IN[] = true  # Track global zoom state
                         PLOT_ZOOM_SEGMENT_IDX[] = hover_idx  # Track which segment we're zoomed into
@@ -1768,9 +1740,6 @@ function _plot_with_panes(sys::SystemStructure;
     # Extract pane observables from plots (created by plot!())
     pane_observables = haskey(plots, :pane_observables) ? plots[:pane_observables] : nothing
 
-    # Store perspective setting globally
-    PLOT_PERSPECTIVE[] = perspective
-
     # Set initial camera position
     cam = scene.camera
     if body_frame
@@ -1779,9 +1748,6 @@ function _plot_with_panes(sys::SystemStructure;
         update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
         zoom_out!(scene, cam, relevant_plots, nothing; relmargin)
     end
-
-    # Apply orthographic projection if needed
-    apply_orthographic!(scene)
 
     # Return scene along with pane_observables, margin, plots dict, and relevant_plots
     # These will be used by time-based plotting
@@ -1796,7 +1762,6 @@ function Makie.plot(sys::SystemStructure;
                     plot_aero=true,
                     relmargin=0.2,
                     body_frame=false,
-                    perspective=false,
                     extra_points=nothing,
                     kwargs...)
     # Store SystemStructure globally FIRST so @lift expressions can access it
@@ -1818,7 +1783,6 @@ function Makie.plot(sys::SystemStructure;
                 plot_aero,
                 relmargin,
                 body_frame,
-                perspective,
                 extra_points,
                 kwargs...)
 
@@ -2364,6 +2328,266 @@ function SymbolicAWEModels.plot_sphere_trajectory(logs::Vector{<:SysLog};
     if length(logs) > 1 || !isnothing(labels)
         Legend(fig[1, 2], ax)
     end
+
+    return fig
+end
+
+"""
+    plot_body_frame(sys_struct; extra_points=nothing, dir=:side)
+
+Plot wing points in 2D body frame coordinates.
+Updates pos_b for REFINE wing points and shows all WING-type points.
+
+# Arguments
+- `sys_struct::SystemStructure`: System structure to plot
+- `extra_points`: Optional vector of (x,y,z) tuples to overlay
+- `dir::Symbol`: Viewing direction (:side, :front, or :top, default :side)
+
+# Returns
+- Figure with 2D scatter plot of wing points in body frame
+"""
+function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
+                         extra_points=nothing,
+                         dir::Symbol=:front,
+                         point_size=10,
+                         extra_point_size=6,
+                         figsize=(800, 600))
+    @unpack points, wings, segments = sys_struct
+
+    # Update pos_b for REFINE wing points based on current wing orientation
+    for wing in wings
+        if wing.wing_type == SymbolicAWEModels.REFINE
+            R_w_b = wing.R_b_w'  # transpose to get world-to-body
+            for point in points
+                if point.wing_idx == wing.idx
+                    point.pos_b .= R_w_b * (point.pos_w - wing.pos_w)
+                end
+            end
+        end
+    end
+
+    # Collect WING points
+    wing_points = [p for p in points if p.type == SymbolicAWEModels.WING]
+
+    # Extract coordinates and depth based on viewing direction
+    # :front = looking in +x direction (shows y-z plane)
+    # :side = looking in +y direction (shows x-z plane)
+    # :top = looking in -z direction (shows x-y plane)
+    if dir == :top
+        coords = [(p.pos_b[1], p.pos_b[2]) for p in wing_points]
+        depths = [-p.pos_b[3] for p in wing_points]  # -z: lower z = further
+        xlabel, ylabel = "x [m]", "y [m]"
+    elseif dir == :side
+        coords = [(p.pos_b[1], p.pos_b[3]) for p in wing_points]
+        depths = [p.pos_b[2] for p in wing_points]  # +y: higher y = further
+        xlabel, ylabel = "x [m]", "z [m]"
+    else  # :front (default)
+        coords = [(p.pos_b[2], p.pos_b[3]) for p in wing_points]
+        depths = [p.pos_b[1] for p in wing_points]  # +x: higher x = further
+        xlabel, ylabel = "y [m]", "z [m]"
+    end
+
+    x_vals = [c[1] for c in coords]
+    y_vals = [c[2] for c in coords]
+
+    # Compute colors based on depth (closer = red, further = green)
+    if !isempty(depths)
+        d_min, d_max = extrema(depths)
+        d_range = d_max - d_min
+        if d_range > 0
+            norm_d = [(d - d_min) / d_range for d in depths]
+            # Closer (low depth) = red, further (high depth) = green
+            point_colors = [RGBf(1.0 - nd, nd, 0.0) for nd in norm_d]
+        else
+            point_colors = fill(RGBf(0.5, 0.5, 0.0), length(depths))
+        end
+    else
+        point_colors = [:red]
+    end
+
+    # Create figure
+    fig = Figure(size=figsize)
+    ax = Axis(fig[1, 1];
+              xlabel, ylabel,
+              title="Wing Points (Body Frame)",
+              aspect=DataAspect())
+
+    # Helper to get 2D coords from body frame position
+    function get_2d(pos_b)
+        if dir == :top
+            return (pos_b[1], pos_b[2])
+        elseif dir == :side
+            return (pos_b[1], pos_b[3])
+        else  # :front
+            return (pos_b[2], pos_b[3])
+        end
+    end
+
+    # Plot segments as thin gray lines
+    wing_point_idxs = Set(p.idx for p in wing_points)
+    for seg in segments
+        # Only plot segments between wing points
+        from_idx, to_idx = seg.point_idxs
+        if from_idx in wing_point_idxs && to_idx in wing_point_idxs
+            p1 = points[from_idx]
+            p2 = points[to_idx]
+            c1 = get_2d(p1.pos_b)
+            c2 = get_2d(p2.pos_b)
+            lines!(ax, [c1[1], c2[1]], [c1[2], c2[2]];
+                   color=:gray, linewidth=0.5)
+        end
+    end
+
+    # Plot wing points with depth-based coloring
+    scatter!(ax, x_vals, y_vals;
+             markersize=point_size,
+             color=point_colors)
+
+    # Add point indices as labels, placed away from other points
+    for (i, p) in enumerate(wing_points)
+        px, py = coords[i]
+
+        # Calculate direction away from nearby points
+        away_x, away_y = 0.0, 0.0
+        for (j, _) in enumerate(wing_points)
+            if i != j
+                ox, oy = coords[j]
+                dx, dy = px - ox, py - oy
+                dist = sqrt(dx^2 + dy^2) + 0.01
+                # Weight by inverse distance (closer points push harder)
+                away_x += dx / dist^2
+                away_y += dy / dist^2
+            end
+        end
+
+        # Normalize and determine offset direction
+        away_len = sqrt(away_x^2 + away_y^2)
+        if away_len > 0
+            away_x /= away_len
+            away_y /= away_len
+        else
+            away_x, away_y = 1.0, 1.0
+        end
+
+        # Set offset and alignment based on direction
+        offset_dist = 12
+        offset = (offset_dist * sign(away_x), offset_dist * sign(away_y))
+        align_x = away_x >= 0 ? :left : :right
+        align_y = away_y >= 0 ? :bottom : :top
+
+        text!(ax, px, py;
+              text=string(p.idx),
+              fontsize=12,
+              align=(align_x, align_y),
+              offset=offset)
+    end
+
+    # Plot extra points if provided
+    if !isnothing(extra_points)
+        # Transform extra points to body frame
+        wing = wings[1]
+        R_w_b = wing.R_b_w'
+
+        extra_body = [R_w_b * (collect(p) - wing.pos_w) for p in extra_points]
+
+        if dir == :top
+            extra_coords = [(p[1], p[2]) for p in extra_body]
+            extra_depths = [-p[3] for p in extra_body]
+        elseif dir == :side
+            extra_coords = [(p[1], p[3]) for p in extra_body]
+            extra_depths = [p[2] for p in extra_body]
+        else  # :front
+            extra_coords = [(p[2], p[3]) for p in extra_body]
+            extra_depths = [p[1] for p in extra_body]
+        end
+
+        ex_x = [c[1] for c in extra_coords]
+        ex_y = [c[2] for c in extra_coords]
+
+        # Depth-based colors for extra points (same red-to-green as sim)
+        if !isempty(extra_depths)
+            ed_min, ed_max = extrema(extra_depths)
+            ed_range = ed_max - ed_min
+            if ed_range > 0
+                norm_ed = [(d - ed_min) / ed_range for d in extra_depths]
+                extra_colors = [RGBf(1.0 - nd, nd, 0.0) for nd in norm_ed]
+            else
+                extra_colors = fill(RGBf(0.5, 0.5, 0.0), length(extra_depths))
+            end
+        else
+            extra_colors = [:red]
+        end
+
+        scatter!(ax, ex_x, ex_y;
+                 markersize=extra_point_size + 6,
+                 color=extra_colors,
+                 marker=:cross)
+    end
+
+    # Auto-zoom to fit all WING points with margin
+    if !isempty(x_vals)
+        x_min, x_max = extrema(x_vals)
+        y_min, y_max = extrema(y_vals)
+        margin_x = 0.1 * (x_max - x_min + 1)
+        margin_y = 0.1 * (y_max - y_min + 1)
+        limits!(ax, x_min - margin_x, x_max + margin_x,
+                    y_min - margin_y, y_max + margin_y)
+    end
+
+    # Custom legend with depth colors
+    legend_entries = [
+        [MarkerElement(color=RGBf(1, 0, 0), marker=:circle, markersize=10),
+         MarkerElement(color=RGBf(0, 1, 0), marker=:circle, markersize=10)],
+    ]
+    legend_labels = ["sim (● close → far)"]
+
+    if !isnothing(extra_points)
+        push!(legend_entries,
+              [MarkerElement(color=RGBf(1, 0, 0), marker=:cross, markersize=12),
+               MarkerElement(color=RGBf(0, 1, 0), marker=:cross, markersize=12)])
+        push!(legend_labels, "csv (✕ close → far)")
+    end
+
+    Legend(fig[1, 2], legend_entries, legend_labels)
+
+    return fig
+end
+
+"""
+    plot_aoa(sys_struct; wing_idx=1, figsize=(800, 400))
+
+Plot the angle of attack distribution along the wing span.
+
+# Arguments
+- `sys_struct::SystemStructure`: System structure containing the wing with VSM solver
+- `wing_idx::Int`: Index of the wing to plot (default: 1)
+- `figsize`: Figure size tuple (default: (800, 400))
+
+# Returns
+- Figure with angle of attack vs spanwise position
+"""
+function SymbolicAWEModels.plot_aoa(sys_struct::SystemStructure;
+                                    wing_idx::Int=1,
+                                    figsize=(800, 400))
+    wing = sys_struct.wings[wing_idx]
+
+    # Get alpha distribution (in radians)
+    alpha_dist = wing.vsm_solver.sol.alpha_dist
+
+    # Get spanwise positions from panel aero centers
+    y_coords = [panel.aero_center[2] for panel in wing.vsm_aero.panels]
+
+    # Convert to degrees for plotting
+    alpha_deg = rad2deg.(alpha_dist)
+
+    fig = Figure(size=figsize)
+    ax = Axis(fig[1, 1];
+              xlabel="Spanwise position y [m]",
+              ylabel="Angle of attack [deg]",
+              title="Angle of Attack Distribution")
+
+    lines!(ax, y_coords, alpha_deg; linewidth=2)
+    scatter!(ax, y_coords, alpha_deg; markersize=6)
 
     return fig
 end
