@@ -98,7 +98,7 @@ function run_v3_kite(;
 
     # Load YAML structure path
     model_name = "v3_refine"
-    struc_yaml_path = joinpath("data", "v3", "struc_geometry_stable.yaml")
+    struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
 
     # Load VSMSettings
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
@@ -343,13 +343,13 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-us = 0.2  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
-up = 0.4  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis 
+us = 0.15  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
+up = 0.2  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis 
 #0.4151powered and #0.5012depowered #0.39 during turns
-vw = 15  # {{{ 10.  <> 15.0 }}} suitable range?
+vw = 8.0  # {{{ 10.  <> 15.0 }}} suitable range?
 lt = 260  # problems when changing...
 
-sim_time = 200.0
+sim_time = 50.0
 decay_time = 2.0 #2secs works better than 3 somehow
 ramp_time = 2.0
 fps = 120
