@@ -29,7 +29,7 @@ function load_log_and_system(; log_name::String)
     set.upwind_dir = -90.0
 
     # Load YAML structure path
-    model_name = "v3_refine"
+    model_name = "v3"
     struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
 
     # Load VSMSettings
