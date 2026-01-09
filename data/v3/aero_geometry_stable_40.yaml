@@ -14,27 +14,27 @@ wing_sections:
   # Selected sections match structural point spanwise positions
   headers: [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]
   data:
-    # # Sections match structural points exactly from struc_geometry.yaml
-    # # Section 1: points 2 (LE) and 3 (TE)
-    - [18, 0.1412, 4.5524, 8.6528, 1.1995, 4.3718, 8.6047]
-    # # Section 2: points 4 (LE) and 5 (TE)
-    - [15, -0.3803, 3.9635, 9.245, 1.1191, 4.0146, 9.4312]
-    # # Section 3: points 6 (LE) and 7 (TE)
-    - [11, -0.8076, 3.1334, 10.189, 1.1377, 3.1045, 10.4301]
-    # # Section 4: points 8 (LE) and 9 (TE)
-    - [7, -1.0043, 1.9556, 10.766, 1.1211, 1.9401, 11.1154]
-    # # Section 5: points 10 (LE) and 11 (TE)
-    - [3, -1.1083, 0.6801, 11.1035, 1.1083, 0.6676, 11.5697]
-    # # Section 6: points 12 (LE) and 13 (TE) - mirror of section 5
-    - [3, -1.1083, -0.6676, 11.1042, 1.1083, -0.6546, 11.5705]
-    # # Section 7: points 14 (LE) and 15 (TE) - mirror of section 4
-    - [7, -1.0043, -1.9435, 10.7682, 1.1211, -1.9276, 11.1176]
-    # # Section 8: points 16 (LE) and 17 (TE) - mirror of section 3
-    - [11, -0.8076, -3.1219, 10.1925, 1.1377, -3.0927, 10.4336]
-    # # Section 9: points 18 (LE) and 19 (TE) - mirror of section 2
-    - [15, -0.3803, -3.9531, 9.2495, 1.1191, -4.004, 9.4358]
-    # # Section 10: points 20 (LE) and 21 (TE) - mirror of section 1
-    - [18, 0.1412, -4.5426, 8.6579, 1.1995, -4.3621, 8.6096]
+    # Sections match structural points exactly from struc_geometry.yaml
+    # Section 1: points 2 (LE) and 3 (TE)
+    - [18, 0.4802, 4.4085, 8.8326, 1.4735, 3.996, 8.8574]
+    # Section 2: points 4 (LE) and 5 (TE)
+    - [15, -0.1795, 3.9428, 9.3971, 1.2963, 3.6539, 9.5752]
+    # Section 3: points 6 (LE) and 7 (TE)
+    - [11, -0.7216, 3.1777, 10.3381, 1.2131, 2.9112, 10.5367]
+    # Section 4: points 8 (LE) and 9 (TE)
+    - [7, -1.0024, 2.0204, 10.9238, 1.139, 1.8355, 11.1013]
+    # Section 5: points 10 (LE) and 11 (TE)
+    - [3, -1.1285, 0.7133, 11.0953, 1.1285, 0.6351, 11.3018]
+    # Section 6: points 12 (LE) and 13 (TE) - mirror of section 5
+    - [3, -1.1285, -0.6351, 11.1, 1.1285, -0.5555, 11.3062]
+    # Section 7: points 14 (LE) and 15 (TE) - mirror of section 4
+    - [7, -1.0023, -1.9434, 10.9378, 1.139, -1.7572, 11.1142]
+    # Section 8: points 16 (LE) and 17 (TE) - mirror of section 3
+    - [11, -0.7215, -3.1047, 10.3602, 1.2131, -2.8369, 10.5572]
+    # Section 9: points 18 (LE) and 19 (TE) - mirror of section 2
+    - [15, -0.1793, -3.8766, 9.4247, 1.2965, -3.5865, 9.6011]
+    # Section 10: points 20 (LE) and 21 (TE) - mirror of section 1
+    - [18, 0.4804, -4.3456, 8.863, 1.4736, -3.9328, 8.8852]
 
 wing_airfoils:
   # ---------------------------------------------------------------
