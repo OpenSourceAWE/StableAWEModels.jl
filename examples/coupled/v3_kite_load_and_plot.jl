@@ -261,12 +261,12 @@ function plot_time_series(lg, sam)
                plot_turn_rates=false, 
                plot_reelout=false,
                plot_twist=false,
-               plot_yaw_rate_paper=true,
+               plot_yaw_rate_paper=false,
                yaw_rate_paper_ylims=(-90.0, 90.0),
                yaw_rate_paper_compare=false, 
                plot_v_app=true,
-               plot_kite_vel=true,
-               plot_gk=true,
+               plot_kite_vel=false,
+               plot_gk=false,
                gk_ylims=(0.0, 15.0),
                plot_aoa=true,
                aoa_ylims=(0.0, 15.0), 
@@ -276,8 +276,11 @@ function plot_time_series(lg, sam)
                plot_winch_force=false, 
                plot_set_values=false,
                plot_us=true,
-               plot_tether=true,
-               plot_tether_actual=true,             
+               plot_tether_actual=false,
+               plot_turn_radius=true,
+               turn_radius_ylims=(0.0, 40.0),
+               plot_cs=true,
+               cs_ylims=(0.0, 0.02)             
          )
       return fig
 end
@@ -328,8 +331,12 @@ Optional `segment_l0_adjustments` lets you account for commanded line changes
 to add to the nominal `l0`, or a vector of offsets (one per sample) for
 time-varying commands. Pulley pairs are evaluated using the combined length of
 both segments (accounting for any `l0` adjustments).
+
+Optional `tether_length` rescales tether segment rest lengths to match the
+logged tether length before stretch ratios are computed; if omitted, the
+logged winch length (`l_tether`) is used when available.
 """
-function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adjustments=nothing)
+function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adjustments=nothing, tether_length=nothing)
    sl = hasproperty(lg, :syslog) ? lg.syslog : lg
    if isempty(sl)
       @warn "compute_line_stretch: empty log provided"
@@ -337,6 +344,50 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
    end
 
    segments = sam.sys_struct.segments
+   base_l0 = [Float64(seg.l0) for seg in segments]
+   tether_seg_idxs = if !isempty(sam.sys_struct.tethers) && !isempty(sam.sys_struct.tethers[1].segment_idxs)
+      Int.(sam.sys_struct.tethers[1].segment_idxs)
+   else
+      collect(90:95)
+   end
+   tether_seg_idxs = [idx for idx in tether_seg_idxs if 1 <= idx <= length(segments)]
+   tether_seg_set = Set(tether_seg_idxs)
+   nominal_total = sum(l0 for (i, l0) in enumerate(base_l0) if i in tether_seg_set && isfinite(l0) && l0 > 0)
+
+   # Build a per-sample scaling factor for tether rest lengths.
+   # Falls back to the logged l_tether (winch length) if no explicit value is provided.
+   tether_len_series = Float64[]
+   if tether_length === nothing
+      # Prefer log values when available
+      tether_len_series = fill(NaN, length(sl))
+      if hasproperty(sl[1], :l_tether)
+         for (idx, state) in enumerate(sl)
+            lt_vec = getproperty(state, :l_tether)
+            if !isempty(lt_vec)
+               lt = float(lt_vec[1])
+               tether_len_series[idx] = lt
+            end
+         end
+      end
+   elseif tether_length isa AbstractVector
+      tether_len_series = [float(tether_length[min(i, length(tether_length))]) for i in 1:length(sl)]
+   else
+      tether_len_series = fill(float(tether_length), length(sl))
+   end
+
+   tether_scale = ones(Float64, length(sl))
+   if nominal_total > 0 && !isempty(tether_seg_set)
+      last_scale = 1.0
+      for i in 1:length(sl)
+         tl = tether_len_series[i]
+         if isfinite(tl) && tl > 0
+            last_scale = tl / nominal_total
+         end
+         tether_scale[i] = last_scale
+      end
+   elseif tether_length !== nothing && (nominal_total <= 0 || isempty(tether_seg_set))
+      @warn "compute_line_stretch: no valid tether segments for scaling" nominal_total tether_seg_idxs
+   end
    t_end = sl[end].time
    t_start = t_end - window_seconds
    start_idx = 1
@@ -368,7 +419,10 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
          X, Y, Z = state.X, state.Y, state.Z
          for seg_idx in pulley_seg_set
             seg = segments[seg_idx]
-            l0 = Float64(seg.l0)
+            l0 = base_l0[seg_idx]
+            if seg_idx in tether_seg_set
+               l0 *= tether_scale[log_idx]
+            end
             adj = get(l0_adjustments, seg_idx, nothing)
             if adj !== nothing
                if adj isa AbstractVector
@@ -411,7 +465,10 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
          X, Y, Z = state.X, state.Y, state.Z
          for (col_idx, seg_idx) in enumerate(seg_idxs)
             seg = segments[seg_idx]
-            l0 = Float64(seg.l0)
+            l0 = base_l0[seg_idx]
+            if seg_idx in tether_seg_set
+               l0 *= tether_scale[log_idx]
+            end
             adj = get(l0_adjustments, seg_idx, nothing)
             if adj !== nothing
                if adj isa AbstractVector
@@ -581,7 +638,8 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
 end
 
 # log_name = "batch_2026_01_07_10_58_14/circle__up_24_us_15_vw_8_lt_260_run_008_date_2026_01_07_11_26_11"
-log_name = "circle__up_22_us_20_vw_11_lt_460_date_2026_01_08_10_58_14"
+# log_name = "circle__up_22_us_30_vw_11_lt_431_date_2026_01_08_12_42_34"
+log_name = "batch_2026_01_08_15_52_33/circle__up_22_us_22_vw_9_lt_275_run_004_date_2026_01_08_15_58_42"
 lg, sam, up, us, v_wind, lt = load_log_and_system(log_name=log_name)
 
 # Log alignment info before plotting to decide tension source

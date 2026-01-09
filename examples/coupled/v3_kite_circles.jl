@@ -351,14 +351,14 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     # general settings
     v_wind=15,
     v_wind_base=15,
-    up=0.25,
+    up=0.4, #0.22
     # settings zenith initialisation flight
     sim_time_zenith=150, 
-    fps_zenith=60,
+    fps_zenith=240,
     start_ramp_time=0.1,
     ramp_time_up=10.0,
-    initial_damping=100.0,
-    decay_time=2.0,
+    initial_damping=2000.0,
+    decay_time=20.0,
     max_us_zenith = 0.02,
     target_azimuth = 0.0,
     # settings circular flight

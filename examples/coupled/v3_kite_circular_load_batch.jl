@@ -207,6 +207,70 @@ function calculate_cs(sl, sys; rho=1.225, eps=1e-12)
     return cs, sl.time
 end
 
+function compute_turn_radius(sl_in, sys::SystemStructure; smooth_window=10, eps=1e-12)
+    sl = hasproperty(sl_in, :syslog) ? sl_in.syslog : sl_in
+    n = length(sl.time)
+    if n < 2 || isempty(sl.vel_kite) || isempty(sl.orient)
+        return nothing
+    end
+    if length(sl.vel_kite) < n || length(sl.orient) < n
+        return nothing
+    end
+
+    ts = mean(diff(sl.time))
+    ts = isfinite(ts) && ts > eps ? ts : eps
+
+    v_x = Vector{Float64}(undef, n)
+    v_y = Vector{Float64}(undef, n)
+    v_z = Vector{Float64}(undef, n)
+    @inbounds for k in 1:n
+        v = sl.vel_kite[k]
+        v_x[k] = v[1]
+        v_y[k] = v[2]
+        v_z[k] = v[3]
+    end
+
+    a_x = gradient_uniform(v_x, ts)
+    a_y = gradient_uniform(v_y, ts)
+    a_z = gradient_uniform(v_z, ts)
+
+    if smooth_window > 1
+        a_x = moving_average_same(a_x, smooth_window)
+        a_y = moving_average_same(a_y, smooth_window)
+        a_z = moving_average_same(a_z, smooth_window)
+    end
+
+    radius = Vector{Float64}(undef, n)
+    @inbounds for k in 1:n
+        v = SVector{3, Float64}(v_x[k], v_y[k], v_z[k])
+        a = SVector{3, Float64}(a_x[k], a_y[k], a_z[k])
+        v_norm = norm(v)
+        if !isfinite(v_norm) || v_norm <= eps
+            radius[k] = NaN
+            continue
+        end
+        v_hat = v / v_norm
+        a_t = dot(a, v_hat) * v_hat
+        omega = cross(a - a_t, v) / (v_norm^2)
+        omega_norm = norm(omega)
+        if !isfinite(omega_norm) || omega_norm <= eps
+            radius[k] = NaN
+            continue
+        end
+        icr = cross(v, omega) / (omega_norm^2)
+        R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[k])
+        e_x = SVector{3, Float64}(R_b_w[:, 1])
+        det = e_x[1] * icr[2] - e_x[2] * icr[1]
+        if !isfinite(det) || abs(det) <= eps
+            radius[k] = NaN
+        else
+            radius[k] = -(det < 0 ? -1.0 : 1.0) * norm(icr)
+        end
+    end
+
+    return radius, sl.time
+end
+
 function compute_ekf_yaw_and_rate(sl_in, sys::SystemStructure; eps=1e-12)
     sl = hasproperty(sl_in, :syslog) ? sl_in.syslog : sl_in
     n = length(sl.time)
@@ -422,7 +486,15 @@ function analyze_log(lg, sys; window_sec::Real=WINDOW_SEC)
     azimuth = mean_last_window(azimuth_deg, sl.time; window_sec)
 
     cs_vals, cs_time = calculate_cs(sl, sys)
-    cs = mean_last_window(cs_vals, cs_time; window_sec)
+    cs = abs(mean_last_window(cs_vals, cs_time; window_sec))
+
+    turn_radius_result = compute_turn_radius(sl, sys)
+    if turn_radius_result === nothing
+        turn_radius = NaN
+    else
+        turn_radius_vals, turn_radius_time = turn_radius_result
+        turn_radius = abs(mean_last_window(turn_radius_vals, turn_radius_time; window_sec))
+    end
 
     return (
         aero_force=aero_force,
@@ -435,7 +507,8 @@ function analyze_log(lg, sys; window_sec::Real=WINDOW_SEC)
         aoa=aoa,
         elevation=elevation,
         azimuth=azimuth,
-        cs=cs
+        cs=cs,
+        turn_radius=turn_radius
     )
 end
 
@@ -454,13 +527,13 @@ function find_log_names(batch_dir::AbstractString)
 end
 
 function write_csv(path::AbstractString, rows)
-    header = "vw,up,us,lt,aero_force,v_app,yaw_rate,yaw_rate_paper,gk,gk_paper,kite_vel,aoa,elevation,azimuth,cs"
+    header = "vw,up,us,lt,aero_force,v_app,yaw_rate,yaw_rate_paper,gk,gk_paper,kite_vel,aoa,elevation,azimuth,cs,turn_radius"
     open(path, "w") do io
         println(io, header)
         for r in rows
             println(io, join([
                 r.vw, r.up, r.us, r.lt, r.aero_force, r.v_app, r.yaw_rate, r.yaw_rate_paper,
-                r.gk, r.gk_paper, r.kite_vel, r.aoa, r.elevation, r.azimuth, r.cs
+                r.gk, r.gk_paper, r.kite_vel, r.aoa, r.elevation, r.azimuth, r.cs, r.turn_radius
             ], ","))
         end
     end
@@ -468,7 +541,7 @@ end
 
 function main()
     batch_name = isempty(ARGS) ? "" : strip(ARGS[1])
-    batch_name = "batch_2026_01_07_10_58_14"
+    batch_name = "batch_2026_01_08_15_52_33"
     if isempty(batch_name)
         print("Enter batch folder name (e.g. batch_2026_01_07_10_04_38): ")
         batch_name = strip(readline())
@@ -506,7 +579,8 @@ function main()
             aoa=metrics.aoa,
             elevation=metrics.elevation,
             azimuth=metrics.azimuth,
-            cs=metrics.cs
+            cs=metrics.cs,
+            turn_radius=metrics.turn_radius
         ))
     end
 

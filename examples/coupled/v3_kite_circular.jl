@@ -373,17 +373,17 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-    us = 0.2  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
-    up = 0.22  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis
+    us = 0.15  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
+    up = 0.4 # 22  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis
     #0.4151powered and #0.5012depowered #0.39 during turns
-    vw = 11.0  # {{{ 10.  <> 15.0 }}} suitable range?
-    lt = 460  # problems when changing...
+    vw = 11.1  # {{{ 10.  <> 15.0 }}} suitable range?
+    lt = 225  # problems when changing...
 
-    sim_time = 150.0
-    decay_time = 2.0 #2secs works better than 3 somehow
-    ramp_time = 2.0
-    fps = 120
-    initial_damping = 10.0
+    sim_time = 5.0
+    decay_time = 10.0 #2secs works better than 3 somehow
+    ramp_time = 10.0 #2sec
+    fps = 600
+    initial_damping = 200.0
     damping_pattern = [0.0, 30.0, 60.0]
     min_damping = 1.0
     tube_bending_resistance = 0  # N

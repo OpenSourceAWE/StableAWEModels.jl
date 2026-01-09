@@ -575,6 +575,81 @@ function moving_average_same(x::AbstractVector{<:Real}, window::Int)
 end
 
 """
+    compute_turn_radius(sl_in, sys::SystemStructure; smooth_window=10, eps=1e-12)
+
+Compute signed turn radius from velocity and smoothed acceleration using the
+instantaneous center of rotation (ICR). The sign follows the body x-axis
+projected into the world xy-plane.
+
+# Returns
+- `(radius, time)`: Tuple of signed turn radius [m] and time vector [s]
+- `nothing` if required data is missing
+"""
+function compute_turn_radius(sl_in, sys::SystemStructure; smooth_window=10, eps=1e-12)
+    sl = hasproperty(sl_in, :syslog) ? sl_in.syslog : sl_in
+    n = length(sl.time)
+    if n < 2 || isempty(sl.vel_kite) || isempty(sl.orient)
+        return nothing
+    end
+    if length(sl.vel_kite) < n || length(sl.orient) < n
+        return nothing
+    end
+
+    ts = mean(diff(sl.time))
+    ts = isfinite(ts) && ts > eps ? ts : eps
+
+    v_x = Vector{Float64}(undef, n)
+    v_y = Vector{Float64}(undef, n)
+    v_z = Vector{Float64}(undef, n)
+    @inbounds for k in 1:n
+        v = sl.vel_kite[k]
+        v_x[k] = v[1]
+        v_y[k] = v[2]
+        v_z[k] = v[3]
+    end
+
+    a_x = gradient_uniform(v_x, ts)
+    a_y = gradient_uniform(v_y, ts)
+    a_z = gradient_uniform(v_z, ts)
+
+    if smooth_window > 1
+        a_x = moving_average_same(a_x, smooth_window)
+        a_y = moving_average_same(a_y, smooth_window)
+        a_z = moving_average_same(a_z, smooth_window)
+    end
+
+    radius = Vector{Float64}(undef, n)
+    @inbounds for k in 1:n
+        v = SVector{3, Float64}(v_x[k], v_y[k], v_z[k])
+        a = SVector{3, Float64}(a_x[k], a_y[k], a_z[k])
+        v_norm = norm(v)
+        if !isfinite(v_norm) || v_norm <= eps
+            radius[k] = NaN
+            continue
+        end
+        v_hat = v / v_norm
+        a_t = dot(a, v_hat) * v_hat
+        omega = cross(a - a_t, v) / (v_norm^2)
+        omega_norm = norm(omega)
+        if !isfinite(omega_norm) || omega_norm <= eps
+            radius[k] = NaN
+            continue
+        end
+        icr = cross(v, omega) / (omega_norm^2)
+        R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[k])
+        e_x = SVector{3, Float64}(R_b_w[:, 1])
+        det = e_x[1] * icr[2] - e_x[2] * icr[1]
+        if !isfinite(det) || abs(det) <= eps
+            radius[k] = NaN
+        else
+            radius[k] = -(det < 0 ? -1.0 : 1.0) * norm(icr)
+        end
+    end
+
+    return radius, sl.time
+end
+
+"""
     midle_to_kcu_dir(sl, k; eps=1e-12)
 
 Compute the unit vector from the mid leading-edge (avg of points 12 & 14)
@@ -593,6 +668,68 @@ function midle_to_kcu_dir(sl, k; eps=1e-12)
     dir = p1 - p_le_mid
     n = norm(dir)
     return n > eps ? dir / n : nothing
+end
+
+function calc_ref_area(sys::SystemStructure)
+    isempty(sys.wings) && return NaN
+    wing = sys.wings[1]
+    hasproperty(wing, :vsm_aero) || return NaN
+    panels = wing.vsm_aero.panels
+    isempty(panels) && return NaN
+    return sum(p.chord * p.width for p in panels)
+end
+
+function calculate_cs(sl_in, sys; rho=1.225, eps=1e-12)
+    sl = hasproperty(sl_in, :syslog) ? sl_in.syslog : sl_in
+    s_ref = calc_ref_area(sys)
+    if !isfinite(s_ref) || s_ref <= eps
+        return Float64[], Float64[]
+    end
+
+    n = length(sl.time)
+    if n == 0 ||
+       length(sl.vel_kite) < n || length(sl.v_wind_kite) < n ||
+       length(sl.orient) < n || length(sl.aero_force_b) < n ||
+       length(sl.X) < n || length(sl.Y) < n || length(sl.Z) < n
+        return Float64[], Float64[]
+    end
+
+    cs = Vector{Float64}(undef, n)
+
+    @inbounds for k in 1:n
+        v_kite = sl.vel_kite[k]
+        v_wind = sl.v_wind_kite[k]
+        v_a = v_kite - v_wind
+        v_a_norm = norm(v_a)
+        if v_a_norm <= eps
+            cs[k] = NaN
+            continue
+        end
+        drag_dir = -v_a / v_a_norm
+
+        up_dir = midle_to_kcu_dir(sl, k; eps=eps)
+        if up_dir === nothing
+            cs[k] = NaN
+            continue
+        end
+        up_dir = -up_dir
+
+        side_raw = cross(drag_dir, up_dir)
+        side_norm = norm(side_raw)
+        if side_norm <= eps
+            cs[k] = NaN
+            continue
+        end
+        side_dir = side_raw / side_norm
+
+        R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[k])
+        F_aero_b = sl.aero_force_b[k]
+        F_aero_w = R_b_w * F_aero_b
+        F_side = dot(F_aero_w, side_dir)
+        cs[k] = F_side / (0.5 * rho * v_a_norm^2 * s_ref)
+    end
+
+    return cs, sl.time
 end
 
 """
@@ -855,6 +992,7 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 # Keyword Arguments
 - `plot_default::Bool=true`: Defaults to true, enabling all plot panels. If false, all panels are disabled.
 - `plot_turn_rates::Bool=false`: Show the panel with the wing's angular velocities (ω_x, ω_y, ω_z).
+- `plot_turn_radius::Bool=false`: Show signed turn radius derived from velocity and acceleration.
 - `plot_reelout::Bool=plot_default`: Show the panel with the reel-out velocities of the steering winches.
 - `plot_aero_force::Bool=plot_default`: Show the panel with the z-component of aerodynamic force.
 - `plot_aero_moment::Bool=false`: Show the panel with the y-component of aerodynamic moment.
@@ -875,6 +1013,9 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_distance::Bool=false`: Show the panel with the kite distance from origin (norm of position).
 - `plot_yaw_rate::Bool=false`: Show yaw rate `dψ/dt` derived from the wind-referenced heading.
 - `plot_gk_paper::Bool=false`: Plot gk using paper-style ψ̇ and reconstructed steering command.
+- `plot_cs::Bool=false`: Plot the side-force coefficient C_S based on apparent wind and logged aero force.
+- `cs_ylims::Union{Nothing,Tuple}=(-0.5, 0.5)`: Y-axis limits for the C_S panel (`nothing` leaves autoscaling).
+- `turn_radius_ylims::Union{Nothing,Tuple}=(0.0, 100.0)`: Y-axis limits for the turn-radius panel (`nothing` leaves autoscaling).
 - `yaw_rate_paper_compare::Bool=false`: Log std/offset comparisons between yaw definitions in the paper panel.
 - `plot_cone_angle::Bool=false`: Show the panel with the cone angle (angle between wind vector and normalized kite position).
 - `plot_old_heading::Bool=false`: Show the old heading calculated from orientation quaternion (angle between -R_b_w[:,1] and -R_v_w[:,1]).
@@ -938,6 +1079,9 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    yaw_rate_paper_ylims=(-90.0, 90.0),
                    yaw_rate_paper_compare=false,
                    plot_gk_paper=false,
+                   plot_cs=false,
+                   cs_ylims=(-0.0125, 0.0125),
+                   turn_radius_ylims=(0.0, 70.0),
                    plot_v_app=false,
                    plot_kite_vel=false,
                    plot_aoa=plot_default,
@@ -946,6 +1090,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_kiteutils_course=false,
                    plot_aero_moment=false,
                    plot_turn_rates=false,
+                   plot_turn_radius=false,
                    plot_elevation=false,
                    plot_azimuth=false,
                    plot_tether_moment=false,
@@ -1227,6 +1372,32 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         end
     end
 
+    if plot_cs
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            suffix = actual_suffixes[i]
+            cs_vals, cs_time = calculate_cs(lg, syss[i])
+            if isempty(cs_vals)
+                @warn "Missing data for C_S; skipping plot_cs for $suffix"
+                continue
+            end
+            push!(all_data, cs_vals)
+            push!(all_labels, "C_S" * suffix)
+            push!(all_times, cs_time)
+        end
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "C_S [-]\nside force",
+                ylims = cs_ylims
+            ))
+        end
+    end
+
     if plot_turn_rates
         all_data = []
         all_labels = []
@@ -1299,6 +1470,33 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 labels = all_labels,
                 times = all_times,
                 ylabel = "ω_v [°/s]\nturn-rate"
+            ))
+        end
+    end
+
+    if plot_turn_radius
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            suffix = actual_suffixes[i]
+            result = compute_turn_radius(lg, syss[i])
+            if result === nothing
+                @warn "Missing velocity/orientation data in syslog; skipping plot_turn_radius for $suffix"
+                continue
+            end
+            radius, times = result
+            push!(all_data, radius)
+            push!(all_labels, "r_turn" * suffix)
+            push!(all_times, times)
+        end
+        if !isempty(all_data)
+            push!(panels, (
+                data = all_data,
+                labels = all_labels,
+                times = all_times,
+                ylabel = "turn radius [m]",
+                ylims = turn_radius_ylims
             ))
         end
     end
@@ -1630,13 +1828,47 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             end
             
             # force ylimits from 0 to 10 for gk axis
+            cs_vals = Float64[]
+            cs_over_us_vec = Float64[]
+            try
+                cs_vals, _ = calculate_cs(lg, syss[i])
+                n_us = length(us_seg)
+                n_cs = length(cs_vals)
+                if n_us > 0 && n_cs >= n_us + 1
+                    cs_over_us_vec = similar(us_seg)
+                    @inbounds for k in eachindex(us_seg)
+                        cs_over_us_vec[k] = abs(us_seg[k]) > 1e-8 ? cs_vals[k + 1] / us_seg[k] : NaN
+                    end
+                end
+            catch err
+                @warn "Failed to compute cs/us" exception=(err, catch_backtrace())
+            end
 
-            @info "turn-rate $(heading_rate[end])"
-            @info "v_app $(v_app[end])"
-            @info "us_seg $(us_seg[end])"
-            @info "gk $(gk[end])"
-            @info "alpha-vsm $(rad2deg(sl.AoA[end]))"
+            # Average over the last 50 seconds (or full log if shorter)
+            t_end = sl.time[end]
+            t_start = max(sl.time[1], t_end - 50)
+            window_mean(vals, times) = begin
+                idxs = findall(t -> t >= t_start, times)
+                isempty(idxs) && return NaN
+                window = vals[idxs]
+                finite_vals = filter(isfinite, window)
+                isempty(finite_vals) ? NaN : mean(finite_vals)
+            end
 
+            heading_rate_avg = window_mean(heading_rate, sl.time[2:end])
+            v_app_avg = window_mean(v_app, sl.time[2:end])
+            us_seg_avg = window_mean(us_seg, sl.time[2:end])
+            gk_avg = window_mean(gk, sl.time[2:end])
+            cs_us_avg = isempty(cs_over_us_vec) ? NaN : window_mean(cs_over_us_vec, sl.time[2:end])
+            aoa_avg = window_mean(rad2deg.(sl.AoA), sl.time)
+
+            @info "averages over last 50 seconds for log $(i) $(syss[i].name): \n"
+            @info "turn-rate $(heading_rate_avg)"
+            @info "v_app $(v_app_avg)"
+            @info "us_seg $(us_seg_avg)"
+            @info "gk ~10 $(gk_avg)"
+            @info "cs/us ~0.1 $(abs(cs_us_avg))"
+            @info "alpha-vsm $(aoa_avg)"
 
             # @info "--- resolving alpha mystery ---"
             # # ss.AoA = atan(wing.va_b[3], wing.va_b[1]) # version-1 

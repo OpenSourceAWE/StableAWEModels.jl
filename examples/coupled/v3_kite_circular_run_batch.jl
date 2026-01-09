@@ -375,15 +375,16 @@ end
 # ==========================================
 
 # Batch sweep configuration
-us_vals = [0.05, 0.1, 0.15, 0.2, 0.25]
-up_vals = [0.2, 0.24, 0.28]
-vw_vals = [8.0, 10.0]
+us_vals = [0.15,0.175, 0.2,0.225, 0.25, 0.275, 0.3, 0.325]  # Sweep over steering inputs
+up_vals = [0.22]
+vw_vals = [8.6]
+# Optional sweep over tether lengths; single-element vector keeps legacy behavior
+lt_vals = [275]
 
 batch_tag = "batch_" * Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM_SS")
 
 # Simulation settings (same defaults as single-run)
-lt = 260
-sim_time = 500.0
+sim_time = 150.0
 decay_time = 2.0
 ramp_time = 2.0
 fps = 120
@@ -394,9 +395,9 @@ tube_bending_resistance = 0.0
 
 failed_runs = NamedTuple[]
 
-for (run_id, (us, up, vw)) in enumerate(Iterators.product(us_vals, up_vals, vw_vals))
+for (run_id, (us, up, vw, lt)) in enumerate(Iterators.product(us_vals, up_vals, vw_vals, lt_vals))
     run_tag = "run_" * lpad(string(run_id), 3, '0')
-    @info "Starting run" run_id us up vw batch_tag
+    @info "Starting run" run_id us up vw lt batch_tag
     try
         run_v3_kite(
             sim_time=sim_time, fps=fps,
@@ -412,8 +413,8 @@ for (run_id, (us, up, vw)) in enumerate(Iterators.product(us_vals, up_vals, vw_v
             run_tag=run_tag
         )
     catch err
-        @error "Run failed" run_id us up vw err
-        push!(failed_runs, (run_id=run_id, us=us, up=up, vw=vw, error=err))
+        @error "Run failed" run_id us up vw lt err
+        push!(failed_runs, (run_id=run_id, us=us, up=up, vw=vw, lt=lt, error=err))
     end
     GC.gc()
 end
