@@ -410,7 +410,9 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
    end
    seg_len_for_pulleys = Dict(seg => fill(NaN, n_samples) for seg in pulley_seg_set)
    seg_l0_for_pulleys = Dict(seg => fill(NaN, n_samples) for seg in pulley_seg_set)
-   bridle_seg_idxs = [i for i in 47:89 if !(i in pulley_seg_set)]
+   bridle_seg_idxs = [i for i in 47:86 if !(i in pulley_seg_set)]  # Exclude control tapes (87-89)
+   steering_tape_idxs = [87, 89]  # Steering tapes
+   power_tape_idxs = [88]  # Power tape
 
    # Precompute lengths for pulley segments (kept separate from bridle category)
    if !isempty(pulley_seg_set)
@@ -452,6 +454,8 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
       (:tubular_frame, "Tubular frame", 1:19),
       (:te_wires_and_diagonals, "TE wires and diagonals", 20:46),
       (:bridles, "Bridles", bridle_seg_idxs),
+      (:steering_tapes, "Steering tapes", steering_tape_idxs),
+      (:power_tape, "Power tape", power_tape_idxs),
       (:tether, "Tether", 90:95),
    )
 
@@ -638,8 +642,8 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
 end
 
 # log_name = "batch_2026_01_07_10_58_14/circle__up_24_us_15_vw_8_lt_260_run_008_date_2026_01_07_11_26_11"
-# log_name = "circle__up_22_us_30_vw_11_lt_431_date_2026_01_08_12_42_34"
-log_name = "batch_2026_01_08_15_52_33/circle__up_22_us_22_vw_9_lt_275_run_004_date_2026_01_08_15_58_42"
+log_name = "zenith_circle__up_40_us_30_vw_15_lt_150_date_2026_01_09_12_10"
+# log_name = "batch_2026_01_08_15_52_33/circle__up_22_us_22_vw_9_lt_275_run_004_date_2026_01_08_15_58_42"
 lg, sam, up, us, v_wind, lt = load_log_and_system(log_name=log_name)
 
 # Log alignment info before plotting to decide tension source

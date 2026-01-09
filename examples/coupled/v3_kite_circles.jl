@@ -19,6 +19,47 @@ using Dates
 using StaticArrays
 
 """
+    adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
+
+Update the winch rest length, reposition tether points in CAD/body frames,
+and reapply the main transform so the wing stays at the requested tether radius.
+"""
+function adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
+    tether_length = float(tether_length_raw)
+    sys = sam.sys_struct
+    set = sam.set
+
+    if !isempty(set.l_tethers)
+        set.l_tethers[1] = tether_length
+    end
+
+    n_points = length(tether_point_idxs)
+    for (n, p_idx) in enumerate(tether_point_idxs)
+        pos = (0.0, 0.0, -n * tether_length / n_points)
+        sys.points[p_idx].pos_cad .= pos
+        sys.points[p_idx].pos_b .= pos
+    end
+
+    if !isempty(sys.transforms)
+        transform = sys.transforms[1]
+        if !isempty(sys.wings) && norm(sys.wings[1].pos_w) > 0
+            target_pos = normalize(sys.wings[1].pos_w) * tether_length
+            transform.elevation = KiteUtils.calc_elevation(target_pos)
+            transform.azimuth = KiteUtils.azimuth_east(target_pos)
+        end
+        SymbolicAWEModels.reinit!([transform], sys)
+    end
+
+    if !isempty(sys.winches)
+        winch = sys.winches[1]
+        winch.tether_len = tether_length
+        winch.tether_vel = 0.0
+        winch.brake = true
+    end
+    return nothing
+end
+
+"""
     run_v3_kite(wing_type::WingType; kwargs...)
 
 Run a two-phase v3 kite simulation with the specified wing type
@@ -53,6 +94,7 @@ independent durations/FPS.
 - `winch_p::Float64=1000.0`: Proportional gain for winch controller [N/m]
 - `winch_i::Float64=100.0`: Integral gain for winch controller [N/(m·s)]
 - `winch_d::Float64=50.0`: Derivative gain for winch controller [N·s/m]
+- `tether_length::Float64=150.0`: Tether length [m]
 
 # Returns
 - `SysLog`: The simulation log containing time history data
@@ -83,6 +125,7 @@ function run_v3_kite(wing_type::WingType;
                      target_azimuth=0.0,
                      us=0.1,
                      v_wind_base=15.0,
+                     tether_length=150.0,
                      )
 
     wing_type_str = wing_type == SymbolicAWEModels.REFINE ? "REFINE" : "QUATERNION"
@@ -120,6 +163,7 @@ function run_v3_kite(wing_type::WingType;
 
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
+    adjust_tether_length!(sam, tether_length)
 
     # Initialize model
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -326,8 +370,10 @@ function run_v3_kite(wing_type::WingType;
     final_times_realtime = total_sim_time / total_wall_time
     @info "Simulation completed: $wing_type_str (zenith + circular)" wall_time=round(total_wall_time, digits=2) times_realtime=round(final_times_realtime, digits=2)
 
+    lt_tag = Int(round(tether_length))
+
     # Save and load log
-    log_name = "tmp_run_$(lowercase(wing_type_str))"
+    log_name = "tmp_run_$(lowercase(wing_type_str))_lt_$(lt_tag)"
     save_log(logger, log_name)
     syslog = load_log(log_name)
 
@@ -338,7 +384,7 @@ function run_v3_kite(wing_type::WingType;
     up_tag = Int(round(up*100))
     us_tag = Int(round(us*100))
     v_wind_tag = Int(round(v_wind))
-    log_name = "zenith_circle__up_$(up_tag)_us_$(us_tag)_vw_$(v_wind_tag)_date_$(timestamp)"
+    log_name = "zenith_circle__up_$(up_tag)_us_$(us_tag)_vw_$(v_wind_tag)_lt_$(lt_tag)_date_$(timestamp)"
     save_log(logger, log_name; path=save_dir)
 
     return syslog, sam, azimuth_setpoint
@@ -351,18 +397,18 @@ syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEMode
     # general settings
     v_wind=15,
     v_wind_base=15,
-    up=0.4, #0.22
+    up=0.3, #0.22
     # settings zenith initialisation flight
-    sim_time_zenith=150, 
+    sim_time_zenith=40, 
     fps_zenith=240,
     start_ramp_time=0.1,
     ramp_time_up=10.0,
     initial_damping=2000.0,
-    decay_time=20.0,
+    decay_time=10.0,
     max_us_zenith = 0.02,
     target_azimuth = 0.0,
     # settings circular flight
-    sim_time_circles=100,
+    sim_time_circles=250,
     fps_circles=60,
     ramp_time_us = 5.0,
     us=0.3,
