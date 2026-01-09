@@ -19,31 +19,38 @@ using KiteUtils
 using OrdinaryDiffEqCore
 using CairoMakie, GLMakie
 using CSV, DataFrames
+using UnPack
+
+include("../examples/coupled/utils.jl")
 
 # Configuration - Reduction flags
-REDUCE_TIP_LE = false         # Reduce tip LE segments (47,48,57,58)
-REDUCE_TE = false             # Reduce TE segments
-REDUCE_STEERING_TAPE = false  # Reduce steering tape segments
+REDUCE_TIP_LE = true         # Reduce tip LE segments (47,48,57,58)
+REDUCE_TE = true             # Reduce TE segments
 
 # Configuration - Simulation
 WORLD_DAMPING = 1000.0  # Ns/m
-DECAY_STEPS = 5000     # Steps over which damping decays to zero
+DECAY_STEPS = 2100     # Steps over which damping decays to zero
 NUM_STEPS = 2000
 DT = 0.1  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 40   # depower [0, 100]
-SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
-DEST_STRUC_PATH = "data/v3/struc_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
-SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
-DEST_AERO_PATH = "data/v3/aero_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
 WIND_VEL = 20.0
 ELEVATION = 70
-TETHER_LENGTH = 212.68  # Total tether length (m), 6 segments
+TETHER_LENGTH = 212  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
-LE_FRAC = 0.9  # Factor to reduce l0 of LE struts (segments 20-28)
+TE_FRAC = 0.9  # Factor to reduce l0 of TE wires (segments 20-28)
 TIP_REDUCTION = 0.4
-TE_REDUCTION = 0.2
-STEERING_TAPE_REDUCTION = 0.1
+
+# Build destination filename suffix
+TETHER_INT = Int(round(TETHER_LENGTH))
+TIP_LE_STR = REDUCE_TIP_LE ? "tipLE" : "no_tipLE"
+TE_STR = REDUCE_TE ? "TE$(Int(round(TE_FRAC*100)))" : "no_TE"
+DEST_SUFFIX = "depower$(DEPOWER_PERCENTAGE)_tether$(TETHER_INT)_$(TIP_LE_STR)_$(TE_STR)"
+
+SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
+DEST_STRUC_PATH = "data/v3/struc_geometry_$(DEST_SUFFIX).yaml"
+SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
+DEST_AERO_PATH = "data/v3/aero_geometry_$(DEST_SUFFIX).yaml"
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 STEERING_L0 = 1.6  # Neutral steering tape length (m)
@@ -75,64 +82,6 @@ function depower_percentage_to_length(percentage)
     return L_depower
 end
 
-"""
-    load_extra_points(csv_path, sys_struct)
-
-Load extra points from CSV and transform from camera frame to simulation frame.
-"""
-function load_extra_points(csv_path::String, sys_struct; body_offset=[0.3, 0.0, 0.2])
-    df = CSV.read(csv_path, DataFrame)
-
-    # CSV reference: LE[10], LE[11] (0-indexed in CSV, so Julia indices 11, 12)
-    le_pts = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "LE"]
-    csv_le10, csv_le11 = le_pts[11], le_pts[12]
-    csv_le_center = (csv_le10 + csv_le11) / 2
-
-    # CSV strut centers: strut3[1]/strut4[1] are at TE, [end] are at LE
-    strut3 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut3"]
-    strut4 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut4"]
-    csv_le_center = (strut3[end] + strut4[end]) / 2
-    csv_te_center = (strut3[1] + strut4[1]) / 2
-
-    # Sim reference: points 10, 12 (center LE), point 27 (bridle)
-    sim_p10 = collect(sys_struct.points[10].pos_w)
-    sim_p12 = collect(sys_struct.points[12].pos_w)
-    sim_le_center = (sim_p10 + sim_p12) / 2
-    point_27 = collect(sys_struct.points[27].pos_w)
-    cam_pos = point_27 + sys_struct.wings[1].R_b_w * [0, 0.2, 0]
-
-    # Direction vectors
-    csv_span = normalize(strut4[end] - strut3[end])
-
-    # CSV basis: y=spanwise, z from wing center geometry, x from cross
-    csv_y = csv_span
-    csv_wing_center = (csv_le_center + csv_te_center) / 2
-    @show csv_wing_center
-    csv_z = normalize(csv_wing_center - csv_y * 0.84/2)
-    csv_x = cross(csv_y, csv_z)
-
-    # Sim basis: directly from wing rotation matrix
-    R_b_w = sys_struct.wings[1].R_b_w
-    sim_x = R_b_w[:, 1]
-    sim_y = R_b_w[:, 2]
-    sim_z = R_b_w[:, 3]
-
-    # Rotation: R * csv_basis = sim_basis
-    csv_basis = hcat(csv_x, csv_y, csv_z)
-    sim_basis = hcat(sim_x, sim_y, sim_z)
-    R = sim_basis * csv_basis'
-
-    # Translation: align LE centers
-    T = sim_le_center - R * csv_le_center + R_b_w * body_offset
-
-    # Transform all points (including camera origin marker)
-    all_pts = [[row.x, row.y, row.z] for row in eachrow(df)]
-    push!(all_pts, zeros(3))
-    transformed = [Tuple(R * p + T) for p in all_pts]
-
-    return transformed
-end
-
 @info "Settling REFINE wing with world frame damping..."
 @info "Configuration" WORLD_DAMPING DECAY_STEPS NUM_STEPS DT total_time=NUM_STEPS*DT
 
@@ -146,11 +95,11 @@ set.l_tether = TETHER_LENGTH
 # Load VSMSettings
 vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
 vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
-vsm_set.wings[1].geometry_file = "data/v3/aero_geometry.yaml"
+vsm_set.wings[1].geometry_file = SOURCE_AERO_PATH
 vsm_set.wings[1].n_panels = 36
 
 # Load system structure with REFINE wing type
-struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
+struc_yaml_path = SOURCE_STRUC_PATH
 sys = load_sys_struct_from_yaml(struc_yaml_path;
     system_name="v3", set,
     wing_type=SymbolicAWEModels.REFINE, vsm_set)
@@ -166,14 +115,6 @@ for seg_idx in 90:95
 end
 @info "Tether configured" TETHER_LENGTH segment_len
 
-# Apply LE strut l0 reduction factor (segments 20-28)
-if LE_FRAC != 1.0
-    for seg_idx in 20:28
-        sys.segments[seg_idx].l0 *= LE_FRAC
-    end
-    @info "LE struts l0 reduced" LE_FRAC
-end
-
 # Apply reductions based on flags
 if REDUCE_TIP_LE
     sys.segments[47].l0 -= TIP_REDUCTION
@@ -184,17 +125,10 @@ if REDUCE_TIP_LE
 end
 
 if REDUCE_TE
-    # TE segment reductions (adjust indices as needed)
-    for seg_idx in 29:37  # TE strut segments
-        sys.segments[seg_idx].l0 -= TE_REDUCTION
+    for seg_idx in 20:28
+        sys.segments[seg_idx].l0 *= TE_FRAC
     end
-    @info "TE reduced" TE_REDUCTION
-end
-
-if REDUCE_STEERING_TAPE
-    sys.segments[87].l0 -= STEERING_TAPE_REDUCTION
-    sys.segments[89].l0 -= STEERING_TAPE_REDUCTION
-    @info "Steering tape reduced" STEERING_TAPE_REDUCTION
+    @info "TE wires l0 reduced" TE_FRAC
 end
 
 # Set initial world frame damping (will decay over DECAY_STEPS)
@@ -281,23 +215,21 @@ syslog = load_log(log_name)
 @info "Creating plots..."
 CairoMakie.activate!()
 
-# Load extra points for comparison
-extra_pts = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
+# Load extra points for comparison (now returns groups too)
+extra_pts, extra_groups = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
 
 # Save PDFs for all three views
-tip_le_str = REDUCE_TIP_LE ? "tipLE" : "no_tipLE"
-te_str = REDUCE_TE ? "TE" : "no_TE"
-steer_str = REDUCE_STEERING_TAPE ? "steer" : "no_steer"
-
 for dir in (:front, :side, :top)
-    scene = plot_body_frame(sam.sys_struct; extra_points=extra_pts, dir)
-    pdf_filename = "data/v3/body_frame_$(dir)_$(tip_le_str)_$(te_str)_$(steer_str).pdf"
+    scene = plot_body_frame_local(sam.sys_struct;
+        extra_points=extra_pts, extra_groups=extra_groups, dir)
+    pdf_filename = "data/v3/body_frame_$(dir)_$(DEST_SUFFIX).pdf"
     save(pdf_filename, scene)
     @info "Plot saved" pdf_filename
 end
 
 GLMakie.activate!()
-scene = plot_body_frame(sam.sys_struct; extra_points=extra_pts, dir=:front)
+scene = plot_body_frame_local(sam.sys_struct;
+    extra_points=extra_pts, extra_groups=extra_groups, dir=:side)
 display(scene)
 
 @info "Settling complete."

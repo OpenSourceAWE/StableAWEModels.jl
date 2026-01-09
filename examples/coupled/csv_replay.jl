@@ -24,12 +24,28 @@ using KiteUtils: calc_elevation, azimuth_east
 using NonlinearSolve, ADTypes
 using Dates
 
+include("utils.jl")
+
 # Configuration parameters
 SECTION = "straight_right"
-STRUC_YAML_PATH = "data/v3/struc_geometry_$(SECTION)_adjusted.yaml"
-AERO_YAML_PATH = "data/v3/aero_geometry_$(SECTION)_adjusted.yaml"
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
 WARN_STEP = false  # Show distance warnings
+
+# Geometry configuration (must match settle_refine_wing.jl output)
+REDUCE_TIP_LE = true         # Reduce tip LE segments (47,48,57,58)
+REDUCE_TE = true             # Reduce TE segments
+DEPOWER_PERCENTAGE = 40      # depower [0, 100]
+TETHER_LENGTH = 212          # Total tether length (m)
+TE_FRAC = 0.9                # Factor for TE wires (segments 20-28)
+
+# Build geometry filename suffix
+TETHER_INT = Int(round(TETHER_LENGTH))
+TIP_LE_STR = REDUCE_TIP_LE ? "tipLE" : "no_tipLE"
+TE_STR = REDUCE_TE ? "TE$(Int(round(TE_FRAC*100)))" : "no_TE"
+GEOM_SUFFIX = "depower$(DEPOWER_PERCENTAGE)_tether$(TETHER_INT)_$(TIP_LE_STR)_$(TE_STR)"
+
+STRUC_YAML_PATH = "data/v3/struc_geometry_$(GEOM_SUFFIX).yaml"
+AERO_YAML_PATH = "data/v3/aero_geometry_$(GEOM_SUFFIX).yaml"
 
 # Video frame mapping (video_frame 7182 = UTC 15:36:31.0)
 VIDEO_FRAME_REF = 7182
@@ -58,18 +74,12 @@ end
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 # Steering calibration
-# STEERING_L0 = 1.6  # Neutral steering tape length (m)
-# STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1 (matches v3_kite_circular)
-STEERING_MULTIPLIER = 1.0
-
-STEERING_L0 = 0.8  # Neutral steering tape length (m) TODO: was 1.6
+STEERING_L0 = 1.6  # Neutral steering tape length (m) TODO: was 1.6
 STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
-DEPOWER_L0 = 0.0 # TODO: was 0.2
+DEPOWER_L0 = 0.2 # TODO: was 0.2
 DEPOWER_GAIN = 5.0
 
-# Depower calibration
-# DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
-# DEPOWER_GAIN = 5.0
+STEERING_MULTIPLIER = 1.0
 DEPOWER_OFFSET = 0.0
 
 # Restabilize: update YAML with final sys_struct positions
@@ -121,69 +131,6 @@ function unix_to_utc_seconds(unix_timestamp::Float64)
     dt = Dates.unix2datetime(unix_timestamp)
     return Dates.hour(dt)*3600 + Dates.minute(dt)*60 +
            Dates.second(dt) + Dates.millisecond(dt)/1000
-end
-
-"""
-    load_extra_points(csv_path, sys_struct)
-
-Load extra points from CSV and transform from camera frame to simulation frame.
-CSV has columns: group, idx_in_group, x, y, z.
-
-Alignment constraints:
-1. Spanwise: CSV LE[10], LE[11] align with sim points 10, 12 (center LE)
-2. To-kite direction: camera→LE matches bridle(point 27)→LE
-"""
-function load_extra_points(csv_path::String, sys_struct; body_offset=[0.3, 0.0, 0.2])
-    df = CSV.read(csv_path, DataFrame)
-
-    # CSV reference: LE[10], LE[11] (0-indexed in CSV, so Julia indices 11, 12)
-    le_pts = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "LE"]
-    csv_le10, csv_le11 = le_pts[11], le_pts[12]
-    csv_le_center = (csv_le10 + csv_le11) / 2
-
-    # CSV strut centers: strut3[1]/strut4[1] are at TE, [end] are at LE
-    strut3 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut3"]
-    strut4 = [[r.x, r.y, r.z] for r in eachrow(df) if r.group == "strut4"]
-    csv_le_center = (strut3[end] + strut4[end]) / 2
-    csv_te_center = (strut3[1] + strut4[1]) / 2
-
-    # Sim reference: points 10, 12 (center LE), point 27 (bridle)
-    sim_p10 = collect(sys_struct.points[10].pos_w)
-    sim_p12 = collect(sys_struct.points[12].pos_w)
-    sim_le_center = (sim_p10 + sim_p12) / 2
-    point_27 = collect(sys_struct.points[27].pos_w)
-    cam_pos = point_27 + sys_struct.wings[1].R_b_w * [0, 0.2, 0]
-
-    # Direction vectors
-    csv_span = normalize(strut4[end] - strut3[end])
-
-    # CSV basis: y=spanwise, z from wing center geometry, x from cross
-    csv_y = csv_span
-    csv_wing_center = (csv_le_center + csv_te_center) / 2
-    @show csv_wing_center
-    csv_z = normalize(csv_wing_center - csv_y * 0.84/2)
-    csv_x = cross(csv_y, csv_z)
-
-    # Sim basis: directly from wing rotation matrix
-    R_b_w = sys_struct.wings[1].R_b_w
-    sim_x = R_b_w[:, 1]
-    sim_y = R_b_w[:, 2]
-    sim_z = R_b_w[:, 3]
-
-    # Rotation: R * csv_basis = sim_basis
-    csv_basis = hcat(csv_x, csv_y, csv_z)
-    sim_basis = hcat(sim_x, sim_y, sim_z)
-    R = sim_basis * csv_basis'
-
-    # Translation: align LE centers
-    T = sim_le_center - R * csv_le_center + R_b_w * body_offset
-
-    # Transform all points (including camera origin marker)
-    all_pts = [[row.x, row.y, row.z] for row in eachrow(df)]
-    push!(all_pts, zeros(3))
-    transformed = [Tuple(R * p + T) for p in all_pts]
-
-    return transformed
 end
 
 """
@@ -630,7 +577,7 @@ function run_physics_replay(csv_path::String;
     set_data_path("data/v3")
     set = Settings("system.yaml")
     set.g_earth = 9.81
-    set.l_tether = 212.68
+    set.l_tether = TETHER_LENGTH
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
     depower_int = Int(round(40+DEPOWER_OFFSET))
@@ -642,6 +589,7 @@ function run_physics_replay(csv_path::String;
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)
+    @show sam.sys_struct.winches[1].tether_len
 
     n_steps = length(csv_data.time)
     @info "Creating log with $n_steps timesteps"
@@ -740,7 +688,9 @@ function run_physics_replay(csv_path::String;
             # Update system structure from CSV on first step
             if step == 1
                 update_sys_struct_from_csv!(sam.sys_struct, csv_row)
+                @show norm(sam.sys_struct.wings[1].vel_w)
                 SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
+                @show norm(sam.sys_struct.wings[1].vel_w)
             end
 
             # Update damping
@@ -779,8 +729,9 @@ function run_physics_replay(csv_path::String;
             if !isnothing(EXTRA_POINTS_CSV) &&
                Int(round(csv_row.video_frame)) == EXTRA_POINTS_FRAME
                 @info "Plotting comparison at frame $(EXTRA_POINTS_FRAME)..."
-                extra_pts = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
-                comparison_scene = plot_body_frame(sam.sys_struct; extra_points=extra_pts)
+                extra_pts, extra_groups = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
+                comparison_scene = plot_body_frame_local(sam.sys_struct;
+                    extra_points=extra_pts, extra_groups=extra_groups)
                 scr = display(comparison_scene)
                 @info "Close the plot window to continue..."
                 wait(scr)
@@ -855,8 +806,7 @@ sam, syslog, csv_sam, csvlog, csv_data, phys_tape_pct, csv_tape_pct = run_physic
 # Display with GLMakie
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
      plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
-     plot_wind=true, plot_reelout=false, plot_v_app=false, plot_turn_rates=true,
-     plot_gk=true,
+     plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=true,
      tape_lengths=[phys_tape_pct, csv_tape_pct],
      suffixes=["phys", "csv"])
 # display(fig)
