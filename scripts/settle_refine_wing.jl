@@ -17,10 +17,15 @@ using VortexStepMethod
 using LinearAlgebra
 using KiteUtils
 using OrdinaryDiffEqCore
-using GLMakie
+using CairoMakie, GLMakie
 using CSV, DataFrames
 
-# Configuration
+# Configuration - Reduction flags
+REDUCE_TIP_LE = false         # Reduce tip LE segments (47,48,57,58)
+REDUCE_TE = false             # Reduce TE segments
+REDUCE_STEERING_TAPE = false  # Reduce steering tape segments
+
+# Configuration - Simulation
 WORLD_DAMPING = 1000.0  # Ns/m
 DECAY_STEPS = 5000     # Steps over which damping decays to zero
 NUM_STEPS = 2000
@@ -32,16 +37,18 @@ DEST_STRUC_PATH = "data/v3/struc_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
 SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
 DEST_AERO_PATH = "data/v3/aero_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
 WIND_VEL = 20.0
-ELEVATION = 75
+ELEVATION = 70
 TETHER_LENGTH = 212.68  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
-LE_FRAC = 0.95  # Factor to reduce l0 of LE struts (segments 20-28)
+LE_FRAC = 0.9  # Factor to reduce l0 of LE struts (segments 20-28)
 TIP_REDUCTION = 0.4
+TE_REDUCTION = 0.2
+STEERING_TAPE_REDUCTION = 0.1
 
 # V3 Kite steering/depower calibration (from KCU documentation)
-STEERING_L0 = 0.8  # Neutral steering tape length (m)
+STEERING_L0 = 1.6  # Neutral steering tape length (m)
 STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
-DEPOWER_L0 = 0.0
+DEPOWER_L0 = 0.2
 DEPOWER_GAIN = 5.0
 
 """
@@ -167,10 +174,28 @@ if LE_FRAC != 1.0
     @info "LE struts l0 reduced" LE_FRAC
 end
 
-sys.segments[47].l0 -= TIP_REDUCTION
-sys.segments[48].l0 -= TIP_REDUCTION
-sys.segments[57].l0 -= TIP_REDUCTION
-sys.segments[58].l0 -= TIP_REDUCTION
+# Apply reductions based on flags
+if REDUCE_TIP_LE
+    sys.segments[47].l0 -= TIP_REDUCTION
+    sys.segments[48].l0 -= TIP_REDUCTION
+    sys.segments[57].l0 -= TIP_REDUCTION
+    sys.segments[58].l0 -= TIP_REDUCTION
+    @info "Tip LE reduced" TIP_REDUCTION
+end
+
+if REDUCE_TE
+    # TE segment reductions (adjust indices as needed)
+    for seg_idx in 29:37  # TE strut segments
+        sys.segments[seg_idx].l0 -= TE_REDUCTION
+    end
+    @info "TE reduced" TE_REDUCTION
+end
+
+if REDUCE_STEERING_TAPE
+    sys.segments[87].l0 -= STEERING_TAPE_REDUCTION
+    sys.segments[89].l0 -= STEERING_TAPE_REDUCTION
+    @info "Steering tape reduced" STEERING_TAPE_REDUCTION
+end
 
 # Set initial world frame damping (will decay over DECAY_STEPS)
 SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING)
@@ -254,12 +279,25 @@ save_log(logger, log_name)
 syslog = load_log(log_name)
 
 @info "Creating plots..."
+CairoMakie.activate!()
 
 # Load extra points for comparison
 extra_pts = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
 
-# Create 3D plot with extra points
-scene = plot(sam.sys_struct; extra_points=extra_pts, body_frame=true)
+# Save PDFs for all three views
+tip_le_str = REDUCE_TIP_LE ? "tipLE" : "no_tipLE"
+te_str = REDUCE_TE ? "TE" : "no_TE"
+steer_str = REDUCE_STEERING_TAPE ? "steer" : "no_steer"
+
+for dir in (:front, :side, :top)
+    scene = plot_body_frame(sam.sys_struct; extra_points=extra_pts, dir)
+    pdf_filename = "data/v3/body_frame_$(dir)_$(tip_le_str)_$(te_str)_$(steer_str).pdf"
+    save(pdf_filename, scene)
+    @info "Plot saved" pdf_filename
+end
+
+GLMakie.activate!()
+scene = plot_body_frame(sam.sys_struct; extra_points=extra_pts, dir=:front)
 display(scene)
 
-@info "Plot created! Settling complete."
+@info "Settling complete."
