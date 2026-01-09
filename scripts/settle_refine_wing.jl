@@ -26,7 +26,7 @@ DECAY_STEPS = 5000     # Steps over which damping decays to zero
 NUM_STEPS = 2000
 DT = 0.1  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
-DEPOWER_PERCENTAGE = 25   # depower [0, 100]
+DEPOWER_PERCENTAGE = 40   # depower [0, 100]
 SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
 DEST_STRUC_PATH = "data/v3/struc_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
 SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
@@ -36,11 +36,12 @@ ELEVATION = 75
 TETHER_LENGTH = 212.68  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
 LE_FRAC = 0.95  # Factor to reduce l0 of LE struts (segments 20-28)
+TIP_REDUCTION = 0.4
 
 # V3 Kite steering/depower calibration (from KCU documentation)
-STEERING_L0 = 1.6  # Neutral steering tape length (m)
-STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
-DEPOWER_L0 = 0.2
+STEERING_L0 = 0.8  # Neutral steering tape length (m)
+STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
+DEPOWER_L0 = 0.0
 DEPOWER_GAIN = 5.0
 
 """
@@ -165,18 +166,11 @@ if LE_FRAC != 1.0
     end
     @info "LE struts l0 reduced" LE_FRAC
 end
-sys.segments[59].l0 -= 0.2
-sys.segments[62].l0 -= 0.2
 
-sys.segments[47].l0 -= 0.4
-sys.segments[48].l0 -= 0.4
-sys.segments[57].l0 -= 0.4
-sys.segments[58].l0 -= 0.4
-
-sys.segments[65].l0 -= 0.3
-sys.segments[66].l0 -= 0.3
-sys.segments[75].l0 -= 0.3
-sys.segments[76].l0 -= 0.3
+sys.segments[47].l0 -= TIP_REDUCTION
+sys.segments[48].l0 -= TIP_REDUCTION
+sys.segments[57].l0 -= TIP_REDUCTION
+sys.segments[58].l0 -= TIP_REDUCTION
 
 # Set initial world frame damping (will decay over DECAY_STEPS)
 SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING)
@@ -265,7 +259,7 @@ syslog = load_log(log_name)
 extra_pts = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
 
 # Create 3D plot with extra points
-scene = plot(sam.sys_struct; extra_points=extra_pts)
+scene = plot(sam.sys_struct; extra_points=extra_pts, body_frame=true)
 display(scene)
 
 @info "Plot created! Settling complete."
