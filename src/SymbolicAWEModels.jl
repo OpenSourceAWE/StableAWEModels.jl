@@ -103,6 +103,8 @@ export update_yaml_from_sys_struct!
 export replay
 export record
 export plot_sphere_trajectory
+export plot_body_frame
+export plot_aoa
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -148,6 +150,8 @@ function animate end
 function replay end
 function record end
 function plot_sphere_trajectory end
+function plot_body_frame end
+function plot_aoa end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")
