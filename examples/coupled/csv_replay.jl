@@ -26,8 +26,8 @@ using Dates
 
 # Configuration parameters
 SECTION = "straight_right"
-STRUC_YAML_PATH = "data/v3/struc_geometry_$(SECTION).yaml"
-AERO_YAML_PATH = "data/v3/aero_geometry_$(SECTION).yaml"
+STRUC_YAML_PATH = "data/v3/struc_geometry_$(SECTION)_adjusted.yaml"
+AERO_YAML_PATH = "data/v3/aero_geometry_$(SECTION)_adjusted.yaml"
 CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
 WARN_STEP = false  # Show distance warnings
 
@@ -37,10 +37,10 @@ UTC_REF_SECONDS = 15*3600 + 36*60 + 31.0  # UTC 15:36:31.0 in seconds since midn
 VIDEO_FPS = 29.97
 
 # Extra points comparison (set to nothing to disable)
-EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
-EXTRA_POINTS_FRAME = 7182
-# EXTRA_POINTS_CSV = "data/v3/right_turn_reelout_frame_7362.csv"
-# EXTRA_POINTS_FRAME = 7362
+# EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
+# EXTRA_POINTS_FRAME = 7182
+EXTRA_POINTS_CSV = "data/v3/right_turn_reelout_frame_7362.csv"
+EXTRA_POINTS_FRAME = 7362
 
 # Maneuver selection - specify by UTC time
 if SECTION == "straight_right"
@@ -58,13 +58,18 @@ end
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 # Steering calibration
-STEERING_L0 = 1.6  # Neutral steering tape length (m)
-STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1 (matches v3_kite_circular)
+# STEERING_L0 = 1.6  # Neutral steering tape length (m)
+# STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1 (matches v3_kite_circular)
 STEERING_MULTIPLIER = 1.0
 
-# Depower calibration
-DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
+STEERING_L0 = 0.8  # Neutral steering tape length (m) TODO: was 1.6
+STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
+DEPOWER_L0 = 0.0 # TODO: was 0.2
 DEPOWER_GAIN = 5.0
+
+# Depower calibration
+# DEPOWER_L0 = 0.2 # SUPPOSED TO BE 0.2
+# DEPOWER_GAIN = 5.0
 DEPOWER_OFFSET = 0.0
 
 # Restabilize: update YAML with final sys_struct positions
@@ -775,8 +780,12 @@ function run_physics_replay(csv_path::String;
                Int(round(csv_row.video_frame)) == EXTRA_POINTS_FRAME
                 @info "Plotting comparison at frame $(EXTRA_POINTS_FRAME)..."
                 extra_pts = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
-                comparison_scene = plot(sam.sys_struct; extra_points=extra_pts)
+                comparison_scene = plot_body_frame(sam.sys_struct; extra_points=extra_pts)
                 scr = display(comparison_scene)
+                @info "Close the plot window to continue..."
+                wait(scr)
+                aoa_scene = plot_aoa(sam.sys_struct)
+                scr = display(aoa_scene)
                 @info "Close the plot window to continue..."
                 wait(scr)
             end
@@ -847,21 +856,22 @@ sam, syslog, csv_sam, csvlog, csv_data, phys_tape_pct, csv_tape_pct = run_physic
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
      plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
      plot_wind=true, plot_reelout=false, plot_v_app=false, plot_turn_rates=true,
-     tape_lengths=[phys_tape_pct, csv_tape_pct],
-     suffixes=["phys", "csv"])
-display(fig)
-
-# Save PDF with CairoMakie
-CairoMakie.activate!()
-fig_pdf = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
-     plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
-     plot_wind=true, plot_reelout=false, plot_v_app=false, plot_turn_rates=true,
      plot_gk=true,
      tape_lengths=[phys_tape_pct, csv_tape_pct],
      suffixes=["phys", "csv"])
-CairoMakie.save("csv_replay_$(SECTION).pdf", fig_pdf)
-@info "Saved plot to csv_replay_$(SECTION).pdf"
-GLMakie.activate!()
+# display(fig)
+
+# # Save PDF with CairoMakie
+# CairoMakie.activate!()
+# fig_pdf = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];
+#      plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
+#      plot_wind=true, plot_reelout=false, plot_v_app=false, plot_turn_rates=true,
+#      plot_gk=true,
+#      tape_lengths=[phys_tape_pct, csv_tape_pct],
+#      suffixes=["phys", "csv"])
+# CairoMakie.save("csv_replay_$(SECTION).pdf", fig_pdf)
+# @info "Saved plot to csv_replay_$(SECTION).pdf"
+# GLMakie.activate!()
 
 sphere = plot_sphere_trajectory([syslog,csvlog])
 
