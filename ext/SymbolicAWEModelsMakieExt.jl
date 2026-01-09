@@ -2524,31 +2524,38 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
                  marker=:cross)
     end
 
-    # Auto-zoom to fit all WING points with margin
+    # Auto-zoom to fit all WING points with margin for labels
     if !isempty(x_vals)
         x_min, x_max = extrema(x_vals)
         y_min, y_max = extrema(y_vals)
-        margin_x = 0.1 * (x_max - x_min + 1)
-        margin_y = 0.1 * (y_max - y_min + 1)
+        # Larger margin to accommodate point index labels
+        margin_x = 0.15 * (x_max - x_min) + 0.3
+        margin_y = 0.15 * (y_max - y_min) + 0.3
         limits!(ax, x_min - margin_x, x_max + margin_x,
                     y_min - margin_y, y_max + margin_y)
     end
 
-    # Custom legend with depth colors
-    legend_entries = [
-        [MarkerElement(color=RGBf(1, 0, 0), marker=:circle, markersize=10),
-         MarkerElement(color=RGBf(0, 1, 0), marker=:circle, markersize=10)],
+    # Custom legend
+    legend_elements = [
+        MarkerElement(color=:black, marker=:circle, markersize=10),
     ]
-    legend_labels = ["sim (● close → far)"]
+    legend_labels = ["sim"]
 
     if !isnothing(extra_points)
-        push!(legend_entries,
-              [MarkerElement(color=RGBf(1, 0, 0), marker=:cross, markersize=12),
-               MarkerElement(color=RGBf(0, 1, 0), marker=:cross, markersize=12)])
-        push!(legend_labels, "csv (✕ close → far)")
+        push!(legend_elements,
+              MarkerElement(color=:black, marker=:cross, markersize=12))
+        push!(legend_labels, "photogrammetry")
     end
 
-    Legend(fig[1, 2], legend_entries, legend_labels)
+    # Depth color scale as two entries
+    push!(legend_elements,
+          MarkerElement(color=RGBf(1, 0, 0), marker=:rect, markersize=10))
+    push!(legend_labels, "close")
+    push!(legend_elements,
+          MarkerElement(color=RGBf(0, 1, 0), marker=:rect, markersize=10))
+    push!(legend_labels, "far")
+
+    Legend(fig[1, 2], legend_elements, legend_labels)
 
     return fig
 end
