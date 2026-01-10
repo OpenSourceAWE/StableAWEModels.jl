@@ -5,6 +5,7 @@ Shared utility functions for coupled examples.
 using CSV, DataFrames
 using LinearAlgebra
 using UnPack
+using Rotations
 
 """
     load_extra_points(csv_path, sys_struct; body_offset)
@@ -52,8 +53,9 @@ function load_extra_points(csv_path::String, sys_struct; body_offset=[0.3, 0.0, 
     # Translation: align LE centers
     T = sim_le_center - R * csv_le_center + R_b_w * body_offset
 
-    # Transform all points
+    # Transform all points (including camera origin marker at zeros)
     all_pts = [[row.x, row.y, row.z] for row in eachrow(df)]
+    push!(all_pts, zeros(3))
     transformed = [Tuple(R * p + T) for p in all_pts]
 
     # Build group indices (1-based)
@@ -245,4 +247,65 @@ function plot_body_frame_local(sys_struct;
     Legend(fig[1, 2], legend_elements, legend_labels)
 
     return fig
+end
+
+"""
+    wrap_to_pi(angle)
+
+Wrap angle to [-π, π] range.
+"""
+function wrap_to_pi(angle)
+    return mod(angle + π, 2π) - π
+end
+
+"""
+    euler_to_quaternion(roll_deg, pitch_deg, yaw_deg)
+
+Convert Euler angles (in degrees) to quaternion.
+Converts from NED to ENU frame:
+  X_ENU = Y_NED (East)
+  Y_ENU = X_NED (North)
+  Z_ENU = -Z_NED (Up = -Down)
+"""
+function euler_to_quaternion(roll_deg, pitch_deg, yaw_deg)
+    roll_rad = deg2rad(roll_deg)
+    pitch_rad = deg2rad(pitch_deg)
+    yaw_rad = deg2rad(yaw_deg)
+    rot_ned = RotZYX(yaw_rad, pitch_rad, roll_rad)
+    R_ned_to_enu = [0.0 1.0 0.0;
+                    1.0 0.0 0.0;
+                    0.0 0.0 -1.0]
+    rot_enu = R_ned_to_enu * Matrix(rot_ned)
+    q = SymbolicAWEModels.rotation_matrix_to_quaternion(rot_enu)
+    return q
+end
+
+"""
+    calc_heading(sys_struct::SystemStructure, R_b_w)
+
+Calculate heading angle from rotation matrix, wrapped to [-π, π].
+"""
+function calc_heading(sys_struct::SymbolicAWEModels.SystemStructure, R_b_w)
+    e_x = R_b_w[:, 1]
+    wind_norm = [1,0,0]
+    minus_e_x = -e_x
+    proj_on_wind = dot(minus_e_x, wind_norm) * wind_norm
+    e_x_perp = minus_e_x - proj_on_wind
+    wind_cross_z = [wind_norm[2], -wind_norm[1], 0]
+    heading_x = dot(e_x_perp, wind_cross_z)
+    heading_z = e_x_perp[3]
+    heading = atan(heading_x, heading_z)
+    return wrap_to_pi(heading)
+end
+
+"""
+    calc_csv_heading(roll_deg, pitch_deg, yaw_deg, sys_struct)
+
+Calculate heading from CSV Euler angles, wrapped to [-π, π].
+"""
+function calc_csv_heading(roll_deg, pitch_deg, yaw_deg, sys_struct)
+    quat = euler_to_quaternion(roll_deg, pitch_deg, yaw_deg)
+    R = SymbolicAWEModels.quaternion_to_rotation_matrix(quat)
+    heading = calc_heading(sys_struct, R)
+    return wrap_to_pi(heading + π)
 end

@@ -35,8 +35,8 @@ WARN_STEP = false  # Show distance warnings
 REDUCE_TIP_LE = true         # Reduce tip LE segments (47,48,57,58)
 REDUCE_TE = true             # Reduce TE segments
 DEPOWER_PERCENTAGE = 40      # depower [0, 100]
-TETHER_LENGTH = 212          # Total tether length (m)
-TE_FRAC = 0.9                # Factor for TE wires (segments 20-28)
+TETHER_LENGTH = 240          # Total tether length (m)
+TE_FRAC = 0.95               # Factor for TE wires (segments 20-28)
 
 # Build geometry filename suffix
 TETHER_INT = Int(round(TETHER_LENGTH))
@@ -53,15 +53,15 @@ UTC_REF_SECONDS = 15*3600 + 36*60 + 31.0  # UTC 15:36:31.0 in seconds since midn
 VIDEO_FPS = 29.97
 
 # Extra points comparison (set to nothing to disable)
-# EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
-# EXTRA_POINTS_FRAME = 7182
-EXTRA_POINTS_CSV = "data/v3/right_turn_reelout_frame_7362.csv"
-EXTRA_POINTS_FRAME = 7362
 
 # Maneuver selection - specify by UTC time
 if SECTION == "straight_right"
     START_UTC = "15:36:29.0"
     END_UTC = "15:36:37.1"  # Extended to include frame 7362
+    EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
+    EXTRA_POINTS_FRAME = 7182
+    # EXTRA_POINTS_CSV = "data/v3/right_turn_reelout_frame_7362.csv"
+    # EXTRA_POINTS_FRAME = 7362
 elseif SECTION == "straight_left"
     START_UTC = "15:36:49.0"
     END_UTC = "15:36:52.0"
@@ -84,6 +84,9 @@ DEPOWER_OFFSET = 0.0
 
 # Restabilize: update YAML with final sys_struct positions
 RESTABLE = false
+
+# Stop immediately after plotting at EXTRA_POINTS_FRAME
+STOP_EARLY = false
 
 INITIAL_DAMPING = [0.0, 300.0, 600.0]
 DECAY_TIME = 1.0
@@ -311,32 +314,6 @@ function interpolate_csv_data(data, n_substeps)
     return NamedTuple{col_names}(Tuple(interp_data[k] for k in col_names))
 end
 
-"""
-    euler_to_quaternion(roll_deg, pitch_deg, yaw_deg)
-
-Convert Euler angles (in degrees) from NED to ENU quaternion.
-CSV data is in NED (North East Down) frame, but Q_b_w requires ENU (East North Up).
-
-NED to ENU transformation:
-  X_ENU = Y_NED (East)
-  Y_ENU = X_NED (North)
-  Z_ENU = -Z_NED (Up = -Down)
-"""
-function euler_to_quaternion(roll_deg, pitch_deg, yaw_deg)
-    # Convert degrees to radians
-    roll_rad = deg2rad(roll_deg)
-    pitch_rad = deg2rad(pitch_deg)
-    yaw_rad = deg2rad(yaw_deg)
-    # Create rotation in NED frame using Rotations.jl (ZYX convention)
-    rot_ned = RotZYX(yaw_rad, pitch_rad, roll_rad)
-    R_ned_to_enu = [0.0 1.0 0.0;    # X_ENU = Y_NED (East)
-                    1.0 0.0 0.0;    # Y_ENU = X_NED (North)
-                    0.0 0.0 -1.0]   # Z_ENU = -Z_NED (Up)
-    rot_enu = R_ned_to_enu * Matrix(rot_ned)
-    q = SymbolicAWEModels.rotation_matrix_to_quaternion(rot_enu)
-    return q
-end
-
 function calc_R_b_w(sys_struct::SystemStructure)
     @unpack points, wings, wind_vec_gnd = sys_struct
     wing = wings[1]
@@ -350,15 +327,6 @@ function calc_R_b_w(sys_struct::SystemStructure)
 end
 
 """
-    wrap_to_pi(angle)
-
-Wrap angle to [-π, π] range.
-"""
-function wrap_to_pi(angle)
-    return mod(angle + π, 2π) - π
-end
-
-"""
     calc_feedforward_torque(tether_force_n, winch)
 
 Calculate feed-forward torque from tether force.
@@ -367,38 +335,6 @@ Similar to calc_steady_torque but uses measured force.
 function calc_feedforward_torque(tether_force_n, winch)
     torque = -winch.drum_radius / winch.gear_ratio * tether_force_n + winch.friction
     return torque
-end
-
-"""
-    calc_heading(sys_struct::SystemStructure, R_b_w)
-
-Calculate heading angle from rotation matrix, wrapped to [-π, π].
-"""
-function calc_heading(sys_struct::SystemStructure, R_b_w)
-    e_x = R_b_w[:, 1]
-    wind_norm = [1,0,0]
-    # Project -e_x onto plane perpendicular to wind
-    minus_e_x = -e_x
-    proj_on_wind = dot(minus_e_x, wind_norm) * wind_norm
-    e_x_perp = minus_e_x - proj_on_wind
-    # Heading components in wind-perpendicular plane
-    wind_cross_z = [wind_norm[2], -wind_norm[1], 0]
-    heading_x = dot(e_x_perp, wind_cross_z)
-    heading_z = e_x_perp[3]
-    heading = atan(heading_x, heading_z)
-    return wrap_to_pi(heading)
-end
-
-"""
-    calc_csv_heading(roll_deg, pitch_deg, yaw_deg, sys_struct)
-
-Calculate heading from CSV Euler angles, wrapped to [-π, π].
-"""
-function calc_csv_heading(roll_deg, pitch_deg, yaw_deg, sys_struct)
-    quat = euler_to_quaternion(roll_deg, pitch_deg, yaw_deg)
-    R = SymbolicAWEModels.quaternion_to_rotation_matrix(quat)
-    heading = calc_heading(sys_struct, R)
-    return wrap_to_pi(heading + π)
 end
 
 # Mutable state for heading spike filter
@@ -589,7 +525,6 @@ function run_physics_replay(csv_path::String;
         system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
     sam = SymbolicAWEModel(set, sys_struct)
     init!(sam)
-    @show sam.sys_struct.winches[1].tether_len
 
     n_steps = length(csv_data.time)
     @info "Creating log with $n_steps timesteps"
@@ -609,6 +544,10 @@ function run_physics_replay(csv_path::String;
     phys_tape_times = Float64[]
     phys_tape_steering_pct = Float64[]
     phys_tape_depower_pct = Float64[]
+
+    # Storage for extra points (loaded at EXTRA_POINTS_FRAME)
+    extra_pts = nothing
+    extra_groups = nothing
 
     # Loop through CSV data and update sys_struct
     @info "Replaying CSV data..."
@@ -688,9 +627,7 @@ function run_physics_replay(csv_path::String;
             # Update system structure from CSV on first step
             if step == 1
                 update_sys_struct_from_csv!(sam.sys_struct, csv_row)
-                @show norm(sam.sys_struct.wings[1].vel_w)
                 SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
-                @show norm(sam.sys_struct.wings[1].vel_w)
             end
 
             # Update damping
@@ -725,13 +662,26 @@ function run_physics_replay(csv_path::String;
 
             next_step!(sam; dt=dt, set_values=[set_value])
 
-            # Plot comparison at specified frame
+            # Plot and save comparison at specified frame
             if !isnothing(EXTRA_POINTS_CSV) &&
                Int(round(csv_row.video_frame)) == EXTRA_POINTS_FRAME
                 @info "Plotting comparison at frame $(EXTRA_POINTS_FRAME)..."
                 extra_pts, extra_groups = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
+
+                # Save PDFs for all three views
+                CairoMakie.activate!()
+                for dir in (:front, :side, :top)
+                    scene = plot_body_frame_local(sam.sys_struct;
+                        extra_points=extra_pts, extra_groups=extra_groups, dir)
+                    pdf_filename = "data/v3/body_frame_$(dir)_frame$(EXTRA_POINTS_FRAME)_$(GEOM_SUFFIX).pdf"
+                    save(pdf_filename, scene)
+                    @info "Plot saved" pdf_filename
+                end
+
+                # Display interactive plot
+                GLMakie.activate!()
                 comparison_scene = plot_body_frame_local(sam.sys_struct;
-                    extra_points=extra_pts, extra_groups=extra_groups)
+                    extra_points=extra_pts, extra_groups=extra_groups, dir=:side)
                 scr = display(comparison_scene)
                 @info "Close the plot window to continue..."
                 wait(scr)
@@ -739,6 +689,11 @@ function run_physics_replay(csv_path::String;
                 scr = display(aoa_scene)
                 @info "Close the plot window to continue..."
                 wait(scr)
+
+                if STOP_EARLY
+                    @info "STOP_EARLY enabled, breaking out of loop"
+                    break
+                end
             end
 
             # Log state
@@ -797,11 +752,13 @@ function run_physics_replay(csv_path::String;
         depower = csv_tape_depower_pct
     )
 
-    return sam, syslog, csv_sam, csvlog, csv_data, phys_tape_pct, csv_tape_pct
+    return sam, syslog, csv_sam, csvlog, csv_data, phys_tape_pct, csv_tape_pct,
+           extra_pts, extra_groups
 end
 
 # Main execution
-sam, syslog, csv_sam, csvlog, csv_data, phys_tape_pct, csv_tape_pct = run_physics_replay(CSV_PATH)
+sam, syslog, csv_sam, csvlog, csv_data, phys_tape_pct, csv_tape_pct,
+    extra_pts, extra_groups = run_physics_replay(CSV_PATH)
 
 # Display with GLMakie
 fig = plot([sam.sys_struct, csv_sam.sys_struct], [syslog, csvlog];

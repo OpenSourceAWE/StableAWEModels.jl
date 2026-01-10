@@ -20,6 +20,7 @@ using OrdinaryDiffEqCore
 using CairoMakie, GLMakie
 using CSV, DataFrames
 using UnPack
+using Dates
 
 include("../examples/coupled/utils.jl")
 
@@ -29,16 +30,24 @@ REDUCE_TE = true             # Reduce TE segments
 
 # Configuration - Simulation
 WORLD_DAMPING = 1000.0  # Ns/m
-DECAY_STEPS = 2100     # Steps over which damping decays to zero
-NUM_STEPS = 2000
+DECAY_STEPS = 20     # Steps over which damping decays to zero
+NUM_STEPS = 4000
 DT = 0.1  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 40   # depower [0, 100]
-WIND_VEL = 20.0
-ELEVATION = 70
-TETHER_LENGTH = 212  # Total tether length (m), 6 segments
+WIND_VEL = 11.6
+ELEVATION = 60
+TETHER_LENGTH = 240  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
-TE_FRAC = 0.9  # Factor to reduce l0 of TE wires (segments 20-28)
+EXTRA_POINTS_FRAME = 7182
+FLIGHT_CSV = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
+
+# Video frame mapping (video_frame 7182 = UTC 15:36:31.0)
+VIDEO_FRAME_REF = 7182
+UTC_REF_SECONDS = 15*3600 + 36*60 + 31.0
+VIDEO_FPS = 29.97
+
+TE_FRAC = 0.95  # Factor to reduce l0 of TE wires (segments 20-28)
 TIP_REDUCTION = 0.4
 
 # Build destination filename suffix
@@ -53,9 +62,9 @@ SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
 DEST_AERO_PATH = "data/v3/aero_geometry_$(DEST_SUFFIX).yaml"
 
 # V3 Kite steering/depower calibration (from KCU documentation)
-STEERING_L0 = 1.6  # Neutral steering tape length (m)
+STEERING_L0 = 1.4  # Neutral steering tape length (m)
 STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
-DEPOWER_L0 = 0.2
+DEPOWER_L0 = 0.0
 DEPOWER_GAIN = 5.0
 
 """
@@ -82,13 +91,26 @@ function depower_percentage_to_length(percentage)
     return L_depower
 end
 
+"""Convert unix timestamp to UTC seconds since midnight."""
+function unix_to_utc_seconds(unix_timestamp::Float64)
+    dt = Dates.unix2datetime(unix_timestamp)
+    return Dates.hour(dt)*3600 + Dates.minute(dt)*60 +
+           Dates.second(dt) + Dates.millisecond(dt)/1000
+end
+
+"""Convert UTC seconds to video frame number."""
+function utc_to_video_frame(utc_seconds::Float64)
+    delta_seconds = utc_seconds - UTC_REF_SECONDS
+    return round(Int, VIDEO_FRAME_REF + delta_seconds * VIDEO_FPS)
+end
+
 @info "Settling REFINE wing with world frame damping..."
 @info "Configuration" WORLD_DAMPING DECAY_STEPS NUM_STEPS DT total_time=NUM_STEPS*DT
 
 # Load settings
 set_data_path("data/v3")
 set = Settings("system.yaml")
-set.g_earth = 9.81
+set.g_earth = 1.0
 set.v_wind = WIND_VEL
 set.l_tether = TETHER_LENGTH
 
@@ -104,6 +126,8 @@ sys = load_sys_struct_from_yaml(struc_yaml_path;
     system_name="v3", set,
     wing_type=SymbolicAWEModels.REFINE, vsm_set)
 sys.transforms[1].elevation = deg2rad(ELEVATION)
+# sys.transforms[1].azimuth = deg2rad(-ELEVATION)
+# sys.transforms[1].heading = deg2rad(-90)
 
 # Update tether length: points 39-44 and segments 90-95
 segment_len = TETHER_LENGTH / 6.0
@@ -133,6 +157,7 @@ end
 
 # Set initial world frame damping (will decay over DECAY_STEPS)
 SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING)
+SymbolicAWEModels.set_body_frame_damping(sys, 100.0)
 
 wing_points = [p for p in sys.points if p.type == WING]
 @info "System setup" n_wing_points=length(wing_points) n_points=length(sys.points) n_segments=length(sys.segments)
@@ -212,24 +237,63 @@ log_name = "settle_refine_wing"
 save_log(logger, log_name)
 syslog = load_log(log_name)
 
-@info "Creating plots..."
-CairoMakie.activate!()
+@info "Settling complete." DEST_STRUC_PATH DEST_AERO_PATH
 
-# Load extra points for comparison (now returns groups too)
+# Load extra points for interactive use
 extra_pts, extra_groups = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
 
-# Save PDFs for all three views
-for dir in (:front, :side, :top)
-    scene = plot_body_frame_local(sam.sys_struct;
-        extra_points=extra_pts, extra_groups=extra_groups, dir)
-    pdf_filename = "data/v3/body_frame_$(dir)_$(DEST_SUFFIX).pdf"
-    save(pdf_filename, scene)
-    @info "Plot saved" pdf_filename
+# Load flight CSV and find setpoint at EXTRA_POINTS_FRAME
+@info "Loading flight CSV for setpoints..."
+flight_df = CSV.read(FLIGHT_CSV, DataFrame; delim=' ', silencewarnings=true,
+                     normalizenames=true, types=Float64, strict=false)
+
+# Find row closest to EXTRA_POINTS_FRAME
+frame_idx = nothing
+min_diff = Inf
+for (i, unix_t) in enumerate(flight_df.time)
+    ismissing(unix_t) && continue
+    frame = utc_to_video_frame(unix_to_utc_seconds(unix_t))
+    diff = abs(frame - EXTRA_POINTS_FRAME)
+    if diff < min_diff
+        global min_diff = diff
+        global frame_idx = i
+    end
+end
+if min_diff > 1
+    @warn "Closest frame is $min_diff frames away from target $EXTRA_POINTS_FRAME"
 end
 
-GLMakie.activate!()
-scene = plot_body_frame_local(sam.sys_struct;
-    extra_points=extra_pts, extra_groups=extra_groups, dir=:side)
-display(scene)
+# Extract setpoints from the matching row
+if !isnothing(frame_idx)
+    n_steps = length(syslog.syslog.time)
+    # Compute heading from CSV Euler angles
+    roll = flight_df.kite_0_roll[frame_idx]
+    pitch = flight_df.kite_0_pitch[frame_idx]
+    yaw = flight_df.kite_0_yaw[frame_idx]
+    heading_val = calc_csv_heading(roll, pitch, yaw, sam.sys_struct)
+    # Compute v_kite from velocity components
+    vx = flight_df.kite_est_vx[frame_idx]
+    vy = flight_df.kite_est_vy[frame_idx]
+    vz = flight_df.kite_est_vz[frame_idx]
+    v_kite_val = sqrt(vx^2 + vy^2 + vz^2)
+    # Compute v_app from kite velocity and wind (wind assumed in x direction)
+    wind_at_kite = coalesce(flight_df.lidar_wind_velocity_at_kite_mps[frame_idx], 10.0)
+    v_app_val = sqrt((vx - wind_at_kite)^2 + vy^2 + vz^2)
+    setpoints = Dict(
+        :heading => fill(heading_val, n_steps),
+        :l_tether => fill(flight_df.ground_tether_length[frame_idx], n_steps),
+        :winch_force => fill(flight_df.ground_tether_force[frame_idx] * 9.81, n_steps),
+        :v_kite => fill(v_kite_val, n_steps),
+        :v_app => fill(v_app_val, n_steps),
+    )
+    @info "Setpoints from frame $EXTRA_POINTS_FRAME" heading=rad2deg(heading_val) l_tether=flight_df.ground_tether_length[frame_idx] winch_force=flight_df.ground_tether_force[frame_idx]*9.81 v_kite=v_kite_val v_app=v_app_val
+else
+    @warn "Could not find frame $EXTRA_POINTS_FRAME in flight CSV"
+    setpoints = nothing
+end
 
-@info "Settling complete."
+# Display with GLMakie
+fig = plot([sam.sys_struct], [syslog];
+     plot_tether=true, plot_aero_force=false, plot_kite_vel=true,
+     plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=true,
+     plot_winch_force=true, setpoints)

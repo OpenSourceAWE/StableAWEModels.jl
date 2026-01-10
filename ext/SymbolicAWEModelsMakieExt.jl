@@ -13,12 +13,12 @@ using KiteUtils
 using KiteUtils: SysLog
 using SymbolicAWEModels
 using VortexStepMethod
+using GeometryBasics
 
 # Global storage for plot observables (for time-based plotting)
 const PLOT_GEOMETRY_OBS = Ref{Union{Nothing, Observable}}(nothing)  # Single trigger observable
 const PLOT_SEGMENT_COLORS_OBS = Ref{Union{Nothing, Observable}}(nothing)  # Separate for force coloring
 const PLOT_SCENE = Ref{Union{Nothing, Scene}}(nothing)
-const PLOT_BACKGROUND_PANES = Ref{Union{Nothing, Vector}}(nothing)
 const PLOT_MARGIN = Ref{Float64}(1000.0)
 const PLOT_RELEVANT_PLOTS = Ref{Union{Nothing, Vector}}(nothing)
 const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemStructure}}(nothing)
@@ -68,12 +68,13 @@ function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
                      show_points = true, show_segments = true, show_orient = true,
-                     show_panes = true, margin = 1000.0, force_color = false,
+                     margin = 1000.0, force_color = false,
                      plot_vsm = true, plot_aero = true,
                      extra_points = nothing,
+                     extra_groups = nothing,
+                     mesh = nothing,
                      # Optional observable for real-time updates
-                     geometry_obs = nothing,
-                     pane_observables = nothing)
+                     geometry_obs = nothing)
 
     plots = Dict{Symbol, Any}()
 
@@ -318,46 +319,41 @@ function Makie.plot!(ax, sys::SystemStructure;
                                         label="Global Axes")
     end
 
-    # === Plot Background Panes ===
-    if show_panes
-        pane_color = RGBAf(0.95, 0.95, 0.95, 0.3)
-        pane_extent = 10000.0f0  # Large value for "infinite" extent
-
-        if isnothing(pane_observables)
-            # Static plotting: create new observables
-            xz_pane_obs = Observable(Rect3(Vec3f(xlims[1] - pane_extent, ylims[2], zlims[1]),
-                                            Vec3f(xlims[2] - xlims[1] + pane_extent, 0.01, pane_extent)))
-            yz_pane_obs = Observable(Rect3(Vec3f(xlims[2], ylims[1] - pane_extent, zlims[1]),
-                                            Vec3f(0.01, ylims[2] - ylims[1] + pane_extent, pane_extent)))
-            xy_pane_obs = Observable(Rect3(Vec3f(xlims[1] - pane_extent, ylims[1] - pane_extent, zlims[1]),
-                                            Vec3f(xlims[2] - xlims[1] + pane_extent, ylims[2] - ylims[1] + pane_extent, 0.01)))
-            plots[:pane_observables] = [xz_pane_obs, yz_pane_obs, xy_pane_obs]
+    # === Plot Mesh (e.g., OBJ file) ===
+    if !isnothing(mesh)
+        # Transform mesh vertices to world frame using wing orientation
+        if !isempty(sys.wings)
+            wing = sys.wings[1]
+            R_b_w = wing.R_b_w
+            T_b_w = wing.pos_w
+            old_vertices = GeometryBasics.coordinates(mesh)
+            new_vertices = [Point3f(R_b_w * Vector(v) + T_b_w) for v in old_vertices]
+            transformed_mesh = GeometryBasics.Mesh(new_vertices, GeometryBasics.faces(mesh))
         else
-            # Dynamic plotting: use provided observables and update them
-            xz_pane_obs, yz_pane_obs, xy_pane_obs = pane_observables
-            xz_pane_obs[] = Rect3(Vec3f(xlims[1] - pane_extent, ylims[2], zlims[1]),
-                                  Vec3f(xlims[2] - xlims[1] + pane_extent, 0.01, pane_extent))
-            yz_pane_obs[] = Rect3(Vec3f(xlims[2], ylims[1] - pane_extent, zlims[1]),
-                                  Vec3f(0.01, ylims[2] - ylims[1] + pane_extent, pane_extent))
-            xy_pane_obs[] = Rect3(Vec3f(xlims[1] - pane_extent, ylims[1] - pane_extent, zlims[1]),
-                                  Vec3f(xlims[2] - xlims[1] + pane_extent, ylims[2] - ylims[1] + pane_extent, 0.01))
-            plots[:pane_observables] = pane_observables
+            transformed_mesh = mesh
         end
-
-        # Create mesh plots for the panes
-        xz_pane = mesh!(ax, plots[:pane_observables][1], color=pane_color,
-                        transparency=true)
-        yz_pane = mesh!(ax, plots[:pane_observables][2], color=pane_color,
-                        transparency=true)
-        xy_pane = mesh!(ax, plots[:pane_observables][3], color=pane_color,
-                        transparency=true)
-        plots[:panes] = [xz_pane, yz_pane, xy_pane]
+        plots[:mesh] = mesh!(ax, transformed_mesh;
+                            color=(:lightblue, 0.3),
+                            transparency=true)
     end
 
     # === Plot Extra Points (e.g., from external CSV) ===
     if !isnothing(extra_points)
         extra_positions = [Point3f(p...) for p in extra_points]
-        plots[:extra_points] = scatter!(ax, extra_positions, color=:cyan,
+
+        # Draw lines connecting points within each group
+        if !isnothing(extra_groups)
+            for (gname, indices) in extra_groups
+                for i in 1:(length(indices)-1)
+                    p1 = extra_positions[indices[i]]
+                    p2 = extra_positions[indices[i+1]]
+                    lines!(ax, [p1[1], p2[1]], [p1[2], p2[2]], [p1[3], p2[3]];
+                           color=(:blue, 0.6), linewidth=2, transparency=true)
+                end
+            end
+        end
+
+        plots[:extra_points] = scatter!(ax, extra_positions, color=:blue,
                                         markersize=10, label="Extra Points",
                                         transparency=true)
     end
@@ -571,8 +567,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_cone_angle=false,
                    plot_old_heading=false,
                    plot_tether=false,
-                   heading_setpoint=nothing,
-                   tether_len_setpoint=nothing,
+                   setpoints=nothing,  # Dict with keys matching plot names
                    tape_lengths=nothing,
                    suffixes=nothing,
                    size=(1200, 800))
@@ -585,6 +580,22 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         [" - " * sys.name for sys in syss]
     else
         [" - " * s for s in suffixes]
+    end
+
+    # Helper to get setpoint for a given key
+    function get_setpoint(key::Symbol)
+        isnothing(setpoints) && return nothing
+        return get(setpoints, key, nothing)
+    end
+
+    # Helper to add setpoint data to panel arrays
+    function add_setpoint!(all_data, all_labels, all_times, all_linestyles,
+                          setpoint_val, time_vec, label_base, suffix)
+        isnothing(setpoint_val) && return
+        push!(all_data, setpoint_val)
+        push!(all_labels, label_base * " ref" * suffix)
+        push!(all_times, time_vec)
+        push!(all_linestyles, :dash)
     end
 
     if plot_turn_rates
@@ -664,40 +675,23 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_data = []
         all_labels = []
         all_times = []
+        all_linestyles = Symbol[]
+        sp = get_setpoint(:l_tether)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            # Extract tether length (first element if vector, otherwise scalar)
             l_tether = [length(sl.l_tether[j]) > 0 ? sl.l_tether[j][1] : 0.0
                         for j in eachindex(sl.l_tether)]
             push!(all_data, l_tether)
             push!(all_labels, "l_tether" * suffix)
             push!(all_times, sl.time)
-
-            # Add setpoint if provided
-            if !isnothing(tether_len_setpoint)
-                is_multi_setpoint = (tether_len_setpoint isa Vector &&
-                                     length(tether_len_setpoint) > 0 &&
-                                     tether_len_setpoint[1] isa AbstractVector)
-
-                if is_multi_setpoint
-                    if i <= length(tether_len_setpoint) && !isnothing(tether_len_setpoint[i])
-                        push!(all_data, tether_len_setpoint[i])
-                        push!(all_labels, "l_sp" * suffix)
-                        push!(all_times, sl.time)
-                    end
-                else
-                    push!(all_data, tether_len_setpoint)
-                    push!(all_labels, "l_sp" * suffix)
-                    push!(all_times, sl.time)
-                end
-            end
+            push!(all_linestyles, :solid)
+            add_setpoint!(all_data, all_labels, all_times, all_linestyles,
+                         sp, sl.time, "l_tether", suffix)
         end
         push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = "tether length [m]"
+            data = all_data, labels = all_labels, times = all_times,
+            linestyles = all_linestyles, ylabel = "tether length [m]"
         ))
     end
 
@@ -1017,19 +1011,21 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_data = []
         all_labels = []
         all_times = []
+        all_linestyles = Symbol[]
+        sp = get_setpoint(:v_app)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            v_app = sl.v_app
-            push!(all_data, v_app)
+            push!(all_data, sl.v_app)
             push!(all_labels, "v_app" * suffix)
             push!(all_times, sl.time)
+            push!(all_linestyles, :solid)
+            add_setpoint!(all_data, all_labels, all_times, all_linestyles,
+                         sp, sl.time, "v_app", suffix)
         end
         push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = "v_app [m/s]"
+            data = all_data, labels = all_labels, times = all_times,
+            linestyles = all_linestyles, ylabel = "v_app [m/s]"
         ))
     end
 
@@ -1037,6 +1033,8 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_data = []
         all_labels = []
         all_times = []
+        all_linestyles = Symbol[]
+        sp = get_setpoint(:v_kite)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
@@ -1044,12 +1042,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(all_data, v_kite_norm)
             push!(all_labels, "|v_kite|" * suffix)
             push!(all_times, sl.time)
+            push!(all_linestyles, :solid)
+            add_setpoint!(all_data, all_labels, all_times, all_linestyles,
+                         sp, sl.time, "|v_kite|", suffix)
         end
         push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = "kite velocity [m/s]"
+            data = all_data, labels = all_labels, times = all_times,
+            linestyles = all_linestyles, ylabel = "kite velocity [m/s]"
         ))
     end
 
@@ -1057,6 +1056,8 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_data = []
         all_labels = []
         all_times = []
+        all_linestyles = Symbol[]
+        sp = get_setpoint(:aoa)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
@@ -1064,12 +1065,17 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(all_data, aoa_deg)
             push!(all_labels, "α" * suffix)
             push!(all_times, sl.time)
+            push!(all_linestyles, :solid)
+            if !isnothing(sp)
+                push!(all_data, rad2deg.(sp))
+                push!(all_labels, "α ref" * suffix)
+                push!(all_times, sl.time)
+                push!(all_linestyles, :dash)
+            end
         end
         push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = "angle of attack [°]"
+            data = all_data, labels = all_labels, times = all_times,
+            linestyles = all_linestyles, ylabel = "angle of attack [°]"
         ))
     end
 
@@ -1097,6 +1103,8 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_data = []
         all_labels = []
         all_times = []
+        all_linestyles = Symbol[]
+        sp = get_setpoint(:heading)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
@@ -1105,45 +1113,28 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(all_data, heading_deg)
             push!(all_labels, "ψ" * suffix)
             push!(all_times, sl.time)
+            push!(all_linestyles, :solid)
             push!(all_data, course_deg)
             push!(all_labels, "χ" * suffix)
             push!(all_times, sl.time)
+            push!(all_linestyles, :solid)
             if plot_kiteutils_course
                 course_kiteutils_deg = [rad2deg(KiteUtils.calc_course(sl.orient[i])) for i in eachindex(sl.orient)]
                 push!(all_data, course_kiteutils_deg)
                 push!(all_labels, "χ_KU" * suffix)
                 push!(all_times, sl.time)
+                push!(all_linestyles, :solid)
             end
-            # Add setpoint if provided
-            if !isnothing(heading_setpoint)
-                # Check if heading_setpoint is a vector of vectors (multiple logs)
-                # or a vector of numbers (single log)
-                is_multi_setpoint = (heading_setpoint isa Vector &&
-                                     length(heading_setpoint) > 0 &&
-                                     heading_setpoint[1] isa AbstractVector)
-
-                if is_multi_setpoint
-                    # Multiple setpoints (one per log)
-                    if i <= length(heading_setpoint) && !isnothing(heading_setpoint[i])
-                        setpoint_deg = rad2deg.(heading_setpoint[i])
-                        push!(all_data, setpoint_deg)
-                        push!(all_labels, "ψ_sp" * suffix)
-                        push!(all_times, sl.time)
-                    end
-                else
-                    # Single setpoint for all logs (or single log)
-                    setpoint_deg = rad2deg.(heading_setpoint)
-                    push!(all_data, setpoint_deg)
-                    push!(all_labels, "ψ_sp" * suffix)
-                    push!(all_times, sl.time)
-                end
+            if !isnothing(sp)
+                push!(all_data, rad2deg.(sp))
+                push!(all_labels, "ψ ref" * suffix)
+                push!(all_times, sl.time)
+                push!(all_linestyles, :dash)
             end
         end
         push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = "heading/course [°]"
+            data = all_data, labels = all_labels, times = all_times,
+            linestyles = all_linestyles, ylabel = "heading/course [°]"
         ))
     end
 
@@ -1293,25 +1284,28 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_data = []
         all_labels = []
         all_times = []
+        all_linestyles = Symbol[]
+        sp = get_setpoint(:winch_force)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
             winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
             for j in 1:3
-                # Only plot if non-zero or if it's index 1
                 if j == 1 || !all(iszero, winch_force[j])
                     push!(all_data, winch_force[j])
                     push!(all_labels, "F_winch,$j" * suffix)
                     push!(all_times, sl.time)
+                    push!(all_linestyles, :solid)
                 end
             end
+            # Add setpoint only for first winch
+            add_setpoint!(all_data, all_labels, all_times, all_linestyles,
+                         sp, sl.time, "F_winch", suffix)
         end
         if !isempty(all_data)
             push!(panels, (
-                data = all_data,
-                labels = all_labels,
-                times = all_times,
-                ylabel = "Winch force [N]"
+                data = all_data, labels = all_labels, times = all_times,
+                linestyles = all_linestyles, ylabel = "Winch force [N]"
             ))
         end
     end
@@ -1363,12 +1357,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         end
 
         # Plot each data series in this panel
-        for (j, (data_series, label, time_vec)) in enumerate(zip(panel.data, panel.labels, panel.times))
+        linestyles = haskey(panel, :linestyles) ? panel.linestyles : fill(:solid, length(panel.data))
+        for (j, (data_series, label, time_vec, ls)) in enumerate(zip(panel.data, panel.labels, panel.times, linestyles))
             if length(data_series) != length(time_vec)
                 @warn "Skipping trace '$label': data length $(length(data_series)) != time length $(length(time_vec))"
                 continue
             end
-            lines!(ax, time_vec, data_series, label=label)
+            lines!(ax, time_vec, data_series, label=label, linestyle=ls)
         end
 
         # Add legend if multiple traces
@@ -1514,10 +1509,13 @@ function _plot_with_panes(sys::SystemStructure;
                     force_color = false,
                     body_frame = false,
                     extra_points = nothing,
+                    extra_groups = nothing,
+                    mesh = nothing,
                     kwargs...)
     # Use LScene for advanced camera controls
     scene = Scene(; camera=cam3d!, show_axis = false, size, zoommode = :free, samples = 16)
-    plots = plot!(scene, sys; segment_color, margin, force_color, extra_points, kwargs...)
+    plots = plot!(scene, sys; segment_color, margin, force_color,
+                  extra_points, extra_groups, mesh, kwargs...)
     
     relevant_plots = AbstractPlot[]
     if haskey(plots, :segments)
@@ -1737,9 +1735,6 @@ function _plot_with_panes(sys::SystemStructure;
         end
     end
 
-    # Extract pane observables from plots (created by plot!())
-    pane_observables = haskey(plots, :pane_observables) ? plots[:pane_observables] : nothing
-
     # Set initial camera position
     cam = scene.camera
     if body_frame
@@ -1749,9 +1744,9 @@ function _plot_with_panes(sys::SystemStructure;
         zoom_out!(scene, cam, relevant_plots, nothing; relmargin)
     end
 
-    # Return scene along with pane_observables, margin, plots dict, and relevant_plots
+    # Return scene along with margin, plots dict, and relevant_plots
     # These will be used by time-based plotting
-    return scene, pane_observables, margin, plots, relevant_plots
+    return scene, margin, plots, relevant_plots
 end
 
 # Public API function - creates scene with observables for dynamic updates
@@ -1763,6 +1758,8 @@ function Makie.plot(sys::SystemStructure;
                     relmargin=0.2,
                     body_frame=false,
                     extra_points=nothing,
+                    extra_groups=nothing,
+                    mesh=nothing,
                     kwargs...)
     # Store SystemStructure globally FIRST so @lift expressions can access it
     PLOT_SYSTEM_STRUCTURE[] = sys
@@ -1775,7 +1772,7 @@ function Makie.plot(sys::SystemStructure;
     geometry_obs = Observable(0.0)
 
     # Create scene with observables using internal function
-    scene, pane_observables, margin, plots, relevant_plots = _plot_with_panes(sys;
+    scene, margin, plots, relevant_plots = _plot_with_panes(sys;
                 geometry_obs,
                 vector_scale,
                 force_color,
@@ -1784,6 +1781,8 @@ function Makie.plot(sys::SystemStructure;
                 relmargin,
                 body_frame,
                 extra_points,
+                extra_groups,
+                mesh,
                 kwargs...)
 
     # Get the segment colors observable from the plots if available
@@ -1796,7 +1795,6 @@ function Makie.plot(sys::SystemStructure;
     PLOT_GEOMETRY_OBS[] = geometry_obs
     PLOT_SEGMENT_COLORS_OBS[] = segment_colors_obs
     PLOT_SCENE[] = scene
-    PLOT_BACKGROUND_PANES[] = pane_observables
     PLOT_MARGIN[] = margin
     PLOT_RELEVANT_PLOTS[] = relevant_plots
     # SystemStructure and settings already stored above before plot creation
@@ -1874,41 +1872,6 @@ function Makie.plot!(sys::SystemStructure; vector_scale=1.0)
 
     # Trigger observable update
     update_plot_observables!(sys)
-
-    # Update background panes based on current point positions
-    if !isnothing(PLOT_BACKGROUND_PANES[])
-        panes = PLOT_BACKGROUND_PANES[]
-        margin = PLOT_MARGIN[]
-
-        # Recalculate limits based on current point positions
-        xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10)
-        if !isempty(sys.points)
-            all_x = [p.pos_w[1] for p in sys.points]
-            all_y = [p.pos_w[2] for p in sys.points]
-            all_z = [p.pos_w[3] for p in sys.points]
-
-            xlims_data = extrema(all_x)
-            ylims_data = extrema(all_y)
-            zlims_data = extrema(all_z)
-
-            xlims = (xlims_data[1] - margin, xlims_data[2] + margin)
-            ylims = (ylims_data[1] - margin, ylims_data[2] + margin)
-            zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
-        end
-
-        # Update pane observables with infinite extent
-        pane_extent = 10000.0f0
-
-        # XZ plane at y_max - extends far in -X and +Z directions
-        panes[1][] = Rect3(Vec3f(xlims[1] - pane_extent, ylims[2], zlims[1]),
-                           Vec3f(xlims[2] - xlims[1] + pane_extent, 0.01, pane_extent))
-        # YZ plane at x_max - extends far in -Y and +Z directions
-        panes[2][] = Rect3(Vec3f(xlims[2], ylims[1] - pane_extent, zlims[1]),
-                           Vec3f(0.01, ylims[2] - ylims[1] + pane_extent, pane_extent))
-        # XY plane at z_min - extends far in -X and -Y directions
-        panes[3][] = Rect3(Vec3f(xlims[1] - pane_extent, ylims[1] - pane_extent, zlims[1]),
-                           Vec3f(xlims[2] - xlims[1] + pane_extent, ylims[2] - ylims[1] + pane_extent, 0.01))
-    end
 
     return nothing
 end
