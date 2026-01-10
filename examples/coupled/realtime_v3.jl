@@ -73,7 +73,7 @@ struc_yaml = hasproperty(set, :struc_geometry_path) ?
 sys = load_sys_struct_from_yaml(struc_yaml; system_name=model_name, set=set)
 
 # Initialize damping
-SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
+SymbolicAWEModels.set_world_frame_damping(sys, initial_damping, 1:38)
 
 # Verify REFINE wing setup
 @assert length(sys.wings) > 0 "No wings in system"
@@ -223,9 +223,9 @@ for step in 1:N_STEPS
     # Update damping: linearly decay over decay_time
     if t <= decay_time
         current_damping = initial_damping * (1.0 - t / decay_time)
-        SymbolicAWEModels.set_world_frame_damping(sys, current_damping)
+        SymbolicAWEModels.set_world_frame_damping(sys, current_damping, 1:38)
     else
-        SymbolicAWEModels.set_world_frame_damping(sys, 0.0)
+        SymbolicAWEModels.set_world_frame_damping(sys, 0.0, 1:38)
     end
 
     # Apply control by updating segment lengths

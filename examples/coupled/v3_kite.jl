@@ -146,7 +146,7 @@ function run_v3_kite(wing_type::WingType;
 
 
     # Initialize damping
-    SymbolicAWEModels.set_body_frame_damping(sys, initial_damping)
+    SymbolicAWEModels.set_body_frame_damping(sys, initial_damping, 1:38)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -251,7 +251,7 @@ function run_v3_kite(wing_type::WingType;
 
         # Update damping
         current_damping = initial_damping * (1.0 - t / decay_time)
-        SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, max(20, current_damping))
+        SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, max(20, current_damping), 1:38)
 
         # PID heading control with sine wave setpoint
         target_heading_rad = max_heading_rad * sin(angular_freq * t)

@@ -535,7 +535,7 @@ function run_physics_replay(csv_path::String;
     @info "Replaying CSV data..."
     replay_start = time()
     sys = sam.sys_struct
-    SymbolicAWEModels.set_body_frame_damping(sys, INITIAL_DAMPING)
+    SymbolicAWEModels.set_body_frame_damping(sys, INITIAL_DAMPING, 1:38)
 
     # Calculate dt from interpolated CSV timesteps
     dt = csv_data.time[2] - csv_data.time[1]
@@ -607,7 +607,7 @@ function run_physics_replay(csv_path::String;
             if t <= DECAY_TIME
                 current_damping = (INITIAL_DAMPING - MIN_DAMPING) *
                                   (1.0 - t / DECAY_TIME) + MIN_DAMPING
-                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping)
+                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping, 1:38)
             end
 
             # Apply control and step

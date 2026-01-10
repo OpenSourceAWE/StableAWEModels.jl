@@ -138,7 +138,7 @@ function run_v3_kite(;
     # end
 
     # Initialize damping with per-axis values [x, y, z]
-    SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern * initial_damping)
+    SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern * initial_damping, 1:38)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -231,7 +231,7 @@ function run_v3_kite(;
 
         # Update damping: decay to min_damping
         current_damping = max(initial_damping * (1.0 - t / decay_time), min_damping)
-        SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * current_damping)
+        SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * current_damping, 1:38)
 
         # Fixed tether length: brake engaged; only steering ramp is applied
         ramp_factor = min(t / ramp_time, 1.0)

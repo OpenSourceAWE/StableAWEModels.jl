@@ -35,7 +35,7 @@ WARN_STEP = false  # Show distance warnings
 REDUCE_TIP_LE = true         # Reduce tip LE segments (47,48,57,58)
 REDUCE_TE = true             # Reduce TE segments
 DEPOWER_PERCENTAGE = 40      # depower [0, 100]
-TETHER_LENGTH = 240          # Total tether length (m)
+TETHER_LENGTH = 248          # Total tether length (m)
 TE_FRAC = 0.95               # Factor for TE wires (segments 20-28)
 
 # Build geometry filename suffix
@@ -56,7 +56,7 @@ VIDEO_FPS = 29.97
 
 # Maneuver selection - specify by UTC time
 if SECTION == "straight_right"
-    START_UTC = "15:36:29.01"
+    START_UTC = "15:36:29.9"
     END_UTC = "15:36:37.1"  # Extended to include frame 7362
     EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
     EXTRA_POINTS_FRAME = 7182
@@ -415,7 +415,7 @@ function update_vel_from_csv!(sys, row, brake, heading_pid)
 
     sim_cumulative_dist = update_sim_distance!(wing.pos_w)
     sys.set.v_wind = row.wind_speed
-    sys.set.upwind_dir = row.wind_dir + 180
+    sys.set.upwind_dir = row.wind_dir + -90
 
     # Apply steering via differential tape lengths
     # PID control for steering based on heading error
@@ -567,7 +567,7 @@ function run_physics_replay(csv_path::String;
     @info "Replaying CSV data..."
     replay_start = time()
     sys = sam.sys_struct
-    SymbolicAWEModels.set_body_frame_damping(sys, INITIAL_DAMPING)
+    SymbolicAWEModels.set_body_frame_damping(sys, INITIAL_DAMPING, 1:38)
 
     # Calculate dt from interpolated CSV timesteps
     dt = csv_data.time[2] - csv_data.time[1]
@@ -607,7 +607,7 @@ function run_physics_replay(csv_path::String;
             vz = csv_data.ekf_kite_velocity_z[step],
             tether_len = csv_data.ekf_tether_length[step],
             tether_vel = csv_data.tether_reelout_speed[step],
-            tether_force = csv_data.ground_tether_force[step] * 9.81,  # Convert kg to N
+            tether_force = csv_data.ground_tether_force[step],
             steering = csv_data.kcu_actual_steering[step],
             depower = csv_data.kcu_actual_depower[step],
             distance = csv_data.distance[step],
@@ -653,7 +653,7 @@ function run_physics_replay(csv_path::String;
             if t <= DECAY_TIME
                 current_damping = (INITIAL_DAMPING - MIN_DAMPING) *
                                   (1.0 - t / DECAY_TIME) + MIN_DAMPING
-                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping)
+                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping, 1:38)
             end
 
             # Apply control and step
@@ -701,10 +701,6 @@ function run_physics_replay(csv_path::String;
                 comparison_scene = plot_body_frame_local(sam.sys_struct;
                     extra_points=extra_pts, extra_groups=extra_groups, dir=:side)
                 scr = display(comparison_scene)
-                @info "Close the plot window to continue..."
-                wait(scr)
-                aoa_scene = plot_aoa(sam.sys_struct)
-                scr = display(aoa_scene)
                 @info "Close the plot window to continue..."
                 wait(scr)
 

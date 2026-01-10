@@ -38,7 +38,7 @@ STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 40   # depower [0, 100]
 WIND_VEL = 10.72
 ELEVATION = 60
-TETHER_LENGTH = 240  # Total tether length (m), 6 segments
+TETHER_LENGTH = 248  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
 EXTRA_POINTS_FRAME = 7182
 # FLIGHT_CSV = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
@@ -120,6 +120,7 @@ set = Settings("system.yaml")
 set.g_earth = 9.81
 set.v_wind = WIND_VEL
 set.l_tether = TETHER_LENGTH
+set.profile_law = 4  # Linear wind scaling from 0 at origin to 1.0 at l_tether
 
 # Load VSMSettings
 vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
@@ -163,8 +164,8 @@ if REDUCE_TE
 end
 
 # Set initial world frame damping (will decay over DECAY_STEPS)
-SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING)
-SymbolicAWEModels.set_body_frame_damping(sys, 300.0)
+SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING, 1:38)
+SymbolicAWEModels.set_body_frame_damping(sys, 300.0, 1:38)
 
 wing_points = [p for p in sys.points if p.type == WING]
 @info "System setup" n_wing_points=length(wing_points) n_points=length(sys.points) n_segments=length(sys.segments)
@@ -214,7 +215,7 @@ for step in 1:NUM_STEPS
     # Decay world damping exponentially over DECAY_STEPS
     if step <= DECAY_STEPS
         damping = WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS)
-        SymbolicAWEModels.set_world_frame_damping(sys, damping)
+        SymbolicAWEModels.set_world_frame_damping(sys, damping, 1:38)
     end
 
     # Heading control

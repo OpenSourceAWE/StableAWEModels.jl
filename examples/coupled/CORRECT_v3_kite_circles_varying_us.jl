@@ -119,12 +119,12 @@ function run_v3_kite(wing_type::WingType;
 
 
     # Initialize damping
-    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
+    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping, 1:38)
     # Normalize body damping inputs to 3-vectors (or scalar replicated)
     to_vec3(x) = x isa AbstractVector ? collect(x) : fill(x, 3)
     body_damping_init = to_vec3(initial_body_damping)
     body_damping_min = to_vec3(min_body_damping)
-    SymbolicAWEModels.set_body_frame_damping(sys, body_damping_init)
+    SymbolicAWEModels.set_body_frame_damping(sys, body_damping_init, 1:38)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -223,12 +223,12 @@ function run_v3_kite(wing_type::WingType;
         # Update damping (decays to zero by decay_time)
         if t <= decay_time
             current_damping = initial_damping * (1.0 - t / decay_time)
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping, 1:38)
             current_body_damping = (body_damping_init .- body_damping_min) .* (1.0 - t / decay_time) .+ body_damping_min
-            SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_body_damping)
+            SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_body_damping, 1:38)
         else
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
-            SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, body_damping_min)
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0, 1:38)
+            SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, body_damping_min, 1:38)
         end
 
         # PID azimuth control: drive azimuth to target
@@ -280,8 +280,8 @@ function run_v3_kite(wing_type::WingType;
 
     # Phase 2: Circular flight(s)
     @info "Switching to circular flight phases" phase_time=round(sys_state.time, digits=2) n_phases=n_circle_phases
-    SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, initial_damping)
-    SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, body_damping_init)
+    SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, initial_damping, 1:38)
+    SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, body_damping_init, 1:38)
 
     # Fix tether length for circular flight
     winch.brake = true
@@ -315,12 +315,12 @@ function run_v3_kite(wing_type::WingType;
             # Update damping (reset for this phase)
             if t_stage <= decay_time
                 current_damping = initial_damping * (1.0 - t_stage / decay_time)
-                SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+                SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping, 1:38)
                 current_body_damping = (body_damping_init .- body_damping_min) .* (1.0 - t_stage / decay_time) .+ body_damping_min
-                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_body_damping)
+                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_body_damping, 1:38)
             else
-                SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
-                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, body_damping_min)
+                SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0, 1:38)
+                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, body_damping_min, 1:38)
             end
 
             ramp_factor = ramp_time_us_phase > 0 ? min(t_stage / ramp_time_us_phase, 1.0) : 1.0

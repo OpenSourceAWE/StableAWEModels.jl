@@ -2412,10 +2412,10 @@ function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=fal
     wind_vec_gnd = max(wind_scale_gnd, 1e-6) * wind_vec_rotated
 
     for wing in wings
-        # Calculate wind at wing height using atmospheric model
-        # Matches symbolic equations in generate_system.jl:1277-1278
-        wing_height = max(wing.pos_w[3], 1.0)  # z-component, minimum 1m
-        wind_factor = calc_wind_factor(AtmosphericModel(set), wing_height, set)
+        # Calculate wind at wing position using atmospheric model
+        # Matches symbolic equations in generate_system.jl
+        wind_factor = calc_wind_factor(AtmosphericModel(set),
+                                       wing.pos_w[1], wing.pos_w[2], wing.pos_w[3], set)
         wing.v_wind .= wind_factor * wind_vec_gnd
 
         if wing.wing_type == REFINE
@@ -2711,9 +2711,9 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
 end
 
 """
-    set_world_frame_damping(sys::SystemStructure, damping)
+    set_world_frame_damping(sys::SystemStructure, damping, point_idxs)
 
-Set the world frame damping coefficient for all points in the system structure.
+Set the world frame damping coefficient for specified points in the system structure.
 
 World frame damping applies a velocity-dependent drag force in the global
 reference frame: ``\\mathbf{F}_{damp} = -c_{damp} \\odot \\mathbf{v}``, where
@@ -2723,39 +2723,41 @@ reference frame: ``\\mathbf{F}_{damp} = -c_{damp} \\odot \\mathbf{v}``, where
 - `sys::SystemStructure`: The system structure to modify.
 - `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
   Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
+- `point_idxs`: Indices of points to apply damping to.
 
 # Returns
 - `nothing`
 """
-function set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector})
+function set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector},
+                                 point_idxs)
     damp_vec = damping isa Real ? SVector{3,SimFloat}(damping, damping, damping) : SVector{3,SimFloat}(damping)
     @assert length(damp_vec) == 3 "Damping must be scalar or 3-element vector"
-    for point in sys.points
-        point.world_frame_damping = damp_vec
+    for idx in point_idxs
+        sys.points[idx].world_frame_damping = damp_vec
     end
     return nothing
 end
 
 """
-    set_body_frame_damping(sys::SystemStructure, damping)
+    set_body_frame_damping(sys::SystemStructure, damping, point_idxs)
 
-Set the body frame damping coefficient for all WING points in the system structure.
+Set the body frame damping coefficient for specified points in the system structure.
 
 # Arguments
 - `sys::SystemStructure`: The system structure to modify.
 - `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
   Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
+- `point_idxs`: Indices of points to apply damping to.
 
 # Returns
 - `nothing`
 """
-function set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector})
+function set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector},
+                                point_idxs)
     damp_vec = damping isa Real ? SVector{3,SimFloat}(damping, damping, damping) : SVector{3,SimFloat}(damping)
     @assert length(damp_vec) == 3 "Damping must be scalar or 3-element vector"
-    for point in sys.points
-        if point.type == WING
-            point.body_frame_damping = damp_vec
-        end
+    for idx in point_idxs
+        sys.points[idx].body_frame_damping = damp_vec
     end
     return nothing
 end

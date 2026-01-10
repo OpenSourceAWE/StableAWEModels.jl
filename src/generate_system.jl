@@ -88,14 +88,18 @@ rotation_matrix_to_quaternion_z(R) = rotation_matrix_to_quaternion(R)[4]
 @register_symbolic rotation_matrix_to_quaternion_y(R::AbstractMatrix)
 @register_symbolic rotation_matrix_to_quaternion_z(R::AbstractMatrix)
 
-function calc_wind_factor(am::AtmosphericModel, height, set::Settings)
+function calc_wind_factor(am::AtmosphericModel, pos_x, pos_y, pos_z, set::Settings)
     if set.profile_law == 0
         return 1.0
+    elseif set.profile_law == 4
+        # Linear scaling: 1.0 at kite position, 0.0 at origin
+        return sqrt(pos_x^2 + pos_y^2 + pos_z^2) / set.l_tether
     else
-        return AtmosphericModels.calc_wind_factor(am, height, set.profile_law)
+        return AtmosphericModels.calc_wind_factor(am, max(1.0, pos_z), set.profile_law)
     end
 end
-@register_symbolic calc_wind_factor(am::AtmosphericModel, height, set::Settings)
+@register_symbolic calc_wind_factor(am::AtmosphericModel, pos_x, pos_y, pos_z,
+                                    set::Settings)
 
 #=
 The following `get_*` functions are registered for use within ModelingToolkit.jl's
@@ -410,8 +414,8 @@ function force_eqs!(
                 eqs
                 height[point.idx] ~ pos[3, point.idx]
                 wind_at_point[:, point.idx] ~
-                    calc_wind_factor(s.am, max(height[point.idx], 1.0), pset) *
-                    wind_vec_gnd
+                    calc_wind_factor(s.am, pos[1, point.idx], pos[2, point.idx],
+                                     pos[3, point.idx], pset) * wind_vec_gnd
                 va_point_w[:, point.idx] ~
                     wind_at_point[:, point.idx] - vel[:, point.idx]
                 va_point_b[:, point.idx] ~
@@ -878,14 +882,17 @@ function force_eqs!(
         ]
 
         # Aerodynamic properties for all segments
+        segment_pos_x = 0.5 * (pos[1, p1] + pos[1, p2])
+        segment_pos_y = 0.5 * (pos[2, p1] + pos[2, p2])
+        segment_pos_z = 0.5 * (pos[3, p1] + pos[3, p2])
         eqs = [
             eqs
-            segment_height[segment.idx] ~ max(0.0, 0.5 * (pos[:, p1][3] + pos[:, p2][3]))
+            segment_height[segment.idx] ~ max(0.0, segment_pos_z)
             segment_vel[:, segment.idx] ~ 0.5 * (vel[:, p1] + vel[:, p2])
             segment_rho[segment.idx] ~ calc_rho(s.am, segment_height[segment.idx])
             wind_vel[:, segment.idx] ~
-                calc_wind_factor(s.am, max(segment_height[segment.idx], 1.0), pset) *
-                wind_vec_gnd
+                calc_wind_factor(s.am, segment_pos_x, segment_pos_y, segment_pos_z,
+                                 pset) * wind_vec_gnd
             va[:, segment.idx] ~
                 wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
             area[segment.idx] ~
@@ -1404,8 +1411,8 @@ function scalar_eqs!(
                 e_y[wing.idx, :] ~ R_b_w[wing.idx, :, 2]
                 e_z[wing.idx, :] ~ R_b_w[wing.idx, :, 3]
                 wind_vel_wing[wing.idx, :] ~
-                    calc_wind_factor(s.am, max(wing_pos[wing.idx, 3], 1.0), pset) *
-                    wind_vec_gnd
+                    calc_wind_factor(s.am, wing_pos[wing.idx, 1], wing_pos[wing.idx, 2],
+                                     wing_pos[wing.idx, 3], pset) * wind_vec_gnd
                 wind_disturb[wing.idx, :] ~ get_wind_disturb(psys, wing.idx)
                 va_wing[wing.idx, :] ~
                     wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :] +
@@ -1419,8 +1426,8 @@ function scalar_eqs!(
                 e_y[wing.idx, :] ~ R_b_w[wing.idx, :, 2]
                 e_z[wing.idx, :] ~ R_b_w[wing.idx, :, 3]
                 wind_vel_wing[wing.idx, :] ~
-                    calc_wind_factor(s.am, max(wing_pos[wing.idx, 3], 1.0), pset) *
-                    wind_vec_gnd
+                    calc_wind_factor(s.am, wing_pos[wing.idx, 1], wing_pos[wing.idx, 2],
+                                     wing_pos[wing.idx, 3], pset) * wind_vec_gnd
                 wind_disturb[wing.idx, :] ~ get_wind_disturb(psys, wing.idx)
                 va_wing[wing.idx, :] ~
                     wind_vel_wing[wing.idx, :] - wing_vel[wing.idx, :] +

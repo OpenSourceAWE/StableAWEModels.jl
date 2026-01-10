@@ -46,7 +46,7 @@ function load_log_and_system(; log_name::String)
         system_name=model_name, set, wing_type, vsm_set)
 
     # Initialize damping
-    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
+    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping, 1:38)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections

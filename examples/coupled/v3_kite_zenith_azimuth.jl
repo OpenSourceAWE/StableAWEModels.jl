@@ -126,7 +126,7 @@ function run_v3_kite(wing_type::WingType;
 
 
     # Initialize damping
-    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
+    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping, 1:38)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -227,10 +227,10 @@ function run_v3_kite(wing_type::WingType;
         if t <= decay_time
             # Linear decay: reaches zero exactly at decay_time
             current_damping = initial_damping * (1.0 - t / decay_time)
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping, 1:38)
             # @info "  Damping update" step t=round(t, digits=2) current_damping=round(current_damping, digits=2)
         else
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0, 1:38)
         end
 
         # PID azimuth control: drive azimuth to 0

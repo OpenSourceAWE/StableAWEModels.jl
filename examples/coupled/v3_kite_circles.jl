@@ -113,7 +113,7 @@ function run_v3_kite(wing_type::WingType;
 
 
     # Initialize damping
-    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping)
+    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping, 1:38)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -201,9 +201,9 @@ function run_v3_kite(wing_type::WingType;
         # Update damping (decays to zero by decay_time)
         if t <= decay_time
             current_damping = initial_damping * (1.0 - t / decay_time)
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping, 1:38)
         else
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0, 1:38)
         end
 
         # PID azimuth control: drive azimuth to target
@@ -255,7 +255,7 @@ function run_v3_kite(wing_type::WingType;
 
     # Phase 2: Circular flight
     @info "Switching to circular flight phase" phase_time=round(sys_state.time, digits=2)
-    SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, initial_damping)
+    SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, initial_damping, 1:38)
 
     # Fix tether length for circular flight
     winch.brake = true
@@ -278,9 +278,9 @@ function run_v3_kite(wing_type::WingType;
         # Update damping (reset for this phase)
         if t_stage <= decay_time
             current_damping = initial_damping * (1.0 - t_stage / decay_time)
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping)
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping, 1:38)
         else
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0)
+            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0, 1:38)
         end
 
         ramp_factor = min(t_stage / ramp_time_us, 1.0)
