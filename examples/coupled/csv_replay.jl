@@ -28,7 +28,7 @@ include("utils.jl")
 
 # Configuration parameters
 SECTION = "straight_right"
-CSV_PATH = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
+CSV_PATH = "data/v3/v3_2025-10-09-ekf.csv"
 WARN_STEP = false  # Show distance warnings
 
 # Geometry configuration (must match settle_refine_wing.jl output)
@@ -190,7 +190,10 @@ function find_csv_indices_by_utc(df, start_utc::String, end_utc::String)
     start_idx = nothing
     end_idx = nothing
 
-    for (i, unix_t) in enumerate(df.time)
+    # Use unix_time column (EKF CSV) or time column (old CSV)
+    time_col = hasproperty(df, :unix_time) ? df.unix_time : df.time
+
+    for (i, unix_t) in enumerate(time_col)
         if ismissing(unix_t)
             continue
         end
@@ -223,13 +226,22 @@ function limit_by_utc(df, start_utc::String, end_utc::String)
     # Slice the dataframe
     limited_df = df[start_idx:end_idx, :]
 
-    # Calculate video_frame from unix timestamps before normalization (Float64 for interpolation)
-    video_frames = [Float64(utc_to_video_frame(unix_to_utc_seconds(t)))
-                    for t in limited_df.time]
-
-    # Normalize time to start at 0
-    t0 = limited_df.time[1]
-    limited_df.time .= limited_df.time .- t0
+    # EKF CSV has both time (relative) and unix_time (absolute)
+    # Use unix_time for video frame calculation, then normalize time column
+    if hasproperty(limited_df, :unix_time)
+        # Calculate video_frame from unix timestamps
+        video_frames = [Float64(utc_to_video_frame(unix_to_utc_seconds(t)))
+                        for t in limited_df.unix_time]
+        # Normalize time column to start at 0
+        t0 = limited_df.time[1]
+        limited_df.time .= limited_df.time .- t0
+    else
+        # Old CSV: time column contains unix timestamps
+        video_frames = [Float64(utc_to_video_frame(unix_to_utc_seconds(t)))
+                        for t in limited_df.time]
+        t0 = limited_df.time[1]
+        limited_df.time .= limited_df.time .- t0
+    end
 
     # Convert to named tuple and add video_frame
     col_names = Tuple(Symbol(name) for name in names(limited_df))
@@ -253,10 +265,11 @@ function add_distance_column(data)
     distances = zeros(Float64, n)
     cumulative_distances = zeros(Float64, n)
 
+    # Use EKF position columns
     for i in 2:n
-        dx = data.kite_pos_east[i] - data.kite_pos_east[i-1]
-        dy = data.kite_pos_north[i] - data.kite_pos_north[i-1]
-        dz = data.kite_height[i] - data.kite_height[i-1]
+        dx = data.ekf_kite_position_x[i] - data.ekf_kite_position_x[i-1]
+        dy = data.ekf_kite_position_y[i] - data.ekf_kite_position_y[i-1]
+        dz = data.ekf_kite_position_z[i] - data.ekf_kite_position_z[i-1]
         distances[i] = sqrt(dx^2 + dy^2 + dz^2)
         cumulative_distances[i] = cumulative_distances[i-1] + distances[i]
     end
@@ -401,8 +414,8 @@ function update_vel_from_csv!(sys, row, brake, heading_pid)
     delta_heading = -wrap_to_pi(csv_heading - curr_heading)
 
     sim_cumulative_dist = update_sim_distance!(wing.pos_w)
-    sys.set.v_wind = row.wind_at_kite
-    sys.set.upwind_dir = row.wind_dir_at_kite
+    sys.set.v_wind = row.wind_speed
+    sys.set.upwind_dir = row.wind_dir + 180
 
     # Apply steering via differential tape lengths
     # PID control for steering based on heading error
@@ -561,7 +574,7 @@ function run_physics_replay(csv_path::String;
     @info "Using timestep dt = $dt s"
 
     # Calculate initial delta between set.l_tether and CSV tether length
-    first_csv_tether_len = csv_data.ground_tether_length[1]
+    first_csv_tether_len = csv_data.ekf_tether_length[1]
     tether_len_delta = set.l_tether - first_csv_tether_len
     @info "Tether length delta" set_l_tether=set.l_tether csv_tether=first_csv_tether_len delta=tether_len_delta
 
@@ -579,28 +592,30 @@ function run_physics_replay(csv_path::String;
         umax = 1.0)
 
     function get_row(csv_data, step)
+        # Use EKF columns where available
         csv_row = (
             time = csv_data.time[step],
             video_frame = round(Int, csv_data.video_frame[step]),
-            roll = csv_data.kite_0_roll[step],
-            pitch = csv_data.kite_0_pitch[step],
-            yaw = csv_data.kite_0_yaw[step],
-            x = csv_data.kite_pos_east[step],
-            y = csv_data.kite_pos_north[step],
-            z = csv_data.kite_height[step],
-            vx = csv_data.kite_est_vx[step],
-            vy = csv_data.kite_est_vy[step],
-            vz = csv_data.kite_est_vz[step],
-            tether_len = csv_data.ground_tether_length[step],
-            tether_vel = csv_data.ground_tether_reelout_speed[step],
+            roll = csv_data.ekf_kite_roll[step],
+            pitch = csv_data.ekf_kite_pitch[step],
+            yaw = csv_data.ekf_kite_yaw[step],
+            x = csv_data.ekf_kite_position_x[step],
+            y = csv_data.ekf_kite_position_y[step],
+            z = csv_data.ekf_kite_position_z[step],
+            vx = csv_data.ekf_kite_velocity_x[step],
+            vy = csv_data.ekf_kite_velocity_y[step],
+            vz = csv_data.ekf_kite_velocity_z[step],
+            tether_len = csv_data.ekf_tether_length[step],
+            tether_vel = csv_data.tether_reelout_speed[step],
             tether_force = csv_data.ground_tether_force[step] * 9.81,  # Convert kg to N
-            steering = csv_data.kite_actual_steering[step],
-            depower = csv_data.kite_actual_depower[step],
+            steering = csv_data.kcu_actual_steering[step],
+            depower = csv_data.kcu_actual_depower[step],
             distance = csv_data.distance[step],
             cumulative_distance = csv_data.cumulative_distance[step],
-            wind_at_kite = csv_data.lidar_wind_velocity_at_kite_mps[step],
-            wind_dir_at_kite = csv_data.lidar_wind_direction_at_kite_deg[step],
-            angle_of_attack = deg2rad(csv_data.airspeed_angle_of_attack[step])
+            wind_speed = csv_data.ekf_wind_speed_horizontal[step],
+            wind_dir = csv_data.ekf_wind_direction[step],
+            angle_of_attack = deg2rad(csv_data.ekf_wing_angle_of_attack[step]),
+            v_app = csv_data.ekf_kite_apparent_windspeed[step],
         )
     end
 
@@ -615,10 +630,11 @@ function run_physics_replay(csv_path::String;
             update_sys_state!(csv_state, csv_sam)
             csv_state.winch_force[1] = csv_row.tether_force
             csv_state.AoA = csv_row.angle_of_attack
+            csv_state.v_app = csv_row.v_app
             csv_state.time = csv_row.time
             csv_state.l_tether[1] = csv_row.tether_len
             csv_state.v_reelout[1] = csv_row.tether_vel
-            csv_state.v_wind_gnd[1] = csv_row.wind_at_kite
+            csv_state.v_wind_gnd[1] = csv_row.wind_speed
             log!(csv_logger, csv_state)
 
             # Store CSV tape percentages for plotting
