@@ -56,7 +56,7 @@ VIDEO_FPS = 29.97
 
 # Maneuver selection - specify by UTC time
 if SECTION == "straight_right"
-    START_UTC = "15:36:29.0"
+    START_UTC = "15:36:29.01"
     END_UTC = "15:36:37.1"  # Extended to include frame 7362
     EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
     EXTRA_POINTS_FRAME = 7182
@@ -402,6 +402,7 @@ function update_vel_from_csv!(sys, row, brake, heading_pid)
 
     sim_cumulative_dist = update_sim_distance!(wing.pos_w)
     sys.set.v_wind = row.wind_at_kite
+    sys.set.upwind_dir = row.wind_dir_at_kite
 
     # Apply steering via differential tape lengths
     # PID control for steering based on heading error
@@ -509,7 +510,7 @@ function run_physics_replay(csv_path::String;
     @info "Interpolating CSV data with $n_substeps substeps"
     csv_data = interpolate_csv_data(limited_data, n_substeps)
 
-    @info "Loading v3 kite system structure from YAML"
+    @info "Loading v3 kite system structure from YAML" STRUC_YAML_PATH AERO_YAML_PATH
     set_data_path("data/v3")
     set = Settings("system.yaml")
     set.g_earth = 9.81
@@ -597,8 +598,9 @@ function run_physics_replay(csv_path::String;
             depower = csv_data.kite_actual_depower[step],
             distance = csv_data.distance[step],
             cumulative_distance = csv_data.cumulative_distance[step],
-            wind_at_kite = coalesce(csv_data.lidar_wind_velocity_at_kite_mps[step], 10.0),
-            angle_of_attack = deg2rad(coalesce(csv_data.airspeed_angle_of_attack[step], NaN))
+            wind_at_kite = csv_data.lidar_wind_velocity_at_kite_mps[step],
+            wind_dir_at_kite = csv_data.lidar_wind_direction_at_kite_deg[step],
+            angle_of_attack = deg2rad(csv_data.airspeed_angle_of_attack[step])
         )
     end
 
