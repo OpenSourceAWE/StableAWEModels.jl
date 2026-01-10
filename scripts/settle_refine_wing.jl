@@ -307,7 +307,7 @@ if !isnothing(frame_idx)
     # Get v_app from EKF
     v_app_val = flight_df.ekf_kite_apparent_windspeed[frame_idx]
     # Get angle of attack from EKF
-    aoa_val = deg2rad(flight_df.ekf_kite_angle_of_attack[frame_idx])
+    aoa_val = deg2rad(flight_df.ekf_wing_angle_of_attack[frame_idx])
     # Get tether length and force
     l_tether_val = flight_df.ekf_tether_length[frame_idx]
     winch_force_val = flight_df.ground_tether_force[frame_idx]

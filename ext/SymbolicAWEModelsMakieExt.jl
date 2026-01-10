@@ -588,14 +588,23 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         return get(setpoints, key, nothing)
     end
 
-    # Helper to add setpoint data to panel arrays
+    # Helper to add setpoint data to panel arrays and compute error
     function add_setpoint!(all_data, all_labels, all_times, all_linestyles,
-                          setpoint_val, time_vec, label_base, suffix)
+                          setpoint_val, time_vec, label_base, suffix;
+                          actual_data=nothing, error_info=nothing)
         isnothing(setpoint_val) && return
         push!(all_data, setpoint_val)
         push!(all_labels, label_base * " ref" * suffix)
         push!(all_times, time_vec)
         push!(all_linestyles, :dash)
+        # Compute error at last timestep if actual_data provided
+        if !isnothing(actual_data) && !isnothing(error_info) && length(actual_data) > 0
+            actual_last = actual_data[end]
+            ref_last = setpoint_val[end]
+            abs_err = actual_last - ref_last
+            rel_err = abs(ref_last) > 1e-6 ? 100.0 * abs_err / abs(ref_last) : NaN
+            push!(error_info, (label=label_base, abs=abs_err, rel=rel_err))
+        end
     end
 
     if plot_turn_rates
@@ -676,6 +685,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_labels = []
         all_times = []
         all_linestyles = Symbol[]
+        all_errors = []
         sp = get_setpoint(:l_tether)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
@@ -687,11 +697,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
-                         sp, sl.time, "l_tether", suffix)
+                         sp, sl.time, "l_tether", suffix;
+                         actual_data=l_tether, error_info=all_errors)
         end
         push!(panels, (
             data = all_data, labels = all_labels, times = all_times,
-            linestyles = all_linestyles, ylabel = "tether length [m]"
+            linestyles = all_linestyles, error_info = all_errors,
+            ylabel = "tether length [m]"
         ))
     end
 
@@ -1012,6 +1024,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_labels = []
         all_times = []
         all_linestyles = Symbol[]
+        all_errors = []
         sp = get_setpoint(:v_app)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
@@ -1021,11 +1034,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
-                         sp, sl.time, "v_app", suffix)
+                         sp, sl.time, "v_app", suffix;
+                         actual_data=sl.v_app, error_info=all_errors)
         end
         push!(panels, (
             data = all_data, labels = all_labels, times = all_times,
-            linestyles = all_linestyles, ylabel = "v_app [m/s]"
+            linestyles = all_linestyles, error_info = all_errors,
+            ylabel = "v_app [m/s]"
         ))
     end
 
@@ -1034,6 +1049,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_labels = []
         all_times = []
         all_linestyles = Symbol[]
+        all_errors = []
         sp = get_setpoint(:v_kite)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
@@ -1044,11 +1060,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
-                         sp, sl.time, "|v_kite|", suffix)
+                         sp, sl.time, "|v_kite|", suffix;
+                         actual_data=v_kite_norm, error_info=all_errors)
         end
         push!(panels, (
             data = all_data, labels = all_labels, times = all_times,
-            linestyles = all_linestyles, ylabel = "kite velocity [m/s]"
+            linestyles = all_linestyles, error_info = all_errors,
+            ylabel = "kite velocity [m/s]"
         ))
     end
 
@@ -1057,6 +1075,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_labels = []
         all_times = []
         all_linestyles = Symbol[]
+        all_errors = []
         sp = get_setpoint(:aoa)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
@@ -1067,15 +1086,21 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             if !isnothing(sp)
-                push!(all_data, rad2deg.(sp))
+                sp_deg = rad2deg.(sp)
+                push!(all_data, sp_deg)
                 push!(all_labels, "α ref" * suffix)
                 push!(all_times, sl.time)
                 push!(all_linestyles, :dash)
+                # Compute error
+                abs_err = aoa_deg[end] - sp_deg[end]
+                rel_err = abs(sp_deg[end]) > 1e-6 ? 100.0 * abs_err / abs(sp_deg[end]) : NaN
+                push!(all_errors, (label="α", abs=abs_err, rel=rel_err))
             end
         end
         push!(panels, (
             data = all_data, labels = all_labels, times = all_times,
-            linestyles = all_linestyles, ylabel = "angle of attack [°]"
+            linestyles = all_linestyles, error_info = all_errors,
+            ylabel = "angle of attack [°]"
         ))
     end
 
@@ -1104,6 +1129,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_labels = []
         all_times = []
         all_linestyles = Symbol[]
+        all_errors = []
         sp = get_setpoint(:heading)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
@@ -1126,15 +1152,21 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 push!(all_linestyles, :solid)
             end
             if !isnothing(sp)
-                push!(all_data, rad2deg.(sp))
+                sp_deg = rad2deg.(sp)
+                push!(all_data, sp_deg)
                 push!(all_labels, "ψ ref" * suffix)
                 push!(all_times, sl.time)
                 push!(all_linestyles, :dash)
+                # Compute error
+                abs_err = heading_deg[end] - sp_deg[end]
+                rel_err = abs(sp_deg[end]) > 1e-6 ? 100.0 * abs_err / abs(sp_deg[end]) : NaN
+                push!(all_errors, (label="ψ", abs=abs_err, rel=rel_err))
             end
         end
         push!(panels, (
             data = all_data, labels = all_labels, times = all_times,
-            linestyles = all_linestyles, ylabel = "heading/course [°]"
+            linestyles = all_linestyles, error_info = all_errors,
+            ylabel = "heading/course [°]"
         ))
     end
 
@@ -1223,6 +1255,9 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_data = []
         all_labels = []
         all_times = []
+        all_linestyles = Symbol[]
+        all_errors = []
+        sp = get_setpoint(:elevation)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
@@ -1230,11 +1265,25 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(all_data, elevation_deg)
             push!(all_labels, "elevation" * suffix)
             push!(all_times, sl.time)
+            push!(all_linestyles, :solid)
+            if !isnothing(sp)
+                sp_deg = rad2deg.(sp)
+                push!(all_data, sp_deg)
+                push!(all_labels, "elevation ref" * suffix)
+                push!(all_times, sl.time)
+                push!(all_linestyles, :dash)
+                # Compute error
+                abs_err = elevation_deg[end] - sp_deg[end]
+                rel_err = abs(sp_deg[end]) > 1e-6 ? 100.0 * abs_err / abs(sp_deg[end]) : NaN
+                push!(all_errors, (label="elev", abs=abs_err, rel=rel_err))
+            end
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
+            linestyles = all_linestyles,
+            error_info = all_errors,
             ylabel = "elevation [°]"
         ))
     end
@@ -1243,6 +1292,9 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_data = []
         all_labels = []
         all_times = []
+        all_linestyles = Symbol[]
+        all_errors = []
+        sp = get_setpoint(:azimuth)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
@@ -1250,11 +1302,25 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(all_data, azimuth_deg)
             push!(all_labels, "azimuth" * suffix)
             push!(all_times, sl.time)
+            push!(all_linestyles, :solid)
+            if !isnothing(sp)
+                sp_deg = rad2deg.(sp)
+                push!(all_data, sp_deg)
+                push!(all_labels, "azimuth ref" * suffix)
+                push!(all_times, sl.time)
+                push!(all_linestyles, :dash)
+                # Compute error
+                abs_err = azimuth_deg[end] - sp_deg[end]
+                rel_err = abs(sp_deg[end]) > 1e-6 ? 100.0 * abs_err / abs(sp_deg[end]) : NaN
+                push!(all_errors, (label="azim", abs=abs_err, rel=rel_err))
+            end
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
+            linestyles = all_linestyles,
+            error_info = all_errors,
             ylabel = "azimuth [°]"
         ))
     end
@@ -1285,6 +1351,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_labels = []
         all_times = []
         all_linestyles = Symbol[]
+        all_errors = []
         sp = get_setpoint(:winch_force)
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
@@ -1298,14 +1365,16 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                     push!(all_linestyles, :solid)
                 end
             end
-            # Add setpoint only for first winch
+            # Add setpoint only for first winch (use winch_force[1] for error)
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
-                         sp, sl.time, "F_winch", suffix)
+                         sp, sl.time, "F_winch", suffix;
+                         actual_data=winch_force[1], error_info=all_errors)
         end
         if !isempty(all_data)
             push!(panels, (
                 data = all_data, labels = all_labels, times = all_times,
-                linestyles = all_linestyles, ylabel = "Winch force [N]"
+                linestyles = all_linestyles, error_info = all_errors,
+                ylabel = "Winch force [N]"
             ))
         end
     end
@@ -1369,6 +1438,20 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         # Add legend if multiple traces
         if length(panel.data) > 1
             axislegend(ax, position=:rt)
+        end
+
+        # Display error info as text annotation with white background if present
+        if haskey(panel, :error_info) && !isempty(panel.error_info)
+            err_texts = String[]
+            for err in panel.error_info
+                abs_str = @sprintf("%.2f", err.abs)
+                rel_str = isnan(err.rel) ? "N/A" : @sprintf("%.1f%%", err.rel)
+                push!(err_texts, "Δ=$(abs_str) ($(rel_str))")
+            end
+            err_text = join(err_texts, "\n")
+            text!(ax, 0.98, 0.02; text=err_text, space=:relative,
+                  align=(:right, :bottom), fontsize=12, color=:black,
+                  glowwidth=4.0, glowcolor=(:white, 1.0))
         end
 
         push!(axes, ax)
