@@ -1764,19 +1764,20 @@ world frame at the beginning of a simulation.
 
 If transforms is empty, simply initializes pos_w = pos_cad for all components.
 """
-function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure;
+                 update_vel::Bool=true)
     @unpack points, wings = sys_struct
 
     # Handle the case with no transforms: just copy CAD positions to world positions
     if isempty(transforms)
         for point in points
             point.pos_w .= point.pos_cad
-            point.vel_w .= 0.0
+            update_vel && (point.vel_w .= 0.0)
         end
         for wing in wings
             wing.pos_w .= wing.pos_cad
-            wing.vel_w .= 0.0
-            wing.ω_b .= 0.0
+            update_vel && (wing.vel_w .= 0.0)
+            update_vel && (wing.ω_b .= 0.0)
             wing.Q_b_w .= rotation_matrix_to_quaternion(wing.R_b_c)
         end
         return  # Early return - no transforms to apply
@@ -1796,13 +1797,13 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
         for point in points
             if point.transform_idx == transform.idx
                 point.pos_w .= point.pos_cad .+ T
-                point.vel_w .= 0.0
+                update_vel && (point.vel_w .= 0.0)
             end
         end
         for wing in wings
             if wing.transform_idx == transform.idx
                 wing.pos_w .= wing.pos_cad .+ T
-                wing.vel_w .= 0.0
+                update_vel && (wing.vel_w .= 0.0)
             end
         end
 
@@ -1836,17 +1837,21 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
             if point.transform_idx == transform.idx
                 vec = point.pos_w - base_pos
                 point.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, 0.0)
-                point.vel_w .= norm(point.pos_w - base_pos) / norm(rot_pos - base_pos) *
-                               vel_spherical
+                if update_vel
+                    point.vel_w .= norm(point.pos_w - base_pos) / norm(rot_pos - base_pos) *
+                                   vel_spherical
+                end
             end
         end
         for wing in wings
             if wing.transform_idx == transform.idx
                 vec = wing.pos_w - base_pos
                 wing.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, 0.0)
-                wing.vel_w .= norm(wing.pos_w - base_pos) / norm(rot_pos - base_pos) *
-                              vel_spherical
-                wing.ω_b .= 0.0
+                if update_vel
+                    wing.vel_w .= norm(wing.pos_w - base_pos) / norm(rot_pos - base_pos) *
+                                  vel_spherical
+                    wing.ω_b .= 0.0
+                end
             end
         end
 

@@ -9,6 +9,7 @@ using LinearAlgebra
 using StaticArrays
 using Statistics
 using Printf
+using Dates
 using KiteUtils
 using KiteUtils: SysLog
 using SymbolicAWEModels
@@ -141,10 +142,10 @@ function Makie.plot!(ax, sys::SystemStructure;
             # Static plotting: create separate arrows for each wing
             plots[:wings] = []
             for (i, wing) in enumerate(sys.wings)
-                wing_pos = Point3f(wing.pos_w)
+                origin_pos = Point3f(sys.points[wing.origin_idx].pos_w)
                 R = wing.R_b_w
                 scale = vector_scale
-                origins = [wing_pos, wing_pos, wing_pos]
+                origins = [origin_pos, origin_pos, origin_pos]
                 directions = [Vec3f(R[:, 1]) * scale, Vec3f(R[:, 2]) * scale, Vec3f(R[:, 3]) * scale]
 
                 axis_colors = [:red, :green, :blue]
@@ -160,11 +161,11 @@ function Makie.plot!(ax, sys::SystemStructure;
                 origins = Point3f[]
                 directions = Vec3f[]
                 for wing in sys_ref.wings
-                    wing_pos = Point3f(wing.pos_w)
+                    origin_pos = Point3f(sys_ref.points[wing.origin_idx].pos_w)
                     R = wing.R_b_w
                     # Add three arrow vectors for each axis (x, y, z in body frame)
                     for i in 1:3
-                        push!(origins, wing_pos)
+                        push!(origins, origin_pos)
                         push!(directions, Vec3f(R[:, i]) * scale)
                     end
                 end
@@ -2164,8 +2165,15 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     text!(ui_scene, body_frame_button_label, position=Point2f(body_frame_button_x + button_width/2, button_y + button_height/2),
           align=(:center, :center), fontsize=14, color=:white)
 
+    # Save button
+    save_button_x = body_frame_button_x + button_width + 10
+    save_button_rect = Rect2f(save_button_x, button_y, button_width, button_height)
+    poly!(ui_scene, save_button_rect, color=RGBAf(0.2, 0.7, 0.3, 0.8))
+    text!(ui_scene, "Save", position=Point2f(save_button_x + button_width/2, button_y + button_height/2),
+          align=(:center, :center), fontsize=14, color=:white)
+
     # Info label
-    info_label_x = body_frame_button_x + button_width + 20
+    info_label_x = save_button_x + button_width + 20
     info_text = @lift("Frame: $($(frame_idx))/$n_frames | Time: $(@sprintf("%.2f", lg.syslog[$(frame_idx)].time)) s | Speed: $(replay_speed)x")
     text!(ui_scene, info_text, position=Point2f(info_label_x, button_y + button_height/2),
           align=(:left, :center), fontsize=14, color=:white, strokecolor=:black, strokewidth=1)
@@ -2245,6 +2253,21 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                     PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
                     PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
                     PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
+                    return Consume(true)
+                end
+
+                # Check save button
+                if mp[1] >= save_button_rect.origin[1] && mp[1] <= save_button_rect.origin[1] + save_button_rect.widths[1] &&
+                   mp[2] >= save_button_rect.origin[2] && mp[2] <= save_button_rect.origin[2] + save_button_rect.widths[2]
+                    # Generate filename with timestamp and simulation time
+                    sim_time = lg.syslog[frame_idx[]].time
+                    timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
+                    filename = "replay_$(timestamp)_t$(round(sim_time, digits=2))s_frame$(frame_idx[]).png"
+                    # Hide UI scene, save, then restore
+                    ui_scene.visible[] = false
+                    save(filename, scene; px_per_unit=2)
+                    ui_scene.visible[] = true
+                    @info "Saved high-res screenshot" filename
                     return Consume(true)
                 end
             elseif event.action == Mouse.release

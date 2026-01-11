@@ -25,19 +25,15 @@ using DiscretePIDs
 
 include("../examples/coupled/utils.jl")
 
-# Configuration - Reduction flags
-REDUCE_TIP_LE = true         # Reduce tip LE segments (47,48,57,58)
-REDUCE_TE = true             # Reduce TE segments
-
 # Configuration - Simulation
-WORLD_DAMPING = 1000.0  # Ns/m
-DECAY_STEPS = 20     # Steps over which damping decays to zero
-NUM_STEPS = 4000
-DT = 0.1  # seconds
+WORLD_DAMPING = 500.0  # Ns/m
+DECAY_STEPS = 2000     # Steps over which damping decays to zero
+NUM_STEPS = 8000
+DT = 0.01  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
-DEPOWER_PERCENTAGE = 40   # depower [0, 100]
+DEPOWER_PERCENTAGE = 39.37   # depower [0, 100]
 WIND_VEL = 10.72
-ELEVATION = 60
+ELEVATION = 70
 TETHER_LENGTH = 248  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
 EXTRA_POINTS_FRAME = 7182
@@ -49,14 +45,11 @@ VIDEO_FRAME_REF = 7182
 UTC_REF_SECONDS = 15*3600 + 36*60 + 31.0
 VIDEO_FPS = 29.97
 
-TE_FRAC = 0.95  # Factor to reduce l0 of TE wires (segments 20-28)
-TIP_REDUCTION = 0.4
+TE_FRAC = 0.95  # Factor to reduce l0 of TE wires (segments 20-28), 1.0 = no change
+TIP_REDUCTION = 0.4  # Tip LE reduction (m), 0.0 = no change
 
 # Build destination filename suffix
-TETHER_INT = Int(round(TETHER_LENGTH))
-TIP_LE_STR = REDUCE_TIP_LE ? "tipLE" : "no_tipLE"
-TE_STR = REDUCE_TE ? "TE$(Int(round(TE_FRAC*100)))" : "no_TE"
-DEST_SUFFIX = "depower$(DEPOWER_PERCENTAGE)_tether$(TETHER_INT)_$(TIP_LE_STR)_$(TE_STR)"
+DEST_SUFFIX = "depower$(DEPOWER_L0)_tip$(TIP_REDUCTION)_te$(TE_FRAC)"
 
 SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
 DEST_STRUC_PATH = "data/v3/struc_geometry_$(DEST_SUFFIX).yaml"
@@ -71,7 +64,7 @@ DEPOWER_GAIN = 5.0
 
 # Heading controller parameters
 HEADING_KP = 0.5
-HEADING_TAU_I = false  # No integral
+HEADING_TAU_I = 10.0  # No integral
 HEADING_SETPOINT = -1.562  # Target heading in radians
 
 """
@@ -138,34 +131,24 @@ sys.transforms[1].azimuth = deg2rad(ELEVATION * sin(HEADING_SETPOINT))
 sys.transforms[1].heading = HEADING_SETPOINT
 
 # Update tether length: points 39-44 and segments 90-95
-segment_len = TETHER_LENGTH / 6.0
-for (i, point_idx) in enumerate(39:44)
-    sys.points[point_idx].pos_cad .= [0.0, 0.0, -i * segment_len]
-end
-for seg_idx in 90:95
-    sys.segments[seg_idx].l0 = segment_len
-end
+segment_len = TETHER_LENGTH
+sys.points[39].pos_cad .= [0.0, 0.0, -segment_len]
+sys.segments[90].l0 = segment_len
 @info "Tether configured" TETHER_LENGTH segment_len
 
-# Apply reductions based on flags
-if REDUCE_TIP_LE
-    sys.segments[47].l0 -= TIP_REDUCTION
-    sys.segments[48].l0 -= TIP_REDUCTION
-    sys.segments[57].l0 -= TIP_REDUCTION
-    sys.segments[58].l0 -= TIP_REDUCTION
-    @info "Tip LE reduced" TIP_REDUCTION
+# Apply reductions
+sys.segments[47].l0 -= TIP_REDUCTION
+sys.segments[48].l0 -= TIP_REDUCTION
+sys.segments[57].l0 -= TIP_REDUCTION
+sys.segments[58].l0 -= TIP_REDUCTION
+for seg_idx in 20:28
+    sys.segments[seg_idx].l0 *= TE_FRAC
 end
-
-if REDUCE_TE
-    for seg_idx in 20:28
-        sys.segments[seg_idx].l0 *= TE_FRAC
-    end
-    @info "TE wires l0 reduced" TE_FRAC
-end
+@info "Reductions applied" TIP_REDUCTION TE_FRAC
 
 # Set initial world frame damping (will decay over DECAY_STEPS)
 SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING, 1:38)
-SymbolicAWEModels.set_body_frame_damping(sys, 300.0, 1:38)
+SymbolicAWEModels.set_body_frame_damping(sys, 100.0, 1:38)
 
 wing_points = [p for p in sys.points if p.type == WING]
 @info "System setup" n_wing_points=length(wing_points) n_points=length(sys.points) n_segments=length(sys.segments)
@@ -213,10 +196,10 @@ for step in 1:NUM_STEPS
     t = step * DT
 
     # Decay world damping exponentially over DECAY_STEPS
-    if step <= DECAY_STEPS
-        damping = WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS)
-        SymbolicAWEModels.set_world_frame_damping(sys, damping, 1:38)
-    end
+    # if step <= DECAY_STEPS
+    damping = WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS)
+    SymbolicAWEModels.set_world_frame_damping(sys, damping, 1:38)
+    # end
 
     # Heading control
     wing = sys.wings[1]
@@ -249,8 +232,7 @@ for step in 1:NUM_STEPS
     # Progress updates
     if step % 20 == 0 || step == NUM_STEPS
         wing = sys.wings[1]
-        current_damping = step <= DECAY_STEPS ?
-            WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS) : 0.0
+        current_damping = WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS)
         @info "Step $step/$NUM_STEPS (t = $(round(t, digits=2)) s)" damping=round(current_damping, digits=1) elevation=round(rad2deg(wing.elevation), digits=2) azimuth=round(rad2deg(wing.azimuth), digits=2) heading=round(rad2deg(wing.heading), digits=2)
     end
 end

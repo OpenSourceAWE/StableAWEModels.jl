@@ -32,17 +32,13 @@ CSV_PATH = "data/v3/v3_2025-10-09-ekf.csv"
 WARN_STEP = false  # Show distance warnings
 
 # Geometry configuration (must match settle_refine_wing.jl output)
-REDUCE_TIP_LE = true         # Reduce tip LE segments (47,48,57,58)
-REDUCE_TE = true             # Reduce TE segments
-DEPOWER_PERCENTAGE = 40      # depower [0, 100]
+DEPOWER_PERCENTAGE = 39.37      # depower [0, 100]
 TETHER_LENGTH = 248          # Total tether length (m)
-TE_FRAC = 0.95               # Factor for TE wires (segments 20-28)
+TE_FRAC = 0.95               # Factor for TE wires (segments 20-28), 1.0 = no change
+TIP_REDUCTION = 0.4          # Tip LE reduction (m), 0.0 = no change
 
 # Build geometry filename suffix
-TETHER_INT = Int(round(TETHER_LENGTH))
-TIP_LE_STR = REDUCE_TIP_LE ? "tipLE" : "no_tipLE"
-TE_STR = REDUCE_TE ? "TE$(Int(round(TE_FRAC*100)))" : "no_TE"
-GEOM_SUFFIX = "depower$(DEPOWER_PERCENTAGE)_tether$(TETHER_INT)_$(TIP_LE_STR)_$(TE_STR)"
+GEOM_SUFFIX = "depower$(DEPOWER_L0)_tip$(TIP_REDUCTION)_te$(TE_FRAC)"
 
 STRUC_YAML_PATH = "data/v3/struc_geometry_$(GEOM_SUFFIX).yaml"
 AERO_YAML_PATH = "data/v3/aero_geometry_$(GEOM_SUFFIX).yaml"
@@ -56,7 +52,7 @@ VIDEO_FPS = 29.97
 
 # Maneuver selection - specify by UTC time
 if SECTION == "straight_right"
-    START_UTC = "15:36:29.9"
+    START_UTC = "15:36:29.0"
     END_UTC = "15:36:37.1"  # Extended to include frame 7362
     EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
     EXTRA_POINTS_FRAME = 7182
@@ -76,25 +72,20 @@ end
 # Steering calibration
 STEERING_L0 = 1.6  # Neutral steering tape length (m) TODO: was 1.6
 STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
-DEPOWER_L0 = 0.2 # TODO: was 0.2
+DEPOWER_L0 = 0.0
 DEPOWER_GAIN = 5.0
 
 STEERING_MULTIPLIER = 1.0
-DEPOWER_OFFSET = 0.0
 
 # Restabilize: update YAML with final sys_struct positions
 RESTABLE = false
-
 # Stop immediately after plotting at EXTRA_POINTS_FRAME
 STOP_EARLY = false
-
-INITIAL_DAMPING = [0.0, 300.0, 600.0]
-DECAY_TIME = 1.0
 MIN_DAMPING = [0.0, 60, 120]
 
 # PID controller parameters for heading control
-HEADING_KP = 0.0
-HEADING_TAU_I = 0.0
+HEADING_KP = 0.5
+HEADING_TAU_I = 10.0
 HEADING_KD = 0.0
 DT_CONTROL = 0.001
 
@@ -441,12 +432,12 @@ function update_vel_from_csv!(sys, row, brake, heading_pid)
     winch.set_value = ff_torque
 
     # Update depower from CSV
-    L_depower = depower_percentage_to_length(row.depower + DEPOWER_OFFSET)
+    L_depower = depower_percentage_to_length(row.depower)
     segments[88].l0 = L_depower
 
     # Return torque and effective tape percentages (with multiplier/offset + control)
     effective_steering = steering * STEERING_MULTIPLIER + steering_control * 100
-    effective_depower = row.depower + DEPOWER_OFFSET
+    effective_depower = row.depower
     return winch.set_value, effective_steering, effective_depower
 end
 
@@ -457,7 +448,7 @@ Update system structure from a single CSV row.
 Updates wing orientation from Euler angles and position via transform system.
 Uses nonlinear solve to find rotation angle that achieves desired heading.
 """
-function update_sys_struct_from_csv!(sys, row)
+function update_sys_struct_from_csv!(sys, row; extra_vel_body_x=0.0)
     @unpack wings, points, winches, segments, transforms = sys
     wing = wings[1]
     transform = transforms[1]
@@ -474,20 +465,18 @@ function update_sys_struct_from_csv!(sys, row)
     curr_pos = wing.pos_w
     delta_pos = csv_pos - curr_pos
     # apply transform
-    for (n, point_idx) in enumerate(39:44)
-        points[point_idx].pos_b .= [0.0, 0.0, -n * row.tether_len / 6 * 1.01]
-    end
     transform.elevation = KiteUtils.calc_elevation(csv_pos)
     transform.azimuth = KiteUtils.azimuth_east(csv_pos)
     transform.heading = csv_heading
     SymbolicAWEModels.reinit!([transform], sys)
 
-    # apply vel
+    # apply vel with optional extra velocity in body -z direction (upward)
     csv_vel = [row.vx, row.vy, row.vz]
-    wing.vel_w .= csv_vel
+    extra_vel_w = extra_vel_body_x * wing.R_b_w[:, 1]
+    wing.vel_w .= csv_vel + extra_vel_w
     for point in points
         transform_frac = point.pos_w ⋅ normalize(wing.pos_w) / norm(wing.pos_w)
-        point.vel_w .= transform_frac * csv_vel
+        point.vel_w .= transform_frac * (csv_vel + extra_vel_w)
     end
 
     # update tether length and velocity
@@ -497,7 +486,7 @@ function update_sys_struct_from_csv!(sys, row)
 
     # Convert CSV percentages to tape lengths
     L_left, L_right = steering_percentage_to_lengths(row.steering)
-    L_depower = depower_percentage_to_length(row.depower + DEPOWER_OFFSET)
+    L_depower = depower_percentage_to_length(row.depower)
 
     segments[87].l0 = L_left   # Left steering tape
     segments[89].l0 = L_right  # Right steering tape
@@ -530,7 +519,7 @@ function run_physics_replay(csv_path::String;
     set.l_tether = TETHER_LENGTH
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
-    depower_int = Int(round(40+DEPOWER_OFFSET))
+    depower_int = Int(round(DEPOWER_PERCENTAGE))
     @info "Using depower int $(depower_int)"
     vsm_set.wings[1].geometry_file = AERO_YAML_PATH
     sys_struct = load_sys_struct_from_yaml(STRUC_YAML_PATH;
@@ -567,7 +556,7 @@ function run_physics_replay(csv_path::String;
     @info "Replaying CSV data..."
     replay_start = time()
     sys = sam.sys_struct
-    SymbolicAWEModels.set_body_frame_damping(sys, INITIAL_DAMPING, 1:38)
+    SymbolicAWEModels.set_body_frame_damping(sys, MIN_DAMPING, 1:38)
 
     # Calculate dt from interpolated CSV timesteps
     dt = csv_data.time[2] - csv_data.time[1]
@@ -648,13 +637,7 @@ function run_physics_replay(csv_path::String;
                 SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
             end
 
-            # Update damping
             t = csv_row.time
-            if t <= DECAY_TIME
-                current_damping = (INITIAL_DAMPING - MIN_DAMPING) *
-                                  (1.0 - t / DECAY_TIME) + MIN_DAMPING
-                SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, current_damping, 1:38)
-            end
 
             # Apply control and step
             brake = true
@@ -685,12 +668,18 @@ function run_physics_replay(csv_path::String;
                Int(round(csv_row.video_frame)) == EXTRA_POINTS_FRAME
                 @info "Plotting comparison at frame $(EXTRA_POINTS_FRAME)..."
                 extra_pts, extra_groups = load_extra_points(EXTRA_POINTS_CSV, sam.sys_struct)
+                settled_sys = load_sys_struct_from_yaml(STRUC_YAML_PATH;
+                    system_name="v3", set, wing_type=SymbolicAWEModels.REFINE, vsm_set)
+                for point in settled_sys.points
+                    point.pos_b .= point.pos_cad
+                end
 
                 # Save PDFs for all three views
                 CairoMakie.activate!()
                 for dir in (:front, :side, :top)
-                    scene = plot_body_frame_local(sam.sys_struct;
-                        extra_points=extra_pts, extra_groups=extra_groups, dir)
+                    scene = plot_body_frame_local([settled_sys, sam.sys_struct];
+                        extra_points=extra_pts, extra_groups=extra_groups, dir,
+                        point_idxs=1:38, labels=["semi-static sim", "csv replay"])
                     pdf_filename = "data/v3/body_frame_$(dir)_frame$(EXTRA_POINTS_FRAME)_$(GEOM_SUFFIX).pdf"
                     save(pdf_filename, scene)
                     @info "Plot saved" pdf_filename
@@ -698,11 +687,14 @@ function run_physics_replay(csv_path::String;
 
                 # Display interactive plot
                 GLMakie.activate!()
-                comparison_scene = plot_body_frame_local(sam.sys_struct;
-                    extra_points=extra_pts, extra_groups=extra_groups, dir=:side)
-                scr = display(comparison_scene)
-                @info "Close the plot window to continue..."
-                wait(scr)
+                for dir in (:front, :side, :top)
+                    comparison_scene = plot_body_frame_local([settled_sys, sam.sys_struct];
+                        extra_points=extra_pts, extra_groups=extra_groups, dir,
+                        point_idxs=1:38, labels=["semi-static sim", "csv replay"])
+                    scr = display(comparison_scene)
+                    @info "Close the plot window to continue..."
+                    wait(scr)
+                end
 
                 if STOP_EARLY
                     @info "STOP_EARLY enabled, breaking out of loop"
