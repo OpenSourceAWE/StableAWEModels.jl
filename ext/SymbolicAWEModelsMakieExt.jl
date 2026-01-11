@@ -2640,7 +2640,7 @@ Plot the angle of attack distribution along the wing span.
 - `figsize`: Figure size tuple (default: (800, 400))
 
 # Returns
-- Figure with angle of attack vs spanwise position
+- Figure with angle of attack vs panel index
 """
 function SymbolicAWEModels.plot_aoa(sys_struct::SystemStructure;
                                     wing_idx::Int=1,
@@ -2650,20 +2650,20 @@ function SymbolicAWEModels.plot_aoa(sys_struct::SystemStructure;
     # Get alpha distribution (in radians)
     alpha_dist = wing.vsm_solver.sol.alpha_dist
 
-    # Get spanwise positions from panel aero centers
-    y_coords = [panel.aero_center[2] for panel in wing.vsm_aero.panels]
+    # Use panel indices for x-axis
+    panel_indices = 1:length(alpha_dist)
 
     # Convert to degrees for plotting
     alpha_deg = rad2deg.(alpha_dist)
 
     fig = Figure(size=figsize)
     ax = Axis(fig[1, 1];
-              xlabel="Spanwise position y [m]",
+              xlabel="Panel index",
               ylabel="Angle of attack [deg]",
               title="Angle of Attack Distribution")
 
-    lines!(ax, y_coords, alpha_deg; linewidth=2)
-    scatter!(ax, y_coords, alpha_deg; markersize=6)
+    lines!(ax, panel_indices, alpha_deg; linewidth=2)
+    scatter!(ax, panel_indices, alpha_deg; markersize=6)
 
     return fig
 end

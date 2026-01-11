@@ -52,12 +52,14 @@ VIDEO_FPS = 29.97
 
 # Maneuver selection - specify by UTC time
 if SECTION == "straight_right"
-    START_UTC = "15:36:29.0"
-    END_UTC = "15:36:37.1"  # Extended to include frame 7362
-    EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
-    EXTRA_POINTS_FRAME = 7182
+    START_UTC = "15:36:31.0"
+    END_UTC = "15:36:41.1"  # Extended to include frame 7362
+    # EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
+    # EXTRA_POINTS_FRAME = 7182
     # EXTRA_POINTS_CSV = "data/v3/right_turn_reelout_frame_7362.csv"
     # EXTRA_POINTS_FRAME = 7362
+    EXTRA_POINTS_CSV = nothing
+    EXTRA_POINTS_FRAME = nothing
 elseif SECTION == "straight_left"
     START_UTC = "15:36:49.0"
     END_UTC = "15:36:52.0"
@@ -75,7 +77,7 @@ STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
 DEPOWER_L0 = 0.0
 DEPOWER_GAIN = 5.0
 
-STEERING_MULTIPLIER = 1.0
+STEERING_MULTIPLIER = 5.0
 
 # Restabilize: update YAML with final sys_struct positions
 RESTABLE = false
@@ -84,7 +86,7 @@ STOP_EARLY = false
 MIN_DAMPING = [0.0, 60, 120]
 
 # PID controller parameters for heading control
-HEADING_KP = 0.5
+HEADING_KP = 0.0
 HEADING_TAU_I = 10.0
 HEADING_KD = 0.0
 DT_CONTROL = 0.001
@@ -687,14 +689,15 @@ function run_physics_replay(csv_path::String;
 
                 # Display interactive plot
                 GLMakie.activate!()
-                for dir in (:front, :side, :top)
-                    comparison_scene = plot_body_frame_local([settled_sys, sam.sys_struct];
-                        extra_points=extra_pts, extra_groups=extra_groups, dir,
-                        point_idxs=1:38, labels=["semi-static sim", "csv replay"])
-                    scr = display(comparison_scene)
-                    @info "Close the plot window to continue..."
-                    wait(scr)
-                end
+                comparison_scene = plot_body_frame_local([settled_sys, sam.sys_struct];
+                    extra_points=extra_pts, extra_groups=extra_groups, dir=:side,
+                    point_idxs=1:38, labels=["semi-static sim", "csv replay"])
+                scr = display(comparison_scene)
+                @info "Close the plot window to continue..."
+                wait(scr)
+                aoa = plot_aoa(sam.sys_struct)
+                scr = display(aoa)
+                wait(scr)
 
                 if STOP_EARLY
                     @info "STOP_EARLY enabled, breaking out of loop"

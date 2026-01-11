@@ -190,6 +190,10 @@ sys_state = SysState(sam)
 sys_state.time = 0.0
 log!(logger, sys_state)
 
+# Storage for steering control
+steering_times = Float64[]
+steering_values = Float64[]
+
 # Simulation loop with repositioning every step
 @info "Starting settling simulation..."
 for step in 1:NUM_STEPS
@@ -209,9 +213,20 @@ for step in 1:NUM_STEPS
     delta_heading = -wrap_to_pi(HEADING_SETPOINT - curr_heading)
     steering_control = DiscretePIDs.calculate_control!(
         heading_pid, 0.0, delta_heading, 0.0)
+
+    # In last 2 seconds, linearly ramp steering to zero
+    total_time = NUM_STEPS * DT
+    ramp_duration = 2.0
+    if t > total_time - ramp_duration
+        ramp_frac = (total_time - t) / ramp_duration
+        steering_control *= ramp_frac
+    end
+
     L_left, L_right = steering_percentage_to_lengths(STEERING_PERCENTAGE)
     sys.segments[87].l0 = L_left + STEERING_GAIN * steering_control
     sys.segments[89].l0 = L_right - STEERING_GAIN * steering_control
+    push!(steering_times, t)
+    push!(steering_values, steering_control * 100)  # Convert to percentage
 
     # Advance one timestep
     try
@@ -318,11 +333,14 @@ for dir in (:front, :side, :top)
     @info "Plot saved" pdf_filename
 end
 
+# Create steering data for plotting
+steering_data = (time=steering_times, steering=steering_values)
+
 # Save 2D plot
 fig = plot([sam.sys_struct], [syslog];
      plot_tether=false, plot_aero_force=false, plot_kite_vel=true,
      plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=false,
-     plot_winch_force=true, setpoints)
+     plot_winch_force=true, setpoints, tape_lengths=[steering_data])
 pdf_2d = "data/v3/settle_2d_frame$(EXTRA_POINTS_FRAME)_$(DEST_SUFFIX).pdf"
 save(pdf_2d, fig)
 @info "Plot saved" pdf_2d
@@ -332,4 +350,4 @@ GLMakie.activate!()
 fig = plot([sam.sys_struct], [syslog];
      plot_tether=false, plot_aero_force=false, plot_kite_vel=true,
      plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=false,
-     plot_winch_force=true, setpoints)
+     plot_winch_force=true, setpoints, tape_lengths=[steering_data])
