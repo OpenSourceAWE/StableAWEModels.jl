@@ -71,7 +71,7 @@ else
 end
 
 # Steering multiplier for CSV replay
-STEERING_MULTIPLIER = 5.0
+STEERING_MULTIPLIER = 1.0
 
 # Restabilize: update YAML with final sys_struct positions
 RESTABLE = false
