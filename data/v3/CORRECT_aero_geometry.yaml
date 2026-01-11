@@ -105,7 +105,7 @@ wing_airfoils:
   #   - inviscid:
   #       no further data is required 
   # ---------------------------------------------------------------
-  alpha_range: [-10, 31, 0.5] # [deg], in this range the polars are calculated
+  alpha_range: [-10, 40, 0.5] # [deg], in this range the polars are calculated
   reynolds: !!float 1e6 # Reynolds number
   headers: [airfoil_id, type, info_dict]
   data:
@@ -128,6 +128,25 @@ wing_airfoils:
     - [17, polars, {csv_file_path: "2D_polars_CFD/17.csv"}]
     - [18, polars, {csv_file_path: "2D_polars_CFD/18.csv"}]
     - [19, polars, {csv_file_path: "2D_polars_CFD/19.csv"}]
+    # - [1, polars, {csv_file_path: "2D_polars_CFD_drag_increase/1.csv"}]
+    # - [2, polars, {csv_file_path: "2D_polars_CFD_drag_increase/2.csv"}]
+    # - [3, polars, {csv_file_path: "2D_polars_CFD_drag_increase/3.csv"}]
+    # - [4, polars, {csv_file_path: "2D_polars_CFD_drag_increase/4.csv"}]
+    # - [5, polars, {csv_file_path: "2D_polars_CFD_drag_increase/5.csv"}]
+    # - [6, polars, {csv_file_path: "2D_polars_CFD_drag_increase/6.csv"}]
+    # - [7, polars, {csv_file_path: "2D_polars_CFD_drag_increase/7.csv"}]
+    # - [8, polars, {csv_file_path: "2D_polars_CFD_drag_increase/8.csv"}]
+    # - [9, polars, {csv_file_path: "2D_polars_CFD_drag_increase/9.csv"}]
+    # - [10, polars, {csv_file_path: "2D_polars_CFD_drag_increase/10.csv"}]
+    # - [11, polars, {csv_file_path: "2D_polars_CFD_drag_increase/11.csv"}]
+    # - [12, polars, {csv_file_path: "2D_polars_CFD_drag_increase/12.csv"}]
+    # - [13, polars, {csv_file_path: "2D_polars_CFD_drag_increase/13.csv"}]
+    # - [14, polars, {csv_file_path: "2D_polars_CFD_drag_increase/14.csv"}]
+    # - [15, polars, {csv_file_path: "2D_polars_CFD_drag_increase/15.csv"}]
+    # - [16, polars, {csv_file_path: "2D_polars_CFD_drag_increase/16.csv"}]
+    # - [17, polars, {csv_file_path: "2D_polars_CFD_drag_increase/17.csv"}]
+    # - [18, polars, {csv_file_path: "2D_polars_CFD_drag_increase/18.csv"}]
+    # - [19, polars, {csv_file_path: "2D_polars_CFD_drag_increase/19.csv"}]
     # - [1, polars, {csv_file_path: "2D_polars_CFD_re5e5_converged_kasper_run_3_fitted_pchip_T26_drag_2x/1.csv"}]
     # - [2, polars, {csv_file_path: "2D_polars_CFD_re5e5_converged_kasper_run_3_fitted_pchip_T26_drag_2x/2.csv"}]
     # - [3, polars, {csv_file_path: "2D_polars_CFD_re5e5_converged_kasper_run_3_fitted_pchip_T26_drag_2x/3.csv"}]

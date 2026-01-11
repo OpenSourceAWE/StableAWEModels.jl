@@ -161,16 +161,44 @@ function print_and_plot_wing(lg, sam; is_print::Bool=false)
 
       ## print bridle nodes in body frame
       # Bridle points are points 22:38 in the v3 geometry (DYNAMIC points tied by bridle segments)
-      bridle_point_idxs = collect(22:38)
+      # Symmetric pairs: (22,25), (23,24), (26,27), (28,31), (29,30), (32,33), (34,36), (35), (37,38)
+      # For each pair, we use the minimum y-coordinate as baseline
+      bridle_pairs = [
+         (22, 25), (23, 24), (26, 27), (28, 31), (29, 30), 
+         (32, 33), (34, 36), (37, 38)
+      ]
+      bridle_center = [35]
+      
       println("\n# Bridle node positions (body frame):")
-      for idx in bridle_point_idxs
-         pos_w = [
-            lg_last.X[idx],
-            lg_last.Y[idx],
-            lg_last.Z[idx],
-         ]
+      
+      # Process symmetric pairs
+      for (idx_pos, idx_neg) in bridle_pairs
+         # Get positions for positive y node
+         pos_w_pos = [lg_last.X[idx_pos], lg_last.Y[idx_pos], lg_last.Z[idx_pos]]
+         pos_b_pos = R_b_w' * (pos_w_pos .- origin_w)
+         
+         # Get positions for negative y node
+         pos_w_neg = [lg_last.X[idx_neg], lg_last.Y[idx_neg], lg_last.Z[idx_neg]]
+         pos_b_neg = R_b_w' * (pos_w_neg .- origin_w)
+         
+         # Calculate center point between the two y-coordinates
+         y_center = (pos_b_pos[2] + pos_b_neg[2]) / 2.0
+         
+         # Calculate offset from center (half the distance between them)
+         y_offset = (pos_b_pos[2] - pos_b_neg[2]) / 2.0
+         
+         # Print positive y node (adjusted to be symmetric)
+         println("- [$idx_pos, [$(Float64(pos_b_pos[1])), $(Float64(y_center + y_offset)), $(Float64(pos_b_pos[3]))], DYNAMIC, 1, 1, 0.0, 30.000, 0.0, 0.0, 0.0]")
+         
+         # Print negative y node (adjusted to be symmetric)
+         println("- [$idx_neg, [$(Float64(pos_b_neg[1])), $(Float64(y_center - y_offset)), $(Float64(pos_b_neg[3]))], DYNAMIC, 1, 1, 0.0, 30.000, 0.0, 0.0, 0.0]")
+      end
+      
+      # Process center node
+      for idx in bridle_center
+         pos_w = [lg_last.X[idx], lg_last.Y[idx], lg_last.Z[idx]]
          pos_b = R_b_w' * (pos_w .- origin_w)
-         println("- [$idx, [$(Float64(pos_b[1])), $(Float64(pos_b[2])), $(Float64(pos_b[3]))], DYNAMIC, 1, 1, 0.0, 10.0, 0.0]")
+         println("- [$idx, [$(Float64(pos_b[1])), $(Float64(pos_b[2])), $(Float64(pos_b[3]))], DYNAMIC, 1, 1, 0.1, 30.000, 0.0, 0.0, 0.0]")
       end
    end
 
@@ -642,8 +670,8 @@ function compute_line_stretch(lg, sam; window_seconds::Real=50.0, segment_l0_adj
 end
 
 # log_name = "batch_2026_01_07_10_58_14/circle__up_24_us_15_vw_8_lt_260_run_008_date_2026_01_07_11_26_11"
-log_name = "zenith_circle__up_40_us_30_vw_15_lt_150_date_2026_01_09_12_10"
-# log_name = "batch_2026_01_08_15_52_33/circle__up_22_us_22_vw_9_lt_275_run_004_date_2026_01_08_15_58_42"
+# log_name = "zenith_circle__up_40_us_20_vw_15_lt_275_date_2026_01_09_14_49"
+log_name = "batch_2026_01_08_15_52_33/circle__up_22_us_22_vw_9_lt_275_run_004_date_2026_01_08_15_58_42"
 lg, sam, up, us, v_wind, lt = load_log_and_system(log_name=log_name)
 
 # Log alignment info before plotting to decide tension source
@@ -674,9 +702,9 @@ stretch_info = compute_line_stretch(
 ### plot time series
 fig_time = plot_time_series(lg, sam)
 ## show 3D animation
-scene = replay(lg, sam.sys_struct; autoplay=false, loop=true)
+scene = replay(lg, sam.sys_struct; autoplay=false, loop=true, show_panes=false)
 ### show 2D wing node plots
-fig_wing = print_and_plot_wing(lg, sam,is_print=false)
+fig_wing = print_and_plot_wing(lg, sam,is_print=true)
 
 scr1=display(fig_time)
 wait(scr1)

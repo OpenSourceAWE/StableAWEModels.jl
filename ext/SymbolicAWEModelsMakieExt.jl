@@ -2926,11 +2926,12 @@ Replay a SysLog with interactive 3D visualization and playback controls.
 - `sys::SystemStructure`: The system structure matching the log's topology
 
 # Keyword Arguments
-- `replay_speed::Real=1.0`: Replay speed factor (1.0 = real-time, 2.0 = 2x speed, etc.)
-- `autoplay::Bool=false`: Start playing automatically when opened
-- `loop::Bool=false`: Loop playback continuously
-- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
-- All other keyword arguments are passed through to the SystemStructure plot function
+# - `replay_speed::Real=1.0`: Replay speed factor (1.0 = real-time, 2.0 = 2x speed, etc.)
+# - `autoplay::Bool=false`: Start playing automatically when opened
+# - `loop::Bool=false`: Loop playback continuously
+# - `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
+# - `show_panes::Bool=true`: Show gray background reference panes (set `false` for white-only background)
+# - All other keyword arguments are passed through to the SystemStructure plot function
 
 # Returns
 - A Scene with interactive controls overlaid on the 3D visualization
@@ -2962,6 +2963,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                       autoplay=false,
                       loop=false,
                       vector_scale=1.0,
+                      show_panes::Bool=true,
                       kwargs...)
 
     n_frames = length(lg.syslog)
@@ -2971,7 +2973,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     update_from_sysstate!(sys, lg.syslog[1])
 
     # Create initial plot which sets up observables and scene (following standard Makie pattern)
-    scene = plot(sys; vector_scale, kwargs...)
+    scene = plot(sys; vector_scale, show_panes=show_panes, kwargs...)
 
     # Create pixel-space subscene for UI controls overlay
     ui_scene = Scene(scene, viewport=scene.viewport, clear=false, camera=campixel!)

@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-TU Delft V3 Kite: Zenith hold followed by circular flight
+TU Delft V3 Kite: Batch run for zenith hold followed by circular flight
 
-This example keeps the kite at a target azimuth (zenith) and then transitions
-into a circular flight pattern using the same simulated system.
+This script runs multiple parameter combinations for the two-phase v3 kite simulation.
 """
 
 using SymbolicAWEModels
@@ -43,7 +42,7 @@ function adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_
     if !isempty(sys.transforms)
         transform = sys.transforms[1]
         if !isempty(sys.wings) && norm(sys.wings[1].pos_w) > 0
-            target_pos = normalize(sys.wings[1].pos_w) * tether_length
+            target_pos = sys.wings[1].pos_w
             transform.elevation = KiteUtils.calc_elevation(target_pos)
             transform.azimuth = KiteUtils.azimuth_east(target_pos)
         end
@@ -115,6 +114,8 @@ independent durations/FPS.
 - `tether_length::Float64=150.0`: Tether length [m]
 - `elevation::Union{Nothing,Float64}=nothing`: Initial elevation angle [°] (overrides YAML if provided)
 - `g_earth::Union{Nothing,Float64}=nothing`: Gravitational acceleration [m/s²] (overrides YAML if provided)
+- `save_subdir::AbstractString=""`: Subfolder under `processed_data/v3_kite` for permanent saves
+- `run_tag::AbstractString=""`: Extra tag appended to the log name
 
 # Returns
 - `SysLog`: The simulation log containing time history data
@@ -137,12 +138,12 @@ function run_v3_kite(wing_type::WingType;
                      show_plots=false,
                      v_wind=15.4,
                      upwind_dir=-90.0,
-                     heading_p=0.0, # Proportional gain
-                     heading_i=0.1, # Integral gain
-                     heading_d=0.0, # Derivative gain
-                     winch_p=1000.0, # Proportional gain [N/m]
-                     winch_i=100.0, # Integral gain [N/(m·s)]
-                     winch_d=50.0, # Derivative gain [N·s/m]
+                     heading_p=0.0,
+                     heading_i=0.1,
+                     heading_d=0.0,
+                     winch_p=1000.0,
+                     winch_i=100.0,
+                     winch_d=50.0,
                      REFINE = true,
                      target_azimuth=0.0,
                      us=0.1,
@@ -150,7 +151,8 @@ function run_v3_kite(wing_type::WingType;
                      tether_length=150.0,
                      elevation=nothing,
                      g_earth=nothing,
-                     )
+                     save_subdir="",
+                     run_tag="")
 
     wing_type_str = wing_type == SymbolicAWEModels.REFINE ? "REFINE" : "QUATERNION"
     @info "Running v3 kite simulation with $wing_type_str wing type (zenith -> circular)..."
@@ -180,7 +182,6 @@ function run_v3_kite(wing_type::WingType;
     sys = load_sys_struct_from_yaml(struc_yaml_path;
         system_name=model_name, set, wing_type, vsm_set)
 
-
     # Initialize damping with per-axis values [x, y, z]
     SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern * initial_damping)
 
@@ -200,7 +201,6 @@ function run_v3_kite(wing_type::WingType;
     # Initialize model
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
-
 
     # Create logger (two phases with independent settings)
     n_steps_zenith = max(1, Int(round(fps_zenith * sim_time_zenith)))
@@ -247,7 +247,6 @@ function run_v3_kite(wing_type::WingType;
     @info "Winch initialized" initial_force initial_torque drum_radius=winch.drum_radius gear_ratio=winch.gear_ratio friction=winch.friction
 
     # Create PID controller for tether winch (maintain constant length)
-    # Output is force [N], will be converted to torque in control loop
     max_force = 50000.0  # N
     winch_pid = DiscretePID(;
         K = winch_p,
@@ -258,15 +257,6 @@ function run_v3_kite(wing_type::WingType;
         umax = max_force
     )
     @info "Winch PID controller initialized" nominal_tether_length winch_p winch_i winch_d
-
-    # #TODO: WORLD_DAMPING
-    # # Example: Apply damping only to specific wing points
-    # for point in sys.points
-    #     if point.type == WING # specific node IDs
-    #         point.world_frame_damping = SVector(10.0, 10.0, 10.0)  # y,z damping in world frame
-    #     end
-    # end
-
 
     # Optional initial plot
     if show_plots
@@ -293,30 +283,30 @@ function run_v3_kite(wing_type::WingType;
         push!(azimuth_setpoint, target_azimuth)
 
         # Ramp power-tape change on segment 88
-        ramp_factor = ramp_time_up > 0 ? clamp((t - start_ramp_time) / ramp_time_up, 0.0, 1.0) : 1.0
-        power_control = power_tape_change * ramp_factor
+        if t >= start_ramp_time
+            elapsed_ramp = t - start_ramp_time
+            ramp_factor = min(elapsed_ramp / ramp_time_up, 1.0)
+            power_control = power_tape_change * ramp_factor
+        else
+            power_control = 0.0
+        end
         sys.segments[88].l0 = nominal_l0_88 + power_control
 
         # Apply differential steering (opposite signs for turning moment)
         sys.segments[87].l0 = nominal_l0_87 + steering_control
         sys.segments[89].l0 = nominal_l0_89 - steering_control
 
-        # PID winch control to maintain constant tether length
-        current_tether_length = sys.winches[1].tether_len
-        winch_force_control = winch_pid(nominal_tether_length, current_tether_length, 0.0)
-
-        # Convert force to torque: τ = -r/G * F + friction
-        winch_torque = -winch.drum_radius / winch.gear_ratio * winch_force_control + winch.friction
-        sys.winches[1].set_value = -winch_torque
+        # Winch PID: maintain constant tether length
+        current_tether_len = winch.tether_len
+        force_correction = winch_pid(nominal_tether_length, current_tether_len, 0.0)
+        winch_torque = -winch.drum_radius / winch.gear_ratio * force_correction + winch.friction
+        winch.set_value = winch_torque
 
         # Advance simulation
         try
-            next_step!(sam; set_values=[-winch_torque], dt=Δt_zenith, vsm_interval=1)
+            next_step!(sam; set_values=[winch_torque], dt=Δt_zenith, vsm_interval=1)
         catch err
-            if err isa AssertionError
-                @error "next_step! failed during zenith phase" step
-                break
-            end
+            @error "Simulation failed at zenith phase" t step error=err
             rethrow(err)
         end
 
@@ -324,13 +314,6 @@ function run_v3_kite(wing_type::WingType;
         update_sys_state!(sys_state, sam)
         sys_state.time = t
         log!(logger, sys_state)
-
-        # Progress updates
-        if step % max(1, div(n_steps_zenith, 10)) == 0 || step == n_steps_zenith
-            elapsed = time() - sim_start_time
-            times_realtime = t / elapsed
-            @info "  Zenith step $step/$n_steps_zenith (t = $(round(t, digits=2)) s)" times_realtime=round(times_realtime, digits=2)
-        end
     end
 
     # Phase 2: Circular flight
@@ -352,49 +335,38 @@ function run_v3_kite(wing_type::WingType;
     steer_start_89 = sys.segments[89].l0
 
     for step in 1:n_steps_circles
-        t_stage = step * Δt_circles
-        t_total = sim_time_zenith + t_stage
+        t = sim_time_zenith + step * Δt_circles
+        phase_t = step * Δt_circles
 
         # Update damping: decay to min_damping
-        current_damping = max(initial_damping * (1.0 - t_stage / decay_time), min_damping)
+        current_damping = max(initial_damping * (1.0 - phase_t / decay_time), min_damping)
         SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * current_damping)
 
-        ramp_factor = min(t_stage / ramp_time_us, 1.0)
-
-        # Power and steering ramp toward circular flight targets
+        # Ramp steering and power during circular phase
+        ramp_factor = min(phase_t / ramp_time_us, 1.0)
+        
+        # Ramp power
         sys.segments[88].l0 = power_start + (power_target - power_start) * ramp_factor
+        
+        # Ramp steering
         sys.segments[87].l0 = steer_start_87 + (steer_target_87 - steer_start_87) * ramp_factor
         sys.segments[89].l0 = steer_start_89 + (steer_target_89 - steer_start_89) * ramp_factor
 
-        # Update wind speed (kept constant here, ramp hook retained)
-        sam.sys_struct.set.v_wind = v_wind_base + vw_change
-
-        # Fixed tether length: brake engaged; no winch torque
-        winch_torque = 0.0
-        sys.winches[1].set_value = -winch_torque
+        # Ramp wind speed
+        sam.sys_struct.set.v_wind = v_wind_base + vw_change * ramp_factor
 
         # Advance simulation
         try
-            next_step!(sam; set_values=[-winch_torque], dt=Δt_circles, vsm_interval=1)
+            next_step!(sam; set_values=[0.0], dt=Δt_circles, vsm_interval=1)
         catch err
-            if err isa AssertionError
-                @error "next_step! failed during circular phase" step
-                break
-            end
+            @error "Simulation failed at circular phase" t step error=err
             rethrow(err)
         end
 
         # Log state
         update_sys_state!(sys_state, sam)
-        sys_state.time = t_total
+        sys_state.time = t
         log!(logger, sys_state)
-
-        # Progress updates
-        if step % max(1, div(n_steps_circles, 10)) == 0 || step == n_steps_circles
-            elapsed = time() - sim_start_time
-            times_realtime = t_total / elapsed
-            @info "  Circle step $step/$n_steps_circles (t = $(round(t_total, digits=2)) s)" times_realtime=round(times_realtime, digits=2)
-        end
     end
 
     # Calculate performance
@@ -411,76 +383,188 @@ function run_v3_kite(wing_type::WingType;
     syslog = load_log(log_name)
 
     # Permanent save
-    save_dir = joinpath("processed_data", "v3_kite")
+    save_root = joinpath("processed_data", "v3_kite")
+    save_dir = isempty(save_subdir) ? save_root : joinpath(save_root, save_subdir)
     isdir(save_dir) || mkpath(save_dir)
-    timestamp = Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM")
+    timestamp = Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM_SS")
     up_tag = Int(round(up*100))
     us_tag = Int(round(us*100))
     v_wind_tag = Int(round(v_wind))
-    log_name = "zenith_circle__up_$(up_tag)_us_$(us_tag)_vw_$(v_wind_tag)_lt_$(lt_tag)_date_$(timestamp)"
+    elev_tag = elevation !== nothing ? Int(round(elevation)) : "yaml"
+    g_tag = g_earth !== nothing ? Int(round(g_earth*10)) : "yaml"
+    log_name = "zenith_circle__up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind_tag)" * "_" * "lt_$(lt_tag)" * "_" * "el_$(elev_tag)" * "_" * "g_$(g_tag)"
+    if !isempty(run_tag)
+        log_name *= "_" * run_tag
+    end
+    log_name *= "_date_" * timestamp
     save_log(logger, log_name; path=save_dir)
 
     return syslog, sam, azimuth_setpoint
 end
 
-# ============= Main Execution =============
+# ==========================================
+# =============== Batch Run ================
+# ==========================================
 
-# Run both simulations
-syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
-    # general settings
-    #2019
-    v_wind=8.6,
-    v_wind_base=8.6,
-    up=0.18, #0.22
-    tether_length=268.0,
-    elevation=65.0, #65.0, #60.0,
-    # #2025
-    # v_wind=7.6,
-    # v_wind_base=7.6,
-    # up=0.42,
-    # tether_length=262.0,
-    # elevation=45.0,
-    g_earth=9.81,
-    # settings zenith initialisation flight
-    sim_time_zenith=300, 
-    fps_zenith=60,
-    start_ramp_time=0.1,
-    ramp_time_up=2.0,
-    initial_damping=100.0,
-    damping_pattern=[0.0, 0.0, 1.0],
-    decay_time=2.0,
-    min_damping=1.0,
-    max_us_zenith = 0.02,
-    target_azimuth = 0.0,
-    # settings circular flight
-    sim_time_circles=0,
-    fps_circles=60,
-    ramp_time_us = 5.0,
-    us=0.2,
-)
+# Batch sweep configuration
+elevation_vals  = [20,25,30,35,45,50,55,60,65,70,75,80,85]  # Initial elevation angles [°]
+g_earth_vals    = [0.0]  # Gravitational acceleration [m/s²]
+us_vals         = [0.0]  # Steering inputs
+up_vals         = [0.18]#[0.42]  # Power inputs
+vw_vals         = [8.6, 19.8]#[7.6]  # Wind speeds [m/s]
+lt_vals         = [268] #[262]  # Tether lengths [m]
+
+batch_tag = "zenith_2019_batch_" * Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM_SS")
+
+# Simulation settings
+sim_time_zenith = 500.0
+sim_time_circles = 0.0
+fps_zenith = 60
+fps_circles = 60
+decay_time = 10.0
+start_ramp_time = 1.0
+ramp_time_up = 10.0
+ramp_time_us = 5.0
+initial_damping = 100.0
+damping_pattern = [0.0, 1.0, 1.0]
+min_damping = 1.0
+max_us_zenith = 0.02
+
+failed_runs = NamedTuple[]
+
+for (run_id, (elev, g, us, up, vw, lt)) in enumerate(Iterators.product(elevation_vals, g_earth_vals, us_vals, up_vals, vw_vals, lt_vals))
+    run_tag = "run_" * lpad(string(run_id), 3, '0')
+    @info "Starting run" run_id elevation=elev g_earth=g us up vw lt batch_tag
+    try
+        syslog, sam, azimuth_setpoint = run_v3_kite(SymbolicAWEModels.REFINE;
+            # General settings
+            v_wind=vw,
+            v_wind_base=vw,
+            up=up,
+            tether_length=lt,
+            elevation=elev,
+            g_earth=g,
+            # Zenith initialization flight
+            sim_time_zenith=sim_time_zenith,
+            fps_zenith=fps_zenith,
+            start_ramp_time=start_ramp_time,
+            ramp_time_up=ramp_time_up,
+            initial_damping=initial_damping,
+            damping_pattern=damping_pattern,
+            min_damping=min_damping,
+            decay_time=decay_time,
+            max_us_zenith=max_us_zenith,
+            target_azimuth=0.0,
+            # Circular flight
+            sim_time_circles=sim_time_circles,
+            fps_circles=fps_circles,
+            ramp_time_us=ramp_time_us,
+            us=us,
+            # Batch settings
+            save_subdir=batch_tag,
+            run_tag=run_tag
+        )
+        @info "Completed run" run_id elevation=elev g_earth=g us up vw lt
+    catch err
+        @error "Failed run" run_id elevation=elev g_earth=g us up vw lt error=err
+        push!(failed_runs, (run_id=run_id, elevation=elev, g_earth=g, us=us, up=up, vw=vw, lt=lt, error=err))
+    end
+    GC.gc()
+end
+
+if !isempty(failed_runs)
+    fail_path = joinpath("processed_data", "v3_kite", batch_tag, "failed_runs.txt")
+    open(fail_path, "w") do io
+        for (i, fr) in enumerate(failed_runs)
+            println(io, "Run $(fr.run_id): elevation=$(fr.elevation), g_earth=$(fr.g_earth), us=$(fr.us), up=$(fr.up), vw=$(fr.vw), lt=$(fr.lt)")
+            println(io, "  Error: $(fr.error)")
+        end
+    end
+    @info "Wrote failure list" path=fail_path
+end
+
+@info "Batch run completed" total_runs=length(collect(Iterators.product(elevation_vals, g_earth_vals, us_vals, up_vals, vw_vals, lt_vals))) failed=length(failed_runs) batch_tag
 
 
-#### Plot results#
-fig = plot(sam_refine.sys_struct, syslog_refine;
-    plot_turn_rates=true, 
-    plot_yaw_rate=true,
-    plot_yaw_rate_paper=true,
-    plot_reelout=false, 
-    plot_gk=true, 
-    gk_ylims=(0.0, 10.0),
-    plot_aoa=true, 
-    plot_heading=false, 
-    plot_elevation=true,
-    plot_azimuth=true, 
-    plot_winch_force=false, 
-    plot_set_values=false,
-    plot_us=true,)
+# ==========================================
+# =============== Batch Run ================
+# ==========================================
 
-scene = replay(syslog_refine, sam_refine.sys_struct)
+# Batch sweep configuration
+elevation_vals  = [20,25,30,35,45,50,55,60,65,70,75,80,85]  # Initial elevation angles [°]
+g_earth_vals    = [0.0]  # Gravitational acceleration [m/s²]
+us_vals         = [0.0]  # Steering inputs
+up_vals         = [0.42]  # Power inputs
+vw_vals         = [7.8 ,19.7]  # Wind speeds [m/s]
+lt_vals         = [262]  # Tether lengths [m]
 
-scr1 = display(fig)
-wait(scr1)
-scr2 = display(scene)
-wait(scr2)
+batch_tag = "zenith_2025_batch_" * Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM_SS")
 
-nothing
+# Simulation settings
+sim_time_zenith = 200.0
+sim_time_circles = 0.0
+fps_zenith = 60
+fps_circles = 60
+decay_time = 10.0
+start_ramp_time = 1.0
+ramp_time_up = 10.0
+ramp_time_us = 5.0
+initial_damping = 100.0
+damping_pattern = [0.0, 1.0, 1.0]
+min_damping = 1.0
+max_us_zenith = 0.02
+
+failed_runs = NamedTuple[]
+
+for (run_id, (elev, g, us, up, vw, lt)) in enumerate(Iterators.product(elevation_vals, g_earth_vals, us_vals, up_vals, vw_vals, lt_vals))
+    run_tag = "run_" * lpad(string(run_id), 3, '0')
+    @info "Starting run" run_id elevation=elev g_earth=g us up vw lt batch_tag
+    try
+        syslog, sam, azimuth_setpoint = run_v3_kite(SymbolicAWEModels.REFINE;
+            # General settings
+            v_wind=vw,
+            v_wind_base=vw,
+            up=up,
+            tether_length=lt,
+            elevation=elev,
+            g_earth=g,
+            # Zenith initialization flight
+            sim_time_zenith=sim_time_zenith,
+            fps_zenith=fps_zenith,
+            start_ramp_time=start_ramp_time,
+            ramp_time_up=ramp_time_up,
+            initial_damping=initial_damping,
+            damping_pattern=damping_pattern,
+            min_damping=min_damping,
+            decay_time=decay_time,
+            max_us_zenith=max_us_zenith,
+            target_azimuth=0.0,
+            # Circular flight
+            sim_time_circles=sim_time_circles,
+            fps_circles=fps_circles,
+            ramp_time_us=ramp_time_us,
+            us=us,
+            # Batch settings
+            save_subdir=batch_tag,
+            run_tag=run_tag
+        )
+        @info "Completed run" run_id elevation=elev g_earth=g us up vw lt
+    catch err
+        @error "Failed run" run_id elevation=elev g_earth=g us up vw lt error=err
+        push!(failed_runs, (run_id=run_id, elevation=elev, g_earth=g, us=us, up=up, vw=vw, lt=lt, error=err))
+    end
+    GC.gc()
+end
+
+if !isempty(failed_runs)
+    fail_path = joinpath("processed_data", "v3_kite", batch_tag, "failed_runs.txt")
+    open(fail_path, "w") do io
+        for (i, fr) in enumerate(failed_runs)
+            println(io, "Run $(fr.run_id): elevation=$(fr.elevation), g_earth=$(fr.g_earth), us=$(fr.us), up=$(fr.up), vw=$(fr.vw), lt=$(fr.lt)")
+            println(io, "  Error: $(fr.error)")
+        end
+    end
+    @info "Wrote failure list" path=fail_path
+end
+
+@info "Batch run completed" total_runs=length(collect(Iterators.product(elevation_vals, g_earth_vals, us_vals, up_vals, vw_vals, lt_vals))) failed=length(failed_runs) batch_tag

@@ -6,7 +6,7 @@ using Dates
 using StaticArrays
 using KiteUtils
 
-const WINDOW_SEC = 200.0
+const WINDOW_SEC = 100.0
 
 function parse_up_us_vw_lt(log_name::AbstractString)
     m = match(r"_up_([0-9]+)_us_([0-9._-]+)_vw_([0-9]+)_lt_([0-9]+)", log_name)
@@ -441,6 +441,18 @@ function mean_last_window(values::AbstractVector{<:Real}, times::AbstractVector{
     return isempty(data) ? NaN : mean(data)
 end
 
+function mean_at_time(values::AbstractVector{<:Real}, times::AbstractVector{<:Real},
+                      target_time::Real; window_half::Real=0.5)
+    @assert length(values) == length(times)
+    mask = (times .>= (target_time - window_half)) .& (times .<= (target_time + window_half))
+    if !any(mask)
+        return NaN
+    end
+    data = values[mask]
+    data = data[isfinite.(data)]
+    return isempty(data) ? NaN : mean(data)
+end
+
 function analyze_log(lg, sys; window_sec::Real=WINDOW_SEC)
     sl = lg.syslog
     if length(sl.time) < 2
@@ -496,6 +508,20 @@ function analyze_log(lg, sys; window_sec::Real=WINDOW_SEC)
         turn_radius = abs(mean_last_window(turn_radius_vals, turn_radius_time; window_sec))
     end
 
+    # Compute time-series snapshots at specific seconds
+    us_cmd = steering_command(sl, sys)
+    usva = us_cmd .* sl.v_app
+    yaw_rate_deg, yaw_rate_time = heading_rate(sl)
+    
+    # Initialize time-series dictionaries
+    usva_at = Dict{Int, Float64}()
+    yaw_rate_at = Dict{Int, Float64}()
+    
+    for t_sec in 3:10
+        usva_at[t_sec] = mean_at_time(usva, sl.time, Float64(t_sec))
+        yaw_rate_at[t_sec] = mean_at_time(yaw_rate_deg, yaw_rate_time, Float64(t_sec))
+    end
+
     return (
         aero_force=aero_force,
         v_app=v_app,
@@ -508,7 +534,9 @@ function analyze_log(lg, sys; window_sec::Real=WINDOW_SEC)
         elevation=elevation,
         azimuth=azimuth,
         cs=cs,
-        turn_radius=turn_radius
+        turn_radius=turn_radius,
+        usva_at=usva_at,
+        yaw_rate_at=yaw_rate_at
     )
 end
 
@@ -527,21 +555,35 @@ function find_log_names(batch_dir::AbstractString)
 end
 
 function write_csv(path::AbstractString, rows)
-    header = "vw,up,us,lt,aero_force,v_app,yaw_rate,yaw_rate_paper,gk,gk_paper,kite_vel,aoa,elevation,azimuth,cs,turn_radius"
+    # Build header with time-series columns
+    base_cols = "vw,up,us,lt,aero_force,v_app,yaw_rate,yaw_rate_paper,gk,gk_paper,kite_vel,aoa,elevation,azimuth,cs,turn_radius"
+    time_cols = String[]
+    for t in 3:10
+        push!(time_cols, "usva_$t")
+        push!(time_cols, "yaw_rate_$t")
+    end
+    header = base_cols * "," * join(time_cols, ",")
+    
     open(path, "w") do io
         println(io, header)
         for r in rows
-            println(io, join([
+            base_vals = [
                 r.vw, r.up, r.us, r.lt, r.aero_force, r.v_app, r.yaw_rate, r.yaw_rate_paper,
                 r.gk, r.gk_paper, r.kite_vel, r.aoa, r.elevation, r.azimuth, r.cs, r.turn_radius
-            ], ","))
+            ]
+            time_vals = Float64[]
+            for t in 3:10
+                push!(time_vals, r.usva_at[t])
+                push!(time_vals, r.yaw_rate_at[t])
+            end
+            println(io, join(vcat(base_vals, time_vals), ","))
         end
     end
 end
 
 function main()
     batch_name = isempty(ARGS) ? "" : strip(ARGS[1])
-    batch_name = "batch_2026_01_08_15_52_33"
+    batch_name = "circular_2025_batch_2026_01_11_11_29_19"
     if isempty(batch_name)
         print("Enter batch folder name (e.g. batch_2026_01_07_10_04_38): ")
         batch_name = strip(readline())
@@ -580,7 +622,9 @@ function main()
             elevation=metrics.elevation,
             azimuth=metrics.azimuth,
             cs=metrics.cs,
-            turn_radius=metrics.turn_radius
+            turn_radius=metrics.turn_radius,
+            usva_at=metrics.usva_at,
+            yaw_rate_at=metrics.yaw_rate_at
         ))
     end
 

@@ -71,6 +71,22 @@ function adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_
 end
 
 """
+    adjust_elevation!(sam::SymbolicAWEModel, elevation_deg)
+
+Update the transform elevation to the specified value in degrees.
+"""
+function adjust_elevation!(sam::SymbolicAWEModel, elevation_deg)
+    sys = sam.sys_struct
+    
+    if !isempty(sys.transforms)
+        transform = sys.transforms[1]
+        transform.elevation = deg2rad(elevation_deg)
+        SymbolicAWEModels.reinit!([transform], sys)
+    end
+    return nothing
+end
+
+"""
     run_v3_kite(; kwargs...)
 
 Run a v3 kite simulation using the REFINE wing type.
@@ -87,6 +103,12 @@ Run a v3 kite simulation using the REFINE wing type.
 - `show_plots::Bool=false`: Display 3D plots during simulation
 - `v_wind::Float64=15.4`: Wind speed [m/s]
 - `upwind_dir::Float64=-90.0`: Wind direction [°]
+- `ramp_start_time_up::Float64=0.0`: Start time for power tape ramp [s]
+- `ramp_end_time_up::Float64=25.0`: End time for power tape ramp [s]
+- `ramp_start_time_us::Float64=0.0`: Start time for steering tape ramp [s]
+- `ramp_end_time_us::Float64=25.0`: End time for steering tape ramp [s]
+- `v_wind_base::Float64=15.0`: Baseline wind speed [m/s]
+- `tether_length::Float64=150.0`: Tether length [m]
 - `max_heading::Float64=50.0`: Maximum heading amplitude for sine wave [°]
 - `period::Float64=20.0`: Oscillation period for sine wave [s]
 - `heading_p::Float64=0.0`: Proportional gain for heading controller
@@ -96,6 +118,7 @@ Run a v3 kite simulation using the REFINE wing type.
 - `winch_i::Float64=100.0`: Integral gain for winch controller [N/(m·s)]
 - `winch_d::Float64=50.0`: Derivative gain for winch controller [N·s/m]
 - `tube_bending_resistance::Float64=0.0`: Outward body-frame force magnitude applied to nodes 2, 3 (+y) and 20, 21 (-y)
+- `elevation::Union{Nothing,Float64}=nothing`: Initial elevation angle [°] (overrides YAML if provided)
 - `save_subdir::AbstractString=""`: Subfolder under `processed_data/v3_kite` for permanent saves
 - `run_tag::AbstractString=""`: Extra tag appended to the log name
 
@@ -115,7 +138,10 @@ function run_v3_kite(;
                      show_plots=false,
                      v_wind=15.4,
                      upwind_dir=-90.0,
-                     ramp_time=25.0,
+                     ramp_start_time_up=0.0,
+                     ramp_end_time_up=25.0,
+                     ramp_start_time_us=0.0,
+                     ramp_end_time_us=25.0,
                      v_wind_base=15,
                      tether_length=150.0,
                      max_heading=50.0,
@@ -127,6 +153,7 @@ function run_v3_kite(;
                      winch_i=100.0,
                      winch_d=50.0,
                      tube_bending_resistance=0.0,
+                     elevation=nothing,
                      save_subdir="",
                      run_tag="")
 
@@ -168,6 +195,11 @@ function run_v3_kite(;
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
     adjust_tether_length!(sam, tether_length)
+    
+    # Adjust elevation if provided
+    if elevation !== nothing
+        adjust_elevation!(sam, elevation)
+    end
 
     # Apply steering
     # sys.segments[87].l0 += max_steering
@@ -255,10 +287,27 @@ function run_v3_kite(;
         current_damping = max(initial_damping * (1.0 - t / decay_time), min_damping)
         SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * current_damping)
 
-        # Fixed tether length: brake engaged; only steering ramp is applied
-        ramp_factor = min(t / ramp_time, 1.0)
-        steering_control = steering_tape_change * ramp_factor
-        power_control = power_tape_change * ramp_factor
+        # Fixed tether length: brake engaged; apply power and steering ramps independently
+        # Power tape ramp factor
+        if t <= ramp_start_time_up
+            power_ramp_factor = 0.0
+        elseif t >= ramp_end_time_up
+            power_ramp_factor = 1.0
+        else
+            power_ramp_factor = (t - ramp_start_time_up) / (ramp_end_time_up - ramp_start_time_up)
+        end
+        
+        # Steering tape ramp factor
+        if t <= ramp_start_time_us
+            steering_ramp_factor = 0.0
+        elseif t >= ramp_end_time_us
+            steering_ramp_factor = 1.0
+        else
+            steering_ramp_factor = (t - ramp_start_time_us) / (ramp_end_time_us - ramp_start_time_us)
+        end
+        
+        steering_control = steering_tape_change * steering_ramp_factor
+        power_control = power_tape_change * power_ramp_factor
         push!(heading_setpoint, 0.0)  # Keep heading setpoint flat for plotting
 
         # Apply power control
@@ -373,27 +422,33 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-    us = 0.15  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
-    up = 0.4 # 22  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis
-    #0.4151powered and #0.5012depowered #0.39 during turns
-    vw = 11.1  # {{{ 10.  <> 15.0 }}} suitable range?
-    lt = 225  # problems when changing...
-
-    sim_time = 5.0
-    decay_time = 10.0 #2secs works better than 3 somehow
-    ramp_time = 10.0 #2sec
-    fps = 600
+    us = 0.05 #0.35 # 2019: 0.35 2025: 0.21
+    up = 0.42 #0.18 # 2019: 0.18 2025: 0.42 (0.4151powered and #0.5012depowered #0.39 during turns)
+    vw = 7.6  #8.6  # 2019: 8.6  2025: 7.6 # {{{ 10.  <> 15.0 }}} suitable range?
+    lt = 262  #268  # 2019: 268  2025: 262  
+    sim_time = 60.0
+    decay_time = 2.0 #2secs works better than 3 somehow
+    ramp_start_time_up = 0.1
+    ramp_end_time_up = 1.5
+    ramp_start_time_us = 3.0
+    ramp_end_time_us = 5.0
+    fps = 120
     initial_damping = 200.0
-    damping_pattern = [0.0, 30.0, 60.0]
+    # damping_pattern = [0.0, 60.0, 90.0]
+    damping_pattern = [0.0, 0.0, 20.0]
     min_damping = 1.0
     tube_bending_resistance = 0  # N
+    elevation = 20.0  # degrees
 
 
     syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
         sim_time=sim_time, fps=fps,
         up=up, us=us, v_wind=vw, tether_length=lt,
-        decay_time=decay_time, ramp_time=ramp_time,
+        decay_time=decay_time,
+        ramp_start_time_up=ramp_start_time_up, ramp_end_time_up=ramp_end_time_up,
+        ramp_start_time_us=ramp_start_time_us, ramp_end_time_us=ramp_end_time_us,
         initial_damping=initial_damping, damping_pattern=damping_pattern, min_damping=min_damping,
+        elevation=elevation,
         max_heading=MAX_HEADING, period=PERIOD,
         tube_bending_resistance=tube_bending_resistance,
         heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
@@ -421,7 +476,7 @@ end
                plot_tether_actual=true,
                plot_us=true)
 
-scene = replay(syslog_refine, sam_refine.sys_struct)
+scene = replay(syslog_refine, sam_refine.sys_struct, show_panes=false)
 
 scr1 = display(fig)
 wait(scr1)
