@@ -7,6 +7,61 @@ using LinearAlgebra
 using UnPack
 using Rotations
 
+# V3 Kite steering/depower calibration (from KCU documentation)
+const V3_STEERING_L0 = 1.4    # Neutral steering tape length (m)
+const V3_STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
+const V3_DEPOWER_L0 = 0.0     # Neutral depower tape length (m)
+const V3_DEPOWER_GAIN = 5.0   # Depower range (m) for 0-100%
+
+"""
+    steering_percentage_to_lengths(percentage; l0=V3_STEERING_L0, gain=V3_STEERING_GAIN)
+
+Convert steering percentage to left/right tape lengths (m).
+Percentage convention: negative = left turn, positive = right turn.
+Uses half-gain on each side for symmetric actuation.
+"""
+function steering_percentage_to_lengths(percentage;
+                                        l0=V3_STEERING_L0, gain=V3_STEERING_GAIN)
+    u_s = percentage / 100.0
+    L_left = l0 - (gain / 2.0) * u_s
+    L_right = l0 + (gain / 2.0) * u_s
+    return L_left, L_right
+end
+
+"""
+    csv_steering_percentage_to_lengths(percentage; l0=V3_STEERING_L0, gain=V3_STEERING_GAIN)
+
+Convert CSV steering percentage to left/right tape lengths (m).
+Uses opposite sign convention and full gain (matches CSV data format).
+"""
+function csv_steering_percentage_to_lengths(percentage;
+                                            l0=V3_STEERING_L0, gain=V3_STEERING_GAIN)
+    u_s = percentage / 100.0
+    L_left = l0 + gain * u_s
+    L_right = l0 - gain * u_s
+    return L_left, L_right
+end
+
+"""
+    depower_percentage_to_length(percentage; l0=V3_DEPOWER_L0, gain=V3_DEPOWER_GAIN)
+
+Convert depower percentage to tape length (m).
+"""
+function depower_percentage_to_length(percentage;
+                                      l0=V3_DEPOWER_L0, gain=V3_DEPOWER_GAIN)
+    u_p = percentage / 100.0
+    return l0 + gain * u_p
+end
+
+"""
+    build_geom_suffix(depower_l0, tip_reduction, te_frac)
+
+Build geometry filename suffix from configuration parameters.
+"""
+function build_geom_suffix(depower_l0, tip_reduction, te_frac)
+    return "depower$(depower_l0)_tip$(tip_reduction)_te$(te_frac)"
+end
+
 """
     load_extra_points(csv_path, sys_struct; body_offset)
 

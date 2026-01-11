@@ -37,8 +37,8 @@ TETHER_LENGTH = 248          # Total tether length (m)
 TE_FRAC = 0.95               # Factor for TE wires (segments 20-28), 1.0 = no change
 TIP_REDUCTION = 0.4          # Tip LE reduction (m), 0.0 = no change
 
-# Build geometry filename suffix
-GEOM_SUFFIX = "depower$(DEPOWER_L0)_tip$(TIP_REDUCTION)_te$(TE_FRAC)"
+# Build geometry filename suffix using shared function
+GEOM_SUFFIX = build_geom_suffix(V3_DEPOWER_L0, TIP_REDUCTION, TE_FRAC)
 
 STRUC_YAML_PATH = "data/v3/struc_geometry_$(GEOM_SUFFIX).yaml"
 AERO_YAML_PATH = "data/v3/aero_geometry_$(GEOM_SUFFIX).yaml"
@@ -70,13 +70,7 @@ else
     error("Unknown section: $SECTION")
 end
 
-# V3 Kite steering/depower calibration (from KCU documentation)
-# Steering calibration
-STEERING_L0 = 1.6  # Neutral steering tape length (m) TODO: was 1.6
-STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
-DEPOWER_L0 = 0.0
-DEPOWER_GAIN = 5.0
-
+# Steering multiplier for CSV replay
 STEERING_MULTIPLIER = 5.0
 
 # Restabilize: update YAML with final sys_struct positions
@@ -129,29 +123,6 @@ function unix_to_utc_seconds(unix_timestamp::Float64)
            Dates.second(dt) + Dates.millisecond(dt)/1000
 end
 
-"""
-    steering_percentage_to_lengths(percentage)
-
-Convert CSV steering percentage to left/right tape lengths (m).
-Percentage convention: negative = left turn, positive = right turn.
-"""
-function steering_percentage_to_lengths(percentage)
-    u_s = percentage / 100.0  # Convert percentage to [-1, 1]
-    L_left = STEERING_L0 + STEERING_GAIN * u_s
-    L_right = STEERING_L0 - STEERING_GAIN * u_s
-    return L_left, L_right
-end
-
-"""
-    depower_percentage_to_length(percentage)
-
-Convert CSV depower percentage to tape length (m).
-"""
-function depower_percentage_to_length(percentage)
-    u_p = percentage / 100.0  # Convert percentage to [0, 1]
-    L_depower = DEPOWER_L0 + DEPOWER_GAIN * u_p
-    return L_depower
-end
 
 """
     load_flight_data(csv_path::String)
@@ -415,9 +386,9 @@ function update_vel_from_csv!(sys, row, brake, heading_pid)
     steering_control = DiscretePIDs.calculate_control!(
         heading_pid, 0.0, delta_heading, 0.0)
     steering = clamp(row.steering, -100.0, 100.0)
-    L_left, L_right = steering_percentage_to_lengths(steering * STEERING_MULTIPLIER)
-    segments[87].l0 = L_left + STEERING_GAIN * steering_control
-    segments[89].l0 = L_right - STEERING_GAIN * steering_control
+    L_left, L_right = csv_steering_percentage_to_lengths(steering * STEERING_MULTIPLIER)
+    segments[87].l0 = L_left + V3_STEERING_GAIN * steering_control
+    segments[89].l0 = L_right - V3_STEERING_GAIN * steering_control
 
     # Winch length control with feed-forward torque
     winch = winches[1]
@@ -487,7 +458,7 @@ function update_sys_struct_from_csv!(sys, row; extra_vel_body_x=0.0)
     winches[1].brake = true
 
     # Convert CSV percentages to tape lengths
-    L_left, L_right = steering_percentage_to_lengths(row.steering)
+    L_left, L_right = csv_steering_percentage_to_lengths(row.steering)
     L_depower = depower_percentage_to_length(row.depower)
 
     segments[87].l0 = L_left   # Left steering tape
@@ -682,7 +653,7 @@ function run_physics_replay(csv_path::String;
                     scene = plot_body_frame_local([settled_sys, sam.sys_struct];
                         extra_points=extra_pts, extra_groups=extra_groups, dir,
                         point_idxs=1:38, labels=["semi-static sim", "csv replay"])
-                    pdf_filename = "data/v3/body_frame_$(dir)_frame$(EXTRA_POINTS_FRAME)_$(GEOM_SUFFIX).pdf"
+                    pdf_filename = "data/v3/body_frame_$(dir)_frame$(EXTRA_POINTS_FRAME)_$(GEOM_SUFFIX)_steer$(STEERING_MULTIPLIER).pdf"
                     save(pdf_filename, scene)
                     @info "Plot saved" pdf_filename
                 end

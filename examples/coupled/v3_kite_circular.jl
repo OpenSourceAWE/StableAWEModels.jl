@@ -16,6 +16,15 @@ using KiteUtils
 using DiscretePIDs
 using Dates
 
+include("utils.jl")
+
+# Geometry configuration
+TE_FRAC = 0.95               # Factor for TE wires (segments 20-28), 1.0 = no change
+TIP_REDUCTION = 0.4          # Tip LE reduction (m), 0.0 = no change
+GEOM_SUFFIX = build_geom_suffix(V3_DEPOWER_L0, TIP_REDUCTION, TE_FRAC)
+STRUC_YAML_PATH = "data/v3/struc_geometry_$(GEOM_SUFFIX).yaml"
+AERO_YAML_PATH = "data/v3/aero_geometry_$(GEOM_SUFFIX).yaml"
+
 # Heading PID controller parameters
 MAX_HEADING = 10.0  # Maximum heading amplitude [degrees]
 PERIOD = 60.0       # Oscillation period [seconds]
@@ -98,19 +107,18 @@ function run_v3_kite(;
 
     # Load YAML structure path
     model_name = "v3"
-    struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
 
     # Load VSMSettings
     vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
-    vsm_set.wings[1].geometry_file = "data/v3/CORRECT_aero_geometry.yaml"
+    vsm_set.wings[1].geometry_file = AERO_YAML_PATH
 
     # Use 36 panels for both wing types (matches vsm_settings.yaml default)
     vsm_set.wings[1].n_panels = 36
     # Note: n_unrefined_sections is automatically inferred from YAML geometry
 
     # Load system structure with wing_type and vsm_set parameters
-    sys = load_sys_struct_from_yaml(struc_yaml_path;
+    sys = load_sys_struct_from_yaml(STRUC_YAML_PATH;
         system_name=model_name, set, wing_type, vsm_set)
 
     # function reset_tether_length!(sam::SymbolicAWEModel, tether_length_raw)

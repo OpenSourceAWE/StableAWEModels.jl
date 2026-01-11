@@ -33,7 +33,7 @@ DT = 0.01  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 39.37   # depower [0, 100]
 WIND_VEL = 10.72
-ELEVATION = 70
+ELEVATION = 78
 TETHER_LENGTH = 248  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
 EXTRA_POINTS_FRAME = 7182
@@ -48,48 +48,18 @@ VIDEO_FPS = 29.97
 TE_FRAC = 0.95  # Factor to reduce l0 of TE wires (segments 20-28), 1.0 = no change
 TIP_REDUCTION = 0.4  # Tip LE reduction (m), 0.0 = no change
 
-# Build destination filename suffix
-DEST_SUFFIX = "depower$(DEPOWER_L0)_tip$(TIP_REDUCTION)_te$(TE_FRAC)"
+# Build destination filename suffix using shared function
+DEST_SUFFIX = build_geom_suffix(V3_DEPOWER_L0, TIP_REDUCTION, TE_FRAC)
 
 SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
 DEST_STRUC_PATH = "data/v3/struc_geometry_$(DEST_SUFFIX).yaml"
 SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
 DEST_AERO_PATH = "data/v3/aero_geometry_$(DEST_SUFFIX).yaml"
 
-# V3 Kite steering/depower calibration (from KCU documentation)
-STEERING_L0 = 1.4  # Neutral steering tape length (m)
-STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
-DEPOWER_L0 = 0.0
-DEPOWER_GAIN = 5.0
-
 # Heading controller parameters
 HEADING_KP = 0.5
-HEADING_TAU_I = 10.0  # No integral
+HEADING_TAU_I = 10.0  # Integrator time constant
 HEADING_SETPOINT = -1.562  # Target heading in radians
-
-"""
-    steering_percentage_to_lengths(percentage)
-
-Convert steering percentage to left/right tape lengths (m).
-Percentage convention: negative = left turn, positive = right turn.
-"""
-function steering_percentage_to_lengths(percentage)
-    u_s = percentage / 100.0  # Convert percentage to [-1, 1]
-    L_left = STEERING_L0 - (STEERING_GAIN / 2.0) * u_s
-    L_right = STEERING_L0 + (STEERING_GAIN / 2.0) * u_s
-    return L_left, L_right
-end
-
-"""
-    depower_percentage_to_length(percentage)
-
-Convert depower percentage to tape length (m).
-"""
-function depower_percentage_to_length(percentage)
-    u_p = percentage / 100.0  # Convert percentage to [0, 1]
-    L_depower = DEPOWER_L0 + DEPOWER_GAIN * u_p
-    return L_depower
-end
 
 """Convert unix timestamp to UTC seconds since midnight."""
 function unix_to_utc_seconds(unix_timestamp::Float64)
@@ -126,9 +96,19 @@ struc_yaml_path = SOURCE_STRUC_PATH
 sys = load_sys_struct_from_yaml(struc_yaml_path;
     system_name="v3", set,
     wing_type=SymbolicAWEModels.REFINE, vsm_set)
-sys.transforms[1].elevation = deg2rad(ELEVATION * cos(HEADING_SETPOINT))
-sys.transforms[1].azimuth = deg2rad(ELEVATION * sin(HEADING_SETPOINT))
+
+# Calculate elevation and azimuth for cone angle rotated by heading around x-axis
+# Cone angle θ = ELEVATION (angle from x-axis), heading ψ = rotation around x-axis
+# Position on unit sphere: [cos(θ), sin(θ)*sin(ψ), sin(θ)*cos(ψ)]
+θ_cone = deg2rad(ELEVATION)
+ψ_heading = HEADING_SETPOINT
+elevation_calc = atan(sin(θ_cone) * cos(ψ_heading), cos(θ_cone))
+azimuth_calc = atan(sin(θ_cone) * sin(ψ_heading), cos(θ_cone))
+
+sys.transforms[1].elevation = elevation_calc
+sys.transforms[1].azimuth = azimuth_calc
 sys.transforms[1].heading = HEADING_SETPOINT
+@info "Transform calculated" cone_angle=ELEVATION heading_deg=rad2deg(HEADING_SETPOINT) elevation_deg=rad2deg(elevation_calc) azimuth_deg=rad2deg(azimuth_calc)
 
 # Update tether length: points 39-44 and segments 90-95
 segment_len = TETHER_LENGTH
@@ -214,17 +194,9 @@ for step in 1:NUM_STEPS
     steering_control = DiscretePIDs.calculate_control!(
         heading_pid, 0.0, delta_heading, 0.0)
 
-    # In last 2 seconds, linearly ramp steering to zero
-    total_time = NUM_STEPS * DT
-    ramp_duration = 2.0
-    if t > total_time - ramp_duration
-        ramp_frac = (total_time - t) / ramp_duration
-        steering_control *= ramp_frac
-    end
-
     L_left, L_right = steering_percentage_to_lengths(STEERING_PERCENTAGE)
-    sys.segments[87].l0 = L_left + STEERING_GAIN * steering_control
-    sys.segments[89].l0 = L_right - STEERING_GAIN * steering_control
+    sys.segments[87].l0 = L_left + V3_STEERING_GAIN * steering_control
+    sys.segments[89].l0 = L_right - V3_STEERING_GAIN * steering_control
     push!(steering_times, t)
     push!(steering_values, steering_control * 100)  # Convert to percentage
 
