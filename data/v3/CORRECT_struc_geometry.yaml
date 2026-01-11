@@ -76,7 +76,12 @@ points:
     - [38, [0.13269336, -0.23394851, 1.48060245],  DYNAMIC, 1, 1, 0.1, 30.000, 0.0, 0.0, 0.0]
 
     # Tether and ground particle
-    - [39, [0.0, 0.0, -45.0],                      STATIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [39, [0.0, 0.0, -45.0],                      DYNAMIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [40, [0.0, 0.0, -90.0],                      DYNAMIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [41, [0.0, 0.0, -135.0],                     DYNAMIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [42, [0.0, 0.0, -180.0],                     DYNAMIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [43, [0.0, 0.0, -225.0],                     DYNAMIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [44, [0.0, 0.0, -270.0],                      STATIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 ###########################
 ## Segments ###############
@@ -245,6 +250,11 @@ segments:
     - [89, 38, 1, BRIDLE, 1.6, 3.0,  dyneema, nothing, 0.0]  # Steering Tape
 
     - [90, 1, 39, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.0]
+    - [91, 39, 40, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.0]
+    - [92, 40, 41, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.0]
+    - [93, 41, 42, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.0]
+    - [94, 42, 43, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.0]
+    - [95, 43, 44, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.0]
 
     # - [96, 2, 6, POWER_LINE, 0.0, 1.0, 1e6, 10.0, 1.0]
     # - [97, 16, 20, POWER_LINE, 0.0, 1.0, 1e6, 10.0, 1.0]
@@ -290,7 +300,7 @@ groups:
 tethers:
   headers: [idx, segment_idxs, winch_point_idx]
   data:
-    - [1, [90], 39]
+    - [1, [90, 91, 92, 93, 94, 95], 44]
 
 ###########################
 ## Winches ################
@@ -344,4 +354,4 @@ transforms:
       heading: 0.0
       wing_idx: 1           # Transform applies to wing 1
       base_pos: [0.0, 0.0, 0.0] # Base position (at KCU/ground point)
-      base_point_idx: 39     # Reference to point 39 (ground attachment)
+      base_point_idx: 44     # Reference to point 39 (ground attachment)

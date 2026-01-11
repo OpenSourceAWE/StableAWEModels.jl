@@ -61,19 +61,11 @@ function run_v3_kite(;
                      v_wind=15.4,
                      upwind_dir=-90.0,
                      ramp_time=25.0,
-                     v_wind_base=15,
-                     max_heading=50.0,
-                     period=20.0,
-                     heading_p=0.0,
-                     heading_i=0.1,
-                     heading_d=0.0,
-                     winch_p=1000.0,
-                     winch_i=100.0,
-                     winch_d=50.0)
+                     v_wind_base=15)
 
     wing_type = SymbolicAWEModels.REFINE
     wing_type_str = "REFINE"
-    @info "Running v3 kite simulation in n_steps: $(Int(round(fps * sim_time)))"
+    @info "Running v3 kite simulation" n_steps=Int(round(fps * sim_time)) STRUC_YAML_PATH AERO_YAML_PATH
 
     # Load settings
     set_data_path("data/v3")
@@ -99,6 +91,8 @@ function run_v3_kite(;
     sys = load_sys_struct_from_yaml(STRUC_YAML_PATH;
         system_name=model_name, set, wing_type, vsm_set)
 
+    sys.transforms[1].elevation = 0.0
+    sys.transforms[1].elevation_vel = deg2rad(8.0)
     # Initialize damping with per-axis values [x, y, z]
     SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern, 1:38)
     # Set initial world frame damping (will decay exponentially)
@@ -138,23 +132,6 @@ function run_v3_kite(;
     # Storage for heading setpoint
     heading_setpoint = Float64[]
     push!(heading_setpoint, 0.0)  # Fixed steering: keep heading setpoint at zero
-    # # Create PID controller for heading
-    # max_heading_rad = deg2rad(max_heading)
-    # angular_freq = 2π / period  # rad/s
-    # heading_pid = DiscretePID(;
-    #     K = heading_p > 0 ? heading_p : 1.0,
-    #     Ti = heading_i > 0 ? 1.0 / heading_i : false,
-    #     Td = heading_d > 0 ? heading_d : false,
-    #     Ts = Δt,
-    #     umin = -abs(max_steering),
-    #     umax = abs(max_steering)
-    # )
-    # @info "Heading PID controller initialized" max_heading period heading_p heading_i heading_d
-    # @info "  Sine wave: ±$(max_heading)°, period=$(period)s"
-
-    # Keep winch torque at zero; brake is engaged to fix tether length
-    winch = sys.winches[1]
-    winch.set_value = 0.0
 
     # Optional initial plot
     if show_plots
@@ -318,9 +295,7 @@ syslog, sam, heading_setpoint, tape_data = run_v3_kite(
     sim_time=sim_time, fps=fps,
     up=up, us=us, v_wind=vw,
     ramp_time=ramp_time, damping_pattern=damping_pattern,
-    max_heading=MAX_HEADING, period=PERIOD,
-    heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
-    winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
+)
 
 
 fig = plot(sam.sys_struct, syslog;

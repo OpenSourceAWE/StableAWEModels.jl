@@ -80,10 +80,8 @@ STOP_EARLY = false
 MIN_DAMPING = [0.0, 60, 120]
 
 # PID controller parameters for heading control
-HEADING_KP = 0.0
-HEADING_TAU_I = 10.0
-HEADING_KD = 0.0
-DT_CONTROL = 0.001
+HEADING_KP = 0.5
+HEADING_TAU_I = false
 
 # PI controller parameters for winch length control
 WINCH_LENGTH_KP = 0.01      # Low proportional gain for length tracking
