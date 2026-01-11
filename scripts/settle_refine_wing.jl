@@ -80,7 +80,7 @@ end
 # Load settings
 set_data_path("data/v3")
 set = Settings("system.yaml")
-set.g_earth = 9.81
+set.g_earth = 0.0
 set.v_wind = WIND_VEL
 set.l_tether = TETHER_LENGTH
 set.profile_law = 4  # Linear wind scaling from 0 at origin to 1.0 at l_tether
@@ -111,9 +111,13 @@ sys.transforms[1].heading = HEADING_SETPOINT
 @info "Transform calculated" cone_angle=ELEVATION heading_deg=rad2deg(HEADING_SETPOINT) elevation_deg=rad2deg(elevation_calc) azimuth_deg=rad2deg(azimuth_calc)
 
 # Update tether length: points 39-44 and segments 90-95
-segment_len = TETHER_LENGTH
-sys.points[39].pos_cad .= [0.0, 0.0, -segment_len]
-sys.segments[90].l0 = segment_len
+segment_len = TETHER_LENGTH / 6
+for i in 39:44
+    sys.points[i].pos_cad .= [0.0, 0.0, -(i-38)*segment_len]
+end
+for i in 90:95
+    sys.segments[i].l0 = segment_len
+end
 @info "Tether configured" TETHER_LENGTH segment_len
 
 # Apply reductions

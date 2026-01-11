@@ -18,51 +18,34 @@ using Dates
 
 include("utils.jl")
 
-# Geometry configuration
+# Geometry configuration (must match settle_refine_wing.jl output)
+TETHER_LENGTH = 248          # Total tether length (m)
 TE_FRAC = 0.95               # Factor for TE wires (segments 20-28), 1.0 = no change
 TIP_REDUCTION = 0.4          # Tip LE reduction (m), 0.0 = no change
 GEOM_SUFFIX = build_geom_suffix(V3_DEPOWER_L0, TIP_REDUCTION, TE_FRAC)
 STRUC_YAML_PATH = "data/v3/struc_geometry_$(GEOM_SUFFIX).yaml"
 AERO_YAML_PATH = "data/v3/aero_geometry_$(GEOM_SUFFIX).yaml"
 
-# Heading PID controller parameters
-MAX_HEADING = 10.0  # Maximum heading amplitude [degrees]
-PERIOD = 60.0       # Oscillation period [seconds]
-HEADING_P = 0.0     # Proportional gain
-HEADING_I = 0.1     # Integral gain
-HEADING_D = 0.0     # Derivative gain
-
-# Tether winch PID controller parameters
-WINCH_P = 1000.0    # Proportional gain [N/m]
-WINCH_I = 100.0     # Integral gain [N/(m·s)]
-WINCH_D = 50.0      # Derivative gain [N·s/m]
+# World frame damping (exponential decay like settle_wing.jl)
+WORLD_DAMPING = 0.0  # Initial world frame damping (Ns/m)
+DECAY_STEPS = 100     # Steps over which damping decays to zero
 
 """
     run_v3_kite(; kwargs...)
 
 Run a v3 kite simulation using the REFINE wing type.
+Uses exponential decay world frame damping (WORLD_DAMPING, DECAY_STEPS constants).
 
 # Keyword Arguments
 - `sim_time::Float64=300.0`: Simulation duration [s]
-- `fps::Int=1`: Frames per second for logging
+- `fps::Int=4`: Frames per second for logging
 - `remake_cache::Bool=false`: Force rebuild of cached model
-- `initial_damping::Float64=10.0`: Initial body frame damping [N·s/m]
-- `damping_pattern::Vector{Float64}=[0.0, 1.0, 1.0]`: Per-axis damping pattern [x, y, z]
-- `decay_time::Float64=2.0`: Time for damping decay [s]
-- `min_damping::Float64=0.0`: Minimum damping after decay [N·s/m]
-- `max_steering::Float64=0.2`: Maximum steering line length change [m]
+- `damping_pattern::Vector{Float64}=[0.0, 30.0, 60.0]`: Body frame damping [x, y, z] (N·s/m)
+- `up::Float64=40.0`: Depower percentage [0, 100]
+- `us::Float64=10.0`: Steering percentage [-100, 100], positive = right turn
 - `show_plots::Bool=false`: Display 3D plots during simulation
 - `v_wind::Float64=15.4`: Wind speed [m/s]
-- `upwind_dir::Float64=-90.0`: Wind direction [°]
-- `max_heading::Float64=50.0`: Maximum heading amplitude for sine wave [°]
-- `period::Float64=20.0`: Oscillation period for sine wave [s]
-- `heading_p::Float64=0.0`: Proportional gain for heading controller
-- `heading_i::Float64=0.1`: Integral gain for heading controller
-- `heading_d::Float64=0.0`: Derivative gain for heading controller
-- `winch_p::Float64=1000.0`: Proportional gain for winch controller [N/m]
-- `winch_i::Float64=100.0`: Integral gain for winch controller [N/(m·s)]
-- `winch_d::Float64=50.0`: Derivative gain for winch controller [N·s/m]
-- `tube_bending_resistance::Float64=0.0`: Outward body-frame force magnitude applied to nodes 2, 3 (+y) and 20, 21 (-y)
+- `ramp_time::Float64=25.0`: Time to ramp steering/depower [s]
 
 # Returns
 - `SysLog`: The simulation log containing time history data
@@ -71,18 +54,14 @@ function run_v3_kite(;
                      sim_time=300.0,
                      fps=4,
                      remake_cache=false,
-                     initial_damping=100.0,
-                     damping_pattern=[0.0, 1.0, 1.0],
-                     decay_time=10.0,
-                     min_damping=0.0,
-                     up = 0.4,
-                     us=0.1,
+                     damping_pattern=[0.0, 30.0, 60.0],
+                     up=40.0,
+                     us=10.0,
                      show_plots=false,
                      v_wind=15.4,
                      upwind_dir=-90.0,
                      ramp_time=25.0,
                      v_wind_base=15,
-                     tether_length=150.0,
                      max_heading=50.0,
                      period=20.0,
                      heading_p=0.0,
@@ -90,8 +69,7 @@ function run_v3_kite(;
                      heading_d=0.0,
                      winch_p=1000.0,
                      winch_i=100.0,
-                     winch_d=50.0,
-                     tube_bending_resistance=0.0)
+                     winch_d=50.0)
 
     wing_type = SymbolicAWEModels.REFINE
     wing_type_str = "REFINE"
@@ -102,7 +80,7 @@ function run_v3_kite(;
     set = Settings("system.yaml")
     set.v_wind = v_wind
     set.upwind_dir = upwind_dir
-    # set.l_tethers[1] = tether_length
+    set.l_tether = TETHER_LENGTH
     set.v_reel_outs[1] = 0.0
 
     # Load YAML structure path
@@ -121,32 +99,10 @@ function run_v3_kite(;
     sys = load_sys_struct_from_yaml(STRUC_YAML_PATH;
         system_name=model_name, set, wing_type, vsm_set)
 
-    # function reset_tether_length!(sam::SymbolicAWEModel, tether_length_raw)
-    #     tether_length = float(tether_length_raw)
-    #     sys = sam.sys_struct
-    #     set = sam.set
-    #     set.l_tethers[1] = tether_length
-
-    #     # Space tether points uniformly along body frame z (downward from wing/KCU)
-    #     for (n, p_idx) in enumerate(39:44)
-    #         sys.points[p_idx].pos_b .= [0.0, 0.0, -n * tether_length / 6]
-    #     end
-
-    #     # Aim transform to place wing at the new distance along its current direction
-    #     transform = sys.transforms[1]
-    #     target_pos = normalize(sys.wings[1].pos_w) * tether_length
-    #     transform.elevation = KiteUtils.calc_elevation(target_pos)
-    #     transform.azimuth = KiteUtils.azimuth_east(target_pos)
-    #     SymbolicAWEModels.reinit!([transform], sys)
-
-    #     winch = sys.winches[1]
-    #     winch.tether_len = tether_length
-    #     winch.tether_vel = 0.0
-    #     winch.brake = true
-    # end
-
     # Initialize damping with per-axis values [x, y, z]
-    SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern * initial_damping, 1:38)
+    SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern, 1:38)
+    # Set initial world frame damping (will decay exponentially)
+    SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING, 1:38)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -164,7 +120,6 @@ function run_v3_kite(;
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
     # hold tether length (no dynamic reel-in)
     sam.sys_struct.winches[1].brake = true
-    # reset_tether_length!(sam, tether_length)
     # SymbolicAWEModels.reinit!(sam, sam.prob, SymbolicAWEModels.FBDF())
 
     # Create logger
@@ -207,22 +162,16 @@ function run_v3_kite(;
         display(scene)
     end
 
-    ## ACTUATION
-    #len_power-tape = 200 + 5000 * up
-    #len_steering_tape = 1600 + 1400 * us
-    #us < 0 shortens right tape, and lengths left tape, causing a right turn
-    #RIGHT len_steering_tape (us = -1) = 1600 - 1400 = 200
-    #LEFT len_steering_tape (us = 1) = 1600 + 1400 = 3000
-
-    steering_tape_change = 1400 * us / 1000  # Convert mm to m
-    power_tape_change = ((200 + 5000 * up) / 1000) - nominal_l0_88  # Convert mm to m
+    # Calculate target tape lengths from percentages using shared functions
+    L_left_target, L_right_target = steering_percentage_to_lengths(us)
+    L_depower_target = depower_percentage_to_length(up)
     vw_change = v_wind - v_wind_base
 
 
     # Time-marching loop
     @info "Starting simulation: $n_steps steps, Δt = $(round(Δt, digits=4)) s"
     @info " Initial lengths (m): segment 87: $(round(nominal_l0_87, digits=4)), segment 88: $(round(nominal_l0_88, digits=4)), segment 89: $(round(nominal_l0_89, digits=4))"
-    @info " Steering tape change (m): $(round(steering_tape_change, digits=4)), Power tape change (m): $(round(power_tape_change, digits=4))"
+    @info " Target lengths (m): L_left: $(round(L_left_target, digits=4)), L_right: $(round(L_right_target, digits=4)), L_depower: $(round(L_depower_target, digits=4))"
     sim_start_time = time()
     aoa_log_interval_steps = max(1, Int(round(3.0 / Δt)))  # roughly every 3 seconds
 
@@ -231,46 +180,43 @@ function run_v3_kite(;
     mean_stretch_samples = Float64[]
     max_idx_samples = Int[]
 
+    # Storage for tape lengths plotting
+    tape_times = Float64[]
+    tape_steering_pct = Float64[]
+    tape_depower_pct = Float64[]
+
     wings = sam.sys_struct.wings
     wing = wings[1]
 
     for step in 1:n_steps
         t = step * Δt
 
-        # Update damping: decay to min_damping
-        current_damping = max(initial_damping * (1.0 - t / decay_time), min_damping)
-        SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * current_damping, 1:38)
+        # Exponential decay of world frame damping (like settle_wing.jl)
+        if step <= DECAY_STEPS
+            world_damping = WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS)
+        else
+            world_damping = 0.0
+        end
+        SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, world_damping, 1:38)
 
-        # Fixed tether length: brake engaged; only steering ramp is applied
+        # Body frame damping stays constant at damping_pattern
+
+        # Ramp from initial to target tape lengths
         ramp_factor = min(t / ramp_time, 1.0)
-        steering_control = steering_tape_change * ramp_factor
-        power_control = power_tape_change * ramp_factor
         push!(heading_setpoint, 0.0)  # Keep heading setpoint flat for plotting
 
-        # Apply power control
-        sys.segments[88].l0 = nominal_l0_88 + power_control
-        # print every x second & time below 30 sec
-        if step % Int(round(3.0 / Δt)) == 0 && t <= 30.0 && power_tape_change > 1e-4
-            @info "power-tape = $(round(sys.segments[88].l0, digits=4)) m at t=$(round(t, digits=2)) s"
-        end
+        # Apply ramped steering, instant depower
+        sys.segments[87].l0 = nominal_l0_87 + ramp_factor * (L_left_target - nominal_l0_87)
+        sys.segments[89].l0 = nominal_l0_89 + ramp_factor * (L_right_target - nominal_l0_89)
+        sys.segments[88].l0 = L_depower_target  # Instant depower
 
-        # Apply differential steering (opposite signs for turning moment)
-        sys.segments[87].l0 = nominal_l0_87 + steering_control
-        sys.segments[89].l0 = nominal_l0_89 - steering_control
+        # Log tape lengths as percentages
+        push!(tape_times, t)
+        push!(tape_steering_pct, ramp_factor * us)
+        push!(tape_depower_pct, up)  # Constant depower
 
         # Update wind speed linearly
         sam.sys_struct.set.v_wind = v_wind_base + vw_change
-
-        # Apply outward tube bending resistance forces in body-frame ±y directions
-        if tube_bending_resistance != 0
-            R_b_w = sam.sys_struct.wings[1].R_b_w
-            force_pos_y = R_b_w * [0.0, tube_bending_resistance, 0.0]
-            force_neg_y = R_b_w * [0.0, -tube_bending_resistance, 0.0]
-            sam.sys_struct.points[2].disturb .= force_pos_y
-            sam.sys_struct.points[3].disturb .= force_pos_y
-            sam.sys_struct.points[20].disturb .= force_neg_y
-            sam.sys_struct.points[21].disturb .= force_neg_y
-        end
 
         # Convert force to torque: τ = -r/G * F + friction
         winch_torque = 0.0
@@ -339,52 +285,51 @@ function run_v3_kite(;
     save_dir = joinpath("processed_data", "v3_kite")
     isdir(save_dir) || mkpath(save_dir)
     timestamp = Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM")
-    up_tag = Int(round(up*100))
-    us_tag = Int(round(us*100))
+    up_tag = Int(round(up))
+    us_tag = Int(round(us))
     v_wind_tag = Int(round(v_wind))
-    log_name = "circle__up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind_tag)" * "_date_" * timestamp 
+    log_name = "circle__up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind_tag)" * "_date_" * timestamp
     save_log(logger, log_name; path=save_dir)
 
+    # Create tape data for plotting
+    tape_data = (
+        time = tape_times,
+        steering = tape_steering_pct,
+        depower = tape_depower_pct
+    )
 
-    return syslog, sam, heading_setpoint
+    return syslog, sam, heading_setpoint, tape_data
 end
 
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-us = 0.15  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
-up = 0.2  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis 
-#0.4151powered and #0.5012depowered #0.39 during turns
-vw = 8.0  # {{{ 10.  <> 15.0 }}} suitable range?
-lt = 260  # problems when changing...
+us = 30.0   # Steering percentage [-100, 100], positive = right turn
+up = 39   # Depower percentage [0, 100]
+vw = 8.0    # Wind speed [m/s]
 
-sim_time = 50.0
-decay_time = 2.0 #2secs works better than 3 somehow
+sim_time = 40.0
 ramp_time = 2.0
-fps = 120
-initial_damping = 10.0
+fps = 60
 damping_pattern = [0.0, 30.0, 60.0]
-min_damping = 1.0
-tube_bending_resistance = 0  # N
 
 
-syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
+syslog, sam, heading_setpoint, tape_data = run_v3_kite(
     sim_time=sim_time, fps=fps,
-    up=up, us=us, v_wind=vw, tether_length=lt,
-    decay_time=decay_time, ramp_time=ramp_time,
-    initial_damping=initial_damping, damping_pattern=damping_pattern, min_damping=min_damping,
+    up=up, us=us, v_wind=vw,
+    ramp_time=ramp_time, damping_pattern=damping_pattern,
     max_heading=MAX_HEADING, period=PERIOD,
-    tube_bending_resistance=tube_bending_resistance,
     heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
     winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
 
 
-fig = plot(sam_refine.sys_struct, syslog_refine;
+fig = plot(sam.sys_struct, syslog;
     plot_turn_rates=true, plot_reelout=false, plot_gk=true,
     plot_aoa=true, plot_heading=false, plot_elevation=true,
-    plot_azimuth=true, plot_winch_force=false, plot_set_values=false)
+    plot_azimuth=true, plot_winch_force=false, plot_set_values=false,
+    tape_lengths=[tape_data])
 
-scene = replay(syslog_refine, sam_refine.sys_struct)
+scene = replay(syslog, sam.sys_struct)
 
 scr1 = display(fig)
 wait(scr1)
@@ -394,7 +339,7 @@ wait(scr2)
 
 
 # Report final geometric AoA using hardcoded mid-panel corners (world frame)
-last_state = syslog_refine.syslog[end]
+last_state = syslog.syslog[end]
 X = last_state.X; Y = last_state.Y; Z = last_state.Z
 # Mid-panel corners: 10,11,12,13 (11/13 front; 10/12 back)
 back = 0.5 .* ([X[10], Y[10], Z[10]] .+ [X[12], Y[12], Z[12]])
@@ -406,7 +351,7 @@ aoa_wrt_horizontal = -rad2deg(atan(delta_z, delta_x))
 # @info "alpha wrt horizontal $(round(aoa_wrt_horizontal, digits=2))"
 
 chord_w = front .- back
-wing = sam_refine.sys_struct.wings[1]
+wing = sam.sys_struct.wings[1]
 v_app_w = wing.R_b_w * wing.va_b
 @info "v_app" v_app_w=round.(v_app_w, digits=2)
 aoa_geom_deg = rad2deg(acos(clamp(dot(chord_w, v_app_w) / (norm(chord_w) * norm(v_app_w) + 1e-12), -1.0, 1.0)))
@@ -416,7 +361,7 @@ aoa_geom_deg = rad2deg(acos(clamp(dot(chord_w, v_app_w) / (norm(chord_w) * norm(
 ##########################
 ### compute L/D system ###
 ##########################
-sl = syslog_refine.syslog
+sl = syslog.syslog
 last_state = sl[end]
 prev_state = sl[end - 1]
 dt = (last_state.time - prev_state.time) + 1e-12
@@ -471,15 +416,15 @@ drag_wing = dot(F_aero_world, drag_dir)
 lift_wing = dot(F_aero_world, lift_dir)
 
 # Recompute tether drag from segment states (using the last two snapshots for velocity)
-segments = sam_refine.sys_struct.segments
-points = sam_refine.sys_struct.points
+segments = sam.sys_struct.segments
+points = sam.sys_struct.points
 n_points = length(last_state.X)
 pos_last = [SVector(last_state.X[i], last_state.Y[i], last_state.Z[i]) for i in 1:n_points]
 pos_prev = [SVector(prev_state.X[i], prev_state.Y[i], prev_state.Z[i]) for i in 1:n_points]
 vel_est = [(pos_last[i] - pos_prev[i]) ./ dt for i in 1:n_points]
 
 wind_vec_gnd = last_state.v_wind_gnd
-cd_tether = SymbolicAWEModels.get_cd_tether(sam_refine.set)
+cd_tether = SymbolicAWEModels.get_cd_tether(sam.set)
 # @info "cd_tether $(cd_tether)"
 
 let drag_bridles = 0.0, drag_tether = 0.0, lift_bridles = 0.0, lift_tether = 0.0
@@ -496,13 +441,13 @@ let drag_bridles = 0.0, drag_tether = 0.0, lift_bridles = 0.0, lift_tether = 0.0
 
         seg_vel = 0.5 .* (vel_est[p1] + vel_est[p2])
         seg_height = max(0.0, 0.5 * (p1_pos[3] + p2_pos[3]))
-        wind_factor = SymbolicAWEModels.calc_wind_factor(sam_refine.am, max(seg_height, 1.0), sam_refine.set)
+        wind_factor = SymbolicAWEModels.calc_wind_factor(sam.am, max(seg_height, 1.0), sam.set)
         wind_vel = wind_factor .* wind_vec_gnd
         va_seg = wind_vel - seg_vel
         app_perp = va_seg .- dot(va_seg, seg_dir) * seg_dir
 
         area = seg_len * segment.diameter
-        rho = SymbolicAWEModels.calc_rho(sam_refine.am, seg_height)
+        rho = SymbolicAWEModels.calc_rho(sam.am, seg_height)
         v_perp_mag = norm(app_perp)
         Tether_force = 0.5 * rho * cd_tether * area * v_perp_mag .* app_perp
 

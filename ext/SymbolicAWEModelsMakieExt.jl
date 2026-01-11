@@ -829,36 +829,46 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            # Reconstruct steering tape length of segment 87 from logged node positions
-            seg_left = syss[i].segments[87]
-            p_i, p_j = seg_left.point_idxs
-            xs = sl.X
-            ys = sl.Y
-            zs = sl.Z
-            n = length(sl.time)
-            steering_len = zeros(Float64, n)
-            @inbounds for k in 1:n
-                p1 = SVector{3,Float64}(xs[k][p_i], ys[k][p_i], zs[k][p_i])
-                p2 = SVector{3,Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
-                steering_len[k] = norm(p2 - p1)
-            end
-            # Convert segment length to steering input (hardcoded calibration)
-            us = similar(steering_len)
-            @inbounds for k in eachindex(us)
-                δ = steering_len[k] - 1.6
-                us[k] = abs(δ) > 1e-6 ? δ / 1.4 : 0.0
-            end
-            us_seg = us[2:end]
 
-            push!(all_data, us_seg)
-            push!(all_labels, "u_s" * suffix)
-            push!(all_times, sl.time[2:end])  # align with us_seg length
+            # Use tape_lengths data if available, otherwise reconstruct from positions
+            if !isnothing(tape_lengths) && i <= length(tape_lengths) &&
+               hasproperty(tape_lengths[i], :steering) && !isempty(tape_lengths[i].steering)
+                tl = tape_lengths[i]
+                us_pct = tl.steering
+                push!(all_data, us_pct)
+                push!(all_labels, "u_s" * suffix)
+                push!(all_times, tl.time)
+            else
+                # Fallback: reconstruct from segment positions (legacy behavior)
+                seg_left = syss[i].segments[87]
+                p_i, p_j = seg_left.point_idxs
+                xs = sl.X
+                ys = sl.Y
+                zs = sl.Z
+                n = length(sl.time)
+                steering_len = zeros(Float64, n)
+                @inbounds for k in 1:n
+                    p1 = SVector{3,Float64}(xs[k][p_i], ys[k][p_i], zs[k][p_i])
+                    p2 = SVector{3,Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
+                    steering_len[k] = norm(p2 - p1)
+                end
+                # Convert segment length to steering percentage (calibration from utils.jl)
+                us_pct = similar(steering_len)
+                @inbounds for k in eachindex(us_pct)
+                    δ = steering_len[k] - 1.6
+                    us_pct[k] = abs(δ) > 1e-6 ? (δ / 1.4) * 100.0 : 0.0
+                end
+                us_seg = us_pct[2:end]
+                push!(all_data, us_seg)
+                push!(all_labels, "u_s" * suffix)
+                push!(all_times, sl.time[2:end])
+            end
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "u_s"
+            ylabel = "u_s [%]"
         ))
     end
 
@@ -870,24 +880,38 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             sl = lg.syslog
             suffix = actual_suffixes[i]
 
-            # Reconstruct steering tape length of segment 87 from logged node positions
-            seg_left = syss[i].segments[87]
-            p_i, p_j = seg_left.point_idxs
-            xs = sl.X
-            ys = sl.Y
-            zs = sl.Z
-            n = length(sl.time)
-            steering_len = zeros(Float64, n)
-            @inbounds for k in 1:n
-                p1 = SVector{3,Float64}(xs[k][p_i], ys[k][p_i], zs[k][p_i])
-                p2 = SVector{3,Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
-                steering_len[k] = norm(p2 - p1)
-            end
-            # Convert segment length to steering input (hardcoded calibration)
-            us = similar(steering_len)
-            @inbounds for k in eachindex(us)
-                δ = steering_len[k] - 1.6
-                us[k] = abs(δ) > 1e-6 ? δ / 1.4 : 0.0
+            # Get steering percentage: use tape_lengths if available
+            if !isnothing(tape_lengths) && i <= length(tape_lengths) &&
+               hasproperty(tape_lengths[i], :steering) && !isempty(tape_lengths[i].steering)
+                tl = tape_lengths[i]
+                # Interpolate tape steering to match syslog times
+                us_pct = similar(sl.time)
+                for k in eachindex(us_pct)
+                    t = sl.time[k]
+                    # Find closest tape time
+                    idx = searchsortedfirst(tl.time, t)
+                    idx = clamp(idx, 1, length(tl.steering))
+                    us_pct[k] = tl.steering[idx]
+                end
+            else
+                # Fallback: reconstruct from segment positions
+                seg_left = syss[i].segments[87]
+                p_i, p_j = seg_left.point_idxs
+                xs = sl.X
+                ys = sl.Y
+                zs = sl.Z
+                n = length(sl.time)
+                steering_len = zeros(Float64, n)
+                @inbounds for k in 1:n
+                    p1 = SVector{3,Float64}(xs[k][p_i], ys[k][p_i], zs[k][p_i])
+                    p2 = SVector{3,Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
+                    steering_len[k] = norm(p2 - p1)
+                end
+                us_pct = similar(steering_len)
+                @inbounds for k in eachindex(us_pct)
+                    δ = steering_len[k] - 1.6
+                    us_pct[k] = abs(δ) > 1e-6 ? (δ / 1.4) * 100.0 : 0.0
+                end
             end
 
             # Calculate heading rate from diff for quaternion wings
@@ -902,17 +926,17 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             end
             heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
             v_app = sl.v_app[2:end]
-            us_seg = us[2:end]
+            us_seg = us_pct[2:end]
 
-            # calculate gk, guarding against zero steering
+            # calculate gk, guarding against zero steering (use percentage threshold)
             gk = similar(heading_rate)
             @inbounds for k in eachindex(gk)
-                gk[k] = abs(us_seg[k]) > 1e-2 ? heading_rate[k] / (v_app[k] * us_seg[k]) : NaN
+                gk[k] = abs(us_seg[k]) > 1.0 ? heading_rate[k] / (v_app[k] * us_seg[k] / 100.0) : NaN
             end
-            
+
             @info "turn-rate $(heading_rate[end])"
             @info "v_app $(v_app[end])"
-            @info "us_seg $(us_seg[end])"
+            @info "us_seg $(us_seg[end])%"
             @info "gk $(gk[end])"
             @info "alpha-vsm $(rad2deg(sl.AoA[end]))"
 
