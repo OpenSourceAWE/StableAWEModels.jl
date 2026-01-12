@@ -27,13 +27,13 @@ include("../examples/coupled/utils.jl")
 
 # Configuration - Simulation
 WORLD_DAMPING = 500.0  # Ns/m
-DECAY_STEPS = 2000     # Steps over which damping decays to zero
-NUM_STEPS = 8000
+DECAY_STEPS = 500     # Steps over which damping decays to zero
+NUM_STEPS = 4500
 DT = 0.01  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 39.37   # depower [0, 100]
 WIND_VEL = 10.72
-ELEVATION = 78
+ELEVATION = 76
 TETHER_LENGTH = 248  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
 EXTRA_POINTS_FRAME = 7182
@@ -80,7 +80,7 @@ end
 # Load settings
 set_data_path("data/v3")
 set = Settings("system.yaml")
-set.g_earth = 0.0
+set.g_earth = 9.81
 set.v_wind = WIND_VEL
 set.l_tether = TETHER_LENGTH
 set.profile_law = 4  # Linear wind scaling from 0 at origin to 1.0 at l_tether
@@ -111,7 +111,7 @@ sys.transforms[1].heading = HEADING_SETPOINT
 @info "Transform calculated" cone_angle=ELEVATION heading_deg=rad2deg(HEADING_SETPOINT) elevation_deg=rad2deg(elevation_calc) azimuth_deg=rad2deg(azimuth_calc)
 
 # Update tether length: points 39-44 and segments 90-95
-segment_len = TETHER_LENGTH / 6
+segment_len = TETHER_LENGTH / 6 * (1 + 1000 / sys.segments[end].axial_stiffness)
 for i in 39:44
     sys.points[i].pos_cad .= [0.0, 0.0, -(i-38)*segment_len]
 end
@@ -132,7 +132,7 @@ end
 
 # Set initial world frame damping (will decay over DECAY_STEPS)
 SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING, 1:38)
-SymbolicAWEModels.set_body_frame_damping(sys, 100.0, 1:38)
+SymbolicAWEModels.set_body_frame_damping(sys, 200.0, 1:38)
 
 wing_points = [p for p in sys.points if p.type == WING]
 @info "System setup" n_wing_points=length(wing_points) n_points=length(sys.points) n_segments=length(sys.segments)
@@ -149,15 +149,17 @@ for winch in sys.winches
 end
 @info "Winch brakes enabled"
 
-# Initialize steering and depower from configuration
+# Initialize steering from configuration
 L_left, L_right = steering_percentage_to_lengths(STEERING_PERCENTAGE)
-L_depower = depower_percentage_to_length(DEPOWER_PERCENTAGE)
-
 sys.segments[87].l0 = L_left   # Left steering tape
 sys.segments[89].l0 = L_right  # Right steering tape
-sys.segments[88].l0 = L_depower  # Depower tape
 
-@info "Steering/depower initialized" steering=STEERING_PERCENTAGE depower=DEPOWER_PERCENTAGE L_left L_right L_depower
+# Store initial depower length and calculate target (ramp over 2s)
+L_depower_initial = sys.segments[88].l0
+L_depower_target = depower_percentage_to_length(DEPOWER_PERCENTAGE)
+DEPOWER_RAMP_TIME = 2.0  # seconds
+
+@info "Steering/depower initialized" steering=STEERING_PERCENTAGE depower=DEPOWER_PERCENTAGE L_left L_right L_depower_initial L_depower_target
 
 # Initialize heading PID controller
 heading_pid = DiscretePID(;
@@ -184,10 +186,13 @@ for step in 1:NUM_STEPS
     t = step * DT
 
     # Decay world damping exponentially over DECAY_STEPS
-    # if step <= DECAY_STEPS
     damping = WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS)
     SymbolicAWEModels.set_world_frame_damping(sys, damping, 1:38)
-    # end
+
+    # Ramp depower over DEPOWER_RAMP_TIME
+    ramp_frac = min(t / DEPOWER_RAMP_TIME, 1.0)
+    L_depower = L_depower_initial + ramp_frac * (L_depower_target - L_depower_initial)
+    sys.segments[88].l0 = L_depower
 
     # Heading control
     wing = sys.wings[1]
@@ -312,11 +317,19 @@ end
 # Create steering data for plotting
 steering_data = (time=steering_times, steering=steering_values)
 
+# Define ylims for plots
+plot_ylims = Dict(
+    :winch_force => (0, 2000),
+    :heading => (-180, 180),
+    :aoa => (0, 25),
+)
+
 # Save 2D plot
 fig = plot([sam.sys_struct], [syslog];
      plot_tether=false, plot_aero_force=false, plot_kite_vel=true,
      plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=false,
-     plot_winch_force=true, setpoints, tape_lengths=[steering_data])
+     plot_winch_force=true, plot_heading=true, plot_course=false, plot_aoa=true,
+     setpoints, ylims=plot_ylims, tape_lengths=[steering_data])
 pdf_2d = "data/v3/settle_2d_frame$(EXTRA_POINTS_FRAME)_$(DEST_SUFFIX).pdf"
 save(pdf_2d, fig)
 @info "Plot saved" pdf_2d
@@ -326,4 +339,5 @@ GLMakie.activate!()
 fig = plot([sam.sys_struct], [syslog];
      plot_tether=false, plot_aero_force=false, plot_kite_vel=true,
      plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=false,
-     plot_winch_force=true, setpoints, tape_lengths=[steering_data])
+     plot_winch_force=true, plot_heading=true, plot_course=false, plot_aoa=true,
+     setpoints, ylims=plot_ylims, tape_lengths=[steering_data])

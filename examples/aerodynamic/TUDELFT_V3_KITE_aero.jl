@@ -3,28 +3,45 @@ using VortexStepMethod
 using DataFrames
 using DelimitedFiles
 using GLMakie
+using CairoMakie
+using LaTeXStrings
+GLMakie.activate!()
 
 project_dir = joinpath(@__DIR__, "..", "..")  # Go up two levels from examples to project root
+
+# Geometry configuration
+DEPOWER = 0.0
+TIP_REDUCTION = 0.4
+TE_FRAC = 0.95
+GEOM_SUFFIX = "depower$(DEPOWER)_tip$(TIP_REDUCTION)_te$(TE_FRAC)"
+AERO_YAML_PATH = joinpath(project_dir, "data", "v3",
+    "aero_geometry_$(GEOM_SUFFIX).yaml")
+
 literature_paths = [
-    joinpath(project_dir, "data", "v3", "literature_results", "CFD_RANS_Rey_5e5_Poland2025_alpha_sweep_beta_0_NoStruts.csv"),
-    joinpath(project_dir, "data", "v3", "literature_results", "CFD_RANS_Rey_10e5_Poland2025_alpha_sweep_beta_0.csv"),
-    joinpath(project_dir, "data", "v3", "literature_results", "Python_VSM_Rey_5e5_Poland2025_alpha_sweep_beta_0.csv"),
-    joinpath(project_dir, "data", "v3", "literature_results", "WindTunnel_Re_5e5_Poland2025_alpha_sweep_beta_0.csv"),
-    ]
-labels= [
-    "Julia VSM 2D CFD PCHIP",
+    joinpath(project_dir, "data", "v3", "literature_results",
+        "CFD_RANS_Rey_5e5_Poland2025_alpha_sweep_beta_0_NoStruts.csv"),
+    joinpath(project_dir, "data", "v3", "literature_results",
+        "CFD_RANS_Rey_10e5_Poland2025_alpha_sweep_beta_0.csv"),
+    joinpath(project_dir, "data", "v3", "literature_results",
+        "Python_VSM_Rey_5e5_Poland2025_alpha_sweep_beta_0.csv"),
+    joinpath(project_dir, "data", "v3", "literature_results",
+        "WindTunnel_Re_5e5_Poland2025_alpha_sweep_beta_0.csv"),
+]
+labels = [
+    "Julia VSM",
     "CFD RANS Re=5e5",
     "CFD RANS Re=10e5 (With Struts)",
-    "Python VSM 2D CFD PCHIP Re=5e5",
+    "Python VSM Re=5e5",
     "Wind Tunnel Re=5e5 (With Struts)"
-    ]
+]
 
 
 # Set up VSM objects for the TU Delft V3 kite
 vsm_settings = VSMSettings(
-    joinpath(project_dir, "data", "v3", "vsm_settings_full.yaml");
+    joinpath(project_dir, "data", "v3", "vsm_settings_reduced_for_coupling.yaml");
     data_prefix=false,
 )
+vsm_settings.wings[1].geometry_file = AERO_YAML_PATH
 wing = VortexStepMethod.Wing(vsm_settings)
 body_aero = VortexStepMethod.BodyAerodynamics([wing])
 solver = VortexStepMethod.Solver(body_aero, vsm_settings)
@@ -173,19 +190,14 @@ function plot_polars_with_cmy(
         push!(labels_full, lbl)
     end
 
-    fig = Figure(size=fig_size)
-    Label(fig[0, :], title; fontsize=20, font=:bold)
+    fig = Figure(size=(1200, 400))
 
-    ax_cl    = Axis(fig[1, 1], title="CL vs $angle_type [deg]",  xlabel="$angle_type [deg]", ylabel="CL [-]")
-    ax_cd    = Axis(fig[1, 2], title="CD vs $angle_type [deg]",  xlabel="$angle_type [deg]", ylabel="CD [-]")
-    ax_cmy   = Axis(fig[1, 3], title="CMy vs $angle_type [deg]", xlabel="$angle_type [deg]", ylabel="CMy [-]")
-    ax_cs    = Axis(fig[2, 1], title="CS vs $angle_type [deg]",  xlabel="$angle_type [deg]", ylabel="CS [-]")
-    ax_polar = Axis(fig[2, 2], title="CL vs CD", xlabel="CD [-]", ylabel="CL [-]")
+    ax_cl    = Axis(fig[1, 1], xlabel=L"\alpha \; [°]", ylabel=L"C_L \; [-]")
+    ax_cd    = Axis(fig[1, 2], xlabel=L"\alpha \; [°]", ylabel=L"C_D \; [-]")
+    ax_polar = Axis(fig[1, 3], xlabel=L"C_D \; [-]", ylabel=L"C_L \; [-]")
 
     xlims!(ax_cl, angle_xlim...)
     xlims!(ax_cd, angle_xlim...)
-    xlims!(ax_cmy, angle_xlim...)
-    xlims!(ax_cs, angle_xlim...)
 
     colors = Makie.wong_colors()
 
@@ -198,27 +210,19 @@ function plot_polars_with_cmy(
         lines!(ax_cd, pd.angle, pd.cd; color, label=lbl)
         scatter!(ax_cd, pd.angle, pd.cd; color, markersize=6)
 
-        lines!(ax_cs, pd.angle, pd.cs; color, label=lbl)
-        scatter!(ax_cs, pd.angle, pd.cs; color, markersize=6)
-
         lines!(ax_polar, pd.cd, pd.cl; color, label=lbl)
         scatter!(ax_polar, pd.cd, pd.cl; color, markersize=6)
-
-        if pd.cmy !== nothing
-            cmy_vals = Float64.(pd.cmy)
-            if !all(isnan, cmy_vals)
-                lines!(ax_cmy, pd.angle, cmy_vals; color, label=lbl)
-                scatter!(ax_cmy, pd.angle, cmy_vals; color, markersize=6)
-            end
-        end
     end
 
-    Legend(fig[2, 3], ax_cl)
+    Legend(fig[2, :], ax_cl; orientation=:horizontal)
     return fig
 end
 
 
-fig2 = plot_polars_with_cmy(
+# Save PDF with CairoMakie
+CairoMakie.activate!()
+save_filename = joinpath(project_dir, "data", "v3", "polar_$(GEOM_SUFFIX).pdf")
+fig = plot_polars_with_cmy(
     [solver],
     [body_aero],
     labels;
@@ -228,11 +232,27 @@ fig2 = plot_polars_with_cmy(
     angle_of_attack=angle_of_attack_deg,
     side_slip=sideslip_deg,
     v_a=wind_speed,
-    title="Testing solve! on V3 kite",
-    angle_xlim=(-5, 40)
+    title="V3 Kite Polars ($(GEOM_SUFFIX))",
 )
-scr2 = display(fig2)
-wait(scr2)
+save(save_filename, fig)
+@info "Polar plot saved to $save_filename"
+
+# Display interactive plot with GLMakie
+GLMakie.activate!()
+fig = plot_polars_with_cmy(
+    [solver],
+    [body_aero],
+    labels;
+    literature_path_list=literature_paths,
+    angle_range=range(-5, 40, step=1),
+    angle_type="angle_of_attack",
+    angle_of_attack=angle_of_attack_deg,
+    side_slip=sideslip_deg,
+    v_a=wind_speed,
+    title="V3 Kite Polars ($(GEOM_SUFFIX))",
+)
+scr = display(fig)
+wait(scr)
 
 
 

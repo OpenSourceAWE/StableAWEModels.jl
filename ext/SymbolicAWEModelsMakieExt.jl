@@ -10,6 +10,7 @@ using StaticArrays
 using Statistics
 using Printf
 using Dates
+using LaTeXStrings
 using KiteUtils
 using KiteUtils: SysLog
 using SymbolicAWEModels
@@ -555,6 +556,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_aoa=plot_default,
                    plot_sideslip=false,
                    plot_heading=plot_default,
+                   plot_course=true,
                    plot_kiteutils_course=false,
                    plot_aero_moment=false,
                    plot_turn_rates=false,
@@ -569,6 +571,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_old_heading=false,
                    plot_tether=false,
                    setpoints=nothing,  # Dict with keys matching plot names
+                   ylims=nothing,  # Dict with keys matching plot names, values are (min, max)
                    tape_lengths=nothing,
                    suffixes=nothing,
                    size=(1200, 800))
@@ -587,6 +590,12 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
     function get_setpoint(key::Symbol)
         isnothing(setpoints) && return nothing
         return get(setpoints, key, nothing)
+    end
+
+    # Helper to get ylim for a given key
+    function get_ylim(key::Symbol)
+        isnothing(ylims) && return nothing
+        return get(ylims, key, nothing)
     end
 
     # Helper to add setpoint data to panel arrays and compute error
@@ -650,7 +659,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "turn rate [°/s]"
+            ylabel = L"\dot{\psi} \; [°/s]"
         ))
     end
 
@@ -676,7 +685,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 data = all_data,
                 labels = all_labels,
                 times = all_times,
-                ylabel = "reel-out speed [m/s]"
+                ylabel = L"v_{ro} \; [m/s]"
             ))
         end
     end
@@ -704,7 +713,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         push!(panels, (
             data = all_data, labels = all_labels, times = all_times,
             linestyles = all_linestyles, error_info = all_errors,
-            ylabel = "tether length [m]"
+            ylabel = L"l_t \; [m]"
         ))
     end
 
@@ -730,7 +739,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 data = all_data,
                 labels = all_labels,
                 times = all_times,
-                ylabel = "tape [%]"
+                ylabel = L"u \; [\%]"
             ))
         end
     end
@@ -751,7 +760,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "F_aero,z [N]"
+            ylabel = L"F_{aero,z} \; [N]"
         ))
     end
 
@@ -771,7 +780,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "M_aero,z [Nm]"
+            ylabel = L"M_{aero,z} \; [Nm]"
         ))
     end
 
@@ -791,7 +800,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "M_tether,y [Nm]"
+            ylabel = L"M_{tether,y} \; [Nm]"
         ))
     end
 
@@ -817,7 +826,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 data = all_data,
                 labels = all_labels,
                 times = all_times,
-                ylabel = "twist [°]"
+                ylabel = L"\theta_{twist} \; [°]"
             ))
         end
     end
@@ -868,7 +877,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "u_s [%]"
+            ylabel = L"u_s \; [\%]"
         ))
     end
 
@@ -1040,7 +1049,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "gk"
+            ylabel = L"g_k"
         ))
     end
 
@@ -1065,7 +1074,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         push!(panels, (
             data = all_data, labels = all_labels, times = all_times,
             linestyles = all_linestyles, error_info = all_errors,
-            ylabel = "v_app [m/s]"
+            ylabel = L"v_a \; [m/s]", ylim = get_ylim(:v_app)
         ))
     end
 
@@ -1091,7 +1100,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         push!(panels, (
             data = all_data, labels = all_labels, times = all_times,
             linestyles = all_linestyles, error_info = all_errors,
-            ylabel = "kite velocity [m/s]"
+            ylabel = L"v_k \; [m/s]"
         ))
     end
 
@@ -1125,7 +1134,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         push!(panels, (
             data = all_data, labels = all_labels, times = all_times,
             linestyles = all_linestyles, error_info = all_errors,
-            ylabel = "angle of attack [°]"
+            ylabel = L"\alpha \; [°]", ylim = get_ylim(:aoa)
         ))
     end
 
@@ -1145,7 +1154,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "sideslip [°]"
+            ylabel = L"\beta \; [°]"
         ))
     end
 
@@ -1160,17 +1169,20 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             sl = lg.syslog
             suffix = actual_suffixes[i]
             heading_deg = rad2deg.(sl.heading)
-            course_deg = rad2deg.(sl.course)
             push!(all_data, heading_deg)
             push!(all_labels, "ψ" * suffix)
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
-            push!(all_data, course_deg)
-            push!(all_labels, "χ" * suffix)
-            push!(all_times, sl.time)
-            push!(all_linestyles, :solid)
+            if plot_course
+                course_deg = rad2deg.(sl.course)
+                push!(all_data, course_deg)
+                push!(all_labels, "χ" * suffix)
+                push!(all_times, sl.time)
+                push!(all_linestyles, :solid)
+            end
             if plot_kiteutils_course
-                course_kiteutils_deg = [rad2deg(KiteUtils.calc_course(sl.orient[i])) for i in eachindex(sl.orient)]
+                course_kiteutils_deg = [rad2deg(KiteUtils.calc_course(sl.orient[i]))
+                                        for i in eachindex(sl.orient)]
                 push!(all_data, course_kiteutils_deg)
                 push!(all_labels, "χ_KU" * suffix)
                 push!(all_times, sl.time)
@@ -1188,10 +1200,11 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 push!(all_errors, (label="ψ", abs=abs_err, rel=rel_err))
             end
         end
+        ylabel_heading = plot_course ? L"\psi, \chi \; [°]" : L"\psi \; [°]"
         push!(panels, (
             data = all_data, labels = all_labels, times = all_times,
             linestyles = all_linestyles, error_info = all_errors,
-            ylabel = "heading/course [°]"
+            ylabel = ylabel_heading, ylim = get_ylim(:heading)
         ))
     end
 
@@ -1220,7 +1233,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "old heading [°]"
+            ylabel = L"\psi_{old} \; [°]"
         ))
     end
 
@@ -1242,7 +1255,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "distance [m]"
+            ylabel = L"d \; [m]"
         ))
     end
 
@@ -1272,7 +1285,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "cone angle [°]"
+            ylabel = L"\theta_c \; [°]"
         ))
     end
 
@@ -1309,7 +1322,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             times = all_times,
             linestyles = all_linestyles,
             error_info = all_errors,
-            ylabel = "elevation [°]"
+            ylabel = L"\theta_{el} \; [°]"
         ))
     end
 
@@ -1346,7 +1359,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             times = all_times,
             linestyles = all_linestyles,
             error_info = all_errors,
-            ylabel = "azimuth [°]"
+            ylabel = L"\phi_{az} \; [°]"
         ))
     end
 
@@ -1367,7 +1380,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "wind [m/s]"
+            ylabel = L"v_w \; [m/s]"
         ))
     end
 
@@ -1399,7 +1412,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(panels, (
                 data = all_data, labels = all_labels, times = all_times,
                 linestyles = all_linestyles, error_info = all_errors,
-                ylabel = "Winch force [N]"
+                ylabel = L"F_t \; [N]", ylim = get_ylim(:winch_force)
             ))
         end
     end
@@ -1426,7 +1439,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 data = all_data,
                 labels = all_labels,
                 times = all_times,
-                ylabel = "Set torque [Nm]"
+                ylabel = L"\tau \; [Nm]"
             ))
         end
     end
@@ -1441,12 +1454,14 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
     fig = Figure(size=size)
 
     axes = []
+    label_fontsize = 16
     for (i, panel) in enumerate(panels)
         # Share x-axis with first subplot
         if i == 1
-            ax = Axis(fig[i, 1], ylabel=panel.ylabel)
+            ax = Axis(fig[i, 1], ylabel=panel.ylabel, ylabelsize=label_fontsize)
         else
-            ax = Axis(fig[i, 1], ylabel=panel.ylabel, xticklabelsvisible=false)
+            ax = Axis(fig[i, 1], ylabel=panel.ylabel, ylabelsize=label_fontsize,
+                      xticklabelsvisible=false)
             linkxaxes!(axes[1], ax)
         end
 
@@ -1458,6 +1473,11 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 continue
             end
             lines!(ax, time_vec, data_series, label=label, linestyle=ls)
+        end
+
+        # Apply ylims if specified
+        if haskey(panel, :ylim) && !isnothing(panel.ylim)
+            Makie.ylims!(ax, panel.ylim...)
         end
 
         # Add legend if multiple traces
@@ -1483,7 +1503,8 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
     end
 
     # Add x-label to bottom subplot
-    axes[end].xlabel = "time [s]"
+    axes[end].xlabel = L"t \; [s]"
+    axes[end].xlabelsize = label_fontsize
     axes[end].xticklabelsvisible = true
 
     Makie.resize_to_layout!(fig)

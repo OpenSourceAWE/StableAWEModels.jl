@@ -12,6 +12,8 @@ using VortexStepMethod
 using LinearAlgebra
 using Statistics
 using GLMakie
+using CairoMakie
+GLMakie.activate!()
 using KiteUtils
 using DiscretePIDs
 using Dates
@@ -25,10 +27,6 @@ TIP_REDUCTION = 0.4          # Tip LE reduction (m), 0.0 = no change
 GEOM_SUFFIX = build_geom_suffix(V3_DEPOWER_L0, TIP_REDUCTION, TE_FRAC)
 STRUC_YAML_PATH = "data/v3/struc_geometry_$(GEOM_SUFFIX).yaml"
 AERO_YAML_PATH = "data/v3/aero_geometry_$(GEOM_SUFFIX).yaml"
-
-# World frame damping (exponential decay like settle_wing.jl)
-WORLD_DAMPING = 0.0  # Initial world frame damping (Ns/m)
-DECAY_STEPS = 100     # Steps over which damping decays to zero
 
 """
     run_v3_kite(; kwargs...)
@@ -91,12 +89,10 @@ function run_v3_kite(;
     sys = load_sys_struct_from_yaml(STRUC_YAML_PATH;
         system_name=model_name, set, wing_type, vsm_set)
 
-    sys.transforms[1].elevation = 0.0
-    sys.transforms[1].elevation_vel = deg2rad(8.0)
+    sys.transforms[1].elevation = deg2rad(20.0)
+    sys.transforms[1].azimuth = deg2rad(20.0)
     # Initialize damping with per-axis values [x, y, z]
     SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern, 1:38)
-    # Set initial world frame damping (will decay exponentially)
-    SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING, 1:38)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -168,14 +164,6 @@ function run_v3_kite(;
     for step in 1:n_steps
         t = step * Δt
 
-        # Exponential decay of world frame damping (like settle_wing.jl)
-        if step <= DECAY_STEPS
-            world_damping = WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS)
-        else
-            world_damping = 0.0
-        end
-        SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, world_damping, 1:38)
-
         # Body frame damping stays constant at damping_pattern
 
         # Ramp from initial to target tape lengths
@@ -214,6 +202,35 @@ function run_v3_kite(;
         update_sys_state!(sys_state, sam)
         sys_state.time = t
         log!(logger, sys_state)
+
+        # Plot body frame at t=10.0 (right turn frame)
+        if abs(t - 10.0) < Δt / 2
+            @info "Plotting body frame at t=10.0 (right turn)..."
+
+            # Load right turn frame points from CSV
+            extra_pts_csv = "data/v3/right_turn_reelout_frame_7362.csv"
+            extra_pts, extra_groups = load_extra_points(extra_pts_csv, sam.sys_struct)
+
+            # Save PDFs for all three views
+            CairoMakie.activate!()
+            for dir in (:front, :side, :top)
+                scene = plot_body_frame_local([sam.sys_struct];
+                    extra_points=extra_pts, extra_groups=extra_groups,
+                    dir, point_idxs=1:38, labels=["sim"])
+                pdf_filename = "data/v3/circular_body_frame_$(dir)_right_turn_$(GEOM_SUFFIX).pdf"
+                save(pdf_filename, scene)
+                @info "Plot saved" pdf_filename
+            end
+
+            # Display interactive plot
+            GLMakie.activate!()
+            scene = plot_body_frame_local([sam.sys_struct];
+                extra_points=extra_pts, extra_groups=extra_groups,
+                dir=:side, point_idxs=1:38, labels=["sim"])
+            scr = display(scene)
+            @info "Close the plot window to continue..."
+            wait(scr)
+        end
 
         # Collect segment stretch statistics after t > 1.0
         if t > 1.0
@@ -281,14 +298,14 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-us = 30.0   # Steering percentage [-100, 100], positive = right turn
+us = 20.0   # Steering percentage [-100, 100], positive = right turn
 up = 39   # Depower percentage [0, 100]
 vw = 8.0    # Wind speed [m/s]
 
 sim_time = 40.0
 ramp_time = 2.0
 fps = 60
-damping_pattern = [0.0, 30.0, 60.0]
+damping_pattern = [0.0, 60.0, 120.0]
 
 
 syslog, sam, heading_setpoint, tape_data = run_v3_kite(
@@ -331,121 +348,5 @@ v_app_w = wing.R_b_w * wing.va_b
 @info "v_app" v_app_w=round.(v_app_w, digits=2)
 aoa_geom_deg = rad2deg(acos(clamp(dot(chord_w, v_app_w) / (norm(chord_w) * norm(v_app_w) + 1e-12), -1.0, 1.0)))
 @info "alpha wrt v_app $(round(aoa_geom_deg, digits=2))"
-
-
-##########################
-### compute L/D system ###
-##########################
-sl = syslog.syslog
-last_state = sl[end]
-prev_state = sl[end - 1]
-dt = (last_state.time - prev_state.time) + 1e-12
-
-# compute wing v_a
-min1 = sl[end - 1]
-last_state = sl[end]
-
-X_last = last_state.X; Y_last = last_state.Y; Z_last = last_state.Z
-X_min1 = min1.X; Y_min1 = min1.Y; Z_min1 = min1.Z
-
-X_last_back = 0.5 * (X_last[10] + X_last[12])
-Y_last_back = 0.5 * (Y_last[10] + Y_last[12])
-Z_last_back = 0.5 * (Z_last[10] + Z_last[12])
-
-X_last_front = 0.5 * (X_last[11] + X_last[13])
-Y_last_front = 0.5 * (Y_last[11] + Y_last[13])
-Z_last_front = 0.5 * (Z_last[11] + Z_last[13])
-
-X_min1_back = 0.5 * (X_min1[10] + X_min1[12])
-Y_min1_back = 0.5 * (Y_min1[10] + Y_min1[12])
-Z_min1_back = 0.5 * (Z_min1[10] + Z_min1[12])
-
-X_min1_front = 0.5 * (X_min1[11] + X_min1[13])
-Y_min1_front = 0.5 * (Y_min1[11] + Y_min1[13])
-Z_min1_front = 0.5 * (Z_min1[11] + Z_min1[13])
-
-va_mid_panel_front = SVector{3,Float64}(
-    (X_last_front - X_min1_front) / (dt) - last_state.v_wind_kite[1],
-    (Y_last_front - Y_min1_front) / (dt) - last_state.v_wind_kite[2],
-    (Z_last_front - Z_min1_front) / (dt) - last_state.v_wind_kite[3],
-)
-va_mid_panel_back = SVector{3,Float64}(
-    (X_last_back - X_min1_back) / (dt) - last_state.v_wind_kite[1],
-    (Y_last_back - Y_min1_back) / (dt) - last_state.v_wind_kite[2],
-    (Z_last_back - Z_min1_back) / (dt) - last_state.v_wind_kite[3],
-)
-va_mid_panel = -0.5 .* (va_mid_panel_front .+ va_mid_panel_back)
-va_mid_panel_unit = va_mid_panel / (norm(va_mid_panel) + 1e-12)
-# @info "v_app mid-panel $(round.(va_mid_panel, digits=5))"
-
-# Aero forces in world frame
-R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(last_state.orient)
-F_aero_b = last_state.aero_force_b
-F_aero_world = R_b_w * F_aero_b
-
-drag_dir = va_mid_panel_unit              # drag is positive aligned with v_a
-lift_dir = cross(drag_dir, SVector(0.0, 1.0, 0.0))  # lift is positive perpendicular to drag and upwards
-# @info "checking lift dir" lift_dir=round.(lift_dir, digits=4) drag_dir=round.(drag_dir, digits=4)
-
-drag_wing = dot(F_aero_world, drag_dir)
-lift_wing = dot(F_aero_world, lift_dir)
-
-# Recompute tether drag from segment states (using the last two snapshots for velocity)
-segments = sam.sys_struct.segments
-points = sam.sys_struct.points
-n_points = length(last_state.X)
-pos_last = [SVector(last_state.X[i], last_state.Y[i], last_state.Z[i]) for i in 1:n_points]
-pos_prev = [SVector(prev_state.X[i], prev_state.Y[i], prev_state.Z[i]) for i in 1:n_points]
-vel_est = [(pos_last[i] - pos_prev[i]) ./ dt for i in 1:n_points]
-
-wind_vec_gnd = last_state.v_wind_gnd
-cd_tether = SymbolicAWEModels.get_cd_tether(sam.set)
-# @info "cd_tether $(cd_tether)"
-
-let drag_bridles = 0.0, drag_tether = 0.0, lift_bridles = 0.0, lift_tether = 0.0
-    for segment in segments
-        p1, p2 = segment.point_idxs
-        p1_pos = pos_last[p1]; p2_pos = pos_last[p2]
-        # Skip structural wing segments (drag handled by VSM)
-        if points[p1].type == SymbolicAWEModels.WING && points[p2].type == SymbolicAWEModels.WING
-            continue
-        end
-        seg_vec = p2_pos - p1_pos
-        seg_len = norm(seg_vec) + 1e-12
-        seg_dir = seg_vec / seg_len
-
-        seg_vel = 0.5 .* (vel_est[p1] + vel_est[p2])
-        seg_height = max(0.0, 0.5 * (p1_pos[3] + p2_pos[3]))
-        wind_factor = SymbolicAWEModels.calc_wind_factor(sam.am, max(seg_height, 1.0), sam.set)
-        wind_vel = wind_factor .* wind_vec_gnd
-        va_seg = wind_vel - seg_vel
-        app_perp = va_seg .- dot(va_seg, seg_dir) * seg_dir
-
-        area = seg_len * segment.diameter
-        rho = SymbolicAWEModels.calc_rho(sam.am, seg_height)
-        v_perp_mag = norm(app_perp)
-        Tether_force = 0.5 * rho * cd_tether * area * v_perp_mag .* app_perp
-
-        drag_scalar = dot(Tether_force, drag_dir)
-        lift_scalar = dot(Tether_force, lift_dir)
-        
-        if 47 <= segment.idx <= 89
-            drag_bridles += drag_scalar
-            lift_bridles += lift_scalar
-        elseif 90 <= segment.idx <= 95
-            drag_tether += drag_scalar
-            lift_tether += lift_scalar
-        end
-        
-    end
-
-    # Total aero (wing + tether drag approximation)
-    total_drag = drag_wing + drag_bridles + drag_tether
-    total_lift = lift_wing + lift_tether + lift_bridles
-    @info "L/D wing" lift_wing = round(lift_wing, digits=2) drag_wing = round(drag_wing, digits=2) L_over_D = round(lift_wing / (drag_wing + 1e-12), digits=2)
-    @info "Bridle aero" drag_bridles = round(drag_bridles, digits=2) lift_bridles = round(lift_bridles, digits=2)
-    @info "Tether aero" drag_tether = round(drag_tether, digits=2) lift_tether = round(lift_tether, digits=2)
-    @info "L/D system" lift_total = round(total_lift, digits=2) drag_total = round(total_drag, digits=2) L_over_D = round(total_lift / (total_drag + 1e-12), digits=2)
-end
 
 nothing
