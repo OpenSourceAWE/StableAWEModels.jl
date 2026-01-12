@@ -33,7 +33,8 @@ DT = 0.01  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 39.37   # depower [0, 100]
 WIND_VEL = 10.72
-ELEVATION = 76
+CONE_ANGLE = 76  # Cone angle in degrees (angle from x-axis)
+ELEVATION_SETPOINT = 0.61  # Target elevation in radians
 TETHER_LENGTH = 248  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
 EXTRA_POINTS_FRAME = 7182
@@ -97,18 +98,17 @@ sys = load_sys_struct_from_yaml(struc_yaml_path;
     system_name="v3", set,
     wing_type=SymbolicAWEModels.REFINE, vsm_set)
 
-# Calculate elevation and azimuth for cone angle rotated by heading around x-axis
-# Cone angle θ = ELEVATION (angle from x-axis), heading ψ = rotation around x-axis
-# Position on unit sphere: [cos(θ), sin(θ)*sin(ψ), sin(θ)*cos(ψ)]
-θ_cone = deg2rad(ELEVATION)
-ψ_heading = HEADING_SETPOINT
-elevation_calc = atan(sin(θ_cone) * cos(ψ_heading), cos(θ_cone))
-azimuth_calc = atan(sin(θ_cone) * sin(ψ_heading), cos(θ_cone))
+# Calculate azimuth to achieve CONE_ANGLE at given ELEVATION_SETPOINT
+# Geometry: cos(θ_cone) = cos(elevation) * cos(azimuth)
+# Solve: azimuth = ±acos(cos(θ_cone) / cos(elevation))
+θ_cone = deg2rad(CONE_ANGLE)
+cos_az = cos(θ_cone) / cos(ELEVATION_SETPOINT)
+azimuth_calc = -acos(clamp(cos_az, -1.0, 1.0))  # Negative for left side
 
-sys.transforms[1].elevation = elevation_calc
+sys.transforms[1].elevation = ELEVATION_SETPOINT
 sys.transforms[1].azimuth = azimuth_calc
 sys.transforms[1].heading = HEADING_SETPOINT
-@info "Transform calculated" cone_angle=ELEVATION heading_deg=rad2deg(HEADING_SETPOINT) elevation_deg=rad2deg(elevation_calc) azimuth_deg=rad2deg(azimuth_calc)
+@info "Transform calculated" cone_angle=CONE_ANGLE elevation=rad2deg(ELEVATION_SETPOINT) azimuth=rad2deg(azimuth_calc) heading=rad2deg(HEADING_SETPOINT)
 
 # Update tether length: points 39-44 and segments 90-95
 segment_len = TETHER_LENGTH / 6 * (1 + 1000 / sys.segments[end].axial_stiffness)

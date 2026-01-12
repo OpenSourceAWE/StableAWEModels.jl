@@ -580,10 +580,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
     panels = []
 
     # Generate suffixes: use custom if provided, otherwise use system names
-    actual_suffixes = if isnothing(suffixes)
-        [" - " * sys.name for sys in syss]
+    # Use empty suffix when only one log (legend not shown anyway)
+    actual_suffixes = if length(logs) == 1
+        [""]
+    elseif isnothing(suffixes)
+        [" (" * sys.name * ")" for sys in syss]
     else
-        [" - " * s for s in suffixes]
+        [" (" * s * ")" for s in suffixes]
     end
 
     # Helper to get setpoint for a given key
@@ -643,7 +646,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 end
             end
             push!(all_data, heading_rate)
-            push!(all_labels, "dψ/dt" * suffix)
+            push!(all_labels, L"\dot{\psi}" * suffix)
             push!(all_times, sl.time[1:end-1])
 
             # Also plot z-component (yaw rate ω_z) if available
@@ -651,7 +654,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             if !all(iszero, turn_rates_rad)
                 omega_z_deg = rad2deg.(turn_rates_rad[3, :])
                 push!(all_data, omega_z_deg)
-                push!(all_labels, "ω_z" * suffix)
+                push!(all_labels, L"\omega_z" * suffix)
                 push!(all_times, sl.time)
             end
         end
@@ -659,7 +662,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = L"\dot{\psi} \; [°/s]"
+            ylabel = L"\omega \; [°/s]"
         ))
     end
 
@@ -675,7 +678,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 # Only plot if non-zero or if it's index 1
                 if j == 1 || !all(iszero, v_ro[j])
                     push!(all_data, v_ro[j])
-                    push!(all_labels, "v_ro,$j" * suffix)
+                    push!(all_labels, L"v_{ro,%$j}" * suffix)
                     push!(all_times, sl.time)
                 end
             end
@@ -703,7 +706,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             l_tether = [length(sl.l_tether[j]) > 0 ? sl.l_tether[j][1] : 0.0
                         for j in eachindex(sl.l_tether)]
             push!(all_data, l_tether)
-            push!(all_labels, "l_tether" * suffix)
+            push!(all_labels, L"l_t" * suffix)
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
@@ -725,12 +728,12 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             if hasproperty(tl, :steering) && !isempty(tl.steering)
                 push!(all_data, tl.steering)
-                push!(all_labels, "steering" * suffix)
+                push!(all_labels, L"u_s" * suffix)
                 push!(all_times, tl.time)
             end
             if hasproperty(tl, :depower) && !isempty(tl.depower)
                 push!(all_data, tl.depower)
-                push!(all_labels, "depower" * suffix)
+                push!(all_labels, L"u_p" * suffix)
                 push!(all_times, tl.time)
             end
         end
@@ -753,14 +756,14 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             aero_force_z = [sl.aero_force_b[i][3] for i in eachindex(sl.aero_force_b)]
             push!(all_data, aero_force_z)
-            push!(all_labels, "F_aero,z" * suffix)
+            push!(all_labels, L"F_{aero,z}" * suffix)
             push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = L"F_{aero,z} \; [N]"
+            ylabel = L"F_{a,z} \; [N]"
         ))
     end
 
@@ -773,14 +776,14 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             aero_moment_z = [sl.aero_moment_b[i][3] for i in eachindex(sl.aero_moment_b)]
             push!(all_data, aero_moment_z)
-            push!(all_labels, "M_aero,z" * suffix)
+            push!(all_labels, L"M_{aero,z}" * suffix)
             push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = L"M_{aero,z} \; [Nm]"
+            ylabel = L"M_{a,z} \; [Nm]"
         ))
     end
 
@@ -793,14 +796,14 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             tether_moment_y = [sl.tether_induced_moment[i][2] for i in eachindex(sl.tether_induced_moment)]
             push!(all_data, tether_moment_y)
-            push!(all_labels, "M_tether,y" * suffix)
+            push!(all_labels, L"M_{tether,y}" * suffix)
             push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = L"M_{tether,y} \; [Nm]"
+            ylabel = L"M_{t,y} \; [Nm]"
         ))
     end
 
@@ -816,7 +819,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 twist_deg = rad2deg.(hcat(sl.twist_angles...))
                 for j in 1:n_groups
                     push!(all_data, twist_deg[j, :])
-                    push!(all_labels, "β_$j" * suffix)
+                    push!(all_labels, L"\beta_%$j" * suffix)
                     push!(all_times, sl.time)
                 end
             end
@@ -826,7 +829,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 data = all_data,
                 labels = all_labels,
                 times = all_times,
-                ylabel = L"\theta_{twist} \; [°]"
+                ylabel = L"\beta \; [°]"
             ))
         end
     end
@@ -845,7 +848,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 tl = tape_lengths[i]
                 us_pct = tl.steering
                 push!(all_data, us_pct)
-                push!(all_labels, "u_s" * suffix)
+                push!(all_labels, L"u_s" * suffix)
                 push!(all_times, tl.time)
             else
                 # Fallback: reconstruct from segment positions (legacy behavior)
@@ -869,7 +872,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 end
                 us_seg = us_pct[2:end]
                 push!(all_data, us_seg)
-                push!(all_labels, "u_s" * suffix)
+                push!(all_labels, L"u_s" * suffix)
                 push!(all_times, sl.time[2:end])
             end
         end
@@ -1042,14 +1045,14 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             # @info "Aero total forces" lift=round(total_lift, digits=2) drag=round(total_drag, digits=2) angle_lift_to_drag=round(total_angle, digits=2) L_over_D=round(total_lift / (total_drag + 1e-12), digits=2)
 
             push!(all_data, gk)
-            push!(all_labels, "gk" * suffix)
+            push!(all_labels, L"g_k" * suffix)
             push!(all_times, sl.time[2:end])
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = L"g_k"
+            ylabel = L"g_k \; [-]"
         ))
     end
 
@@ -1064,7 +1067,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             sl = lg.syslog
             suffix = actual_suffixes[i]
             push!(all_data, sl.v_app)
-            push!(all_labels, "v_app" * suffix)
+            push!(all_labels, L"v_a" * suffix)
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
@@ -1090,7 +1093,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             v_kite_norm = [norm(v) for v in sl.vel_kite]
             push!(all_data, v_kite_norm)
-            push!(all_labels, "|v_kite|" * suffix)
+            push!(all_labels, L"v_k" * suffix)
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
@@ -1116,13 +1119,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             aoa_deg = rad2deg.(sl.AoA)
             push!(all_data, aoa_deg)
-            push!(all_labels, "α" * suffix)
+            push!(all_labels, L"\alpha" * suffix)
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             if !isnothing(sp)
                 sp_deg = rad2deg.(sp)
                 push!(all_data, sp_deg)
-                push!(all_labels, "α ref" * suffix)
+                push!(all_labels, L"\alpha_{ref}" * suffix)
                 push!(all_times, sl.time)
                 push!(all_linestyles, :dash)
                 # Compute error
@@ -1147,7 +1150,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             sideslip_deg = rad2deg.(sl.side_slip)
             push!(all_data, sideslip_deg)
-            push!(all_labels, "β" * suffix)
+            push!(all_labels, L"\beta" * suffix)
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -1170,13 +1173,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             heading_deg = rad2deg.(sl.heading)
             push!(all_data, heading_deg)
-            push!(all_labels, "ψ" * suffix)
+            push!(all_labels, L"\psi" * suffix)
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             if plot_course
                 course_deg = rad2deg.(sl.course)
                 push!(all_data, course_deg)
-                push!(all_labels, "χ" * suffix)
+                push!(all_labels, L"\chi" * suffix)
                 push!(all_times, sl.time)
                 push!(all_linestyles, :solid)
             end
@@ -1184,14 +1187,14 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 course_kiteutils_deg = [rad2deg(KiteUtils.calc_course(sl.orient[i]))
                                         for i in eachindex(sl.orient)]
                 push!(all_data, course_kiteutils_deg)
-                push!(all_labels, "χ_KU" * suffix)
+                push!(all_labels, L"\chi_{KU}" * suffix)
                 push!(all_times, sl.time)
                 push!(all_linestyles, :solid)
             end
             if !isnothing(sp)
                 sp_deg = rad2deg.(sp)
                 push!(all_data, sp_deg)
-                push!(all_labels, "ψ ref" * suffix)
+                push!(all_labels, L"\psi_{ref}" * suffix)
                 push!(all_times, sl.time)
                 push!(all_linestyles, :dash)
                 # Compute error
@@ -1226,7 +1229,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             end
             old_heading_deg = rad2deg.(old_heading_rad)
             push!(all_data, old_heading_deg)
-            push!(all_labels, "ψ_old" * suffix)
+            push!(all_labels, L"\psi_{old}" * suffix)
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -1248,14 +1251,14 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             kite_idx = syss[i].wings[1].origin_idx
             distance = [norm([sl.X[j][kite_idx], sl.Y[j][kite_idx], sl.Z[j][kite_idx]]) for j in eachindex(sl.X)]
             push!(all_data, distance)
-            push!(all_labels, "r" * suffix)
+            push!(all_labels, L"r" * suffix)
             push!(all_times, sl.time)
         end
         push!(panels, (
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = L"d \; [m]"
+            ylabel = L"r \; [m]"
         ))
     end
 
@@ -1278,7 +1281,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             end
             cone_angle_deg = rad2deg.(cone_angle_rad)
             push!(all_data, cone_angle_deg)
-            push!(all_labels, "θ_cone" * suffix)
+            push!(all_labels, L"\theta_c" * suffix)
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -1301,13 +1304,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             elevation_deg = rad2deg.(sl.elevation)
             push!(all_data, elevation_deg)
-            push!(all_labels, "elevation" * suffix)
+            push!(all_labels, L"\gamma" * suffix)
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             if !isnothing(sp)
                 sp_deg = rad2deg.(sp)
                 push!(all_data, sp_deg)
-                push!(all_labels, "elevation ref" * suffix)
+                push!(all_labels, L"\gamma_{ref}" * suffix)
                 push!(all_times, sl.time)
                 push!(all_linestyles, :dash)
                 # Compute error
@@ -1322,7 +1325,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             times = all_times,
             linestyles = all_linestyles,
             error_info = all_errors,
-            ylabel = L"\theta_{el} \; [°]"
+            ylabel = L"\gamma \; [°]"
         ))
     end
 
@@ -1338,13 +1341,13 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             azimuth_deg = rad2deg.(sl.azimuth)
             push!(all_data, azimuth_deg)
-            push!(all_labels, "azimuth" * suffix)
+            push!(all_labels, L"\phi" * suffix)
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             if !isnothing(sp)
                 sp_deg = rad2deg.(sp)
                 push!(all_data, sp_deg)
-                push!(all_labels, "azimuth ref" * suffix)
+                push!(all_labels, L"\phi_{ref}" * suffix)
                 push!(all_times, sl.time)
                 push!(all_linestyles, :dash)
                 # Compute error
@@ -1359,7 +1362,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             times = all_times,
             linestyles = all_linestyles,
             error_info = all_errors,
-            ylabel = L"\phi_{az} \; [°]"
+            ylabel = L"\phi \; [°]"
         ))
     end
 
@@ -1373,7 +1376,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             # v_wind_gnd is a vector, take norm
             wind_speed = [norm(sl.v_wind_gnd[j]) for j in eachindex(sl.v_wind_gnd)]
             push!(all_data, wind_speed)
-            push!(all_labels, "v_wind" * suffix)
+            push!(all_labels, L"v_w" * suffix)
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -1398,7 +1401,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             for j in 1:3
                 if j == 1 || !all(iszero, winch_force[j])
                     push!(all_data, winch_force[j])
-                    push!(all_labels, "F_winch,$j" * suffix)
+                    push!(all_labels, L"F_{t,%$j}" * suffix)
                     push!(all_times, sl.time)
                     push!(all_linestyles, :solid)
                 end
@@ -1412,7 +1415,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             push!(panels, (
                 data = all_data, labels = all_labels, times = all_times,
                 linestyles = all_linestyles, error_info = all_errors,
-                ylabel = L"F_t \; [N]", ylim = get_ylim(:winch_force)
+            ylabel = L"F_t \; [N]", ylim = get_ylim(:winch_force)
             ))
         end
     end
@@ -1429,7 +1432,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 # Only plot if non-zero or if it's index 1
                 if j == 1 || !all(iszero, set_values[j])
                     push!(all_data, set_values[j])
-                    push!(all_labels, "T_winch,$j" * suffix)
+                    push!(all_labels, L"\tau_%$j" * suffix)
                     push!(all_times, sl.time)
                 end
             end
