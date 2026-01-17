@@ -36,6 +36,10 @@ const PLOT_PREV_BODY_FRAME = Ref{Bool}(false)  # Previous body frame state
 const PLOT_PREV_ZOOMED_IN = Ref{Bool}(false)  # Previous zoomed state
 const PLOT_PREV_SEGMENT_IDX = Ref{Int}(-1)  # Previous segment index
 
+# Multi-system plotting support
+const PLOT_MULTI_SYSTEMS = Ref{Union{Nothing, Vector{SystemStructure}}}(nothing)
+const PLOT_MULTI_GEOMETRY_OBS = Ref{Union{Nothing, Vector{Observable}}}(nothing)
+
 """
     calculate_segment_force_colors(segments, segment_color)
 

@@ -79,6 +79,11 @@ RESTABLE = false
 STOP_EARLY = false
 MIN_DAMPING = [0.0, 60, 120]
 
+# Spring and damping forces relative to CSV reference (points 1:38)
+# Force = k * (csv - sim) * mass, so acceleration is equal for all points
+CSV_SPRING_K = 0.0      # Spring coefficient [1/s²] - position tracking
+CSV_DAMPING_K = 0.0     # Damping coefficient [1/s] - velocity tracking
+
 # PID controller parameters for heading control
 HEADING_KP = 0.5
 HEADING_TAU_I = false
@@ -341,6 +346,35 @@ function apply_force!(sys, control)
     for point in sys.points
         distance_frac = point.pos_w ⋅ normalize(wing.pos_w) / norm(wing.pos_w)
         point.disturb .= -R_b_w[:, 1] * control * distance_frac
+    end
+end
+
+"""
+    apply_csv_tracking_forces!(sim_sys, csv_sys; k_spring, k_damping)
+
+Apply spring and damping forces to points 1:38 of sim_sys relative to csv_sys.
+
+- Spring force: k_spring * (csv_pos - sim_pos)
+- Damping force: k_damping * (csv_vel - sim_vel)
+"""
+function apply_csv_tracking_forces!(sim_sys::SystemStructure, csv_sys::SystemStructure;
+                                    k_spring::Float64=CSV_SPRING_K,
+                                    k_damping::Float64=CSV_DAMPING_K)
+    for i in 1:38
+        sim_point = sim_sys.points[i]
+        csv_point = csv_sys.points[i]
+
+        # Position error (csv - sim)
+        pos_error = csv_point.pos_w - sim_point.pos_w
+        # Velocity error (csv - sim)
+        vel_error = csv_point.vel_w - sim_point.vel_w
+
+        # Apply spring and damping forces
+        spring_force = k_spring * pos_error
+        damping_force = k_damping * vel_error
+
+        # Apply to disturb field
+        sim_point.disturb .= spring_force + damping_force
     end
 end
 
@@ -631,6 +665,9 @@ function run_physics_replay(csv_path::String;
                     println("Sim behind by $(round(dist_error, digits=2))m")
                 end
             end
+
+            # Apply spring/damping tracking forces relative to CSV reference (points 1:38)
+            apply_csv_tracking_forces!(sam.sys_struct, csv_sam.sys_struct)
 
             next_step!(sam; dt=dt, set_values=[set_value])
 

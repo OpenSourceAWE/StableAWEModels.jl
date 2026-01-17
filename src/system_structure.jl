@@ -110,7 +110,8 @@ mutable struct Point
     const aero_force_b::KVec3 # aerodynamic force in body frame (for REFINE WING points)
     const va_b::KVec3 # apparent velocity in body frame (for VSM per-point va)
     const type::DynamicsType
-    mass::SimFloat
+    extra_mass::SimFloat      # User-provided mass
+    total_mass::SimFloat      # extra_mass + segment weights (computed during simulation)
     body_frame_damping::KVec3
     world_frame_damping::KVec3
     area::SimFloat
@@ -146,7 +147,7 @@ where:
 - `wing_idx::Int16=1`: Index of the wing this point is attached to.
 - `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
 - `transform_idx::Int16=1`: Index of the transform used for initial positioning.
-- `mass::Float64=0.0`: Mass of the point [kg].
+- `extra_mass::Float64=0.0`: User-provided mass of the point [kg]. Total mass (including segment weights) is computed during simulation.
 - `body_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping [x,y,z] for bridle points. Scalar applies to all axes.
 - `world_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping [x,y,z] for world frame damping. Scalar applies to all axes.
 - `fix_sphere::Bool=false`: If true, constrains the point to a sphere.
@@ -157,7 +158,7 @@ where:
 """
 function Point(idx, pos_cad, type;
     wing_idx=1, vel_w=zeros(KVec3), transform_idx=1,
-    mass=0.0, body_frame_damping=zeros(KVec3), world_frame_damping=zeros(KVec3),
+    extra_mass=0.0, body_frame_damping=zeros(KVec3), world_frame_damping=zeros(KVec3),
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
@@ -166,7 +167,7 @@ function Point(idx, pos_cad, type;
     wf_damp = world_frame_damping isa Real ? SVector{3,SimFloat}(world_frame_damping, world_frame_damping, world_frame_damping) : SVector{3,SimFloat}(world_frame_damping)
 
     Point(idx, transform_idx, wing_idx, pos_cad, zeros(KVec3), zeros(KVec3),
-        vel_w, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), type, mass,
+        vel_w, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), type, extra_mass, 0.0,
         bf_damp, wf_damp, area, drag_coeff,
         fix_sphere, fix_static)
 end
@@ -1294,7 +1295,7 @@ function SystemStructure(name, set;
                     points[idx].idx,
                     points[idx].pos_cad,
                     STATIC;
-                    mass = points[idx].mass,
+                    extra_mass = points[idx].extra_mass,
                     body_frame_damping =
                         points[idx].body_frame_damping,
                     world_frame_damping =
@@ -1598,7 +1599,7 @@ function SystemStructure(name, set;
                 n_wing_points = length(wing_points)
                 mass_per_point = set.mass / n_wing_points
                 for point_idx in wing_point_idxs
-                    points[point_idx].mass = mass_per_point
+                    points[point_idx].extra_mass = mass_per_point
                 end
             end
         end
@@ -2182,14 +2183,14 @@ function validate_sys_struct(sys_struct::SystemStructure)
 
     # ==================== POINT VALIDATIONS ==================== #
     for point in points
-        # Check for NaN mass
-        if isnan(point.mass)
-            error("Point #$(point.idx) has NaN mass")
+        # Check for NaN extra_mass
+        if isnan(point.extra_mass)
+            error("Point #$(point.idx) has NaN extra_mass")
         end
 
-        # Warn about negative mass (physically nonsensical but still works)
-        if point.mass < 0
-            @warn "Point #$(point.idx) has negative mass $(point.mass) kg. " *
+        # Warn about negative extra_mass (physically nonsensical but still works)
+        if point.extra_mass < 0
+            @warn "Point #$(point.idx) has negative extra_mass $(point.extra_mass) kg. " *
                   "This is physically nonsensical."
         end
 

@@ -528,7 +528,7 @@ function compute_inertia_from_points(points::Vector{Point}, total_mass::Float64)
         return MVector{3, SimFloat}(ones(SimFloat, 3))
     end
     if total_mass <= 0
-        mass_from_points = sum(p.mass for p in dyn_points if p.mass > 0)
+        mass_from_points = sum(p.extra_mass for p in dyn_points if p.extra_mass > 0)
         total_mass = mass_from_points > 0 ? mass_from_points : length(dyn_points)
     end
     mass_per_point = total_mass / length(dyn_points)

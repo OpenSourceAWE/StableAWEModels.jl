@@ -26,7 +26,7 @@ materials:
 # pos_cad is a 3-element array [x, y, z]
 
 points:
-  headers: [idx, pos_cad, type, wing_idx, transform_idx, mass, body_frame_damping, world_frame_damping, area, drag_coeff]
+  headers: [idx, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
   data:
     # KCU
     - [1, [0.0, 0.0, 0.0], DYNAMIC, 1, 1, 23.25, 0.0, 0.0, 0.48, 0.83]

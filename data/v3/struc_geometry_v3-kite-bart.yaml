@@ -27,7 +27,7 @@ materials:
 
 points:
   headers: [idx, pos_cad, type, wing_idx, transform_idx,
-            mass, body_frame_damping, world_frame_damping]
+            extra_mass, body_frame_damping, world_frame_damping]
   data:
     # KCU
     - [1, [93.7587, 6.7869, 241.7578], DYNAMIC, 1, 1, 23.25, 0.0, 0.0]

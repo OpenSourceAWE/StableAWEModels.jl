@@ -191,7 +191,7 @@ args and kwargs from YAML row and calls constructor.
 row = (idx=1, x=0.0, y=0.0, z=0.0, type="STATIC")
 point = call_yaml_constructor(Point, row,
     [:idx, :pos_cad, :type],  # positional args
-    [:mass, :wing_idx];       # kwargs
+    [:extra_mass, :wing_idx];       # kwargs
     mappings=Dict(
         :pos_cad => r -> [Float64(r.x),
             Float64(r.y), Float64(r.z)],
@@ -301,7 +301,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Create Point using generic constructor
             point = call_yaml_constructor(Point, row,
                 [:idx, :pos_cad, :type],
-                [:wing_idx, :transform_idx, :mass,
+                [:wing_idx, :transform_idx, :extra_mass,
                  :body_frame_damping, :world_frame_damping,
                  :area, :drag_coeff];
                 mappings=Dict(

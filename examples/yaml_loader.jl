@@ -154,7 +154,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             idx,
             rp.pos,
             rp.type;
-            mass = rp.mass,
+            extra_mass = rp.mass,
             body_frame_damping = rp.body_damping,
             world_frame_damping = rp.world_damping
         ))

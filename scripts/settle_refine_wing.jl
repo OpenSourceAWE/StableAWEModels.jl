@@ -203,7 +203,7 @@ for step in 1:NUM_STEPS
     steering_control = DiscretePIDs.calculate_control!(
         heading_pid, 0.0, delta_heading, 0.0)
 
-    L_left, L_right = steering_percentage_to_lengths(STEERING_PERCENTAGE)
+    global L_left, L_right = steering_percentage_to_lengths(STEERING_PERCENTAGE)
     sys.segments[87].l0 = L_left + V3_STEERING_GAIN * steering_control
     sys.segments[89].l0 = L_right - V3_STEERING_GAIN * steering_control
     push!(steering_times, t)

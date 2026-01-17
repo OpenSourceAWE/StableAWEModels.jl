@@ -198,8 +198,8 @@ get_group_le_pos(sys::SystemStructure, idx::Int16) = sys.groups[idx].le_pos
     size = (3,)
     eltype = SimFloat
 end
-get_mass(sys::SystemStructure, idx::Int16) = sys.points[idx].mass
-@register_symbolic get_mass(sys::SystemStructure, idx::Int16)
+get_extra_mass(sys::SystemStructure, idx::Int16) = sys.points[idx].extra_mass
+@register_symbolic get_extra_mass(sys::SystemStructure, idx::Int16)
 get_l0(sys::SystemStructure, idx::Int16) = sys.segments[idx].l0
 @register_symbolic get_l0(sys::SystemStructure, idx::Int16)
 get_diameter(sys::SystemStructure, idx::Int16) = sys.segments[idx].diameter
@@ -372,7 +372,7 @@ function force_eqs!(
     # ==================== POINTS ==================== #
     for point in points
         F::Vector{Num} = zeros(Num, 3)
-        mass = get_mass(psys, point.idx)
+        mass = get_extra_mass(psys, point.idx)
         for segment in segments
             if point.idx in segment.point_idxs
                 mass_per_meter =

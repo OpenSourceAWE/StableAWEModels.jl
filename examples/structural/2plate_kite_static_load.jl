@@ -132,19 +132,14 @@ function make_point_static!(sys, node_id::Int; fix_sphere::Bool=true)
     point = sys.points[node_id]
     sys.points[node_id] = SymbolicAWEModels.Point(
         point.idx,
-        point.transform_idx,
-        point.wing_idx,
         point.pos_cad,
-        point.pos_b,
-        point.pos_w,
-        point.vel_w,
-        point.disturb,
-        point.force,
-        SymbolicAWEModels.STATIC,
-        point.mass,
-        point.body_frame_damping,
-        point.world_frame_damping,
-        fix_sphere ? true : point.fix_sphere,
+        SymbolicAWEModels.STATIC;
+        wing_idx = point.wing_idx,
+        transform_idx = point.transform_idx,
+        extra_mass = point.extra_mass,
+        body_frame_damping = point.body_frame_damping,
+        world_frame_damping = point.world_frame_damping,
+        fix_sphere = fix_sphere ? true : point.fix_sphere,
     )
     return nothing
 end
