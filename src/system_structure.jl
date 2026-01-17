@@ -1147,7 +1147,19 @@ mutable struct SystemStructure
 end
 
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
-    if sym == :diff_vars
+    if sym == :total_mass
+        # Sum of all point total_mass values (computed during simulation)
+        # Falls back to extra_mass if total_mass is 0
+        total = 0.0
+        for point in getfield(sys, :points)
+            if point.total_mass > 0
+                total += point.total_mass
+            else
+                total += point.extra_mass
+            end
+        end
+        return total
+    elseif sym == :diff_vars
         vars = SimFloat[]
         # points
         for point in sys.points

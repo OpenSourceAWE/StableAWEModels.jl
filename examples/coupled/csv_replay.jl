@@ -80,7 +80,8 @@ STOP_EARLY = false
 MIN_DAMPING = [0.0, 60, 120]
 
 # Spring and damping forces relative to CSV reference (points 1:38)
-# Force = k * (csv - sim) * mass, so acceleration is equal for all points
+# Force = k * total_mass * (csv - sim), so k has units [1/s²] for spring, [1/s] for damping
+# Scaled by total_mass to give consistent acceleration regardless of mass
 CSV_SPRING_K = 0.0      # Spring coefficient [1/s²] - position tracking
 CSV_DAMPING_K = 0.0     # Damping coefficient [1/s] - velocity tracking
 
@@ -667,7 +668,11 @@ function run_physics_replay(csv_path::String;
             end
 
             # Apply spring/damping tracking forces relative to CSV reference (points 1:38)
-            apply_csv_tracking_forces!(sam.sys_struct, csv_sam.sys_struct)
+            # Scale k values by total_mass for mass-independent acceleration
+            total_mass = sam.sys_struct.total_mass
+            apply_csv_tracking_forces!(sam.sys_struct, csv_sam.sys_struct;
+                                       k_spring=CSV_SPRING_K * total_mass,
+                                       k_damping=CSV_DAMPING_K * total_mass)
 
             next_step!(sam; dt=dt, set_values=[set_value])
 
