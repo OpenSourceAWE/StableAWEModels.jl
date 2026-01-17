@@ -1636,6 +1636,193 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     return distance
 end
 
+"""
+    setup_segment_hover_events!(scene, systems::Vector{SystemStructure},
+                                 segment_plots::Vector, all_plots;
+                                 segment_colors, highlight_color=:yellow,
+                                 force_color=false, relmargin=0.2)
+
+Add hover labels and click-to-zoom for segments across multiple systems.
+
+For multi-system, labels show "sys_idx:seg_idx" and "sys_idx:pt_idx" format.
+For single system, labels show just "seg_idx" and "pt_idx".
+"""
+function setup_segment_hover_events!(scene, systems::Vector{SystemStructure},
+                                      segment_plots::Vector, all_plots;
+                                      segment_colors::Vector,
+                                      highlight_color=:yellow,
+                                      force_color=false,
+                                      relmargin=0.2)
+    # Track hover state per system
+    last_hovered = Ref((-1, -1))  # (sys_idx, seg_idx)
+    zoomed_in = Ref(false)
+
+    # Create label observables
+    segment_label = Observable("")
+    segment_label_pos = Observable(Point2f(0, 0))
+    segment_label_visible = Observable(false)
+    text!(scene, segment_label, position=segment_label_pos, space=:pixel,
+          fontsize=14, color=:white, strokecolor=:black, strokewidth=1,
+          align=(:center, :center), visible=segment_label_visible, transparency=true)
+
+    point1_label = Observable("")
+    point1_label_pos = Observable(Point2f(0, 0))
+    point1_label_visible = Observable(false)
+    text!(scene, point1_label, position=point1_label_pos, space=:pixel,
+          fontsize=14, color=:white, strokecolor=:black, strokewidth=1,
+          align=(:center, :center), visible=point1_label_visible, transparency=true)
+
+    point2_label = Observable("")
+    point2_label_pos = Observable(Point2f(0, 0))
+    point2_label_visible = Observable(false)
+    text!(scene, point2_label, position=point2_label_pos, space=:pixel,
+          fontsize=14, color=:white, strokecolor=:black, strokewidth=1,
+          align=(:center, :center), visible=point2_label_visible, transparency=true)
+
+    # --- Hover handler: find closest segment across ALL systems ---
+    on(events(scene).mouseposition, priority=2) do mp
+        min_dist = Inf
+        closest = (-1, -1)  # (sys_idx, seg_idx)
+        mouse_pos_2d = Point2f(mp)
+        margin_px = 30.0
+
+        for (sys_i, (sys, seg_plot)) in enumerate(zip(systems, segment_plots))
+            seg_points_3d = seg_plot[1][]
+            for seg_i in 1:length(sys.segments)
+                p1_3d = seg_points_3d[2*seg_i - 1]
+                p2_3d = seg_points_3d[2*seg_i]
+                p1_2d = Makie.project(scene, p1_3d)
+                p2_2d = Makie.project(scene, p2_3d)
+                dist = point_line_segment_distance(mouse_pos_2d, p1_2d, p2_2d)
+                if dist < min_dist
+                    min_dist = dist
+                    closest = (sys_i, seg_i)
+                end
+            end
+        end
+
+        hover = (min_dist < margin_px) ? closest : (-1, -1)
+        if hover != last_hovered[]
+            # Reset all segment colors
+            for (sys_i, (sys, seg_plot)) in enumerate(zip(systems, segment_plots))
+                base_color = segment_colors[sys_i]
+                if force_color
+                    new_colors = calculate_segment_force_colors(sys.segments, base_color)
+                else
+                    new_colors = fill(to_color(base_color), length(sys.segments))
+                end
+                if hover[1] == sys_i && hover[2] != -1
+                    new_colors[hover[2]] = to_color(highlight_color)
+                end
+                seg_plot.color[] = new_colors
+            end
+
+            if hover != (-1, -1)
+                sys_i, seg_i = hover
+                sys = systems[sys_i]
+                seg = sys.segments[seg_i]
+                p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                p2_3d = sys.points[seg.point_idxs[2]].pos_w
+
+                # Multi-system label format: "1:seg5" or just "seg5" if single system
+                prefix = length(systems) > 1 ? "$(sys_i):" : ""
+
+                mid_point_2d = Makie.project(scene, (p1_3d + p2_3d) / 2)
+                segment_label[] = "$(prefix)$(seg_i)"
+                segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+                segment_label_visible[] = true
+
+                p1_2d = Makie.project(scene, p1_3d)
+                p2_2d = Makie.project(scene, p2_3d)
+                point1_label[] = "$(prefix)$(seg.point_idxs[1])"
+                point1_label_pos[] = p1_2d + Point2f(20, 0)
+                point1_label_visible[] = true
+                point2_label[] = "$(prefix)$(seg.point_idxs[2])"
+                point2_label_pos[] = p2_2d + Point2f(20, 0)
+                point2_label_visible[] = true
+            else
+                segment_label_visible[] = false
+                point1_label_visible[] = false
+                point2_label_visible[] = false
+            end
+            last_hovered[] = hover
+        end
+    end
+
+    # --- Camera movement: update label positions ---
+    on(scene.camera.view, priority=1) do _
+        sys_i, seg_i = last_hovered[]
+        if sys_i != -1 && seg_i != -1
+            sys = systems[sys_i]
+            seg = sys.segments[seg_i]
+            p1_3d = sys.points[seg.point_idxs[1]].pos_w
+            p2_3d = sys.points[seg.point_idxs[2]].pos_w
+
+            mid_point_2d = Makie.project(scene, (p1_3d + p2_3d) / 2)
+            segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+
+            p1_2d = Makie.project(scene, p1_3d)
+            p2_2d = Makie.project(scene, p2_3d)
+            point1_label_pos[] = p1_2d + Point2f(20, 0)
+            point2_label_pos[] = p2_2d + Point2f(20, 0)
+        end
+    end
+
+    # --- Click-to-zoom handler ---
+    on(events(scene).mousebutton, priority=1) do event
+        if event.button == Mouse.left && event.action == Mouse.press
+            cam = scene.camera
+            sys_i, seg_i = last_hovered[]
+
+            if sys_i != -1 && seg_i != -1
+                # ZOOM IN/RE-ZOOM to segment (works whether already zoomed or not)
+                sys = systems[sys_i]
+                seg = sys.segments[seg_i]
+                p1_w = sys.points[seg.point_idxs[1]].pos_w
+                p2_w = sys.points[seg.point_idxs[2]].pos_w
+
+                center = (p1_w + p2_w) / 2.0f0
+                segment_len = norm(p2_w - p1_w)
+                dist_heuristic = segment_len * 1.5 + 2.0
+
+                inv_view_matrix = inv(cam.view[])
+                cam_dir = normalize(Vec3f(inv_view_matrix[1,3], inv_view_matrix[2,3], inv_view_matrix[3,3]))
+                new_eyepos = center + dist_heuristic * cam_dir
+
+                update_cam!(scene, new_eyepos, center)
+                PLOT_CAMERA_DISTANCE[] = dist_heuristic
+                zoomed_in[] = true
+                PLOT_ZOOMED_IN[] = true
+                PLOT_ZOOM_SEGMENT_IDX[] = seg_i
+
+                # Update label positions after zoom
+                sleep(0.01)
+                p1_3d = sys.points[seg.point_idxs[1]].pos_w
+                p2_3d = sys.points[seg.point_idxs[2]].pos_w
+                mid_point_2d = Makie.project(scene, (p1_3d + p2_3d) / 2)
+                segment_label_pos[] = mid_point_2d + Point2f(20, 0)
+                p1_2d = Makie.project(scene, p1_3d)
+                p2_2d = Makie.project(scene, p2_3d)
+                point1_label_pos[] = p1_2d + Point2f(20, 0)
+                point2_label_pos[] = p2_2d + Point2f(20, 0)
+
+                return Consume(true)
+            elseif zoomed_in[] && sys_i == -1
+                # ZOOM OUT when clicking empty space
+                zoom_out!(scene, cam, all_plots, nothing; relmargin)
+                zoomed_in[] = false
+                PLOT_ZOOMED_IN[] = false
+                PLOT_ZOOM_SEGMENT_IDX[] = -1
+
+                return Consume(true)
+            end
+        end
+        return Consume(false)
+    end
+
+    return nothing
+end
+
 function _plot_with_panes(sys::SystemStructure;
                     size = (1200, 800),
                     margin = 1000.0,
@@ -1669,206 +1856,11 @@ function _plot_with_panes(sys::SystemStructure;
         end
     end
 
-    # --- Event Handling for Segments ---
+    # --- Event Handling for Segments (using extracted reusable function) ---
     if haskey(plots, :segments)
-        lineseg_plot = plots[:segments]
-        seg_colors_obs = lineseg_plot.color
-        last_hovered_idx = Ref(-1)
-        zoomed_in = Ref(false)
-
-        # --- Hover Labels ---
-        # Segment index label at middle of segment
-        segment_label = Observable("")
-        segment_label_pos = Observable(Point2f(0, 0))
-        segment_label_visible = Observable(false)
-        text!(scene, segment_label, position = segment_label_pos, space = :pixel,
-              fontsize = 14, color = :white, strokecolor = :black, strokewidth = 1,
-              align = (:center, :center), visible = segment_label_visible, transparency = true)
-
-        # Point index labels at segment endpoints
-        point1_label = Observable("")
-        point1_label_pos = Observable(Point2f(0, 0))
-        point1_label_visible = Observable(false)
-        text!(scene, point1_label, position = point1_label_pos, space = :pixel,
-              fontsize = 14, color = :white, strokecolor = :black, strokewidth = 1,
-              align = (:center, :center), visible = point1_label_visible, transparency = true)
-
-        point2_label = Observable("")
-        point2_label_pos = Observable(Point2f(0, 0))
-        point2_label_visible = Observable(false)
-        text!(scene, point2_label, position = point2_label_pos, space = :pixel,
-              fontsize = 14, color = :white, strokecolor = :black, strokewidth = 1,
-              align = (:center, :center), visible = point2_label_visible, transparency = true)
-
-        # --- Event Handler for Robust Hover Highlighting ---
-        on(events(scene).mouseposition, priority = 2) do mp
-            # This approach is more robust than `pick` for thin lines.
-            # It finds the closest segment in 2D screen space.
-            min_dist = Inf
-            closest_seg_idx = -1
-            mouse_pos_2d = Point2f(mp)
-            margin_px = 30.0 # pixel margin for hover detection
-            if haskey(plots, :segments)
-                seg_points_3d = plots[:segments][1][]
-                for i in 1:length(sys.segments)
-                    p1_3d = seg_points_3d[2 * i - 1]
-                    p2_3d = seg_points_3d[2 * i]
-                    p1_2d = Makie.project(scene, p1_3d)
-                    p2_2d = Makie.project(scene, p2_3d)
-                    dist = point_line_segment_distance(mouse_pos_2d, p1_2d, p2_2d)
-                    if dist < min_dist
-                        min_dist = dist
-                        closest_seg_idx = i
-                    end
-                end
-            end
-
-            hover_idx = (min_dist < margin_px) ? closest_seg_idx : -1
-            if hover_idx != last_hovered_idx[]
-                num_segments = length(sys.segments)
-
-                # Calculate base colors (either force-based or uniform)
-                if force_color
-                    new_colors = calculate_segment_force_colors(sys.segments, segment_color)
-                else
-                    new_colors = fill(to_color(segment_color), num_segments)
-                end
-
-                if hover_idx != -1
-                    seg = sys.segments[hover_idx]
-                    p1_3d = sys.points[seg.point_idxs[1]].pos_w
-                    p2_3d = sys.points[seg.point_idxs[2]].pos_w
-
-                    # Show segment index 20px to the right of middle of segment
-                    mid_point_3d = (p1_3d + p2_3d) / 2
-                    mid_point_2d = Makie.project(scene, mid_point_3d)
-                    segment_label[] = string(hover_idx)
-                    segment_label_pos[] = mid_point_2d + Point2f(20, 0)
-                    segment_label_visible[] = true
-
-                    # Show point indices 20px to the right of segment endpoints
-                    p1_2d = Makie.project(scene, p1_3d)
-                    p2_2d = Makie.project(scene, p2_3d)
-                    point1 = sys.points[seg.point_idxs[1]].idx
-                    point2 = sys.points[seg.point_idxs[2]].idx
-                    point1_label[] = string(point1)
-                    point1_label_pos[] = p1_2d + Point2f(20, 0)
-                    point1_label_visible[] = true
-                    point2_label[] = string(point2)
-                    point2_label_pos[] = p2_2d + Point2f(20, 0)
-                    point2_label_visible[] = true
-
-                    new_colors[hover_idx] = to_color(highlight_color)
-                else
-                    segment_label_visible[] = false
-                    point1_label_visible[] = false
-                    point2_label_visible[] = false
-                end
-                seg_colors_obs[] = new_colors
-                last_hovered_idx[] = hover_idx
-            end
-        end
-
-        # --- Event Handler for Camera Movement ---
-        on(scene.camera.view, priority = 1) do _
-            # Update label positions when camera moves
-            hover_idx = last_hovered_idx[]
-            if hover_idx != -1
-                seg = sys.segments[hover_idx]
-                p1_3d = sys.points[seg.point_idxs[1]].pos_w
-                p2_3d = sys.points[seg.point_idxs[2]].pos_w
-
-                # Update segment label position
-                mid_point_3d = (p1_3d + p2_3d) / 2
-                mid_point_2d = Makie.project(scene, mid_point_3d)
-                segment_label_pos[] = mid_point_2d + Point2f(20, 0)
-
-                # Update point label positions
-                p1_2d = Makie.project(scene, p1_3d)
-                p2_2d = Makie.project(scene, p2_3d)
-                point1_label_pos[] = p1_2d + Point2f(20, 0)
-                point2_label_pos[] = p2_2d + Point2f(20, 0)
-            end
-        end
-
-        # --- Event Handler for Click-to-Zoom ---
-        zoomed_in = Ref(false)
-        on(events(scene).mousebutton, priority = 1) do event
-            if event.button == Mouse.left && event.action == Mouse.press
-                cam = scene.camera
-                if !zoomed_in[] || last_hovered_idx[] != -1
-                    # --- ZOOM IN --- (This part remains the same)
-                    hover_idx = last_hovered_idx[]
-                    if hover_idx != -1
-                        seg = sys.segments[hover_idx]
-                        p1_w = sys.points[seg.point_idxs[1]].pos_w
-                        p2_w = sys.points[seg.point_idxs[2]].pos_w
-                        
-                        center = (p1_w + p2_w) / 2.0f0
-                        segment_len = norm(p2_w - p1_w)
-                        dist_heuristic = segment_len * 1.5 + 2.0
-                        
-                        inv_view_matrix = inv(cam.view[])
-                        cam_dir_vec = normalize(Vec3f(inv_view_matrix[1, 3], inv_view_matrix[2, 3], inv_view_matrix[3, 3]))
-                        new_eyepos = center + dist_heuristic * cam_dir_vec
-
-                        update_cam!(scene, new_eyepos, center)
-                        PLOT_CAMERA_DISTANCE[] = dist_heuristic
-                        zoomed_in[] = true
-                        PLOT_ZOOMED_IN[] = true  # Track global zoom state
-                        PLOT_ZOOM_SEGMENT_IDX[] = hover_idx  # Track which segment we're zoomed into
-
-                        # Update label positions after zoom
-                        # Small delay to ensure camera update is complete
-                        sleep(0.01)
-                        p1_3d = sys.points[seg.point_idxs[1]].pos_w
-                        p2_3d = sys.points[seg.point_idxs[2]].pos_w
-                        
-                        # Update segment label position
-                        mid_point_3d = (p1_3d + p2_3d) / 2
-                        mid_point_2d = Makie.project(scene, mid_point_3d)
-                        segment_label_pos[] = mid_point_2d + Point2f(20, 0)
-                        
-                        # Update point label positions
-                        p1_2d = Makie.project(scene, p1_3d)
-                        p2_2d = Makie.project(scene, p2_3d)
-                        point1_label_pos[] = p1_2d + Point2f(20, 0)
-                        point2_label_pos[] = p2_2d + Point2f(20, 0)
-                        
-                        return Consume(true) # Consume the event
-                    end
-                else
-                    zoom_out!(scene, cam, relevant_plots, nothing; relmargin)
-                    zoomed_in[] = false
-                    PLOT_ZOOMED_IN[] = false  # Track global zoom state
-                    PLOT_ZOOM_SEGMENT_IDX[] = -1  # Clear zoomed segment
-
-                    # Update label positions after zoom out
-                    # Small delay to ensure camera update is complete
-                    sleep(0.01)
-                    hover_idx = last_hovered_idx[]
-                    if hover_idx != -1
-                        seg = sys.segments[hover_idx]
-                        p1_3d = sys.points[seg.point_idxs[1]].pos_w
-                        p2_3d = sys.points[seg.point_idxs[2]].pos_w
-                        
-                        # Update segment label position
-                        mid_point_3d = (p1_3d + p2_3d) / 2
-                        mid_point_2d = Makie.project(scene, mid_point_3d)
-                        segment_label_pos[] = mid_point_2d + Point2f(20, 0)
-                        
-                        # Update point label positions
-                        p1_2d = Makie.project(scene, p1_3d)
-                        p2_2d = Makie.project(scene, p2_3d)
-                        point1_label_pos[] = p1_2d + Point2f(20, 0)
-                        point2_label_pos[] = p2_2d + Point2f(20, 0)
-                    end
-                    
-                    return Consume(true) # Consume the event
-                end
-            end
-            return Consume(false)
-        end
+        setup_segment_hover_events!(scene, [sys], [plots[:segments]], relevant_plots;
+                                    segment_colors=[segment_color],
+                                    highlight_color, force_color, relmargin)
     end
 
     # Set initial camera position
@@ -1939,6 +1931,154 @@ function Makie.plot(sys::SystemStructure;
     PLOT_ZOOM_SEGMENT_IDX[] = -1  # No segment zoomed initially
     PLOT_CAMERA_DISTANCE[] = nothing  # Clear any stale camera distance
 
+    return scene
+end
+
+"""
+    build_geometry_observables(sys::SystemStructure, trigger::Observable)
+
+Build geometry observables for a SystemStructure that update when trigger is notified.
+Used for multi-system plotting where each system needs its own observable.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to build observables for
+- `trigger::Observable`: Observable that triggers geometry recalculation
+
+# Returns
+- Dict with keys :segment_points, :point_positions, :wing_data
+"""
+function build_geometry_observables(sys::SystemStructure, trigger::Observable)
+    obs = Dict{Symbol, Any}()
+
+    # Segments: Vector of Point3f pairs
+    obs[:segment_points] = @lift begin
+        $trigger
+        points = Point3f[]
+        for seg in sys.segments
+            push!(points, Point3f(sys.points[seg.point_idxs[1]].pos_w))
+            push!(points, Point3f(sys.points[seg.point_idxs[2]].pos_w))
+        end
+        points
+    end
+
+    # Points: Vector of Point3f
+    obs[:point_positions] = @lift begin
+        $trigger
+        [Point3f(p.pos_w) for p in sys.points]
+    end
+
+    # Wing axes: origins and directions
+    obs[:wing_data] = @lift begin
+        $trigger
+        origins = Point3f[]
+        directions = Vec3f[]
+        for wing in sys.wings
+            origin = Point3f(sys.points[wing.origin_idx].pos_w)
+            R = wing.R_b_w
+            for i in 1:3
+                push!(origins, origin)
+                push!(directions, Vec3f(R[:, i]))
+            end
+        end
+        (origins, directions)
+    end
+
+    return obs
+end
+
+"""
+    Makie.plot(syss::Vector{SystemStructure}; colors=Makie.wong_colors(), ...)
+
+Plot multiple SystemStructures in a single scene with different colors.
+
+# Arguments
+- `syss::Vector{SystemStructure}`: Vector of system structures to plot
+
+# Keyword Arguments
+- `colors`: Color palette for systems (default: wong_colors())
+- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
+- `relmargin::Real=0.2`: Relative margin for camera zoom
+- `use_observables::Bool=false`: If true, create observables for dynamic updates (used by replay)
+- All other kwargs passed to plot!
+
+# Returns
+- Scene with all systems plotted
+
+# Example
+```julia
+scene = plot([sys1, sys2])  # Plot two systems with different colors
+```
+"""
+function Makie.plot(syss::Vector{SystemStructure};
+                    colors=Makie.wong_colors(),
+                    vector_scale=1.0,
+                    relmargin=0.2,
+                    use_observables=false,
+                    highlight_color=:yellow,
+                    force_color=false,
+                    kwargs...)
+    scene = Scene(; camera=cam3d!, show_axis=false, size=(1200, 800))
+
+    PLOT_MULTI_SYSTEMS[] = syss
+    all_plots = AbstractPlot[]
+    segment_plots = AbstractPlot[]  # Track segment plots for hover
+    segment_colors_list = Any[]     # Track colors for hover reset
+
+    if use_observables
+        # Create trigger observables for each system
+        triggers = [Observable(0.0) for _ in syss]
+        PLOT_MULTI_GEOMETRY_OBS[] = triggers
+
+        for (i, sys) in enumerate(syss)
+            color = colors[mod1(i, length(colors))]
+            push!(segment_colors_list, color)
+            obs = build_geometry_observables(sys, triggers[i])
+
+            # Plot with observable data
+            seg_plot = linesegments!(scene, obs[:segment_points];
+                                     color=color, linewidth=2, transparency=true)
+            push!(all_plots, seg_plot)
+            push!(segment_plots, seg_plot)
+
+            pt_plot = scatter!(scene, obs[:point_positions];
+                              color=color, transparency=true)
+            push!(all_plots, pt_plot)
+
+            # Wing arrows
+            if !isempty(sys.wings)
+                arrows3d!(scene,
+                          @lift($(obs[:wing_data])[1]),
+                          @lift($(obs[:wing_data])[2] .* $vector_scale);
+                          color=repeat([:red, :green, :blue], length(sys.wings)))
+            end
+        end
+    else
+        # Static mode: reuse existing plot!
+        for (i, sys) in enumerate(syss)
+            color = colors[mod1(i, length(colors))]
+            push!(segment_colors_list, color)
+            plots = plot!(scene, sys;
+                          segment_color=color,
+                          point_color=color,
+                          vector_scale,
+                          geometry_obs=nothing,
+                          kwargs...)
+            if haskey(plots, :segments)
+                push!(all_plots, plots[:segments])
+                push!(segment_plots, plots[:segments])
+            end
+            haskey(plots, :points) && push!(all_plots, plots[:points])
+        end
+    end
+
+    # Add hover/click events for segments
+    if !isempty(segment_plots)
+        setup_segment_hover_events!(scene, syss, segment_plots, all_plots;
+                                    segment_colors=segment_colors_list,
+                                    highlight_color, force_color, relmargin)
+    end
+
+    zoom_out!(scene, scene.camera, all_plots; relmargin)
     return scene
 end
 
@@ -2080,6 +2220,253 @@ function SymbolicAWEModels.record(lg::SysLog, sys::SystemStructure, filename::St
 end
 
 """
+    setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
+                           replay_speed=1.0, autoplay=false, loop=false)
+
+Create replay UI controls (slider, buttons, animation loop) for a scene.
+This is a reusable function that can be used by both single and multi-system replay.
+
+# Arguments
+- `scene`: Parent scene to overlay UI on
+- `n_frames`: Total number of frames
+- `update_frame!(idx)`: Callback to update geometry for frame idx
+- `get_time(idx)`: Callback to get simulation time for frame idx
+- `get_dt(idx)`: Callback to get time delta between frames (for playback timing)
+
+# Keyword Arguments
+- `replay_speed::Real=1.0`: Replay speed factor
+- `autoplay::Bool=false`: Start playing automatically
+- `loop::Bool=false`: Loop playback continuously
+
+# Returns
+- `(ui_scene, frame_idx, is_playing)`: UI scene and observables for external control
+"""
+function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
+                                 replay_speed=1.0, autoplay=false, loop=false)
+    # Create pixel-space subscene for UI controls overlay
+    ui_scene = Scene(scene, viewport=scene.viewport, clear=false, camera=campixel!)
+
+    # Create observable for current frame index
+    frame_idx = Observable(1)
+
+    # UI Layout constants (pixel coordinates from bottom-left)
+    ui_height = 120
+    ui_margin = 20
+    button_height = 30
+    button_width = 80
+    slider_height = 20
+
+    # Get scene size
+    scene_width = Observable(scene.viewport[].widths[1])
+    scene_height = Observable(scene.viewport[].widths[2])
+
+    # Update scene size on resize
+    on(scene.viewport) do area
+        scene_width[] = area.widths[1]
+        scene_height[] = area.widths[2]
+    end
+
+    # --- Slider Implementation ---
+    slider_y = ui_margin + button_height + 10
+    slider_x_start = ui_margin
+    slider_width_obs = @lift($(scene_width) - 2 * ui_margin)
+
+    # Slider track
+    slider_track_rect = @lift(Rect2f(slider_x_start, slider_y, $(slider_width_obs), slider_height))
+    poly!(ui_scene, slider_track_rect, color=RGBAf(0.3, 0.3, 0.3, 0.8))
+
+    # Slider thumb position
+    slider_thumb_x = @lift(slider_x_start + ($(frame_idx) - 1) / max(1, n_frames - 1) * $(slider_width_obs))
+    slider_thumb_pos = @lift(Point2f($(slider_thumb_x), slider_y + slider_height / 2))
+    scatter!(ui_scene, slider_thumb_pos, color=:white, markersize=15)
+
+    # --- Button Implementation ---
+    button_y = ui_margin
+
+    # Play/Pause button
+    is_playing = Observable(autoplay)
+    play_button_x = ui_margin
+    play_button_rect = Rect2f(play_button_x, button_y, button_width, button_height)
+    play_button_color = @lift($(is_playing) ? RGBAf(0.8, 0.3, 0.3, 0.8) : RGBAf(0.3, 0.8, 0.3, 0.8))
+    poly!(ui_scene, play_button_rect, color=play_button_color)
+    play_button_label = @lift($(is_playing) ? "Pause" : "Play")
+    text!(ui_scene, play_button_label, position=Point2f(play_button_x + button_width/2, button_y + button_height/2),
+          align=(:center, :center), fontsize=14, color=:white)
+
+    # Step backward button
+    step_back_x = play_button_x + button_width + 10
+    step_back_rect = Rect2f(step_back_x, button_y, button_width, button_height)
+    poly!(ui_scene, step_back_rect, color=RGBAf(0.4, 0.4, 0.4, 0.8))
+    text!(ui_scene, "<", position=Point2f(step_back_x + button_width/2, button_y + button_height/2),
+          align=(:center, :center), fontsize=14, color=:white)
+
+    # Step forward button
+    step_forward_x = step_back_x + button_width + 10
+    step_forward_rect = Rect2f(step_forward_x, button_y, button_width, button_height)
+    poly!(ui_scene, step_forward_rect, color=RGBAf(0.4, 0.4, 0.4, 0.8))
+    text!(ui_scene, ">", position=Point2f(step_forward_x + button_width/2, button_y + button_height/2),
+          align=(:center, :center), fontsize=14, color=:white)
+
+    # Body frame toggle button
+    body_frame_button_x = step_forward_x + button_width + 10
+    body_frame_button_rect = Rect2f(body_frame_button_x, button_y, button_width, button_height)
+    body_frame_obs = Observable(PLOT_BODY_FRAME[])
+    body_frame_button_color = @lift($(body_frame_obs) ? RGBAf(0.3, 0.6, 0.8, 0.8) : RGBAf(0.5, 0.5, 0.5, 0.8))
+    poly!(ui_scene, body_frame_button_rect, color=body_frame_button_color)
+    body_frame_button_label = @lift($(body_frame_obs) ? "Body" : "World")
+    text!(ui_scene, body_frame_button_label, position=Point2f(body_frame_button_x + button_width/2, button_y + button_height/2),
+          align=(:center, :center), fontsize=14, color=:white)
+
+    # Save button
+    save_button_x = body_frame_button_x + button_width + 10
+    save_button_rect = Rect2f(save_button_x, button_y, button_width, button_height)
+    poly!(ui_scene, save_button_rect, color=RGBAf(0.2, 0.7, 0.3, 0.8))
+    text!(ui_scene, "Save", position=Point2f(save_button_x + button_width/2, button_y + button_height/2),
+          align=(:center, :center), fontsize=14, color=:white)
+
+    # Info label
+    info_label_x = save_button_x + button_width + 20
+    info_text = @lift("Frame: $($(frame_idx))/$n_frames | Time: $(@sprintf("%.2f", get_time($(frame_idx)))) s | Speed: $(replay_speed)x")
+    text!(ui_scene, info_text, position=Point2f(info_label_x, button_y + button_height/2),
+          align=(:left, :center), fontsize=14, color=:white, strokecolor=:black, strokewidth=1)
+
+    # Combined mouse event handling for slider and buttons
+    slider_dragging = Ref(false)
+
+    on(events(ui_scene).mousebutton, priority = 2) do event
+        if event.button == Mouse.left
+            mp = events(ui_scene).mouseposition[]
+
+            if event.action == Mouse.press
+                # Check if click is on slider
+                track_rect = slider_track_rect[]
+                if mp[2] >= track_rect.origin[2] && mp[2] <= track_rect.origin[2] + track_rect.widths[2] &&
+                   mp[1] >= track_rect.origin[1] && mp[1] <= track_rect.origin[1] + track_rect.widths[1]
+                    slider_dragging[] = true
+                    # Update frame immediately
+                    rel_pos = clamp((mp[1] - slider_x_start) / slider_width_obs[], 0.0, 1.0)
+                    new_idx = round(Int, 1 + rel_pos * (n_frames - 1))
+                    frame_idx[] = clamp(new_idx, 1, n_frames)
+                    update_frame!(frame_idx[])
+                    return Consume(true)
+                end
+
+                # Check play button
+                if mp[1] >= play_button_rect.origin[1] && mp[1] <= play_button_rect.origin[1] + play_button_rect.widths[1] &&
+                   mp[2] >= play_button_rect.origin[2] && mp[2] <= play_button_rect.origin[2] + play_button_rect.widths[2]
+                    is_playing[] = !is_playing[]
+                    return Consume(true)
+                end
+
+                # Check step back button
+                if mp[1] >= step_back_rect.origin[1] && mp[1] <= step_back_rect.origin[1] + step_back_rect.widths[1] &&
+                   mp[2] >= step_back_rect.origin[2] && mp[2] <= step_back_rect.origin[2] + step_back_rect.widths[2]
+                    new_idx = max(1, frame_idx[] - 1)
+                    frame_idx[] = new_idx
+                    update_frame!(new_idx)
+                    return Consume(true)
+                end
+
+                # Check step forward button
+                if mp[1] >= step_forward_rect.origin[1] && mp[1] <= step_forward_rect.origin[1] + step_forward_rect.widths[1] &&
+                   mp[2] >= step_forward_rect.origin[2] && mp[2] <= step_forward_rect.origin[2] + step_forward_rect.widths[2]
+                    new_idx = min(n_frames, frame_idx[] + 1)
+                    frame_idx[] = new_idx
+                    update_frame!(new_idx)
+                    return Consume(true)
+                end
+
+                # Check body frame toggle button
+                if mp[1] >= body_frame_button_rect.origin[1] && mp[1] <= body_frame_button_rect.origin[1] + body_frame_button_rect.widths[1] &&
+                   mp[2] >= body_frame_button_rect.origin[2] && mp[2] <= body_frame_button_rect.origin[2] + body_frame_button_rect.widths[2]
+                    PLOT_BODY_FRAME[] = !PLOT_BODY_FRAME[]
+                    body_frame_obs[] = PLOT_BODY_FRAME[]
+                    # Disable zoom-in mode when switching to body frame
+                    if PLOT_BODY_FRAME[]
+                        PLOT_ZOOMED_IN[] = false
+                        PLOT_ZOOM_SEGMENT_IDX[] = -1
+                    end
+                    # Force camera update immediately (not just during playback)
+                    PLOT_CAMERA_DISTANCE[] = nothing  # Force recalculation on mode change
+                    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STRUCTURE[])
+                        main_scene = PLOT_SCENE[]
+                        relevant_plots = PLOT_RELEVANT_PLOTS[]
+                        stored_sys = PLOT_SYSTEM_STRUCTURE[]
+
+                        if PLOT_BODY_FRAME[]
+                            dist = zoom_body_frame!(main_scene, main_scene.camera, stored_sys, PLOT_CAMERA_DISTANCE[])
+                            PLOT_CAMERA_DISTANCE[] = dist
+                        else
+                            dist = zoom_out!(main_scene, main_scene.camera, relevant_plots, PLOT_CAMERA_DISTANCE[]; relmargin=PLOT_ZOOM_RELMARGIN[])
+                            PLOT_CAMERA_DISTANCE[] = dist
+                        end
+                    end
+                    # Update tracking variables to prevent mode change detection
+                    PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
+                    PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
+                    PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
+                    return Consume(true)
+                end
+
+                # Check save button
+                if mp[1] >= save_button_rect.origin[1] && mp[1] <= save_button_rect.origin[1] + save_button_rect.widths[1] &&
+                   mp[2] >= save_button_rect.origin[2] && mp[2] <= save_button_rect.origin[2] + save_button_rect.widths[2]
+                    # Generate filename with timestamp and simulation time
+                    sim_time = get_time(frame_idx[])
+                    timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
+                    filename = "replay_$(timestamp)_t$(round(sim_time, digits=2))s_frame$(frame_idx[]).png"
+                    # Hide UI scene, save, then restore
+                    ui_scene.visible[] = false
+                    save(filename, scene; px_per_unit=2)
+                    ui_scene.visible[] = true
+                    @info "Saved high-res screenshot" filename
+                    return Consume(true)
+                end
+            elseif event.action == Mouse.release
+                if slider_dragging[]
+                    slider_dragging[] = false
+                    return Consume(true)
+                end
+            end
+        end
+        return Consume(false)
+    end
+
+    on(events(ui_scene).mouseposition, priority=2) do mp
+        if slider_dragging[]
+            rel_pos = clamp((mp[1] - slider_x_start) / slider_width_obs[], 0.0, 1.0)
+            new_idx = round(Int, 1 + rel_pos * (n_frames - 1))
+            frame_idx[] = clamp(new_idx, 1, n_frames)
+            update_frame!(frame_idx[])
+        end
+    end
+
+    # Animation loop with replay speed
+    @async begin
+        while true
+            if is_playing[]
+                if frame_idx[] < n_frames
+                    new_idx = frame_idx[] + 1
+                    frame_idx[] = new_idx
+                    update_frame!(new_idx)
+                    # Calculate sleep time based on actual time difference and replay speed
+                    dt = get_dt(frame_idx[])
+                    sleep(max(0.01, dt / replay_speed))
+                elseif loop
+                    frame_idx[] = 1
+                    update_frame!(1)
+                else
+                    is_playing[] = false  # Stop at end
+                end
+            end
+            sleep(0.02)  # Check state frequently
+        end
+    end
+
+    return ui_scene, frame_idx, is_playing
+end
+
+"""
     replay(lg::SysLog, sys::SystemStructure; replay_speed=1.0, autoplay=false, loop=false, kwargs...)
 
 Replay a SysLog with interactive 3D visualization and playback controls.
@@ -2133,239 +2520,103 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     # Initialize with first state
     update_from_sysstate!(sys, lg.syslog[1])
 
-    # Create initial plot which sets up observables and scene (following standard Makie pattern)
+    # Create initial plot which sets up observables and scene
     scene = plot(sys; vector_scale, kwargs...)
 
-    # Create pixel-space subscene for UI controls overlay
-    ui_scene = Scene(scene, viewport=scene.viewport, clear=false, camera=campixel!)
-
-    # Create observable for current frame index
-    frame_idx = Observable(1)
-
-    # Function to update to a specific frame (using plot! to mutate observables)
+    # Define callbacks for UI controls
     function update_frame!(idx)
-        ss = lg.syslog[idx]
-        update_from_sysstate!(sys, ss)
+        update_from_sysstate!(sys, lg.syslog[idx])
         plot!(sys; vector_scale)
     end
 
-    # UI Layout constants (pixel coordinates from bottom-left)
-    ui_height = 120
-    ui_margin = 20
-    button_height = 30
-    button_width = 80
-    slider_height = 20
+    get_time(idx) = lg.syslog[idx].time
+    get_dt(idx) = idx > 1 ? lg.syslog[idx].time - lg.syslog[idx - 1].time : 0.05
 
-    # Get scene size
-    scene_width = Observable(scene.viewport[].widths[1])
-    scene_height = Observable(scene.viewport[].widths[2])
+    # Setup replay controls using shared function
+    setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
+                           replay_speed, autoplay, loop)
 
-    # Update scene size on resize
-    on(scene.viewport) do area
-        scene_width[] = area.widths[1]
-        scene_height[] = area.widths[2]
+    return scene
+end
+
+"""
+    replay(logs::Vector{<:SysLog}, syss::Vector{SystemStructure}; colors=Makie.wong_colors(), ...)
+
+Replay multiple SysLogs with their corresponding SystemStructures simultaneously.
+
+# Arguments
+- `logs::Vector{<:SysLog}`: Vector of simulation logs to replay
+- `syss::Vector{SystemStructure}`: Vector of system structures (must match logs length)
+
+# Keyword Arguments
+- `colors`: Color palette for distinguishing systems (default: wong_colors())
+- `replay_speed::Real=1.0`: Replay speed factor
+- `autoplay::Bool=false`: Start playing automatically
+- `loop::Bool=false`: Loop playback continuously
+- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
+
+# Returns
+- A Scene with interactive controls overlaid on the 3D visualization
+
+# Example
+```julia
+# Replay two simulations side by side
+scene = replay([log1, log2], [sys1, sys2])
+
+# With custom colors
+scene = replay([log1, log2], [sys1, sys2], colors=[:red, :blue])
+```
+"""
+function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{SystemStructure};
+                      colors=Makie.wong_colors(),
+                      replay_speed=1.0,
+                      autoplay=false,
+                      loop=false,
+                      vector_scale=1.0,
+                      kwargs...)
+
+    length(logs) == length(syss) || error("logs and systems must have same length")
+    n_frames = minimum(length(lg.syslog) for lg in logs)
+    n_frames == 0 && error("Empty SysLog provided for replay")
+
+    # Initialize all systems with first state
+    for (sys, lg) in zip(syss, logs)
+        update_from_sysstate!(sys, lg.syslog[1])
     end
 
-    # --- Slider Implementation ---
-    slider_y = ui_margin + button_height + 10
-    slider_x_start = ui_margin
-    slider_width_obs = @lift($(scene_width) - 2 * ui_margin)
+    # Create plot with observables enabled for dynamic updates
+    scene = plot(syss; colors, vector_scale, use_observables=true, kwargs...)
 
-    # Slider track
-    slider_track_rect = @lift(Rect2f(slider_x_start, slider_y, $(slider_width_obs), slider_height))
-    poly!(ui_scene, slider_track_rect, color=RGBAf(0.3, 0.3, 0.3, 0.8))
-
-    # Slider thumb position
-    slider_thumb_x = @lift(slider_x_start + ($(frame_idx) - 1) / (n_frames - 1) * $(slider_width_obs))
-    slider_thumb_pos = @lift(Point2f($(slider_thumb_x), slider_y + slider_height / 2))
-    scatter!(ui_scene, slider_thumb_pos, color=:white, markersize=15)
-
-    # --- Button Implementation ---
-    button_y = ui_margin
-
-    # Play/Pause button
-    is_playing = Observable(autoplay)
-    play_button_x = ui_margin
-    play_button_rect = Rect2f(play_button_x, button_y, button_width, button_height)
-    play_button_color = @lift($(is_playing) ? RGBAf(0.8, 0.3, 0.3, 0.8) : RGBAf(0.3, 0.8, 0.3, 0.8))
-    poly!(ui_scene, play_button_rect, color=play_button_color)
-    play_button_label = @lift($(is_playing) ? "Pause" : "Play")
-    text!(ui_scene, play_button_label, position=Point2f(play_button_x + button_width/2, button_y + button_height/2),
-          align=(:center, :center), fontsize=14, color=:white)
-
-    # Step backward button
-    step_back_x = play_button_x + button_width + 10
-    step_back_rect = Rect2f(step_back_x, button_y, button_width, button_height)
-    poly!(ui_scene, step_back_rect, color=RGBAf(0.4, 0.4, 0.4, 0.8))
-    text!(ui_scene, "<", position=Point2f(step_back_x + button_width/2, button_y + button_height/2),
-          align=(:center, :center), fontsize=14, color=:white)
-
-    # Step forward button
-    step_forward_x = step_back_x + button_width + 10
-    step_forward_rect = Rect2f(step_forward_x, button_y, button_width, button_height)
-    poly!(ui_scene, step_forward_rect, color=RGBAf(0.4, 0.4, 0.4, 0.8))
-    text!(ui_scene, ">", position=Point2f(step_forward_x + button_width/2, button_y + button_height/2),
-          align=(:center, :center), fontsize=14, color=:white)
-
-    # Body frame toggle button
-    body_frame_button_x = step_forward_x + button_width + 10
-    body_frame_button_rect = Rect2f(body_frame_button_x, button_y, button_width, button_height)
-    body_frame_obs = Observable(PLOT_BODY_FRAME[])
-    body_frame_button_color = @lift($(body_frame_obs) ? RGBAf(0.3, 0.6, 0.8, 0.8) : RGBAf(0.5, 0.5, 0.5, 0.8))
-    poly!(ui_scene, body_frame_button_rect, color=body_frame_button_color)
-    body_frame_button_label = @lift($(body_frame_obs) ? "Body" : "World")
-    text!(ui_scene, body_frame_button_label, position=Point2f(body_frame_button_x + button_width/2, button_y + button_height/2),
-          align=(:center, :center), fontsize=14, color=:white)
-
-    # Save button
-    save_button_x = body_frame_button_x + button_width + 10
-    save_button_rect = Rect2f(save_button_x, button_y, button_width, button_height)
-    poly!(ui_scene, save_button_rect, color=RGBAf(0.2, 0.7, 0.3, 0.8))
-    text!(ui_scene, "Save", position=Point2f(save_button_x + button_width/2, button_y + button_height/2),
-          align=(:center, :center), fontsize=14, color=:white)
-
-    # Info label
-    info_label_x = save_button_x + button_width + 20
-    info_text = @lift("Frame: $($(frame_idx))/$n_frames | Time: $(@sprintf("%.2f", lg.syslog[$(frame_idx)].time)) s | Speed: $(replay_speed)x")
-    text!(ui_scene, info_text, position=Point2f(info_label_x, button_y + button_height/2),
-          align=(:left, :center), fontsize=14, color=:white, strokecolor=:black, strokewidth=1)
-
-    # Combined mouse event handling for slider and buttons
-    slider_dragging = Ref(false)
-
-    on(events(ui_scene).mousebutton, priority = 2) do event
-        if event.button == Mouse.left
-            mp = events(ui_scene).mouseposition[]
-
-            if event.action == Mouse.press
-                # Check if click is on slider
-                track_rect = slider_track_rect[]
-                if mp[2] >= track_rect.origin[2] && mp[2] <= track_rect.origin[2] + track_rect.widths[2] &&
-                   mp[1] >= track_rect.origin[1] && mp[1] <= track_rect.origin[1] + track_rect.widths[1]
-                    slider_dragging[] = true
-                    # Update frame immediately
-                    rel_pos = clamp((mp[1] - slider_x_start) / slider_width_obs[], 0.0, 1.0)
-                    new_idx = round(Int, 1 + rel_pos * (n_frames - 1))
-                    frame_idx[] = clamp(new_idx, 1, n_frames)
-                    update_frame!(frame_idx[])
-                    return Consume(true)
-                end
-                
-                # Check play button
-                if mp[1] >= play_button_rect.origin[1] && mp[1] <= play_button_rect.origin[1] + play_button_rect.widths[1] &&
-                   mp[2] >= play_button_rect.origin[2] && mp[2] <= play_button_rect.origin[2] + play_button_rect.widths[2]
-                    is_playing[] = !is_playing[]
-                    return Consume(true)
-                end
-
-                # Check step back button
-                if mp[1] >= step_back_rect.origin[1] && mp[1] <= step_back_rect.origin[1] + step_back_rect.widths[1] &&
-                   mp[2] >= step_back_rect.origin[2] && mp[2] <= step_back_rect.origin[2] + step_back_rect.widths[2]
-                    new_idx = max(1, frame_idx[] - 1)
-                    frame_idx[] = new_idx
-                    update_frame!(new_idx)
-                    return Consume(true)
-                end
-
-                # Check step forward button
-                if mp[1] >= step_forward_rect.origin[1] && mp[1] <= step_forward_rect.origin[1] + step_forward_rect.widths[1] &&
-                   mp[2] >= step_forward_rect.origin[2] && mp[2] <= step_forward_rect.origin[2] + step_forward_rect.widths[2]
-                    new_idx = min(n_frames, frame_idx[] + 1)
-                    frame_idx[] = new_idx
-                    update_frame!(new_idx)
-                    return Consume(true)
-                end
-
-                # Check body frame toggle button
-                if mp[1] >= body_frame_button_rect.origin[1] && mp[1] <= body_frame_button_rect.origin[1] + body_frame_button_rect.widths[1] &&
-                   mp[2] >= body_frame_button_rect.origin[2] && mp[2] <= body_frame_button_rect.origin[2] + body_frame_button_rect.widths[2]
-                    PLOT_BODY_FRAME[] = !PLOT_BODY_FRAME[]
-                    body_frame_obs[] = PLOT_BODY_FRAME[]
-                    # Disable zoom-in mode when switching to body frame
-                    if PLOT_BODY_FRAME[]
-                        PLOT_ZOOMED_IN[] = false
-                        PLOT_ZOOM_SEGMENT_IDX[] = -1
-                    end
-                    # Force camera update immediately (not just during playback)
-                    PLOT_CAMERA_DISTANCE[] = nothing  # Force recalculation on mode change
-                    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STRUCTURE[])
-                        scene = PLOT_SCENE[]
-                        relevant_plots = PLOT_RELEVANT_PLOTS[]
-                        stored_sys = PLOT_SYSTEM_STRUCTURE[]
-
-                        if PLOT_BODY_FRAME[]
-                            dist = zoom_body_frame!(scene, scene.camera, stored_sys, PLOT_CAMERA_DISTANCE[])
-                            PLOT_CAMERA_DISTANCE[] = dist
-                        else
-                            dist = zoom_out!(scene, scene.camera, relevant_plots, PLOT_CAMERA_DISTANCE[]; relmargin=PLOT_ZOOM_RELMARGIN[])
-                            PLOT_CAMERA_DISTANCE[] = dist
-                        end
-                    end
-                    # Update tracking variables to prevent mode change detection
-                    PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
-                    PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
-                    PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
-                    return Consume(true)
-                end
-
-                # Check save button
-                if mp[1] >= save_button_rect.origin[1] && mp[1] <= save_button_rect.origin[1] + save_button_rect.widths[1] &&
-                   mp[2] >= save_button_rect.origin[2] && mp[2] <= save_button_rect.origin[2] + save_button_rect.widths[2]
-                    # Generate filename with timestamp and simulation time
-                    sim_time = lg.syslog[frame_idx[]].time
-                    timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
-                    filename = "replay_$(timestamp)_t$(round(sim_time, digits=2))s_frame$(frame_idx[]).png"
-                    # Hide UI scene, save, then restore
-                    ui_scene.visible[] = false
-                    save(filename, scene; px_per_unit=2)
-                    ui_scene.visible[] = true
-                    @info "Saved high-res screenshot" filename
-                    return Consume(true)
-                end
-            elseif event.action == Mouse.release
-                if slider_dragging[]
-                    slider_dragging[] = false
-                    return Consume(true)
-                end
+    # Define callbacks for UI controls
+    function update_frame!(idx)
+        # Update each system's state
+        for (sys, lg) in zip(syss, logs)
+            frame = min(idx, length(lg.syslog))
+            update_from_sysstate!(sys, lg.syslog[frame])
+        end
+        # Trigger all geometry observables
+        if !isnothing(PLOT_MULTI_GEOMETRY_OBS[])
+            for obs in PLOT_MULTI_GEOMETRY_OBS[]
+                obs[] = time()
             end
         end
-        return Consume(false)
     end
 
-    on(events(ui_scene).mouseposition, priority=2) do mp
-        if slider_dragging[]
-            rel_pos = clamp((mp[1] - slider_x_start) / slider_width_obs[], 0.0, 1.0)
-            new_idx = round(Int, 1 + rel_pos * (n_frames - 1))
-            frame_idx[] = clamp(new_idx, 1, n_frames)
-            update_frame!(frame_idx[])
+    # Use first log for timing
+    get_time(idx) = logs[1].syslog[min(idx, length(logs[1].syslog))].time
+    function get_dt(idx)
+        if idx > 1
+            lg = logs[1]
+            i1 = min(idx, length(lg.syslog))
+            i0 = min(idx - 1, length(lg.syslog))
+            return lg.syslog[i1].time - lg.syslog[i0].time
         end
+        return 0.05
     end
 
-    # Animation loop with replay speed
-    @async begin
-        while true
-            if is_playing[]
-                if frame_idx[] < n_frames
-                    new_idx = frame_idx[] + 1
-                    frame_idx[] = new_idx
-                    update_frame!(new_idx)
-                    # Calculate sleep time based on actual time difference and replay speed
-                    if frame_idx[] > 1
-                        dt = lg.syslog[frame_idx[]].time - lg.syslog[frame_idx[] - 1].time
-                        sleep(max(0.01, dt / replay_speed))
-                    else
-                        sleep(0.05)
-                    end
-                elseif loop
-                    frame_idx[] = 1
-                    update_frame!(1)
-                else
-                    is_playing[] = false  # Stop at end
-                end
-            end
-            sleep(0.02)  # Check state frequently
-        end
-    end
+    # Setup replay controls using shared function
+    setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
+                           replay_speed, autoplay, loop)
 
     return scene
 end
