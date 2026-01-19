@@ -579,7 +579,11 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    tape_lengths=nothing,
                    suffixes=nothing,
                    size=(1200, 800),
-                   show_legend=true)
+                   show_legend=true,
+                   ticklabelsize=12,
+                   compact_labels=false,
+                   legend_position=:rt,
+                   legendsize=10)
 
     # Build list of panels to plot by combining data from all logs
     panels = []
@@ -609,10 +613,11 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
     # Helper to add setpoint data to panel arrays and compute error
     function add_setpoint!(all_data, all_labels, all_times, all_linestyles,
                           setpoint_val, time_vec, label_base, suffix;
-                          actual_data=nothing, error_info=nothing)
+                          actual_data=nothing, error_info=nothing, skip_ref_suffix=false)
         isnothing(setpoint_val) && return
         push!(all_data, setpoint_val)
-        push!(all_labels, label_base * " ref" * suffix)
+        label = skip_ref_suffix ? label_base * suffix : label_base * " ref" * suffix
+        push!(all_labels, label)
         push!(all_times, time_vec)
         push!(all_linestyles, :dash)
         # Compute error at last timestep if actual_data provided
@@ -1406,21 +1411,27 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             for j in 1:3
                 if j == 1 || !all(iszero, winch_force[j])
                     push!(all_data, winch_force[j])
-                    push!(all_labels, L"F_{t,%$j}" * suffix)
+                    if compact_labels
+                        push!(all_labels, "Winch force" * suffix)
+                    else
+                        push!(all_labels, L"F_{t,%$j}" * suffix)
+                    end
                     push!(all_times, sl.time)
                     push!(all_linestyles, :solid)
                 end
             end
             # Add setpoint only for first winch (use winch_force[1] for error)
+            setpoint_label = compact_labels ? "Ref. winch force" : "F_winch ref"
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
-                         sp, sl.time, "F_winch", suffix;
-                         actual_data=winch_force[1], error_info=all_errors)
+                         sp, sl.time, setpoint_label, suffix;
+                         actual_data=winch_force[1], error_info=all_errors, skip_ref_suffix=compact_labels)
         end
         if !isempty(all_data)
+            ylabel_winch = compact_labels ? L"[N]" : L"F_t \; [N]"
             push!(panels, (
                 data = all_data, labels = all_labels, times = all_times,
                 linestyles = all_linestyles, error_info = all_errors,
-            ylabel = L"F_t \; [N]", ylim = get_ylim(:winch_force)
+                ylabel = ylabel_winch, ylim = get_ylim(:winch_force)
             ))
         end
     end
@@ -1466,10 +1477,12 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
     for (i, panel) in enumerate(panels)
         # Share x-axis with first subplot
         if i == 1
-            ax = Axis(fig[i, 1], ylabel=panel.ylabel, ylabelsize=label_fontsize)
+            ax = Axis(fig[i, 1], ylabel=panel.ylabel, ylabelsize=label_fontsize,
+                      xticklabelsize=ticklabelsize, yticklabelsize=ticklabelsize)
         else
             ax = Axis(fig[i, 1], ylabel=panel.ylabel, ylabelsize=label_fontsize,
-                      xticklabelsvisible=false)
+                      xticklabelsvisible=false,
+                      xticklabelsize=ticklabelsize, yticklabelsize=ticklabelsize)
             linkxaxes!(axes[1], ax)
         end
 
@@ -1490,7 +1503,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
 
         # Add legend if multiple traces and show_legend is true
         if show_legend && length(panel.data) > 1
-            axislegend(ax, position=:rt)
+            axislegend(ax, position=legend_position, labelsize=legendsize, patchsize=(10, 5))
         end
 
         # Display error info as text annotation with white background if present

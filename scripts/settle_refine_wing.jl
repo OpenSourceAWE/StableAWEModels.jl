@@ -314,8 +314,8 @@ plot_ylims = Dict(
 fig = plot([sam.sys_struct], [syslog];
      plot_tether=false, plot_aero_force=false, plot_kite_vel=false,
      plot_wind=false, plot_reelout=false, plot_v_app=false, plot_turn_rates=false,
-     plot_winch_force=true, plot_heading=false, plot_course=false, plot_aoa=true,
-     setpoints, ylims=plot_ylims, size=(400, 300), show_legend=false)
+     plot_winch_force=true, plot_heading=false, plot_course=false, plot_aoa=false,
+     setpoints, ylims=plot_ylims, size=(500, 150), show_legend=true, ticklabelsize=9, compact_labels=true, legend_position=:lb)
 pdf_2d = "data/v3/settle_2d_frame$(EXTRA_POINTS_FRAME)_$(DEST_SUFFIX).pdf"
 save(pdf_2d, fig)
 @info "Plot saved" pdf_2d
@@ -325,5 +325,5 @@ GLMakie.activate!()
 fig = plot([sam.sys_struct], [syslog];
      plot_tether=false, plot_aero_force=false, plot_kite_vel=false,
      plot_wind=false, plot_reelout=false, plot_v_app=false, plot_turn_rates=false,
-     plot_winch_force=true, plot_heading=false, plot_course=false, plot_aoa=true,
-     setpoints, ylims=plot_ylims, size=(400, 300), show_legend=false)
+     plot_winch_force=true, plot_heading=false, plot_course=false, plot_aoa=false,
+     setpoints, ylims=plot_ylims, size=(500, 150), show_legend=true, ticklabelsize=9, compact_labels=true, legend_position=:lb)

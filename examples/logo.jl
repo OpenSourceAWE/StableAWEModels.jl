@@ -71,7 +71,7 @@ transformed = [R * Vector(v) + [0, 0, 7.3] for v in old_vertices]
 # Project to 2D (front view: use y, z as x, y)
 vertices_2d = [Point2f(v[2], v[3]) for v in transformed]
 
-# Find y-range for coloring (wingspan direction = x in 2D)
+# Find x-range for coloring (wingspan direction)
 x_coords = [v[1] for v in vertices_2d]
 x_min, x_max = extrema(x_coords)
 x_range = x_max - x_min
@@ -122,10 +122,26 @@ text!(ax, text_x_center + TEXT_SPACING, text_y; text="AWE", color=JULIA_PURPLE,
 # Display figure
 display(fig)
 
-# Save as PDF and SVG (transparent background) - explicitly use CairoMakie
-save("kite_logo.pdf", fig; pt_per_unit=1, backend=CairoMakie)
+# Save as PNG (small file size) and SVG
+save("kite_logo.png", fig; px_per_unit=3, backend=CairoMakie)
 save("kite_logo.svg", fig; pt_per_unit=1, backend=CairoMakie)
 
-@info "Logo saved to kite_logo.pdf and kite_logo.svg"
+# Create square version
+fig_square = Figure(size=(FIG_WIDTH, FIG_WIDTH), backgroundcolor=:transparent)
+ax_square = Axis(fig_square[1, 1];
+    aspect=DataAspect(),
+    backgroundcolor=:transparent)
+hidedecorations!(ax_square)
+hidespines!(ax_square)
+mesh!(ax_square, mesh_2d; color=vertex_colors)
+text!(ax_square, text_x_center - TEXT_SPACING, text_y; text="Open", color=JULIA_RED,
+      fontsize=TEXT_FONTSIZE, font=TEXT_FONT, align=(:center, :top))
+text!(ax_square, text_x_center, text_y; text="Source", color=JULIA_GREEN,
+      fontsize=TEXT_FONTSIZE, font=TEXT_FONT, align=(:center, :top))
+text!(ax_square, text_x_center + TEXT_SPACING, text_y; text="AWE", color=JULIA_PURPLE,
+      fontsize=TEXT_FONTSIZE, font=TEXT_FONT, align=(:center, :top))
+save("kite_logo_square.png", fig_square; px_per_unit=3, backend=CairoMakie)
+
+@info "Logo saved to kite_logo.png, kite_logo.svg, and kite_logo_square.png"
 
 nothing

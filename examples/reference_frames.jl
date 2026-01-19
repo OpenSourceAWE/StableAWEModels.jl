@@ -139,6 +139,40 @@ function create_sphere_arcs(radius, kite_pos, n=50)
     return arcs
 end
 
+"""
+Plot a flat 2D arrow in 3D space: line shaft + flat triangle head facing camera.
+"""
+function arrow_flat!(ax, origin, direction, tip_width, tip_length, azimuth, elevation;
+                     color=:black, linewidth=2)
+    origin = collect(origin)
+    direction = collect(direction)
+    dir = normalize(direction)
+    arrow_length = norm(direction)
+    shaft_end = origin + (arrow_length - tip_length) * dir
+    tip_apex = origin + arrow_length * dir
+
+    # Camera view direction
+    view_dir = [cos(elevation) * cos(azimuth), cos(elevation) * sin(azimuth), sin(elevation)]
+
+    # Perpendicular direction in the plane facing camera
+    perp = cross(dir, view_dir)
+    if norm(perp) < 1e-6
+        perp = abs(dir[3]) < 0.9 ? cross(dir, [0.0, 0.0, 1.0]) : cross(dir, [1.0, 0.0, 0.0])
+    end
+    perp = normalize(perp) * tip_width
+
+    # Draw shaft as line
+    lines!(ax, [Point3f(origin...), Point3f(shaft_end...)], color=color, linewidth=linewidth)
+
+    # Draw flat triangle head
+    tri_verts = [
+        Point3f((shaft_end - perp)...),
+        Point3f((shaft_end + perp)...),
+        Point3f(tip_apex...)
+    ]
+    mesh!(ax, tri_verts, [1 2 3], color=color, shading=NoShading)
+end
+
 """Create combined figure with 3D view and front view (YZ)."""
 function plot_reference_frames(; use_glmakie=true)
     if use_glmakie
@@ -161,10 +195,13 @@ function plot_reference_frames(; use_glmakie=true)
     s = tether_length / 10
     scale = 3.0 * s
     arrowscale = 1.5s
-    shaft_r = 0.006 * arrowscale
-    tip_r = 0.018 * arrowscale
-    tip_l = 0.03 * arrowscale
-    quality = 8
+    tip_w = 0.2 * arrowscale  # tip width for flat arrows
+    tip_l = 0.4 * arrowscale   # tip length for flat arrows
+    arrow_lw = 2  # line width for arrow shafts
+
+    # Camera orientation (must match Axis3 settings)
+    cam_azimuth = -0.3π
+    cam_elevation = π/6
     # 2D arrow parameters (need larger values for visibility in 2D coordinates)
     s_2d = arrowscale * 3
     shaft_w_2d = 0.12 * s_2d
@@ -192,10 +229,12 @@ function plot_reference_frames(; use_glmakie=true)
     push!(legend_labels, L"-\hat{e}_x")
     push!(legend_entries, MarkerElement(marker=:rtriangle, color=:limegreen, markersize=12))
     push!(legend_labels, L"-\hat{u}_x")
+    push!(legend_entries, MarkerElement(marker=:rtriangle, color=:darkgreen, markersize=12))
+    push!(legend_labels, L"\hat{u}_y")
     push!(legend_entries, MarkerElement(marker=:rtriangle, color=:orange, markersize=12))
     push!(legend_labels, L"-\hat{e}_x|_{yz}")
     push!(legend_entries, MarkerElement(marker=:rtriangle, color=:gray, markersize=12))
-    push!(legend_labels, L"\hat{z}")
+    push!(legend_labels, L"\hat{y}, \hat{z}")
     push!(legend_entries, MarkerElement(marker=:circle, color=:gray, markersize=10))
     push!(legend_labels, L"\textrm{O_{body}}")
     push!(legend_entries, LineElement(color=:purple, linewidth=2))
@@ -208,10 +247,10 @@ function plot_reference_frames(; use_glmakie=true)
     # ===== 3D VIEW (left) =====
     ax3d = Axis3(fig[2, 1],
                  xlabel=L"X \textrm{ (m)}", ylabel=L"Y \textrm{ (m)}", zlabel=L"Z \textrm{ (m)}",
-                 aspect=:data, azimuth=-0.3π, elevation=π/6,
+                 aspect=:data, azimuth=cam_azimuth, elevation=cam_elevation,
                  xlabelsize=fontsize, ylabelsize=fontsize, zlabelsize=fontsize,
                  xticklabelsize=fontsize*0.6, yticklabelsize=fontsize*0.6, zticklabelsize=fontsize*0.6,
-                 xlabeloffset=30, ylabeloffset=30, zlabeloffset=-20)
+                 xlabeloffset=30, ylabeloffset=30, zlabeloffset=30)
 
     # Tether
     lines!(ax3d, [0, x], [0, y], [0, z], color=:black, linewidth=2)
@@ -246,19 +285,25 @@ function plot_reference_frames(; use_glmakie=true)
 
     proj_origin = [scale * 0.1, y, z]
 
-    # Arrows (-e_x, -u_x, and projections)
-    arrows3d!(ax3d, [Point3f(x, y, z)], [Vec3f((-frame.e_x)...) * scale],
-              color=:red, shaftradius=shaft_r, tipradius=tip_r, tiplength=tip_l, quality=quality, shading=NoShading)
-    arrows3d!(ax3d, [Point3f(x, y, z)], [Vec3f((-frame.u_x)...) * scale],
-              color=:limegreen, shaftradius=shaft_r, tipradius=tip_r, tiplength=tip_l, quality=quality, shading=NoShading)
+    # Arrows (-e_x, -u_x, u_y, and projections) - flat 2D arrows facing camera
+    arrow_flat!(ax3d, kite_pos, -frame.e_x * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+                color=:red, linewidth=arrow_lw)
+    arrow_flat!(ax3d, kite_pos, -frame.u_x * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+                color=:limegreen, linewidth=arrow_lw)
+    arrow_flat!(ax3d, kite_pos, frame.u_y * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+                color=:darkgreen, linewidth=arrow_lw)
     minus_e_x = -frame.e_x
     e_x_proj = [0.0, minus_e_x[2], minus_e_x[3]]
     e_x_proj_norm = e_x_proj / norm(e_x_proj)
-    arrows3d!(ax3d, [Point3f(proj_origin...)], [Vec3f(e_x_proj_norm...) * scale],
-              color=:orange, shaftradius=shaft_r, tipradius=tip_r, tiplength=tip_l, quality=quality, shading=NoShading)
+    arrow_flat!(ax3d, proj_origin, e_x_proj_norm * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+                color=:orange, linewidth=arrow_lw)
+    # World frame unit vectors (y and z) at projection origin
+    w_y = [0.0, 1.0, 0.0]
     w_z = [0.0, 0.0, 1.0]
-    arrows3d!(ax3d, [Point3f(proj_origin...)], [Vec3f(w_z...) * scale],
-              color=:gray, shaftradius=shaft_r, tipradius=tip_r, tiplength=tip_l, quality=quality, shading=NoShading)
+    arrow_flat!(ax3d, proj_origin, w_y * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+                color=:gray, linewidth=arrow_lw)
+    arrow_flat!(ax3d, proj_origin, w_z * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+                color=:gray, linewidth=arrow_lw)
 
     # Spheres
     meshscatter!(ax3d, [Point3f(0, 0, 0)], markersize=scale*0.048, color=:gray, shading=NoShading)
@@ -279,11 +324,10 @@ function plot_reference_frames(; use_glmakie=true)
 
     # ===== FRONT VIEW (YZ, right) =====
     ax_front = Axis(fig[2, 2],
-                    xlabel=L"Y \textrm{ (m)}", ylabel=L"Z \textrm{ (m)}",
+                    xlabel=L"Y \textrm{ (m)}",
                     aspect=DataAspect(),
-                    xlabelsize=fontsize, ylabelsize=fontsize,
-                    xticklabelsize=fontsize*0.6, yticklabelsize=fontsize*0.6,
-                    ylabelpadding=-50)
+                    xlabelsize=fontsize,
+                    xticklabelsize=fontsize*0.6, yticklabelsize=fontsize*0.6)
 
     lines!(ax_front, [0, y], [0, z], color=:black, linewidth=2)
     p = poly!(ax_front, Point2f[(y - plane_size, z - plane_size), (y + plane_size, z - plane_size),
