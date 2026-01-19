@@ -8,9 +8,9 @@ using UnPack
 using Rotations
 
 # V3 Kite steering/depower calibration (from KCU documentation)
-const V3_STEERING_L0 = 1.6    # Neutral steering tape length (m)
+const V3_STEERING_L0 = 1.4    # Neutral steering tape length (m)
 const V3_STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
-const V3_DEPOWER_L0 = 0.2     # Neutral depower tape length (m)
+const V3_DEPOWER_L0 = 0.0     # Neutral depower tape length (m)
 const V3_DEPOWER_GAIN = 5.0   # Depower range (m) for 0-100%
 
 """

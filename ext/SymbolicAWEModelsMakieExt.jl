@@ -578,7 +578,8 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    ylims=nothing,  # Dict with keys matching plot names, values are (min, max)
                    tape_lengths=nothing,
                    suffixes=nothing,
-                   size=(1200, 800))
+                   size=(1200, 800),
+                   show_legend=true)
 
     # Build list of panels to plot by combining data from all logs
     panels = []
@@ -1487,8 +1488,8 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             Makie.ylims!(ax, panel.ylim...)
         end
 
-        # Add legend if multiple traces
-        if length(panel.data) > 1
+        # Add legend if multiple traces and show_legend is true
+        if show_legend && length(panel.data) > 1
             axislegend(ax, position=:rt)
         end
 

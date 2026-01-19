@@ -312,10 +312,10 @@ plot_ylims = Dict(
 
 # Save 2D plot
 fig = plot([sam.sys_struct], [syslog];
-     plot_tether=false, plot_aero_force=false, plot_kite_vel=true,
-     plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=false,
-     plot_winch_force=true, plot_heading=true, plot_course=false, plot_aoa=true,
-     setpoints, ylims=plot_ylims, tape_lengths=[steering_data])
+     plot_tether=false, plot_aero_force=false, plot_kite_vel=false,
+     plot_wind=false, plot_reelout=false, plot_v_app=false, plot_turn_rates=false,
+     plot_winch_force=true, plot_heading=false, plot_course=false, plot_aoa=true,
+     setpoints, ylims=plot_ylims, size=(400, 300), show_legend=false)
 pdf_2d = "data/v3/settle_2d_frame$(EXTRA_POINTS_FRAME)_$(DEST_SUFFIX).pdf"
 save(pdf_2d, fig)
 @info "Plot saved" pdf_2d
@@ -323,7 +323,7 @@ save(pdf_2d, fig)
 # Display with GLMakie
 GLMakie.activate!()
 fig = plot([sam.sys_struct], [syslog];
-     plot_tether=false, plot_aero_force=false, plot_kite_vel=true,
-     plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=false,
-     plot_winch_force=true, plot_heading=true, plot_course=false, plot_aoa=true,
-     setpoints, ylims=plot_ylims, tape_lengths=[steering_data])
+     plot_tether=false, plot_aero_force=false, plot_kite_vel=false,
+     plot_wind=false, plot_reelout=false, plot_v_app=false, plot_turn_rates=false,
+     plot_winch_force=true, plot_heading=false, plot_course=false, plot_aoa=true,
+     setpoints, ylims=plot_ylims, size=(400, 300), show_legend=false)
