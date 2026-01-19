@@ -8,9 +8,9 @@ using UnPack
 using Rotations
 
 # V3 Kite steering/depower calibration (from KCU documentation)
-const V3_STEERING_L0 = 1.4    # Neutral steering tape length (m)
+const V3_STEERING_L0 = 1.6    # Neutral steering tape length (m)
 const V3_STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
-const V3_DEPOWER_L0 = 0.0     # Neutral depower tape length (m)
+const V3_DEPOWER_L0 = 0.2     # Neutral depower tape length (m)
 const V3_DEPOWER_GAIN = 5.0   # Depower range (m) for 0-100%
 
 """
@@ -159,7 +159,10 @@ function plot_body_frame_local(sys_structs;
                                extra_point_size=8,
                                figsize=(800, 600),
                                labels=nothing,
-                               point_idxs=nothing)
+                               point_idxs=nothing,
+                               legend=true,
+                               title=true,
+                               show_point_idxs=true)
     # Normalize to vector
     structs = sys_structs isa Vector ? sys_structs : [sys_structs]
     n_structs = length(structs)
@@ -179,8 +182,9 @@ function plot_body_frame_local(sys_structs;
     end
 
     fig = Figure(size=figsize)
+    ax_title = title ? "Wing Points (Body Frame)" : ""
     ax = Axis(fig[1, 1]; xlabel, ylabel,
-              title="Wing Points (Body Frame)", aspect=DataAspect())
+              title=ax_title, aspect=DataAspect())
 
     function get_2d(pos_b)
         if dir == :top
@@ -256,7 +260,7 @@ function plot_body_frame_local(sys_structs;
                  markersize=point_size, color=color, marker=:circle)
 
         # Add point labels only for first struct
-        if s_idx == 1
+        if show_point_idxs && s_idx == 1
             for (i, p) in enumerate(plot_points)
                 px, py = coords[i]
                 away_x, away_y = 0.0, 0.0
@@ -327,18 +331,20 @@ function plot_body_frame_local(sys_structs;
     end
 
     # Legend
-    legend_elements = [
-        MarkerElement(color=PLOT_COLORS[mod1(i, length(PLOT_COLORS))],
-                      marker=:circle, markersize=10)
-        for i in 1:n_structs
-    ]
-    legend_labels = copy(labels)
-    if !isnothing(extra_points)
-        push!(legend_elements,
-              MarkerElement(color=:red, marker=:circle, markersize=10))
-        push!(legend_labels, "photogrammetry")
+    if legend
+        legend_elements = [
+            MarkerElement(color=PLOT_COLORS[mod1(i, length(PLOT_COLORS))],
+                          marker=:circle, markersize=10)
+            for i in 1:n_structs
+        ]
+        legend_labels = copy(labels)
+        if !isnothing(extra_points)
+            push!(legend_elements,
+                  MarkerElement(color=:red, marker=:circle, markersize=10))
+            push!(legend_labels, "photogrammetry")
+        end
+        Legend(fig[1, 2], legend_elements, legend_labels)
     end
-    Legend(fig[1, 2], legend_elements, legend_labels)
 
     return fig
 end

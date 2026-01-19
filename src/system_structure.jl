@@ -2757,6 +2757,27 @@ function set_world_frame_damping(sys::SystemStructure, damping::Union{Real, Abst
 end
 
 """
+    set_world_frame_damping(sys::SystemStructure, damping)
+
+Set the world frame damping coefficient for all points in the system structure.
+
+World frame damping applies a velocity-dependent drag force in the global
+reference frame: ``\\mathbf{F}_{damp} = -c_{damp} \\odot \\mathbf{v}``, where
+``c_{damp}`` is the damping vector and ``\\odot`` is element-wise multiplication.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to modify.
+- `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
+  Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
+
+# Returns
+- `nothing`
+"""
+function set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector})
+    set_world_frame_damping(sys, damping, eachindex(sys.points))
+end
+
+"""
     set_body_frame_damping(sys::SystemStructure, damping, point_idxs)
 
 Set the body frame damping coefficient for specified points in the system structure.
@@ -2778,6 +2799,23 @@ function set_body_frame_damping(sys::SystemStructure, damping::Union{Real, Abstr
         sys.points[idx].body_frame_damping = damp_vec
     end
     return nothing
+end
+
+"""
+    set_body_frame_damping(sys::SystemStructure, damping)
+
+Set the body frame damping coefficient for all points in the system structure.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to modify.
+- `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
+  Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
+
+# Returns
+- `nothing`
+"""
+function set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector})
+    set_body_frame_damping(sys, damping, eachindex(sys.points))
 end
 
 """

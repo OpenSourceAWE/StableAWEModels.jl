@@ -28,6 +28,8 @@ Run from REPL:
 
 using GLMakie
 using Interpolations
+using NLsolve
+using Statistics
 
 # First 10 zeros of J₀ (precomputed for efficiency)
 const J0_ZEROS = [2.4048255576957728, 5.5200781102863106, 8.653727912911012,
@@ -202,28 +204,32 @@ end
 Time-based simulation with cosine steering.
 
 Control parameters for trajectory adjustment:
+- `x_shift`: Sine term at 2ω → shifts x (integrates to zero, no tilt)
+- `y_shift`: Amplitude perturbation → shifts y extent
+- `tilt`: Constant turn rate offset → causes progressive tilt
 - `φ`: Phase offset in steering cosine (rad)
-- `ψ_dot_offset`: Constant turn rate offset (rad/s) - causes progressive tilt
-- `δ`: Amplitude perturbation - affects y extent
 """
 function simulate_cosine_steering(;
     v = 1.0,           # forward speed
     ω = 1.0,           # angular frequency of steering input (rad/s)
     j0_zero = 1,       # which zero of J₀ to use (1, 2, 3, ...)
-    δ = 0.0,           # relative perturbation of A/ω → y shift
+    x_shift = 0.0,     # sine term at 2ω → x shift
+    y_shift = 0.0,     # amplitude perturbation → y shift
+    tilt = 0.0,        # constant turn rate offset → progressive tilt
     φ = 0.0,           # phase offset in steering (rad)
-    ψ_dot_offset = 0.0, # constant turn rate offset (rad/s) → tilt
-    x_shift = 0.0,     # sine term coefficient → x shift (integrates to zero, no tilt)
     ψ₀ = π/2,          # initial heading (rad), π/2 = +y direction
     T = 2π/ω,          # simulation time (one full period by default)
     dt = 0.01          # time step
 )
-    A = get_closed_amplitude(; ω, j0_zero, δ)
+    A = get_closed_amplitude(; ω, j0_zero, δ=y_shift)
     t = 0:dt:T
     n = length(t)
 
-    # Turn rate = cosine + sine term (sine integrates to zero → no tilt)
-    ψ_dot = A .* cos.(ω .* t .+ φ) .+ x_shift .* sin.(ω .* t*2) .+ ψ_dot_offset
+    # Turn rate = cosine + sine(2ω) + offset
+    # - cos term: base figure-8
+    # - sin(2ω) term: x shift (integrates to zero)
+    # - tilt: progressive rotation
+    ψ_dot = A .* cos.(ω .* t .+ φ) .+ x_shift .* sin.(ω .* t * 2) .+ tilt
 
     # Heading from integrating turn rate numerically (analytical is complex with modulation)
     ψ = zeros(n)
@@ -241,6 +247,67 @@ function simulate_cosine_steering(;
     end
 
     return (; t, ψ_dot, ψ, x, y)
+end
+
+"""
+    compute_trajectory_metrics(x, y)
+
+Compute centroid and tilt of a trajectory.
+Returns (centroid_x, centroid_y, tilt) where tilt is in radians.
+Tilt is measured as the angle of the principal axis (via PCA).
+"""
+function compute_trajectory_metrics(x, y)
+    # Centroid
+    cx = mean(x)
+    cy = mean(y)
+
+    # Tilt via PCA: find principal axis direction
+    xc = x .- cx
+    yc = y .- cy
+
+    # Covariance matrix
+    cov_xx = mean(xc .* xc)
+    cov_yy = mean(yc .* yc)
+    cov_xy = mean(xc .* yc)
+
+    # Principal axis angle
+    tilt = 0.5 * atan(2 * cov_xy, cov_xx - cov_yy)
+
+    return (; centroid_x=cx, centroid_y=cy, tilt)
+end
+
+"""
+    solve_for_target(target_x, target_y, target_tilt; kwargs...)
+
+Solve for (x_shift, y_shift, tilt) parameters that place the trajectory
+centroid at (target_x, target_y) with the given tilt.
+
+Returns named tuple with x_shift, y_shift, tilt and convergence info.
+"""
+function solve_for_target(target_x, target_y, target_tilt;
+    v = 1.0, ω = 1.0, j0_zero = 1, φ = 0.0, dt = 0.01
+)
+    T = 2π / ω  # one full period
+
+    function residual!(F, params)
+        x_shift, y_shift, tilt_param = params
+        result = simulate_cosine_steering(; v, ω, j0_zero, x_shift, y_shift, tilt=tilt_param, φ, T, dt)
+        metrics = compute_trajectory_metrics(result.x, result.y)
+
+        F[1] = metrics.centroid_x - target_x
+        F[2] = metrics.centroid_y - target_y
+        # Normalize tilt difference to [-π, π]
+        tilt_diff = metrics.tilt - target_tilt
+        F[3] = atan(sin(tilt_diff), cos(tilt_diff))
+    end
+
+    # Initial guess
+    initial_guess = [0.0, 0.0, 0.0]
+
+    sol = nlsolve(residual!, initial_guess; ftol=1e-10, iterations=100)
+
+    x_shift, y_shift, tilt_param = sol.zero
+    return (; x_shift, y_shift, tilt=tilt_param, converged=converged(sol), sol)
 end
 
 """
@@ -385,16 +452,16 @@ function animate_x_based(; ω = 1.0, j0_zero = 1, δ = 0.0, n_periods = 1, fps =
     fig
 end
 
-function plot_trajectory(; ω = 1.0, j0_zero = 1, δ = 0.0, φ = 0.0, ψ_dot_offset = 0.0, x_shift = 0.0, n_periods = 1)
+function plot_trajectory(; ω = 1.0, j0_zero = 1, x_shift = 0.0, y_shift = 0.0, tilt = 0.0, φ = 0.0, n_periods = 1)
     T = n_periods * 2π / ω
-    result = simulate_cosine_steering(; ω, j0_zero, δ, φ, ψ_dot_offset, x_shift, T)
-    A = get_closed_amplitude(; ω, j0_zero, δ)
+    result = simulate_cosine_steering(; ω, j0_zero, x_shift, y_shift, tilt, φ, T)
+    A = get_closed_amplitude(; ω, j0_zero, δ=y_shift)
     B = A / ω
 
     fig = Figure(size = (1200, 800))
 
     # 2D trajectory
-    params_str = "δ=$δ, φ=$(round(φ, digits=2)), ψ̇_off=$(round(ψ_dot_offset, digits=3)), x_sh=$(round(x_shift, digits=2))"
+    params_str = "x=$(round(x_shift, digits=2)), y=$(round(y_shift, digits=3)), tilt=$(round(tilt, digits=3))"
     ax1 = Axis(fig[1:2, 1],
         xlabel = "x", ylabel = "y",
         title = "2D Trajectory ($params_str)",
@@ -432,11 +499,11 @@ function plot_trajectory(; ω = 1.0, j0_zero = 1, δ = 0.0, φ = 0.0, ψ_dot_off
     fig
 end
 
-function animate_trajectory(; ω = 1.0, j0_zero = 1, δ = 0.0, φ = 0.0, ψ_dot_offset = 0.0, x_shift = 0.0,
+function animate_trajectory(; ω = 1.0, j0_zero = 1, x_shift = 0.0, y_shift = 0.0, tilt = 0.0, φ = 0.0,
                             n_periods = 1, fps = 30, speed = 1.0)
     T = n_periods * 2π / ω
-    result = simulate_cosine_steering(; ω, j0_zero, δ, φ, ψ_dot_offset, x_shift, T)
-    A = get_closed_amplitude(; ω, j0_zero, δ)
+    result = simulate_cosine_steering(; ω, j0_zero, x_shift, y_shift, tilt, φ, T)
+    A = get_closed_amplitude(; ω, j0_zero, δ=y_shift)
     B = A / ω
     n = length(result.t)
 
@@ -466,7 +533,7 @@ function animate_trajectory(; ω = 1.0, j0_zero = 1, δ = 0.0, φ = 0.0, ψ_dot_
     ψ_dot_margin = 0.1 * (maximum(result.ψ_dot) - minimum(result.ψ_dot))
 
     # 2D trajectory
-    params_str = "δ=$δ, φ=$(round(φ, digits=2)), ψ̇_off=$(round(ψ_dot_offset, digits=3)), x_sh=$(round(x_shift, digits=2))"
+    params_str = "x=$(round(x_shift, digits=2)), y=$(round(y_shift, digits=3)), tilt=$(round(tilt, digits=3))"
     ax1 = Axis(fig[1:2, 1],
         xlabel = "x", ylabel = "y",
         title = "2D Trajectory ($params_str)",

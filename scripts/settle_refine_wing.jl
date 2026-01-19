@@ -26,16 +26,16 @@ using DiscretePIDs
 include("../examples/coupled/utils.jl")
 
 # Configuration - Simulation
-WORLD_DAMPING = 500.0  # Ns/m
-DECAY_STEPS = 500     # Steps over which damping decays to zero
-NUM_STEPS = 4500
+WORLD_DAMPING = 1000.0  # Ns/m
+MIN_DAMPING = 50.0  # Ns/m
+DECAY_STEPS = 2000  # Steps over which damping decays to MIN_DAMPING
+NUM_STEPS = 8000
 DT = 0.01  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 39.37   # depower [0, 100]
 WIND_VEL = 10.72
-CONE_ANGLE = 76  # Cone angle in degrees (angle from x-axis)
-ELEVATION_SETPOINT = 0.61  # Target elevation in radians
-TETHER_LENGTH = 248  # Total tether length (m), 6 segments
+ELEVATION = 70
+TETHER_LENGTH = 240  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
 EXTRA_POINTS_FRAME = 7182
 # FLIGHT_CSV = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
@@ -59,7 +59,7 @@ DEST_AERO_PATH = "data/v3/aero_geometry_$(DEST_SUFFIX).yaml"
 
 # Heading controller parameters
 HEADING_KP = 0.5
-HEADING_TAU_I = 10.0  # Integrator time constant
+HEADING_TAU_I = false  # No integral
 HEADING_SETPOINT = -1.562  # Target heading in radians
 
 """Convert unix timestamp to UTC seconds since midnight."""
@@ -76,7 +76,7 @@ function utc_to_video_frame(utc_seconds::Float64)
 end
 
 @info "Settling REFINE wing with world frame damping..."
-@info "Configuration" WORLD_DAMPING DECAY_STEPS NUM_STEPS DT total_time=NUM_STEPS*DT
+@info "Configuration" WORLD_DAMPING NUM_STEPS DT total_time=NUM_STEPS*DT
 
 # Load settings
 set_data_path("data/v3")
@@ -84,7 +84,7 @@ set = Settings("system.yaml")
 set.g_earth = 9.81
 set.v_wind = WIND_VEL
 set.l_tether = TETHER_LENGTH
-set.profile_law = 4  # Linear wind scaling from 0 at origin to 1.0 at l_tether
+set.profile_law = 0
 
 # Load VSMSettings
 vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
@@ -98,17 +98,9 @@ sys = load_sys_struct_from_yaml(struc_yaml_path;
     system_name="v3", set,
     wing_type=SymbolicAWEModels.REFINE, vsm_set)
 
-# Calculate azimuth to achieve CONE_ANGLE at given ELEVATION_SETPOINT
-# Geometry: cos(θ_cone) = cos(elevation) * cos(azimuth)
-# Solve: azimuth = ±acos(cos(θ_cone) / cos(elevation))
-θ_cone = deg2rad(CONE_ANGLE)
-cos_az = cos(θ_cone) / cos(ELEVATION_SETPOINT)
-azimuth_calc = -acos(clamp(cos_az, -1.0, 1.0))  # Negative for left side
-
-sys.transforms[1].elevation = ELEVATION_SETPOINT
-sys.transforms[1].azimuth = azimuth_calc
+sys.transforms[1].elevation = deg2rad(ELEVATION * cos(HEADING_SETPOINT))
+sys.transforms[1].azimuth = deg2rad(ELEVATION * sin(HEADING_SETPOINT))
 sys.transforms[1].heading = HEADING_SETPOINT
-@info "Transform calculated" cone_angle=CONE_ANGLE elevation=rad2deg(ELEVATION_SETPOINT) azimuth=rad2deg(azimuth_calc) heading=rad2deg(HEADING_SETPOINT)
 
 # Update tether length: points 39-44 and segments 90-95
 segment_len = TETHER_LENGTH / 6 * (1 + 1000 / sys.segments[end].axial_stiffness)
@@ -130,9 +122,9 @@ for seg_idx in 20:28
 end
 @info "Reductions applied" TIP_REDUCTION TE_FRAC
 
-# Set initial world frame damping (will decay over DECAY_STEPS)
-SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING, 1:38)
-SymbolicAWEModels.set_body_frame_damping(sys, 200.0, 1:38)
+# Set initial world frame damping (decays linearly to MIN_DAMPING)
+SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING)
+SymbolicAWEModels.set_body_frame_damping(sys, 300.0)
 
 wing_points = [p for p in sys.points if p.type == WING]
 @info "System setup" n_wing_points=length(wing_points) n_points=length(sys.points) n_segments=length(sys.segments)
@@ -154,12 +146,11 @@ L_left, L_right = steering_percentage_to_lengths(STEERING_PERCENTAGE)
 sys.segments[87].l0 = L_left   # Left steering tape
 sys.segments[89].l0 = L_right  # Right steering tape
 
-# Store initial depower length and calculate target (ramp over 2s)
-L_depower_initial = sys.segments[88].l0
-L_depower_target = depower_percentage_to_length(DEPOWER_PERCENTAGE)
-DEPOWER_RAMP_TIME = 2.0  # seconds
+# Set depower instantly
+L_depower = depower_percentage_to_length(DEPOWER_PERCENTAGE)
+sys.segments[88].l0 = L_depower
 
-@info "Steering/depower initialized" steering=STEERING_PERCENTAGE depower=DEPOWER_PERCENTAGE L_left L_right L_depower_initial L_depower_target
+@info "Steering/depower initialized" steering=STEERING_PERCENTAGE depower=DEPOWER_PERCENTAGE L_left L_right L_depower
 
 # Initialize heading PID controller
 heading_pid = DiscretePID(;
@@ -185,14 +176,9 @@ steering_values = Float64[]
 for step in 1:NUM_STEPS
     t = step * DT
 
-    # Decay world damping exponentially over DECAY_STEPS
-    damping = WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS)
-    SymbolicAWEModels.set_world_frame_damping(sys, damping, 1:38)
-
-    # Ramp depower over DEPOWER_RAMP_TIME
-    ramp_frac = min(t / DEPOWER_RAMP_TIME, 1.0)
-    L_depower = L_depower_initial + ramp_frac * (L_depower_target - L_depower_initial)
-    sys.segments[88].l0 = L_depower
+    # Linear damping decrease over DECAY_STEPS
+    damping = max(WORLD_DAMPING * (1.0 - step / DECAY_STEPS), MIN_DAMPING)
+    SymbolicAWEModels.set_world_frame_damping(sys, damping)
 
     # Heading control
     wing = sys.wings[1]
@@ -228,8 +214,7 @@ for step in 1:NUM_STEPS
     # Progress updates
     if step % 20 == 0 || step == NUM_STEPS
         wing = sys.wings[1]
-        current_damping = WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS)
-        @info "Step $step/$NUM_STEPS (t = $(round(t, digits=2)) s)" damping=round(current_damping, digits=1) elevation=round(rad2deg(wing.elevation), digits=2) azimuth=round(rad2deg(wing.azimuth), digits=2) heading=round(rad2deg(wing.heading), digits=2)
+        @info "Step $step/$NUM_STEPS (t = $(round(t, digits=2)) s)" damping=round(damping, digits=1) elevation=round(rad2deg(wing.elevation), digits=2) azimuth=round(rad2deg(wing.azimuth), digits=2) heading=round(rad2deg(wing.heading), digits=2)
     end
 end
 
@@ -308,7 +293,8 @@ end
 CairoMakie.activate!()
 for dir in (:front, :side, :top)
     scene = plot_body_frame_local(sam.sys_struct;
-        extra_points=extra_pts, extra_groups=extra_groups, dir)
+        extra_points=extra_pts, extra_groups=extra_groups, dir,
+        legend=false, title=false, figsize=(400, 400), show_point_idxs=false)
     pdf_filename = "data/v3/body_frame_$(dir)_settle_frame$(EXTRA_POINTS_FRAME)_$(DEST_SUFFIX).pdf"
     save(pdf_filename, scene)
     @info "Plot saved" pdf_filename

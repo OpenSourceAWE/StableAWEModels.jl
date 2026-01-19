@@ -82,8 +82,8 @@ MIN_DAMPING = [0.0, 60, 120]
 # Spring and damping forces relative to CSV reference (points 1:38)
 # Force = k * total_mass * (csv - sim), so k has units [1/s²] for spring, [1/s] for damping
 # Scaled by total_mass to give consistent acceleration regardless of mass
-CSV_SPRING_K = 0.0      # Spring coefficient [1/s²] - position tracking
-CSV_DAMPING_K = 0.0     # Damping coefficient [1/s] - velocity tracking
+CSV_SPRING_K = 0.1      # Spring coefficient [1/s²] - position tracking
+CSV_DAMPING_K = 0.01     # Damping coefficient [1/s] - velocity tracking
 
 # PID controller parameters for heading control
 HEADING_KP = 0.5
