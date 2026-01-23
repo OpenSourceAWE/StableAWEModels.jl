@@ -358,7 +358,7 @@ function init!(sam::SymbolicAWEModel;
     remake=false, reload=false,
     outputs=nothing,
     create_prob::Bool=true,
-    create_lin_prob::Bool=true,
+    create_lin_prob::Bool=false,
     create_control_func::Bool=false,
     lin_vsm::Bool=true,
     ignore_l0::Bool=false,
