@@ -393,7 +393,7 @@ function force_eqs!(
         # The net force on the point. This variable is used by other components.
         eqs = [
             eqs
-            spring_sum_force[:, point.idx] .~ F  # Store accumulated spring/drag forces
+            spring_sum_force[:, point.idx] ~ F  # Store accumulated spring/drag forces
             point_mass[point.idx] ~ mass
             disturb_force[:, point.idx] ~ get_disturb(psys, point.idx)
             body_frame_damping[:, point.idx] ~ get_body_frame_damping(psys, point.idx)
@@ -635,7 +635,7 @@ function force_eqs!(
                     fix_static[point.idx] == true,
                     pos[:, point.idx],
                     point_force[:, point.idx]
-                ) .~ ifelse.(
+                ) ~ ifelse.(
                     fix_static[point.idx] == true,
                     get_pos_w(psys, point.idx),
                     zeros(3)
@@ -1149,14 +1149,14 @@ function wing_eqs!(
                 # Build rotation matrix from structural geometry
                 # (Same algorithm as calc_refine_wing_frame)
                 # Z direction (normal to wing, normalized)
-                vec(R_b_w[wing.idx, :, 3]) .~ sym_normalize(pos_z2 - pos_z1)
+                R_b_w[wing.idx, :, 3] ~ sym_normalize(pos_z2 - pos_z1)
                 # Y temp direction (not necessarily orthogonal yet)
                 # X = Y_temp × Z (chord direction, orthogonal to Z)
-                vec(R_b_w[wing.idx, :, 1]) .~ sym_normalize(
+                R_b_w[wing.idx, :, 1] ~ sym_normalize(
                     sym_normalize(pos_y2 - pos_y1) × R_b_w[wing.idx, :, 3]
                 )
                 # Y = Z × X (ensure orthogonality and right-handed system)
-                vec(R_b_w[wing.idx, :, 2]) .~ R_b_w[wing.idx, :, 3] × R_b_w[wing.idx, :, 1]
+                R_b_w[wing.idx, :, 2] ~ R_b_w[wing.idx, :, 3] × R_b_w[wing.idx, :, 1]
 
                 # Define wing position from KCU origin point
                 # This ensures wing.pos_w moves with structural deformation
@@ -1485,9 +1485,9 @@ function scalar_eqs!(
             course_z = vel_perp[3]
             eqs = [
                 eqs
-                vec(R_v_w[wing.idx, :, :]) .~
+                vec(R_v_w[wing.idx, :, :]) ~
                     vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
-                vec(R_t_w[wing.idx, :, :]) .~
+                vec(R_t_w[wing.idx, :, :]) ~
                     vec(sym_calc_R_t_w(wing_pos[wing.idx, :]))
                 heading[wing.idx] ~ atan(heading_x, heading_z)
                 # Rotational quantities are zero (no rigid body rotation)
@@ -1546,9 +1546,9 @@ function scalar_eqs!(
             course_z = vel_perp[3]
             eqs = [
                 eqs
-                vec(R_v_w[wing.idx, :, :]) .~
+                vec(R_v_w[wing.idx, :, :]) ~
                     vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
-                vec(R_t_w[wing.idx, :, :]) .~
+                vec(R_t_w[wing.idx, :, :]) ~
                     vec(sym_calc_R_t_w(wing_pos[wing.idx, :]))
                 heading[wing.idx] ~ atan(heading_x, heading_z)
                 turn_rate[wing.idx, :] ~
@@ -1937,13 +1937,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
         twist_angle, ω_b, α_b, R_v_w
     )
 
-    eqs_scalarized = Symbolics.scalarize.(reduce(vcat, Symbolics.scalarize.(eqs)))
-    for (i, eq) in enumerate(eqs_scalarized)
-        if !(eq isa Equation)
-            println("Non-equation at index $i: $(typeof(eq)) = $eq")
-        end
-    end
-    eqs = Equation[eq for eq in eqs_scalarized]
+    eqs = Symbolics.scalarize.(reduce(vcat, Symbolics.scalarize.(eqs)))
 
     time = @elapsed @named sys = System(eqs, t)
     prn && println("\tCreated System in $time seconds.")
