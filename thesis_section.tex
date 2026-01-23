@@ -1,0 +1,24 @@
+The zenith-flight simulations revealed fundamentally different equilibrium behavior between the 2019 and 2025 configurations. The 2019 design exhibited a \textbf{bifurcated equilibrium structure} at moderate wind speeds, where the system could settle into one of two distinct operating modes depending on initial conditions. This bifurcation manifested as two separate clusters of equilibrium points with markedly different elevation angles and angles of attack, indicating competing aerodynamic regimes. In contrast, the 2025 configuration demonstrated a \textbf{single, stable equilibrium point} across all tested conditions, representing a substantial improvement in system predictability and control authority. 
+
+While equilibrium elevation varied with wind speed in both designs---consistent with wind-dependent tether drag modifying the effective system lift-to-drag ratio---the key distinction lay in the stability landscape. The 2019 design's dual-mode behavior at $v_{\mathrm{w}}=9~\unit{\metre\per\second}$ presented two competing equilibria: a high-angle-of-attack mode ($\alpha \approx 23\text{--}26\degree$) at lower elevations and a low-angle-of-attack mode ($\alpha \approx 11\text{--}14\degree$) at higher elevations. The system's eventual settling point depended sensitively on transient dynamics and initial conditions, compromising operational predictability. At higher wind speeds ($v_{\mathrm{w}}=20~\unit{\metre\per\second}$), the 2019 configuration failed to converge to stable equilibria entirely, with residual kite velocities exceeding $2~\unit{\metre\per\second}$ indicating insufficient control authority.
+
+The 2025 design eliminated these pathologies. Across the tested wind speed range, the system consistently converged to a single equilibrium characterized by low angles of attack ($\alpha \approx 2\text{--}4\degree$) and tight clustering of both elevation and aerodynamic state variables. This unification of the stability landscape greatly simplified operational deployment and enabled reliable performance prediction.
+
+\begin{table}[htbp]
+\centering
+\caption{Equilibrium operating states in zenith-flight simulations for the 2019 and 2025 configurations. Ranges denote the minimum and maximum values across the considered $\theta_{\mathrm{set}}$ cases. For 2019 at $v_{\mathrm{w}}=9~\unit{\metre\per\second}$, two distinct equilibrium clusters were observed (denoted as Mode~1 and Mode~2), reflecting a bifurcated stability landscape. The 2019 configuration at $v_{\mathrm{w}}=20~\unit{\metre\per\second}$ failed to converge to stable equilibria and is omitted. Data filtered to exclude cases with $v_{\mathrm{kite}} > 1~\unit{\metre\per\second}$.}
+\label{tab:zenith_circle_comparison}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.05}
+\begin{tabular}{lcccccc}
+\toprule
+Year & Mode & $u_p$ & $v_{\mathrm{w}}$ (\unit{\metre\per\second}) & $\theta_{\mathrm{final}}$ (\unit{\degree}) & $\alpha$ (\unit{\degree}) & $\Delta\alpha$ (\unit{\degree}) \\
+\midrule
+2019 & 1 & 0.18 & 9  & 67--69 & 23--26 & 3.0 \\
+2019 & 2 & 0.18 & 9  & 79--83 & 11--14 & 3.0 \\
+2025 & --- & 0.42 & 8  & 62--67 & 2--4 & 2.0 \\
+2025 & --- & 0.42 & 20 & 62--67 & 2--4 & 2.0 \\
+\bottomrule
+\end{tabular}
+\end{table}

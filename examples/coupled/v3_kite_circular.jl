@@ -17,6 +17,7 @@ GLMakie.activate!()
 using KiteUtils
 using DiscretePIDs
 using Dates
+using StaticArrays: SVector
 
 include("utils.jl")
 
@@ -27,6 +28,63 @@ TIP_REDUCTION = 0.4          # Tip LE reduction (m), 0.0 = no change
 GEOM_SUFFIX = build_geom_suffix(V3_DEPOWER_L0, TIP_REDUCTION, TE_FRAC)
 STRUC_YAML_PATH = "data/v3/struc_geometry_$(GEOM_SUFFIX).yaml"
 AERO_YAML_PATH = "data/v3/aero_geometry_$(GEOM_SUFFIX).yaml"
+
+"""
+    adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
+
+Update the winch rest length, reposition tether points in CAD/body frames,
+and reapply the main transform so the wing stays at the requested tether radius.
+"""
+function adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
+    tether_length = float(tether_length_raw)
+    sys = sam.sys_struct
+    set = sam.set
+
+    if !isempty(set.l_tethers)
+        set.l_tethers[1] = tether_length
+    end
+
+    n_points = length(tether_point_idxs)
+    for (n, p_idx) in enumerate(tether_point_idxs)
+        pos = (0.0, 0.0, -n * tether_length / n_points)
+        sys.points[p_idx].pos_cad .= pos
+        sys.points[p_idx].pos_b .= pos
+    end
+
+    if !isempty(sys.transforms)
+        transform = sys.transforms[1]
+        if !isempty(sys.wings) && norm(sys.wings[1].pos_w) > 0
+            target_pos = normalize(sys.wings[1].pos_w) * tether_length
+            transform.elevation = KiteUtils.calc_elevation(target_pos)
+            transform.azimuth = KiteUtils.azimuth_east(target_pos)
+        end
+        SymbolicAWEModels.reinit!([transform], sys)
+    end
+
+    if !isempty(sys.winches)
+        winch = sys.winches[1]
+        winch.tether_len = tether_length
+        winch.tether_vel = 0.0
+        winch.brake = true
+    end
+    return nothing
+end
+
+"""
+    adjust_elevation!(sam::SymbolicAWEModel, elevation_deg)
+
+Update the transform elevation to the specified value in degrees.
+"""
+function adjust_elevation!(sam::SymbolicAWEModel, elevation_deg)
+    sys = sam.sys_struct
+    
+    if !isempty(sys.transforms)
+        transform = sys.transforms[1]
+        transform.elevation = deg2rad(elevation_deg)
+        SymbolicAWEModels.reinit!([transform], sys)
+    end
+    return nothing
+end
 
 """
     run_v3_kite(; kwargs...)
@@ -43,7 +101,25 @@ Uses exponential decay world frame damping (WORLD_DAMPING, DECAY_STEPS constants
 - `us::Float64=10.0`: Steering percentage [-100, 100], positive = right turn
 - `show_plots::Bool=false`: Display 3D plots during simulation
 - `v_wind::Float64=15.4`: Wind speed [m/s]
-- `ramp_time::Float64=25.0`: Time to ramp steering/depower [s]
+- `upwind_dir::Float64=-90.0`: Wind direction [°]
+- `ramp_start_time_up::Float64=0.0`: Start time for power tape ramp [s]
+- `ramp_end_time_up::Float64=25.0`: End time for power tape ramp [s]
+- `ramp_start_time_us::Float64=0.0`: Start time for steering tape ramp [s]
+- `ramp_end_time_us::Float64=25.0`: End time for steering tape ramp [s]
+- `v_wind_base::Float64=15.0`: Baseline wind speed [m/s]
+- `tether_length::Float64=150.0`: Tether length [m]
+- `max_heading::Float64=50.0`: Maximum heading amplitude for sine wave [°]
+- `period::Float64=20.0`: Oscillation period for sine wave [s]
+- `heading_p::Float64=0.0`: Proportional gain for heading controller
+- `heading_i::Float64=0.1`: Integral gain for heading controller
+- `heading_d::Float64=0.0`: Derivative gain for heading controller
+- `winch_p::Float64=1000.0`: Proportional gain for winch controller [N/m]
+- `winch_i::Float64=100.0`: Integral gain for winch controller [N/(m·s)]
+- `winch_d::Float64=50.0`: Derivative gain for winch controller [N·s/m]
+- `tube_bending_resistance::Float64=0.0`: Outward body-frame force magnitude applied to nodes 2, 3 (+y) and 20, 21 (-y)
+- `elevation::Union{Nothing,Float64}=nothing`: Initial elevation angle [°] (overrides YAML if provided)
+- `save_subdir::AbstractString=""`: Subfolder under `processed_data/v3_kite` for permanent saves
+- `run_tag::AbstractString=""`: Extra tag appended to the log name
 
 # Returns
 - `SysLog`: The simulation log containing time history data
@@ -58,8 +134,24 @@ function run_v3_kite(;
                      show_plots=false,
                      v_wind=15.4,
                      upwind_dir=-90.0,
-                     ramp_time=25.0,
-                     v_wind_base=15)
+                     ramp_start_time_up=0.0,
+                     ramp_end_time_up=25.0,
+                     ramp_start_time_us=0.0,
+                     ramp_end_time_us=25.0,
+                     v_wind_base=15,
+                     tether_length=150.0,
+                     max_heading=50.0,
+                     period=20.0,
+                     heading_p=0.0,
+                     heading_i=0.1,
+                     heading_d=0.0,
+                     winch_p=1000.0,
+                     winch_i=100.0,
+                     winch_d=50.0,
+                     tube_bending_resistance=0.0,
+                     elevation=nothing,
+                     save_subdir="",
+                     run_tag="")
 
     wing_type = SymbolicAWEModels.REFINE
     wing_type_str = "REFINE"
@@ -77,7 +169,7 @@ function run_v3_kite(;
     model_name = "v3"
 
     # Load VSMSettings
-    vsm_set_path = joinpath(get_data_path(), "vsm_settings_reduced_for_coupling.yaml")
+    vsm_set_path = joinpath(get_data_path(), "CORRECT_vsm_settings.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
     vsm_set.wings[1].geometry_file = AERO_YAML_PATH
 
@@ -89,8 +181,6 @@ function run_v3_kite(;
     sys = load_sys_struct_from_yaml(STRUC_YAML_PATH;
         system_name=model_name, set, wing_type, vsm_set)
 
-    sys.transforms[1].elevation = deg2rad(20.0)
-    sys.transforms[1].azimuth = deg2rad(20.0)
     # Initialize damping with per-axis values [x, y, z]
     SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern, 1:38)
 
@@ -100,6 +190,12 @@ function run_v3_kite(;
 
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
+    adjust_tether_length!(sam, tether_length)
+    
+    # Adjust elevation if provided
+    if elevation !== nothing
+        adjust_elevation!(sam, elevation)
+    end
 
     # Apply steering
     # sys.segments[87].l0 += max_steering
@@ -166,8 +262,27 @@ function run_v3_kite(;
 
         # Body frame damping stays constant at damping_pattern
 
-        # Ramp from initial to target tape lengths
-        ramp_factor = min(t / ramp_time, 1.0)
+        # Fixed tether length: brake engaged; apply power and steering ramps independently
+        # Power tape ramp factor
+        if t <= ramp_start_time_up
+            power_ramp_factor = 0.0
+        elseif t >= ramp_end_time_up
+            power_ramp_factor = 1.0
+        else
+            power_ramp_factor = (t - ramp_start_time_up) / (ramp_end_time_up - ramp_start_time_up)
+        end
+        
+        # Steering tape ramp factor
+        if t <= ramp_start_time_us
+            steering_ramp_factor = 0.0
+        elseif t >= ramp_end_time_us
+            steering_ramp_factor = 1.0
+        else
+            steering_ramp_factor = (t - ramp_start_time_us) / (ramp_end_time_us - ramp_start_time_us)
+        end
+        
+        steering_control = steering_tape_change * steering_ramp_factor
+        power_control = power_tape_change * power_ramp_factor
         push!(heading_setpoint, 0.0)  # Keep heading setpoint flat for plotting
 
         # Apply ramped steering, instant depower
@@ -270,19 +385,26 @@ function run_v3_kite(;
         @info "Segment stretch statistics (t > 1.0):" max_relative=round(overall_max_stretch, digits=6) max_percentage=round(overall_max_stretch*100, digits=4) mean_relative=round(overall_mean_stretch, digits=6) mean_percentage=round(overall_mean_stretch*100, digits=4) max_segment_idx=max_stretch_idx
     end
 
+    lt_tag = Int(round(tether_length))
+
     # Save and load log
-    log_name = "tmp_run_$(lowercase(wing_type_str))"
+    log_name = "tmp_run_$(lowercase(wing_type_str))_lt_$(lt_tag)"
     save_log(logger, log_name)
     syslog = load_log(log_name)
 
     # Permanent save
-    save_dir = joinpath("processed_data", "v3_kite")
+    save_root = joinpath("processed_data", "v3_kite")
+    save_dir = isempty(save_subdir) ? save_root : joinpath(save_root, save_subdir)
     isdir(save_dir) || mkpath(save_dir)
-    timestamp = Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM")
-    up_tag = Int(round(up))
-    us_tag = Int(round(us))
+    timestamp = Dates.format(Dates.now(), "yyyy_mm_dd_HH_MM_SS")
+    up_tag = Int(round(up*100))
+    us_tag = Int(round(us*100))
     v_wind_tag = Int(round(v_wind))
-    log_name = "circle__up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind_tag)" * "_date_" * timestamp
+    log_name = "circle__up_$(up_tag)" * "_" * "us_$(us_tag)" * "_" * "vw_$(v_wind_tag)" * "_" * "lt_$(lt_tag)"
+    if !isempty(run_tag)
+        log_name *= "_" * run_tag
+    end
+    log_name *= "_date_" * timestamp
     save_log(logger, log_name; path=save_dir)
 
     # Create tape data for plotting
@@ -298,30 +420,61 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-us = 20.0   # Steering percentage [-100, 100], positive = right turn
-up = 39   # Depower percentage [0, 100]
-vw = 8.0    # Wind speed [m/s]
+    us = 0.05 #0.35 # 2019: 0.35 2025: 0.21
+    up = 0.42 #0.18 # 2019: 0.18 2025: 0.42 (0.4151powered and #0.5012depowered #0.39 during turns)
+    vw = 7.6  #8.6  # 2019: 8.6  2025: 7.6 # {{{ 10.  <> 15.0 }}} suitable range?
+    lt = 262  #268  # 2019: 268  2025: 262  
+    sim_time = 60.0
+    decay_time = 2.0 #2secs works better than 3 somehow
+    ramp_start_time_up = 0.1
+    ramp_end_time_up = 1.5
+    ramp_start_time_us = 3.0
+    ramp_end_time_us = 5.0
+    fps = 120
+    initial_damping = 200.0
+    # damping_pattern = [0.0, 60.0, 90.0]
+    damping_pattern = [0.0, 0.0, 20.0]
+    min_damping = 1.0
+    tube_bending_resistance = 0  # N
+    elevation = 20.0  # degrees
 
-sim_time = 40.0
-ramp_time = 2.0
-fps = 60
-damping_pattern = [0.0, 60.0, 120.0]
+
+    syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(
+        sim_time=sim_time, fps=fps,
+        up=up, us=us, v_wind=vw, tether_length=lt,
+        decay_time=decay_time,
+        ramp_start_time_up=ramp_start_time_up, ramp_end_time_up=ramp_end_time_up,
+        ramp_start_time_us=ramp_start_time_us, ramp_end_time_us=ramp_end_time_us,
+        initial_damping=initial_damping, damping_pattern=damping_pattern, min_damping=min_damping,
+        elevation=elevation,
+        max_heading=MAX_HEADING, period=PERIOD,
+        tube_bending_resistance=tube_bending_resistance,
+        heading_p=HEADING_P, heading_i=HEADING_I, heading_d=HEADING_D,
+        winch_p=WINCH_P, winch_i=WINCH_I, winch_d=WINCH_D)
 
 
-syslog, sam, heading_setpoint, tape_data = run_v3_kite(
-    sim_time=sim_time, fps=fps,
-    up=up, us=us, v_wind=vw,
-    ramp_time=ramp_time, damping_pattern=damping_pattern,
-)
+    fig = plot(sam_refine.sys_struct,
+               syslog_refine;
+               plot_turn_rates=false,
+               plot_reelout=false,
+               plot_twist=false,
+               plot_yaw_rate_paper=true,
+               plot_v_app=true,
+               plot_kite_vel=true,
+               plot_gk=true,
+               plot_aoa=true, 
+               plot_heading=false, 
+               plot_elevation=true,
+               plot_azimuth=true, 
+               plot_winch_force=false, 
+               plot_set_values=false,
+               gk_ylims=(0.0, 15.0), 
+               aoa_ylims=(0.0, 15.0),
+               yaw_rate_paper_ylims=(0.0, 50.0),
+               plot_tether_actual=true,
+               plot_us=true)
 
-
-fig = plot(sam.sys_struct, syslog;
-    plot_turn_rates=true, plot_reelout=false, plot_gk=true,
-    plot_aoa=true, plot_heading=false, plot_elevation=true,
-    plot_azimuth=true, plot_winch_force=false, plot_set_values=false,
-    tape_lengths=[tape_data])
-
-scene = replay(syslog, sam.sys_struct)
+scene = replay(syslog_refine, sam_refine.sys_struct, show_panes=false)
 
 scr1 = display(fig)
 wait(scr1)
@@ -330,23 +483,139 @@ wait(scr2)
 
 
 
-# Report final geometric AoA using hardcoded mid-panel corners (world frame)
-last_state = syslog.syslog[end]
-X = last_state.X; Y = last_state.Y; Z = last_state.Z
-# Mid-panel corners: 10,11,12,13 (11/13 front; 10/12 back)
-back = 0.5 .* ([X[10], Y[10], Z[10]] .+ [X[12], Y[12], Z[12]])
-front = 0.5 .* ([X[11], Y[11], Z[11]] .+ [X[13], Y[13], Z[13]])
+# # Report final geometric AoA using hardcoded mid-panel corners (world frame)
+# last_state = syslog_refine.syslog[end]
+# X = last_state.X; Y = last_state.Y; Z = last_state.Z
+# # Mid-panel corners: 10,11,12,13 (11/13 front; 10/12 back)
+# back = 0.5 .* ([X[10], Y[10], Z[10]] .+ [X[12], Y[12], Z[12]])
+# front = 0.5 .* ([X[11], Y[11], Z[11]] .+ [X[13], Y[13], Z[13]])
 
-delta_z = front[3] - back[3]
-delta_x = front[1] - back[1]
-aoa_wrt_horizontal = -rad2deg(atan(delta_z, delta_x))
-# @info "alpha wrt horizontal $(round(aoa_wrt_horizontal, digits=2))"
+# delta_z = front[3] - back[3]
+# delta_x = front[1] - back[1]
+# aoa_wrt_horizontal = -rad2deg(atan(delta_z, delta_x))
+# # @info "alpha wrt horizontal $(round(aoa_wrt_horizontal, digits=2))"
 
-chord_w = front .- back
-wing = sam.sys_struct.wings[1]
-v_app_w = wing.R_b_w * wing.va_b
-@info "v_app" v_app_w=round.(v_app_w, digits=2)
-aoa_geom_deg = rad2deg(acos(clamp(dot(chord_w, v_app_w) / (norm(chord_w) * norm(v_app_w) + 1e-12), -1.0, 1.0)))
-@info "alpha wrt v_app $(round(aoa_geom_deg, digits=2))"
+# chord_w = front .- back
+# wing = sam_refine.sys_struct.wings[1]
+# v_app_w = wing.R_b_w * wing.va_b
+# @info "v_app" v_app_w=round.(v_app_w, digits=2)
+# aoa_geom_deg = rad2deg(acos(clamp(dot(chord_w, v_app_w) / (norm(chord_w) * norm(v_app_w) + 1e-12), -1.0, 1.0)))
+# @info "alpha wrt v_app $(round(aoa_geom_deg, digits=2))"
+
+
+# ##########################
+# ### compute L/D system ###
+# ##########################
+# sl = syslog_refine.syslog
+# last_state = sl[end]
+# prev_state = sl[end - 1]
+# dt = (last_state.time - prev_state.time) + 1e-12
+
+# # compute wing v_a
+# min1 = sl[end - 1]
+# last_state = sl[end]
+
+# X_last = last_state.X; Y_last = last_state.Y; Z_last = last_state.Z
+# X_min1 = min1.X; Y_min1 = min1.Y; Z_min1 = min1.Z
+
+# X_last_back = 0.5 * (X_last[10] + X_last[12])
+# Y_last_back = 0.5 * (Y_last[10] + Y_last[12])
+# Z_last_back = 0.5 * (Z_last[10] + Z_last[12])
+
+# X_last_front = 0.5 * (X_last[11] + X_last[13])
+# Y_last_front = 0.5 * (Y_last[11] + Y_last[13])
+# Z_last_front = 0.5 * (Z_last[11] + Z_last[13])
+
+# X_min1_back = 0.5 * (X_min1[10] + X_min1[12])
+# Y_min1_back = 0.5 * (Y_min1[10] + Y_min1[12])
+# Z_min1_back = 0.5 * (Z_min1[10] + Z_min1[12])
+
+# X_min1_front = 0.5 * (X_min1[11] + X_min1[13])
+# Y_min1_front = 0.5 * (Y_min1[11] + Y_min1[13])
+# Z_min1_front = 0.5 * (Z_min1[11] + Z_min1[13])
+
+# va_mid_panel_front = SVector{3,Float64}(
+#     (X_last_front - X_min1_front) / (dt) - last_state.v_wind_kite[1],
+#     (Y_last_front - Y_min1_front) / (dt) - last_state.v_wind_kite[2],
+#     (Z_last_front - Z_min1_front) / (dt) - last_state.v_wind_kite[3],
+# )
+# va_mid_panel_back = SVector{3,Float64}(
+#     (X_last_back - X_min1_back) / (dt) - last_state.v_wind_kite[1],
+#     (Y_last_back - Y_min1_back) / (dt) - last_state.v_wind_kite[2],
+#     (Z_last_back - Z_min1_back) / (dt) - last_state.v_wind_kite[3],
+# )
+# va_mid_panel = -0.5 .* (va_mid_panel_front .+ va_mid_panel_back)
+# va_mid_panel_unit = va_mid_panel / (norm(va_mid_panel) + 1e-12)
+# # @info "v_app mid-panel $(round.(va_mid_panel, digits=5))"
+
+# # Aero forces in world frame
+# R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(last_state.orient)
+# F_aero_b = last_state.aero_force_b
+# F_aero_world = R_b_w * F_aero_b
+
+# drag_dir = va_mid_panel_unit              # drag is positive aligned with v_a
+# lift_dir = cross(drag_dir, SVector(0.0, 1.0, 0.0))  # lift is positive perpendicular to drag and upwards
+# # @info "checking lift dir" lift_dir=round.(lift_dir, digits=4) drag_dir=round.(drag_dir, digits=4)
+
+# drag_wing = dot(F_aero_world, drag_dir)
+# lift_wing = dot(F_aero_world, lift_dir)
+
+# # Recompute tether drag from segment states (using the last two snapshots for velocity)
+# segments = sam_refine.sys_struct.segments
+# points = sam_refine.sys_struct.points
+# n_points = length(last_state.X)
+# pos_last = [SVector(last_state.X[i], last_state.Y[i], last_state.Z[i]) for i in 1:n_points]
+# pos_prev = [SVector(prev_state.X[i], prev_state.Y[i], prev_state.Z[i]) for i in 1:n_points]
+# vel_est = [(pos_last[i] - pos_prev[i]) ./ dt for i in 1:n_points]
+
+# wind_vec_gnd = last_state.v_wind_gnd
+# cd_tether = SymbolicAWEModels.get_cd_tether(sam_refine.set)
+# # @info "cd_tether $(cd_tether)"
+
+# let drag_bridles = 0.0, drag_tether = 0.0, lift_bridles = 0.0, lift_tether = 0.0
+#     for segment in segments
+#         p1, p2 = segment.point_idxs
+#         p1_pos = pos_last[p1]; p2_pos = pos_last[p2]
+#         # Skip structural wing segments (drag handled by VSM)
+#         if points[p1].type == SymbolicAWEModels.WING && points[p2].type == SymbolicAWEModels.WING
+#             continue
+#         end
+#         seg_vec = p2_pos - p1_pos
+#         seg_len = norm(seg_vec) + 1e-12
+#         seg_dir = seg_vec / seg_len
+
+#         seg_vel = 0.5 .* (vel_est[p1] + vel_est[p2])
+#         seg_height = max(0.0, 0.5 * (p1_pos[3] + p2_pos[3]))
+#         wind_factor = SymbolicAWEModels.calc_wind_factor(sam_refine.am, max(seg_height, 1.0), sam_refine.set)
+#         wind_vel = wind_factor .* wind_vec_gnd
+#         va_seg = wind_vel - seg_vel
+#         app_perp = va_seg .- dot(va_seg, seg_dir) * seg_dir
+
+#         area = seg_len * segment.diameter
+#         rho = SymbolicAWEModels.calc_rho(sam_refine.am, seg_height)
+#         v_perp_mag = norm(app_perp)
+#         Tether_force = 0.5 * rho * cd_tether * area * v_perp_mag .* app_perp
+
+#         drag_scalar = dot(Tether_force, drag_dir)
+#         lift_scalar = dot(Tether_force, lift_dir)
+        
+#         if 47 <= segment.idx <= 89
+#             drag_bridles += drag_scalar
+#             lift_bridles += lift_scalar
+#         elseif 90 <= segment.idx <= 95
+#             drag_tether += drag_scalar
+#             lift_tether += lift_scalar
+#         end
+        
+#     end
+
+#     # Total aero (wing + tether drag approximation)
+#     total_drag = drag_wing + drag_bridles + drag_tether
+#     total_lift = lift_wing + lift_tether + lift_bridles
+#     @info "L/D wing" lift_wing = round(lift_wing, digits=2) drag_wing = round(drag_wing, digits=2) L_over_D = round(lift_wing / (drag_wing + 1e-12), digits=2)
+#     @info "Bridle aero" drag_bridles = round(drag_bridles, digits=2) lift_bridles = round(lift_bridles, digits=2)
+#     @info "Tether aero" drag_tether = round(drag_tether, digits=2) lift_tether = round(lift_tether, digits=2)
+#     @info "L/D system" lift_total = round(total_lift, digits=2) drag_total = round(total_drag, digits=2) L_over_D = round(total_lift / (total_drag + 1e-12), digits=2)
+# end
 
 nothing

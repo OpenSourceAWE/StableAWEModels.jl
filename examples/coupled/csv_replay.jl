@@ -541,7 +541,7 @@ function run_physics_replay(csv_path::String;
     logger = Logger(sam, n_steps)
 
     # Create CSV reference model for visualization
-    csv_sam = SymbolicAWEModel(set, csv_sys_struct)
+    csv_sam = SymbolicAWEModel(set, deepcopy(sam.sys_struct))
     init!(csv_sam)
     csv_state = SysState(csv_sam)
     csv_logger = Logger(csv_sam, n_steps)

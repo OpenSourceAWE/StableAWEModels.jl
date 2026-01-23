@@ -1,0 +1,69 @@
+\section*{Equilibrium Analysis: 2025 vs 2019 Designs}
+
+\subsection*{2025 Design (Single Stable Equilibrium)}
+
+The 2025 kite design exhibits a \textbf{single, well-behaved equilibrium point}:
+\begin{itemize}
+    \item Final elevation: $62\text{--}67\degree$
+    \item Angle of attack: $2\text{--}4\degree$ (efficient glide mode)
+    \item Data clustering: $\sim 85\%$ of filtered data converges to this point
+    \item Convergence quality: Excellent ($\text{kite\_vel} < 1.5$ across all wind speeds)
+\end{itemize}
+
+This indicates a \textbf{stable, controllable system} that reliably settles into a single operating mode regardless of wind speed.
+
+\subsection*{2019 Design (Bifurcated Equilibria at Low Wind)}
+
+The 2019 kite design exhibits fundamentally different behavior depending on wind speed:
+
+\subsubsection*{At $v_w = 9$ m/s (Bifurcation):}
+
+The system exhibits \textbf{two distinct equilibrium points}:
+
+\begin{itemize}
+    \item[\textbf{Point 1:}] High angle of attack mode
+    \begin{itemize}
+        \item Final elevation: $66\text{--}70\degree$
+        \item Angle of attack: $23\text{--}26\degree$
+        \item Character: Aggressive flight mode
+        \item Population: $\sim 4$ data points
+    \end{itemize}
+    
+    \item[\textbf{Point 2:}] Low angle of attack mode
+    \begin{itemize}
+        \item Final elevation: $78\text{--}83\degree$
+        \item Angle of attack: $11\text{--}14\degree$
+        \item Character: Efficient glide mode
+        \item Population: $\sim 2$ data points
+    \end{itemize}
+\end{itemize}
+
+This bifurcation suggests the system can settle into either configuration, leading to \textbf{unpredictable steady-state behavior}.
+
+\subsubsection*{At $v_w = 20$ m/s (Loss of Stability):}
+
+The 2019 design \textbf{fails to converge} at higher wind speeds:
+\begin{itemize}
+    \item Kite velocity: $2.1\text{--}7.4$ m/s (all significantly $> 1$, indicating poor control convergence)
+    \item Elevation response: Highly scattered ($62\text{--}79\degree$)
+    \item Angle of attack: Chaotic variation ($10.6\text{--}27.6\degree$)
+    \item Conclusion: \textbf{Control system insufficient} for stable operation at higher wind speeds
+\end{itemize}
+
+\subsection*{Summary}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\hline
+& \textbf{2019 Design} & \textbf{2025 Design} \\
+\hline
+\textbf{Low Wind ($9$ m/s)} & Bifurcated (2 modes) & Single stable point \\
+\textbf{High Wind ($20$ m/s)} & Unstable & Stable \\
+\textbf{Overall Stability} & Poor & Excellent \\
+\textbf{Controller Adequacy} & Insufficient & Sufficient \\
+\hline
+\end{tabular}
+\end{table}
+
+The 2025 design represents a \textbf{significant improvement}, eliminating both the bifurcation problem at low wind speeds and the control instability at high wind speeds.

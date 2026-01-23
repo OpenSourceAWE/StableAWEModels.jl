@@ -19,6 +19,63 @@ using Dates
 using StaticArrays
 
 """
+    adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
+
+Update the winch rest length, reposition tether points in CAD/body frames,
+and reapply the main transform so the wing stays at the requested tether radius.
+"""
+function adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
+    tether_length = float(tether_length_raw)
+    sys = sam.sys_struct
+    set = sam.set
+
+    if !isempty(set.l_tethers)
+        set.l_tethers[1] = tether_length
+    end
+
+    n_points = length(tether_point_idxs)
+    for (n, p_idx) in enumerate(tether_point_idxs)
+        pos = (0.0, 0.0, -n * tether_length / n_points)
+        sys.points[p_idx].pos_cad .= pos
+        sys.points[p_idx].pos_b .= pos
+    end
+
+    if !isempty(sys.transforms)
+        transform = sys.transforms[1]
+        if !isempty(sys.wings) && norm(sys.wings[1].pos_w) > 0
+            target_pos = normalize(sys.wings[1].pos_w) * tether_length
+            transform.elevation = KiteUtils.calc_elevation(target_pos)
+            transform.azimuth = KiteUtils.azimuth_east(target_pos)
+        end
+        SymbolicAWEModels.reinit!([transform], sys)
+    end
+
+    if !isempty(sys.winches)
+        winch = sys.winches[1]
+        winch.tether_len = tether_length
+        winch.tether_vel = 0.0
+        winch.brake = true
+    end
+    return nothing
+end
+
+"""
+    adjust_elevation!(sam::SymbolicAWEModel, elevation_deg)
+
+Update the transform elevation to the specified value in degrees.
+"""
+function adjust_elevation!(sam::SymbolicAWEModel, elevation_deg)
+    sys = sam.sys_struct
+    
+    if !isempty(sys.transforms)
+        transform = sys.transforms[1]
+        transform.elevation = deg2rad(elevation_deg)
+        SymbolicAWEModels.reinit!([transform], sys)
+    end
+    return nothing
+end
+
+"""
     run_v3_kite(wing_type::WingType; kwargs...)
 
 Run a two-phase v3 kite simulation with the specified wing type
@@ -34,8 +91,10 @@ independent durations/FPS.
 - `sim_time_circles::Float64=300.0`: Duration of circular flight phase [s]
 - `fps_circles::Int=1`: Frames per second for circular flight logging
 - `remake_cache::Bool=false`: Force rebuild of cached model
-- `initial_damping::Float64=10.0`: Initial world frame damping [N·s/m]
+- `initial_damping::Float64=10.0`: Initial body frame damping [N·s/m]
+- `damping_pattern::Vector{Float64}=[0.0, 1.0, 1.0]`: Per-axis damping pattern [x, y, z]
 - `decay_time::Float64=2.0`: Time for damping decay [s] (applied in both phases)
+- `min_damping::Float64=0.0`: Minimum damping after decay [N·s/m]
 - `up::Float64=0.4`: Power-tape input (0–1) mapped to segment 88 length
 - `ramp_time_up::Float64=25.0`: Power-tape ramp time during zenith phase [s]
 - `ramp_time_us::Float64=25.0`: Steering/power ramp time during circular phase [s]
@@ -53,6 +112,9 @@ independent durations/FPS.
 - `winch_p::Float64=1000.0`: Proportional gain for winch controller [N/m]
 - `winch_i::Float64=100.0`: Integral gain for winch controller [N/(m·s)]
 - `winch_d::Float64=50.0`: Derivative gain for winch controller [N·s/m]
+- `tether_length::Float64=150.0`: Tether length [m]
+- `elevation::Union{Nothing,Float64}=nothing`: Initial elevation angle [°] (overrides YAML if provided)
+- `g_earth::Union{Nothing,Float64}=nothing`: Gravitational acceleration [m/s²] (overrides YAML if provided)
 
 # Returns
 - `SysLog`: The simulation log containing time history data
@@ -64,7 +126,9 @@ function run_v3_kite(wing_type::WingType;
                      fps_circles=1,
                      remake_cache=false,
                      initial_damping=100.0,
+                     damping_pattern=[0.0, 1.0, 1.0],
                      decay_time=2.0,
+                     min_damping=1.0,
                      up=0.4,
                      ramp_time_up=25.0,
                      ramp_time_us=25.0,
@@ -83,6 +147,9 @@ function run_v3_kite(wing_type::WingType;
                      target_azimuth=0.0,
                      us=0.1,
                      v_wind_base=15.0,
+                     tether_length=150.0,
+                     elevation=nothing,
+                     g_earth=nothing,
                      )
 
     wing_type_str = wing_type == SymbolicAWEModels.REFINE ? "REFINE" : "QUATERNION"
@@ -93,6 +160,9 @@ function run_v3_kite(wing_type::WingType;
     set = Settings("system.yaml")
     set.v_wind = v_wind
     set.upwind_dir = upwind_dir
+    if g_earth !== nothing
+        set.g_earth = g_earth
+    end
 
     # Load YAML structure path
     model_name = wing_type == QUATERNION ? "v3_quat" : "v3"
@@ -112,8 +182,8 @@ function run_v3_kite(wing_type::WingType;
         system_name=model_name, set, wing_type, vsm_set)
 
 
-    # Initialize damping
-    SymbolicAWEModels.set_world_frame_damping(sys, initial_damping, 1:38)
+    # Initialize damping with per-axis values [x, y, z]
+    SymbolicAWEModels.set_body_frame_damping(sys, damping_pattern * initial_damping)
 
     wing_points = [p for p in sys.points if p.type == WING]
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -121,6 +191,12 @@ function run_v3_kite(wing_type::WingType;
 
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
+    adjust_tether_length!(sam, tether_length)
+    
+    # Adjust elevation if provided
+    if elevation !== nothing
+        adjust_elevation!(sam, elevation)
+    end
 
     # Initialize model
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
@@ -184,6 +260,15 @@ function run_v3_kite(wing_type::WingType;
     )
     @info "Winch PID controller initialized" nominal_tether_length winch_p winch_i winch_d
 
+    # #TODO: WORLD_DAMPING
+    # # Example: Apply damping only to specific wing points
+    # for point in sys.points
+    #     if point.type == WING # specific node IDs
+    #         point.world_frame_damping = SVector(10.0, 10.0, 10.0)  # y,z damping in world frame
+    #     end
+    # end
+
+
     # Optional initial plot
     if show_plots
         scene = plot(sam.sys_struct)
@@ -198,13 +283,9 @@ function run_v3_kite(wing_type::WingType;
     for step in 1:n_steps_zenith
         t = step * Δt_zenith
 
-        # Update damping (decays to zero by decay_time)
-        if t <= decay_time
-            current_damping = initial_damping * (1.0 - t / decay_time)
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping, 1:38)
-        else
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0, 1:38)
-        end
+        # Update damping: decay to min_damping
+        current_damping = max(initial_damping * (1.0 - t / decay_time), min_damping)
+        SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * current_damping)
 
         # PID azimuth control: drive azimuth to target
         current_azimuth = sam.sys_struct.wings[1].azimuth
@@ -255,7 +336,7 @@ function run_v3_kite(wing_type::WingType;
 
     # Phase 2: Circular flight
     @info "Switching to circular flight phase" phase_time=round(sys_state.time, digits=2)
-    SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, initial_damping, 1:38)
+    SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * initial_damping)
 
     # Fix tether length for circular flight
     winch.brake = true
@@ -275,13 +356,9 @@ function run_v3_kite(wing_type::WingType;
         t_stage = step * Δt_circles
         t_total = sim_time_zenith + t_stage
 
-        # Update damping (reset for this phase)
-        if t_stage <= decay_time
-            current_damping = initial_damping * (1.0 - t_stage / decay_time)
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, current_damping, 1:38)
-        else
-            SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, 0.0, 1:38)
-        end
+        # Update damping: decay to min_damping
+        current_damping = max(initial_damping * (1.0 - t_stage / decay_time), min_damping)
+        SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * current_damping)
 
         ramp_factor = min(t_stage / ramp_time_us, 1.0)
 
@@ -327,8 +404,10 @@ function run_v3_kite(wing_type::WingType;
     final_times_realtime = total_sim_time / total_wall_time
     @info "Simulation completed: $wing_type_str (zenith + circular)" wall_time=round(total_wall_time, digits=2) times_realtime=round(final_times_realtime, digits=2)
 
+    lt_tag = Int(round(tether_length))
+
     # Save and load log
-    log_name = "tmp_run_$(lowercase(wing_type_str))"
+    log_name = "tmp_run_$(lowercase(wing_type_str))_lt_$(lt_tag)"
     save_log(logger, log_name)
     syslog = load_log(log_name)
 
@@ -339,7 +418,7 @@ function run_v3_kite(wing_type::WingType;
     up_tag = Int(round(up*100))
     us_tag = Int(round(us*100))
     v_wind_tag = Int(round(v_wind))
-    log_name = "zenith_circle__up_$(up_tag)_us_$(us_tag)_vw_$(v_wind_tag)_date_$(timestamp)"
+    log_name = "zenith_circle__up_$(up_tag)_us_$(us_tag)_vw_$(v_wind_tag)_lt_$(lt_tag)_date_$(timestamp)"
     save_log(logger, log_name; path=save_dir)
 
     return syslog, sam, azimuth_setpoint
@@ -350,31 +429,52 @@ end
 # Run both simulations
 syslog_refine, sam_refine, azimuth_setpoint_refine = run_v3_kite(SymbolicAWEModels.REFINE;
     # general settings
-    v_wind=15,
-    v_wind_base=15,
-    up=0.25,
+    #2019
+    v_wind=8.6,
+    v_wind_base=8.6,
+    up=0.18, #0.22
+    tether_length=268.0,
+    elevation=65.0, #65.0, #60.0,
+    # #2025
+    # v_wind=7.6,
+    # v_wind_base=7.6,
+    # up=0.42,
+    # tether_length=262.0,
+    # elevation=45.0,
+    g_earth=9.81,
     # settings zenith initialisation flight
-    sim_time_zenith=150, 
+    sim_time_zenith=300, 
     fps_zenith=60,
     start_ramp_time=0.1,
-    ramp_time_up=10.0,
+    ramp_time_up=2.0,
     initial_damping=100.0,
+    damping_pattern=[0.0, 0.0, 1.0],
     decay_time=2.0,
+    min_damping=1.0,
     max_us_zenith = 0.02,
     target_azimuth = 0.0,
     # settings circular flight
     sim_time_circles=0,
     fps_circles=60,
     ramp_time_us = 5.0,
-    us=0.3,
+    us=0.2,
 )
 
 
 #### Plot results#
 fig = plot(sam_refine.sys_struct, syslog_refine;
-    plot_turn_rates=true, plot_reelout=false, plot_gk=true,
-    plot_aoa=true, plot_heading=false, plot_elevation=true,
-    plot_azimuth=true, plot_winch_force=false, plot_set_values=false,
+    plot_turn_rates=true, 
+    plot_yaw_rate=true,
+    plot_yaw_rate_paper=true,
+    plot_reelout=false, 
+    plot_gk=true, 
+    gk_ylims=(0.0, 10.0),
+    plot_aoa=true, 
+    plot_heading=false, 
+    plot_elevation=true,
+    plot_azimuth=true, 
+    plot_winch_force=false, 
+    plot_set_values=false,
     plot_us=true,)
 
 scene = replay(syslog_refine, sam_refine.sys_struct)
