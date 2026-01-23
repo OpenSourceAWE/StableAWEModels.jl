@@ -1110,6 +1110,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_azimuth=false,
                    plot_wind=false,
                    plot_tether_moment=false,
+                   plot_tether_actual=false,
                    plot_winch_force=plot_default,
                    plot_set_values=false,
                    plot_distance=false,
