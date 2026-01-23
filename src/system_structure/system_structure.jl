@@ -2,25 +2,24 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-System Structure Module
+System Structure
 
-This module defines the physical structure of the kite system, including:
-- Basic types: Point, Group, Segment, Pulley, Tether, Winch
+Defines the physical structure of the kite system, including:
+- Basic types: Point, Group, Segment, Pulley, Tether, Winch, Transform
 - Wing types: BaseWing, VSMWing with VSM aerodynamics coupling
-- Transform type for spatial positioning
 - SystemStructure container and initialization
 
 Files are organized as:
-- types.jl: Enums and basic struct definitions (Point, Segment, etc.)
+- types.jl: Enums and struct definitions (Point, Segment, Transform, etc.)
 - wing.jl: Wing types and VSM-related code
-- transforms.jl: Transform type and heading/rotation functions
 - system_structure_core.jl: SystemStructure type and constructor
+- transforms.jl: Heading/rotation functions, reinit!/reposition!
 - utilities.jl: Helper functions and state management
 """
 
-# Include submodules in dependency order
-include("types.jl")         # Enums, Point, Group, Segment, Pulley, Tether, Winch
+# Include files in dependency order
+include("types.jl")         # Enums, Point, Group, Segment, Pulley, Tether, Winch, Transform
 include("wing.jl")          # AbstractWing, BaseWing, VSMWing
-include("transforms.jl")    # Transform, heading calculations, reinit!/reposition!
-include("system_structure_core.jl")  # SystemStructure type and constructor
+include("system_structure_core.jl")  # SystemStructure type and constructor (uses Transform)
+include("transforms.jl")    # Heading calculations, reinit!/reposition! (uses SystemStructure)
 include("utilities.jl")     # Helpers, validation, state management

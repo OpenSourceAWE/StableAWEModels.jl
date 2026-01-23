@@ -2,122 +2,14 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-Transform type and heading/rotation functions.
+Transform functions for heading calculation and spatial positioning.
 
 This file contains:
-- Transform struct and constructors
-- Heading calculation functions
+- Heading calculation functions (calc_heading, apply_heading, etc.)
 - reinit! and reposition! functions for applying transforms
+
+Note: The Transform struct and its constructors are defined in types.jl
 """
-
-# ==================== TRANSFORM ==================== #
-
-"""
-    mutable struct Transform
-
-Describes the spatial transformation (position and orientation) of system components
-relative to a base reference point.
-
-$(TYPEDFIELDS)
-"""
-mutable struct Transform
-    const idx::Int16
-    const wing_idx::Union{Int16, Nothing}
-    const rot_point_idx::Union{Int16, Nothing}
-    const base_point_idx::Union{Int16, Nothing}
-    const base_transform_idx::Union{Int16, Nothing}
-    elevation::SimFloat  # [rad]
-    azimuth::SimFloat    # [rad]
-    heading::SimFloat    # [rad]
-    elevation_vel::SimFloat  # [rad/s] angular velocity in elevation direction
-    azimuth_vel::SimFloat    # [rad/s] angular velocity in azimuth direction
-    turn_rate::SimFloat      # [rad/s] angular velocity around radial axis (not yet implemented)
-    base_pos::Union{KVec3, Nothing}
-end
-
-"""
-    Transform(idx, elevation, azimuth, heading; base_point_idx, base_pos, base_transform_idx, wing_idx, rot_point_idx)
-
-Constructs a `Transform` object that orients system components using spherical coordinates.
-
-All points and wings with a matching `transform_idx` are transformed together as a rigid body:
-1. **Translation**: Translate such that `base_point_idx` is at the specified `base_pos`.
-2. **Rotation 1**: Rotate so the target (`wing_idx` or `rot_point_idx`) is at (`elevation`, `azimuth`) relative to the base.
-3. **Rotation 2**: Rotate all components by `heading` around the base-target vector.
-
-```math
-\\mathbf{r}_{transformed} = \\mathbf{r}_{base} + \\mathbf{R}_{heading} \\circ \\mathbf{R}_{elevation,azimuth}(\\mathbf{r} - \\mathbf{r}_{base})
-```
-
-# Arguments
-- `idx::Int16`: Unique identifier for the transform.
-- `elevation::SimFloat`: Target elevation angle from base [rad].
-- `azimuth::SimFloat`: Target azimuth angle from base [rad].
-- `heading::SimFloat`: Rotation around base-target vector [rad].
-
-# Keyword Arguments
-**Base Reference (choose one method):**
-- `base_pos` & `base_point_idx`: Use a fixed position and a reference point.
-- `base_transform_idx`: Chain to another transform's position.
-
-**Target Object (choose one):**
-- `wing_idx`: The wing to position at (`elevation`, `azimuth`).
-- `rot_point_idx`: The point to position at (`elevation`, `azimuth`).
-
-# Returns
-- `Transform`: A transform affecting all components with a matching `transform_idx`.
-"""
-function Transform(idx, elevation, azimuth, heading;
-        base_point_idx=nothing, base_pos=nothing, base_transform_idx=nothing,
-        wing_idx=nothing, rot_point_idx=nothing,
-        elevation_vel=0.0, azimuth_vel=0.0, turn_rate=0.0)
-    (isnothing(wing_idx) == isnothing(rot_point_idx)) && error("Either provide a wing_idx or a rot_point_idx, not both or none.")
-    (isnothing(base_pos) == isnothing(base_transform_idx)) && error("Either provide the base_pos or the base_transform_idx, not both or none.")
-    (isnothing(base_pos) !== isnothing(base_point_idx)) && error("When providing a base_pos, also provide a base_point_idx.")
-    Transform(idx, wing_idx, rot_point_idx, base_point_idx, base_transform_idx,
-              elevation, azimuth, heading, elevation_vel, azimuth_vel, turn_rate, base_pos)
-end
-
-"""
-    Transform(idx, set, base_point_idx; kwargs...)
-
-Constructor helper to create a `Transform` from a `Settings` object.
-"""
-function Transform(idx, set, base_point_idx; kwargs...)
-    elevation_vel = hasfield(typeof(set), :elevation_vels) ? set.elevation_vels[idx] : 0.0
-    azimuth_vel = hasfield(typeof(set), :azimuth_vels) ? set.azimuth_vels[idx] : 0.0
-    turn_rate = hasfield(typeof(set), :turn_rates) ? set.turn_rates[idx] : 0.0
-    Transform(idx, set.elevations[idx], set.azimuths[idx], set.headings[idx];
-              base_point_idx, elevation_vel, azimuth_vel, turn_rate, kwargs...)
-end
-
-"""
-    get_rot_pos(transform::Transform, wings, points)
-
-Get the position of the rotating object (wing or point) for a given transform.
-"""
-function get_rot_pos(transform::Transform, wings, points)
-    if !isnothing(transform.wing_idx)
-        return wings[transform.wing_idx].pos_w
-    elseif !isnothing(transform.rot_point_idx)
-        return points[transform.rot_point_idx].pos_w
-    end
-end
-
-"""
-    get_base_pos(transform::Transform, wings, points)
-
-Get the base position for a given transform, resolving chained transforms if necessary.
-"""
-function get_base_pos(transform::Transform, wings, points)
-    curr_base_pos = points[transform.base_point_idx].pos_cad
-    if !isnothing(transform.base_pos)
-        return transform.base_pos, curr_base_pos
-    elseif !isnothing(transform.base_transform_idx)
-        base_transform = transforms[transform.base_transform_idx]
-        return get_rot_pos(base_transform, wings, points), curr_base_pos
-    end
-end
 
 # ==================== HEADING CALCULATION ==================== #
 
@@ -318,7 +210,7 @@ world frame at the beginning of a simulation.
 
 If transforms is empty, simply initializes pos_w = pos_cad for all components.
 """
-function reinit!(transforms::Vector{Transform}, sys_struct::SymbolicAWEModels.SystemStructure;
+function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure;
                  update_vel::Bool=true)
     @unpack points, wings = sys_struct
 
@@ -346,7 +238,7 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SymbolicAWEModels.Sy
         end
 
         # ==================== TRANSLATE ==================== #
-        base_pos, curr_base_pos = get_base_pos(transform, wings, points)
+        base_pos, curr_base_pos = get_base_pos(transform, transforms, wings, points)
         T = base_pos - curr_base_pos
         for point in points
             if point.transform_idx == transform.idx
