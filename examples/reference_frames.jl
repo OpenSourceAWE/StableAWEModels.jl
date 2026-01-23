@@ -78,7 +78,7 @@ function compute_frame_at_t(t, cone_angle_deg; tether_len=tether_length)
 end
 
 """Create arc points between two vectors."""
-function arc_between_vectors(origin, v1, v2, radius, n_points=30)
+function arc_between_vectors(origin, v1, v2, radius, n_points=15)
     v1_norm = v1 / norm(v1)
     v2_norm = v2 / norm(v2)
 
@@ -106,7 +106,7 @@ end
 # ============================================================================
 
 """Create sphere guide lines: arcs on XY, XZ, YZ planes, and through kite position."""
-function create_sphere_arcs(radius, kite_pos, n=50)
+function create_sphere_arcs(radius, kite_pos, n=20)
     arcs = Vector{Vector{Point3f}}()
 
     # Arc on XY plane (z=0): quarter circle from +x to -y
@@ -140,29 +140,29 @@ function create_sphere_arcs(radius, kite_pos, n=50)
 end
 
 """
-Plot a flat 2D arrow in 3D space: line shaft + flat triangle head facing camera.
+Plot a flat 2D arrow in 3D space: line shaft + flat triangle head lying on a plane.
+The arrow head is perpendicular to both the arrow direction and the plane normal.
 """
-function arrow_flat!(ax, origin, direction, tip_width, tip_length, azimuth, elevation;
+function arrow_flat!(ax, origin, direction, tip_width, tip_length, plane_normal;
                      color=:black, linewidth=2)
     origin = collect(origin)
     direction = collect(direction)
+    plane_normal = collect(plane_normal)
     dir = normalize(direction)
     arrow_length = norm(direction)
     shaft_end = origin + (arrow_length - tip_length) * dir
     tip_apex = origin + arrow_length * dir
 
-    # Camera view direction
-    view_dir = [cos(elevation) * cos(azimuth), cos(elevation) * sin(azimuth), sin(elevation)]
-
-    # Perpendicular direction in the plane facing camera
-    perp = cross(dir, view_dir)
+    # Perpendicular direction lying in the plane (perpendicular to both arrow and plane normal)
+    perp = cross(dir, plane_normal)
     if norm(perp) < 1e-6
         perp = abs(dir[3]) < 0.9 ? cross(dir, [0.0, 0.0, 1.0]) : cross(dir, [1.0, 0.0, 0.0])
     end
     perp = normalize(perp) * tip_width
 
-    # Draw shaft as line
-    lines!(ax, [Point3f(origin...), Point3f(shaft_end...)], color=color, linewidth=linewidth)
+    # Draw shaft as line (extend slightly into arrowhead for clean connection)
+    shaft_end_visual = origin + (arrow_length - tip_length * 0.7) * dir
+    lines!(ax, [Point3f(origin...), Point3f(shaft_end_visual...)], color=color, linewidth=linewidth)
 
     # Draw flat triangle head
     tri_verts = [
@@ -198,10 +198,6 @@ function plot_reference_frames(; use_glmakie=true)
     tip_w = 0.2 * arrowscale  # tip width for flat arrows
     tip_l = 0.4 * arrowscale   # tip length for flat arrows
     arrow_lw = 2  # line width for arrow shafts
-
-    # Camera orientation (must match Axis3 settings)
-    cam_azimuth = -0.3π
-    cam_elevation = π/6
     # 2D arrow parameters (need larger values for visibility in 2D coordinates)
     s_2d = arrowscale * 3
     shaft_w_2d = 0.12 * s_2d
@@ -221,9 +217,9 @@ function plot_reference_frames(; use_glmakie=true)
     legend_labels = []
     push!(legend_entries, LineElement(color=:black, linewidth=2))
     push!(legend_labels, L"\textrm{Tether}")
-    push!(legend_entries, PolyElement(color=(:lightblue, 0.3)))
+    push!(legend_entries, PolyElement(color=(:lightblue, 0.4)))
     push!(legend_labels, L"\textrm{W plane}")
-    push!(legend_entries, PolyElement(color=(:lightgreen, 0.3)))
+    push!(legend_entries, PolyElement(color=(:lightgreen, 0.4)))
     push!(legend_labels, L"\textrm{T plane}")
     push!(legend_entries, MarkerElement(marker=:rtriangle, color=:red, markersize=12))
     push!(legend_labels, L"-\hat{e}_x")
@@ -235,8 +231,8 @@ function plot_reference_frames(; use_glmakie=true)
     push!(legend_labels, L"-\hat{e}_x|_{yz}")
     push!(legend_entries, MarkerElement(marker=:rtriangle, color=:gray, markersize=12))
     push!(legend_labels, L"\hat{y}, \hat{z}")
-    push!(legend_entries, MarkerElement(marker=:circle, color=:gray, markersize=10))
-    push!(legend_labels, L"\textrm{O_{body}}")
+    push!(legend_entries, MarkerElement(marker=:circle, color=:blue, markersize=10))
+    push!(legend_labels, L"O_\textrm{body}")
     push!(legend_entries, LineElement(color=:purple, linewidth=2))
     push!(legend_labels, L"\textrm{T}")
     push!(legend_entries, LineElement(color=:darkorange, linewidth=2))
@@ -247,7 +243,7 @@ function plot_reference_frames(; use_glmakie=true)
     # ===== 3D VIEW (left) =====
     ax3d = Axis3(fig[2, 1],
                  xlabel=L"X \textrm{ (m)}", ylabel=L"Y \textrm{ (m)}", zlabel=L"Z \textrm{ (m)}",
-                 aspect=:data, azimuth=cam_azimuth, elevation=cam_elevation,
+                 aspect=:data, azimuth=-0.3π, elevation=π/6,
                  xlabelsize=fontsize, ylabelsize=fontsize, zlabelsize=fontsize,
                  xticklabelsize=fontsize*0.6, yticklabelsize=fontsize*0.6, zticklabelsize=fontsize*0.6,
                  xlabeloffset=30, ylabeloffset=30, zlabeloffset=30)
@@ -270,7 +266,7 @@ function plot_reference_frames(; use_glmakie=true)
         Point3f(0, y - plane_size, z + plane_size),
     ]
     plane_faces = [1 2 3; 1 3 4]
-    mesh!(ax3d, plane_vertices, plane_faces, color=(:lightblue, 0.3))
+    mesh!(ax3d, plane_vertices, plane_faces, color=(:lightblue, 0.4), shading=NoShading)
 
     # Tangential plane at kite (perpendicular to tether/radial direction)
     # Offset slightly towards origin so it doesn't block arrow views
@@ -281,34 +277,38 @@ function plot_reference_frames(; use_glmakie=true)
         Point3f((tan_plane_center + plane_size * frame.u_x + plane_size * frame.u_y)...),
         Point3f((tan_plane_center - plane_size * frame.u_x + plane_size * frame.u_y)...),
     ]
-    mesh!(ax3d, tan_plane_vertices, plane_faces, color=(:lightgreen, 0.3))
+    mesh!(ax3d, tan_plane_vertices, plane_faces, color=(:lightgreen, 0.4), shading=NoShading)
 
     proj_origin = [scale * 0.1, y, z]
 
-    # Arrows (-e_x, -u_x, u_y, and projections) - flat 2D arrows facing camera
-    arrow_flat!(ax3d, kite_pos, -frame.e_x * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+    # Arrows on T plane (tangent plane at kite, normal = u_z)
+    t_plane_normal = frame.u_z
+    arrow_flat!(ax3d, kite_pos, -frame.e_x * scale, tip_w, tip_l, t_plane_normal;
                 color=:red, linewidth=arrow_lw)
-    arrow_flat!(ax3d, kite_pos, -frame.u_x * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+    arrow_flat!(ax3d, kite_pos, -frame.u_x * scale, tip_w, tip_l, t_plane_normal;
                 color=:limegreen, linewidth=arrow_lw)
-    arrow_flat!(ax3d, kite_pos, frame.u_y * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+    arrow_flat!(ax3d, kite_pos, frame.u_y * scale, tip_w, tip_l, t_plane_normal;
                 color=:darkgreen, linewidth=arrow_lw)
+
+    # Arrows on W plane (wind perp plane YZ, normal = x_hat)
+    w_plane_normal = [1.0, 0.0, 0.0]
     minus_e_x = -frame.e_x
     e_x_proj = [0.0, minus_e_x[2], minus_e_x[3]]
     e_x_proj_norm = e_x_proj / norm(e_x_proj)
-    arrow_flat!(ax3d, proj_origin, e_x_proj_norm * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+    arrow_flat!(ax3d, proj_origin, e_x_proj_norm * scale, tip_w, tip_l, w_plane_normal;
                 color=:orange, linewidth=arrow_lw)
     # World frame unit vectors (y and z) at projection origin
     w_y = [0.0, 1.0, 0.0]
     w_z = [0.0, 0.0, 1.0]
-    arrow_flat!(ax3d, proj_origin, w_y * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+    arrow_flat!(ax3d, proj_origin, w_y * scale, tip_w, tip_l, w_plane_normal;
                 color=:gray, linewidth=arrow_lw)
-    arrow_flat!(ax3d, proj_origin, w_z * scale, tip_w, tip_l, cam_azimuth, cam_elevation;
+    arrow_flat!(ax3d, proj_origin, w_z * scale, tip_w, tip_l, w_plane_normal;
                 color=:gray, linewidth=arrow_lw)
 
-    # Spheres
-    meshscatter!(ax3d, [Point3f(0, 0, 0)], markersize=scale*0.048, color=:gray, shading=NoShading)
-    meshscatter!(ax3d, [Point3f(x, y, z)], markersize=scale*0.048, color=:gray, shading=NoShading)
-    meshscatter!(ax3d, [Point3f(proj_origin...)], markersize=scale*0.048, color=:gray, shading=NoShading)
+    # Origin markers (simple scatter instead of mesh spheres)
+    scatter!(ax3d, [Point3f(0, 0, 0)], markersize=8, color=:black)       # world origin
+    scatter!(ax3d, [Point3f(x, y, z)], markersize=8, color=:blue)        # kite/body origin
+    scatter!(ax3d, [Point3f(proj_origin...)], markersize=8, color=:gray) # projected origin
 
     # Arcs
     arc_radius = scale * 0.4
@@ -344,8 +344,8 @@ function plot_reference_frames(; use_glmakie=true)
     arrows2d!(ax_front, [y], [z], [0.0], [scale],
               color=:gray, shaftwidth=shaft_w_2d, tipwidth=tip_w_2d, tiplength=tip_l_2d)
 
-    scatter!(ax_front, [0], [0], markersize=scale*0.9, color=:gray)
-    scatter!(ax_front, [y], [z], markersize=scale*0.9, color=:gray)
+    scatter!(ax_front, [0], [0], markersize=scale*0.9, color=:black)  # world origin
+    scatter!(ax_front, [y], [z], markersize=scale*0.9, color=:blue)   # kite body origin
 
     angle_body_yz = atan(e_x_yz_norm[1], e_x_yz_norm[2])
     angle_up_yz = atan(u_x_yz_norm[1], u_x_yz_norm[2])
