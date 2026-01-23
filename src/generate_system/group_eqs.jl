@@ -1,0 +1,141 @@
+# Copyright (c) 2025 Bart van de Lint
+# SPDX-License-Identifier: MPL-2.0
+
+# Group twist dynamics equation generation
+
+"""
+    group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
+               R_b_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
+               point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos)
+
+Generate equations for deformable wing group twist dynamics.
+
+# Arguments
+- `eqs`, `defaults`, `guesses`: Accumulating vectors for the MTK system.
+- `groups`: Collection of Group objects (deformable wing sections).
+- `wings`: Collection of Wing objects.
+- `psys`, `pset`: Symbolic parameters representing system and settings.
+- `R_b_w`: Symbolic rotation matrix (body to world).
+- `fix_wing`: Symbolic boolean for fixing wing dynamics.
+- `twist_angle`, `twist_ω`: Symbolic twist state variables.
+- `group_aero_moment`: Symbolic aerodynamic moment on groups.
+- `point_force`: Symbolic point force variable.
+- `tether_wing_moment`: Accumulated tether moments on wings (for validation).
+- `group_y_airf`, `group_chord`, `group_le_pos`: Symbolic group geometry variables.
+
+# Returns
+- Tuple `(eqs, defaults, guesses)` with updated equation vectors.
+"""
+function group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
+                    R_b_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
+                    point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos)
+
+    length(groups) == 0 && return eqs, defaults, guesses
+
+    @variables begin
+        trailing_edge_angle(t)[eachindex(groups)]
+        trailing_edge_ω(t)[eachindex(groups)]
+        trailing_edge_α(t)[eachindex(groups)]
+        free_twist_angle(t)[eachindex(groups)]
+        twist_α(t)[eachindex(groups)]
+        group_tether_force(t)[eachindex(groups)]
+        group_tether_moment(t)[eachindex(groups)]
+        tether_force(t)[eachindex(groups), eachindex(groups[1].point_idxs)]
+        tether_moment(t)[eachindex(groups), eachindex(groups[1].point_idxs)]
+        r_group(t)[eachindex(groups), eachindex(groups[1].point_idxs)]
+        r_vec(t)[eachindex(groups), eachindex(groups[1].point_idxs), 1:3]
+    end
+
+    for group in groups
+        found = 0
+        wing = nothing
+        for wing_ in wings
+            if group.idx in wing_.group_idxs
+                wing = wing_
+                found += 1
+            end
+        end
+        !(found == 1) && error(
+            "Kite group $(group.idx) is in $found wings; must be in exactly 1.",
+        )
+
+        all(iszero.(tether_wing_moment[wing.idx, :])) && error(
+            "Tether wing moment is zero. At least one wing connection point " *
+            "should not be part of a deforming group.",
+        )
+
+        # Set group geometry from getters (allows runtime updates)
+        eqs = [
+            eqs
+            group_y_airf[group.idx, :] ~ get_group_y_airf(psys, group.idx)
+            group_chord[group.idx, :] ~ get_group_chord(psys, group.idx)
+            group_le_pos[group.idx, :] ~ get_group_le_pos(psys, group.idx)
+        ]
+
+        x_airf = sym_normalize(group_chord[group.idx, :])
+        init_z_airf = x_airf × group_y_airf[group.idx, :]
+        z_airf =
+            x_airf * sin(twist_angle[group.idx]) +
+            init_z_airf * cos(twist_angle[group.idx])
+        for (i, point_idx) in enumerate(group.point_idxs)
+            eqs = [
+                eqs
+                r_vec[group.idx, i, :] ~ (
+                    get_pos_b(psys, point_idx) .-
+                    (group_le_pos[group.idx, :] + get_moment_frac(psys, group.idx) * group_chord[group.idx, :])
+                )
+                r_group[group.idx, i] ~
+                    r_vec[group.idx, i, :] ⋅ sym_normalize(group_chord[group.idx, :])
+                tether_force[group.idx, i] ~
+                    (point_force[:, point_idx] ⋅ (R_b_w[wing.idx, :, :] * -z_airf))
+                tether_moment[group.idx, i] ~
+                    r_group[group.idx, i] * tether_force[group.idx, i]
+            ]
+        end
+
+        # Inertia of a thin rectangular plate rotating around one edge
+        inertia =
+            1 / 3 * (get_set_mass(pset) / length(groups)) * (norm(group_chord[group.idx, :]))^2
+        @parameters max_twist = deg2rad(90)
+
+        eqs = [
+            eqs
+            group_tether_force[group.idx] ~ sum(tether_force[group.idx, :])
+            group_tether_moment[group.idx] ~ sum(tether_moment[group.idx, :])
+            twist_α[group.idx] ~
+                (group_aero_moment[group.idx] + group_tether_moment[group.idx]) /
+                inertia
+            twist_angle[group.idx] ~
+                clamp(free_twist_angle[group.idx], -max_twist, max_twist)
+        ]
+        if group.type == DYNAMIC
+            eqs = [
+                eqs
+                D(free_twist_angle[group.idx]) ~
+                    ifelse(fix_wing == true, 0, twist_ω[group.idx])
+                D(twist_ω[group.idx]) ~ ifelse(
+                    fix_wing == true,
+                    0,
+                    twist_α[group.idx] -
+                    get_group_damping(psys, group.idx) * twist_ω[group.idx],
+                )
+            ]
+            defaults = [
+                defaults
+                free_twist_angle[group.idx] => get_twist(psys, group.idx)
+                twist_ω[group.idx] => get_twist_ω(psys, group.idx)
+            ]
+        elseif group.type == QUASI_STATIC
+            eqs = [eqs; twist_ω[group.idx] ~ 0; twist_α[group.idx] ~ 0]
+            guesses = [
+                guesses
+                free_twist_angle[group.idx] => 0
+                twist_angle[group.idx] => 0
+            ]
+        else
+            error("Wrong group type.")
+        end
+    end
+
+    return eqs, defaults, guesses
+end

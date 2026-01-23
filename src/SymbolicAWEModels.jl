@@ -170,7 +170,7 @@ include("yaml_loader.jl")
 include("predefined_structures.jl")
 include("tether_properties.jl")
 include("linearize.jl")
-include("generate_system.jl")
+include("generate_system/generate_system.jl")
 include("simulate.jl")
 
 function upwind_dir(v_wind_gnd)
