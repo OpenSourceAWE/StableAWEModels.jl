@@ -63,7 +63,7 @@ function linear_vsm_eqs!(
 
     # Declare VSM output forces for all wings (used by both REFINE and QUATERNION)
     @variables begin
-        vsm_output_force_prev(t)[eachindex(wings), 1:nx_max]  # Panel forces (REFINE) or [forces, moments] (QUATERNION)
+        vsm_output_force_prev(t)[1:nx_max, eachindex(wings)]  # Panel forces (REFINE) or [forces, moments] (QUATERNION)
     end
 
     # Declare linearization variables only for QUATERNION wings
@@ -72,14 +72,14 @@ function linear_vsm_eqs!(
             # VSM linearization variables (QUATERNION wings only)
             # Linearization: F(state) ≈ F(state₀) + ∂F/∂state|_{state₀} * (state - state₀)
             # where state = [va_wing_b, ω_b, twist_angles] and F = [forces, moments]
-            vsm_input_state(t)[eachindex(wings), 1:ny_quaternion]        # Current input state
-            vsm_input_state_delta(t)[eachindex(wings), 1:ny_quaternion]  # Δstate for linearization
-            vsm_input_state_prev(t)[eachindex(wings), 1:ny_quaternion]   # State at linearization point
-            force_jacobian(t)[eachindex(wings), 1:nx_max, 1:ny_quaternion]  # ∂F/∂state Jacobian matrix
+            vsm_input_state(t)[1:ny_quaternion, eachindex(wings)]        # Current input state
+            vsm_input_state_delta(t)[1:ny_quaternion, eachindex(wings)]  # Δstate for linearization
+            vsm_input_state_prev(t)[1:ny_quaternion, eachindex(wings)]   # State at linearization point
+            force_jacobian(t)[1:nx_max, 1:ny_quaternion, eachindex(wings)]  # ∂F/∂state Jacobian matrix
 
             # Aerodynamic quantities (QUATERNION wings only)
             q_inf(t)[eachindex(wings)]                      # Dynamic pressure
-            no_scale_aero_force_b(t)[eachindex(wings), 1:3]  # Unscaled force before q_inf scaling
+            no_scale_aero_force_b(t)[1:3, eachindex(wings)]  # Unscaled force before q_inf scaling
         end
     end
 
@@ -95,7 +95,7 @@ function linear_vsm_eqs!(
             # Retrieve current panel forces from VSM solution
             eqs = [
                 eqs
-                [vsm_output_force_prev[wing.idx, ix] ~ get_vsm_x(psys, wing.idx, ix) for ix = 1:nx_refine]
+                [vsm_output_force_prev[ix, wing.idx] ~ get_vsm_x(psys, wing.idx, ix) for ix = 1:nx_refine]
             ]
 
             # Aero forces computed by distribute_panel_forces_to_points! and stored in point.aero_force_b
@@ -112,8 +112,8 @@ function linear_vsm_eqs!(
             # Total wing force is sum of all point forces
             eqs = [
                 eqs
-                aero_force_b[wing.idx, :] ~ sum([aero_force_point_b[:, p.idx] for p in wing_points])
-                aero_moment_b[wing.idx, :] ~ zeros(3)
+                aero_force_b[:, wing.idx] ~ sum([aero_force_point_b[:, p.idx] for p in wing_points])
+                aero_moment_b[:, wing.idx] ~ zeros(3)
             ]
 
         else
@@ -123,8 +123,8 @@ function linear_vsm_eqs!(
             # Output: [force(3), moment(3), unrefined_moments(n_unrefined)]
 
             area = wing.vsm_aero.projected_area
-            force_b = no_scale_aero_force_b[wing.idx, :]
-            wind_direction_b = sym_normalize(va_wing_b[wing.idx, :])
+            force_b = no_scale_aero_force_b[:, wing.idx]
+            wind_direction_b = sym_normalize(va_wing_b[:, wing.idx])
             drag_force_b = (force_b ⋅ wind_direction_b) * wind_direction_b
 
             # Dimensions for this wing
@@ -135,14 +135,14 @@ function linear_vsm_eqs!(
                 eqs
                 # Dynamic pressure for force scaling
                 q_inf[wing.idx] ~
-                    0.5 * calc_rho(s.am, wing_pos[wing.idx, 3]) *
-                    norm(va_wing_b[wing.idx, :])^2
+                    0.5 * calc_rho(s.am, wing_pos[3, wing.idx]) *
+                    norm(va_wing_b[:, wing.idx])^2
 
                 # Load linearization data from VSM (state₀, F₀, ∂F/∂state)
-                [vsm_input_state_prev[wing.idx, iy] ~ get_vsm_y(psys, wing.idx, iy) for iy = 1:ny_quaternion]
-                [vsm_output_force_prev[wing.idx, ix] ~ get_vsm_x(psys, wing.idx, ix) for ix = 1:nx_quat]
+                [vsm_input_state_prev[iy, wing.idx] ~ get_vsm_y(psys, wing.idx, iy) for iy = 1:ny_quaternion]
+                [vsm_output_force_prev[ix, wing.idx] ~ get_vsm_x(psys, wing.idx, ix) for ix = 1:nx_quat]
                 [
-                    force_jacobian[wing.idx, ix, iy] ~
+                    force_jacobian[ix, iy, wing.idx] ~
                         get_vsm_jac(psys, wing.idx, ix, iy) for ix = 1:nx_quat for
                     iy = 1:ny_quaternion
                 ]
@@ -161,14 +161,14 @@ function linear_vsm_eqs!(
             eqs = [
                 eqs
                 # Current input state for linearization
-                vsm_input_state[wing.idx, :] ~ [
-                    va_wing_b[wing.idx, :]       # Apparent wind velocity in body frame
+                vsm_input_state[:, wing.idx] ~ [
+                    va_wing_b[:, wing.idx]       # Apparent wind velocity in body frame
                     unrefined_to_group_twist       # Twist angles per unrefined section
-                    ω_b[wing.idx, :]              # Angular velocity in body frame
+                    ω_b[:, wing.idx]              # Angular velocity in body frame
                 ]
 
                 # State deviation from linearization point: Δstate = state - state₀
-                vsm_input_state_delta[wing.idx, :] ~ vsm_input_state[wing.idx, :] - vsm_input_state_prev[wing.idx, :]
+                vsm_input_state_delta[:, wing.idx] ~ vsm_input_state[:, wing.idx] - vsm_input_state_prev[:, wing.idx]
             ]
 
             # Map unrefined moments back to groups
@@ -184,9 +184,9 @@ function linear_vsm_eqs!(
                         vsm_output_idx = 6 + unrefined_idx
                         # Linearized moment: moment₀ + jacobian * delta_state
                         linearized_moment = (
-                            vsm_output_force_prev[wing.idx, vsm_output_idx] +
-                            sum([force_jacobian[wing.idx, vsm_output_idx, iy] *
-                                 vsm_input_state_delta[wing.idx, iy]
+                            vsm_output_force_prev[vsm_output_idx, wing.idx] +
+                            sum([force_jacobian[vsm_output_idx, iy, wing.idx] *
+                                 vsm_input_state_delta[iy, wing.idx]
                                  for iy in 1:ny_quaternion])
                         )
                         push!(moment_terms, linearized_moment)
@@ -203,24 +203,24 @@ function linear_vsm_eqs!(
                 # Then scale by dynamic pressure and wing area
                 [
                     force_b
-                    aero_moment_b[wing.idx, :]
+                    aero_moment_b[:, wing.idx]
                 ] ~
                     q_inf[wing.idx] *
                     area *
-                    (vsm_output_force_prev[wing.idx, 1:6] +
-                     force_jacobian[wing.idx, 1:6, :] * vsm_input_state_delta[wing.idx, :])
+                    (vsm_output_force_prev[1:6, wing.idx] +
+                     force_jacobian[1:6, :, wing.idx] * vsm_input_state_delta[:, wing.idx])
 
                 group_moment_eqs
 
                 # Apply additional drag correction factor
-                aero_force_b[wing.idx, :] ~
+                aero_force_b[:, wing.idx] ~
                     force_b + drag_force_b * (get_drag_frac(psys, wing.idx) - 1)
             ]
 
             if s.set.quasi_static
                 guesses = [
                     guesses
-                    [vsm_input_state[wing.idx, iy] => get_vsm_y(psys, wing.idx, iy) for iy = 1:ny_quaternion]
+                    [vsm_input_state[iy, wing.idx] => get_vsm_y(psys, wing.idx, iy) for iy = 1:ny_quaternion]
                 ]
             end
         end

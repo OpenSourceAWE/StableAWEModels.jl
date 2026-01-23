@@ -57,25 +57,25 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     @variables begin
         # Control inputs
         set_values(t)[eachindex(winches)] = zeros(length(winches))
-        # Wing rigid body states
-        wing_pos(t)[eachindex(wings), 1:3]
-        wing_vel(t)[eachindex(wings), 1:3]
-        wing_acc(t)[eachindex(wings), 1:3]
-        ω_b(t)[eachindex(wings), 1:3]
-        α_b(t)[eachindex(wings), 1:3]
-        # Wing rotation matrices
-        R_b_w(t)[eachindex(wings), 1:3, 1:3]
-        R_v_w(t)[eachindex(wings), 1:3, 1:3]
-        # Aerodynamic forces and moments
-        aero_force_b(t)[eachindex(wings), 1:3]
-        aero_moment_b(t)[eachindex(wings), 1:3]
+        # Wing rigid body states (column-major: [1:3, wing_idx])
+        wing_pos(t)[1:3, eachindex(wings)]
+        wing_vel(t)[1:3, eachindex(wings)]
+        wing_acc(t)[1:3, eachindex(wings)]
+        ω_b(t)[1:3, eachindex(wings)]
+        α_b(t)[1:3, eachindex(wings)]
+        # Wing rotation matrices (column-major: [1:3, 1:3, wing_idx])
+        R_b_w(t)[1:3, 1:3, eachindex(wings)]
+        R_v_w(t)[1:3, 1:3, eachindex(wings)]
+        # Aerodynamic forces and moments (column-major: [1:3, wing_idx])
+        aero_force_b(t)[1:3, eachindex(wings)]
+        aero_moment_b(t)[1:3, eachindex(wings)]
         group_aero_moment(t)[eachindex(groups)]
         # Wing deformation states
         twist_angle(t)[eachindex(groups)]
         twist_ω(t)[eachindex(groups)]
         # Wind and apparent velocity
         wind_vec_gnd(t)[1:3]
-        va_wing_b(t)[eachindex(wings), 1:3]
+        va_wing_b(t)[1:3, eachindex(wings)]
     end
 
     # ==================== INLINED FORCE_EQS! CONTENT ==================== #
@@ -84,9 +84,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     # Declare group geometry symbolic variables
     if length(groups) > 0
         @variables begin
-            group_y_airf(t)[eachindex(groups), 1:3]
-            group_chord(t)[eachindex(groups), 1:3]
-            group_le_pos(t)[eachindex(groups), 1:3]
+            group_y_airf(t)[1:3, eachindex(groups)]
+            group_chord(t)[1:3, eachindex(groups)]
+            group_le_pos(t)[1:3, eachindex(groups)]
         end
     else
         group_y_airf = nothing
@@ -230,6 +230,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
         twist_angle, ω_b, α_b, R_v_w
     )
 
+    eqs = Symbolics.scalarize.(reduce(vcat, Symbolics.scalarize.(eqs)))
     time = @elapsed @named sys = System(eqs, t)
     prn && println("\tCreated System in $time seconds.")
 

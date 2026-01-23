@@ -90,12 +90,12 @@ function generate_simple_lin_model(sys_struct, sys, y_vec)
             return (model=nothing, get_x=nothing, get_dx=nothing, get_y=nothing)
         end
         x_vec = [
-            sys.heading[1], sys.turn_rate[1,3],
+            sys.heading[1], sys.turn_rate[3, 1],
             sys.tether_len[1], sys.tether_len[2], sys.tether_len[3],
             sys.tether_vel[1], sys.tether_vel[2], sys.tether_vel[3]
         ]
         dx_vec = [
-            sys.turn_rate[1,3], sys.turn_acc[1,3],
+            sys.turn_rate[3, 1], sys.turn_acc[3, 1],
             sys.tether_vel[1], sys.tether_vel[2], sys.tether_vel[3],
             sys.tether_acc[1], sys.tether_acc[2], sys.tether_acc[3]
         ]

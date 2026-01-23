@@ -40,10 +40,10 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
         twist_α(t)[eachindex(groups)]
         group_tether_force(t)[eachindex(groups)]
         group_tether_moment(t)[eachindex(groups)]
-        tether_force(t)[eachindex(groups), eachindex(groups[1].point_idxs)]
-        tether_moment(t)[eachindex(groups), eachindex(groups[1].point_idxs)]
-        r_group(t)[eachindex(groups), eachindex(groups[1].point_idxs)]
-        r_vec(t)[eachindex(groups), eachindex(groups[1].point_idxs), 1:3]
+        tether_force(t)[eachindex(groups[1].point_idxs), eachindex(groups)]
+        tether_moment(t)[eachindex(groups[1].point_idxs), eachindex(groups)]
+        r_group(t)[eachindex(groups[1].point_idxs), eachindex(groups)]
+        r_vec(t)[1:3, eachindex(groups[1].point_idxs), eachindex(groups)]
     end
 
     for group in groups
@@ -59,7 +59,7 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
             "Kite group $(group.idx) is in $found wings; must be in exactly 1.",
         )
 
-        all(iszero.(tether_wing_moment[wing.idx, :])) && error(
+        all(iszero.(tether_wing_moment[:, wing.idx])) && error(
             "Tether wing moment is zero. At least one wing connection point " *
             "should not be part of a deforming group.",
         )
@@ -67,41 +67,41 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
         # Set group geometry from getters (allows runtime updates)
         eqs = [
             eqs
-            group_y_airf[group.idx, :] ~ get_group_y_airf(psys, group.idx)
-            group_chord[group.idx, :] ~ get_group_chord(psys, group.idx)
-            group_le_pos[group.idx, :] ~ get_group_le_pos(psys, group.idx)
+            group_y_airf[:, group.idx] ~ get_group_y_airf(psys, group.idx)
+            group_chord[:, group.idx] ~ get_group_chord(psys, group.idx)
+            group_le_pos[:, group.idx] ~ get_group_le_pos(psys, group.idx)
         ]
 
-        x_airf = sym_normalize(group_chord[group.idx, :])
-        init_z_airf = x_airf × group_y_airf[group.idx, :]
+        x_airf = sym_normalize(group_chord[:, group.idx])
+        init_z_airf = x_airf × group_y_airf[:, group.idx]
         z_airf =
             x_airf * sin(twist_angle[group.idx]) +
             init_z_airf * cos(twist_angle[group.idx])
         for (i, point_idx) in enumerate(group.point_idxs)
             eqs = [
                 eqs
-                r_vec[group.idx, i, :] ~ (
+                r_vec[:, i, group.idx] ~ (
                     get_pos_b(psys, point_idx) .-
-                    (group_le_pos[group.idx, :] + get_moment_frac(psys, group.idx) * group_chord[group.idx, :])
+                    (group_le_pos[:, group.idx] + get_moment_frac(psys, group.idx) * group_chord[:, group.idx])
                 )
-                r_group[group.idx, i] ~
-                    r_vec[group.idx, i, :] ⋅ sym_normalize(group_chord[group.idx, :])
-                tether_force[group.idx, i] ~
-                    (point_force[:, point_idx] ⋅ (R_b_w[wing.idx, :, :] * -z_airf))
-                tether_moment[group.idx, i] ~
-                    r_group[group.idx, i] * tether_force[group.idx, i]
+                r_group[i, group.idx] ~
+                    r_vec[:, i, group.idx] ⋅ sym_normalize(group_chord[:, group.idx])
+                tether_force[i, group.idx] ~
+                    (point_force[:, point_idx] ⋅ (R_b_w[:, :, wing.idx] * -z_airf))
+                tether_moment[i, group.idx] ~
+                    r_group[i, group.idx] * tether_force[i, group.idx]
             ]
         end
 
         # Inertia of a thin rectangular plate rotating around one edge
         inertia =
-            1 / 3 * (get_set_mass(pset) / length(groups)) * (norm(group_chord[group.idx, :]))^2
+            1 / 3 * (get_set_mass(pset) / length(groups)) * (norm(group_chord[:, group.idx]))^2
         @parameters max_twist = deg2rad(90)
 
         eqs = [
             eqs
-            group_tether_force[group.idx] ~ sum(tether_force[group.idx, :])
-            group_tether_moment[group.idx] ~ sum(tether_moment[group.idx, :])
+            group_tether_force[group.idx] ~ sum(tether_force[:, group.idx])
+            group_tether_moment[group.idx] ~ sum(tether_moment[:, group.idx])
             twist_α[group.idx] ~
                 (group_aero_moment[group.idx] + group_tether_moment[group.idx]) /
                 inertia

@@ -375,7 +375,7 @@ function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEMode
     for (i, sym) in enumerate(outputs)
         if isequal(sym, sys.heading[1])
             ss.heading = y[i]
-        elseif isequal(sym, sys.turn_rate[1,3])
+        elseif isequal(sym, sys.turn_rate[3, 1])
             ss.turn_rates[1,3] = y[i]
         elseif isequal(sym, sys.tether_len[1])
             ss.l_tether[1] = y[i]

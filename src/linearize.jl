@@ -71,7 +71,7 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
         for wing in wings
             wing.wing_type != QUATERNION && continue
 
-            wing.vsm_y .= vsm_y[wing.idx, :]
+            wing.vsm_y .= vsm_y[:, wing.idx]
             if any(isnan.(wing.vsm_solver.sol.force))
                 wing.vsm_solver.prob = nothing
                 @warn "Resetting vsm solver."
