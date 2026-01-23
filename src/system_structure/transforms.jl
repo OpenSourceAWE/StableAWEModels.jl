@@ -1,0 +1,539 @@
+# Copyright (c) 2025 Bart van de Lint
+# SPDX-License-Identifier: MPL-2.0
+
+"""
+Transform type and heading/rotation functions.
+
+This file contains:
+- Transform struct and constructors
+- Heading calculation functions
+- reinit! and reposition! functions for applying transforms
+"""
+
+# ==================== TRANSFORM ==================== #
+
+"""
+    mutable struct Transform
+
+Describes the spatial transformation (position and orientation) of system components
+relative to a base reference point.
+
+$(TYPEDFIELDS)
+"""
+mutable struct Transform
+    const idx::Int16
+    const wing_idx::Union{Int16, Nothing}
+    const rot_point_idx::Union{Int16, Nothing}
+    const base_point_idx::Union{Int16, Nothing}
+    const base_transform_idx::Union{Int16, Nothing}
+    elevation::SimFloat  # [rad]
+    azimuth::SimFloat    # [rad]
+    heading::SimFloat    # [rad]
+    elevation_vel::SimFloat  # [rad/s] angular velocity in elevation direction
+    azimuth_vel::SimFloat    # [rad/s] angular velocity in azimuth direction
+    turn_rate::SimFloat      # [rad/s] angular velocity around radial axis (not yet implemented)
+    base_pos::Union{KVec3, Nothing}
+end
+
+"""
+    Transform(idx, elevation, azimuth, heading; base_point_idx, base_pos, base_transform_idx, wing_idx, rot_point_idx)
+
+Constructs a `Transform` object that orients system components using spherical coordinates.
+
+All points and wings with a matching `transform_idx` are transformed together as a rigid body:
+1. **Translation**: Translate such that `base_point_idx` is at the specified `base_pos`.
+2. **Rotation 1**: Rotate so the target (`wing_idx` or `rot_point_idx`) is at (`elevation`, `azimuth`) relative to the base.
+3. **Rotation 2**: Rotate all components by `heading` around the base-target vector.
+
+```math
+\\mathbf{r}_{transformed} = \\mathbf{r}_{base} + \\mathbf{R}_{heading} \\circ \\mathbf{R}_{elevation,azimuth}(\\mathbf{r} - \\mathbf{r}_{base})
+```
+
+# Arguments
+- `idx::Int16`: Unique identifier for the transform.
+- `elevation::SimFloat`: Target elevation angle from base [rad].
+- `azimuth::SimFloat`: Target azimuth angle from base [rad].
+- `heading::SimFloat`: Rotation around base-target vector [rad].
+
+# Keyword Arguments
+**Base Reference (choose one method):**
+- `base_pos` & `base_point_idx`: Use a fixed position and a reference point.
+- `base_transform_idx`: Chain to another transform's position.
+
+**Target Object (choose one):**
+- `wing_idx`: The wing to position at (`elevation`, `azimuth`).
+- `rot_point_idx`: The point to position at (`elevation`, `azimuth`).
+
+# Returns
+- `Transform`: A transform affecting all components with a matching `transform_idx`.
+"""
+function Transform(idx, elevation, azimuth, heading;
+        base_point_idx=nothing, base_pos=nothing, base_transform_idx=nothing,
+        wing_idx=nothing, rot_point_idx=nothing,
+        elevation_vel=0.0, azimuth_vel=0.0, turn_rate=0.0)
+    (isnothing(wing_idx) == isnothing(rot_point_idx)) && error("Either provide a wing_idx or a rot_point_idx, not both or none.")
+    (isnothing(base_pos) == isnothing(base_transform_idx)) && error("Either provide the base_pos or the base_transform_idx, not both or none.")
+    (isnothing(base_pos) !== isnothing(base_point_idx)) && error("When providing a base_pos, also provide a base_point_idx.")
+    Transform(idx, wing_idx, rot_point_idx, base_point_idx, base_transform_idx,
+              elevation, azimuth, heading, elevation_vel, azimuth_vel, turn_rate, base_pos)
+end
+
+"""
+    Transform(idx, set, base_point_idx; kwargs...)
+
+Constructor helper to create a `Transform` from a `Settings` object.
+"""
+function Transform(idx, set, base_point_idx; kwargs...)
+    elevation_vel = hasfield(typeof(set), :elevation_vels) ? set.elevation_vels[idx] : 0.0
+    azimuth_vel = hasfield(typeof(set), :azimuth_vels) ? set.azimuth_vels[idx] : 0.0
+    turn_rate = hasfield(typeof(set), :turn_rates) ? set.turn_rates[idx] : 0.0
+    Transform(idx, set.elevations[idx], set.azimuths[idx], set.headings[idx];
+              base_point_idx, elevation_vel, azimuth_vel, turn_rate, kwargs...)
+end
+
+"""
+    get_rot_pos(transform::Transform, wings, points)
+
+Get the position of the rotating object (wing or point) for a given transform.
+"""
+function get_rot_pos(transform::Transform, wings, points)
+    if !isnothing(transform.wing_idx)
+        return wings[transform.wing_idx].pos_w
+    elseif !isnothing(transform.rot_point_idx)
+        return points[transform.rot_point_idx].pos_w
+    end
+end
+
+"""
+    get_base_pos(transform::Transform, wings, points)
+
+Get the base position for a given transform, resolving chained transforms if necessary.
+"""
+function get_base_pos(transform::Transform, wings, points)
+    curr_base_pos = points[transform.base_point_idx].pos_cad
+    if !isnothing(transform.base_pos)
+        return transform.base_pos, curr_base_pos
+    elseif !isnothing(transform.base_transform_idx)
+        base_transform = transforms[transform.base_transform_idx]
+        return get_rot_pos(base_transform, wings, points), curr_base_pos
+    end
+end
+
+# ==================== HEADING CALCULATION ==================== #
+
+"""
+    apply_heading(vec, R_t_w, curr_R_t_w, heading)
+
+Apply a heading rotation to a vector.
+"""
+function apply_heading(vec, R_t_w, curr_R_t_w, heading)
+    vec_along_z = rotate_around_z(curr_R_t_w' * vec, heading)
+    return R_t_w * vec_along_z
+end
+
+"""
+    wrap_to_pi(angle)
+
+Wrap angle to [-π, π] range.
+"""
+function wrap_to_pi(angle)
+    return mod(angle + π, 2π) - π
+end
+
+"""
+    calc_heading(R_b_w, wind_norm)
+
+Calculate heading angle from body-to-world rotation matrix and wind direction.
+Heading is the angle of the body x-axis projected onto a wind-perpendicular plane.
+"""
+function calc_heading(R_b_w, wind_norm)
+    e_x = R_b_w[:, 1]
+    # Project -e_x onto plane perpendicular to wind
+    minus_e_x = -e_x
+    proj_on_wind = dot(minus_e_x, wind_norm) * wind_norm
+    e_x_perp = minus_e_x - proj_on_wind
+    # Heading components in wind-perpendicular plane
+    wind_cross_z = [wind_norm[2], -wind_norm[1], 0]
+    heading_x = dot(e_x_perp, wind_cross_z)
+    heading_z = e_x_perp[3]
+    heading = atan(heading_x, heading_z)
+    return wrap_to_pi(heading)
+end
+
+"""
+    get_heading_components(e_x, k, θ, wind_norm)
+
+Get heading_y and heading_z components for body x-axis rotated by θ around k.
+"""
+function get_heading_components(e_x, k, θ, wind_norm)
+    e_x_rot = rotate_v_around_k(e_x, k, θ)
+    minus_ex = -e_x_rot
+    proj_on_wind = dot(minus_ex, wind_norm) * wind_norm
+    e_x_perp = minus_ex - proj_on_wind
+    wind_cross_z = [wind_norm[2], -wind_norm[1], 0.0]
+    hy = dot(e_x_perp, wind_cross_z)
+    hz = e_x_perp[3]
+    return hy, hz
+end
+
+"""
+    solve_heading_rotation(R_b_w, target_heading, k, wind_norm)
+
+Analytical solution for heading rotation angle.
+
+The heading components vary with rotation angle θ as:
+  hy(θ) = A1*sin(θ) + B1*cos(θ) + C1  (same form for hz)
+
+The equation hy*cos(h) - hz*sin(h) = 0 gives: A*sin(θ) + B*cos(θ) + C = 0
+
+Solution: θ = atan2(A, B) - acos(-C / √(A² + B²))
+"""
+function solve_heading_rotation(R_b_w, target_heading, k, wind_norm)
+    k = normalize(k)
+    e_x = R_b_w[:, 1]
+
+    # Extract coefficients by sampling at θ = 0, π/2, π
+    hy_0, hz_0 = get_heading_components(e_x, k, 0.0, wind_norm)
+    hy_90, hz_90 = get_heading_components(e_x, k, π/2, wind_norm)
+    hy_180, hz_180 = get_heading_components(e_x, k, π, wind_norm)
+
+    C1 = (hy_0 + hy_180) / 2
+    B1 = hy_0 - C1
+    A1 = hy_90 - C1
+
+    C2 = (hz_0 + hz_180) / 2
+    B2 = hz_0 - C2
+    A2 = hz_90 - C2
+
+    ch = cos(target_heading)
+    sh = sin(target_heading)
+
+    A = A1 * ch - A2 * sh
+    B = B1 * ch - B2 * sh
+    C = C1 * ch - C2 * sh
+
+    r = sqrt(A^2 + B^2)
+
+    if r < 1e-10
+        return 0.0
+    end
+
+    base_angle = atan(A, B)
+    arg = clamp(-C / r, -1.0, 1.0)
+    delta = acos(arg)
+
+    return base_angle - delta
+end
+
+# ==================== REFINE WING FRAME CALCULATION ==================== #
+
+"""
+    get_ref_position_from_points(points::Vector{Point}, ref::Int16)
+    get_ref_position_from_points(points::Vector{Point}, refs::Vector{Int16})
+
+Helper to get position (single point or average of multiple).
+Used for REFINE wing reference point calculations.
+"""
+get_ref_position_from_points(points::Vector{Point}, ref::Int16) = points[ref].pos_w
+function get_ref_position_from_points(points::Vector{Point}, refs::Vector{Int16})
+    n = length(refs)
+    return sum(points[idx].pos_w for idx in refs) / n
+end
+
+"""
+    calc_refine_wing_frame(points::Vector{Point}, z_ref_points, y_ref_points, origin_idx)
+
+Calculate R_b_w rotation matrix and origin position for a REFINE wing from structural point positions.
+
+This function implements the same R_b_w calculation logic as used in `generate_system.jl`
+for REFINE wings, ensuring consistency between initialization (`reinit!`) and simulation
+(symbolic equations).
+
+# Algorithm
+1. Extract reference point positions (with averaging if vectors provided)
+2. Calculate Z-axis (normal to wing): normalized vector from z_p1 to z_p2
+3. Calculate X-axis (chord direction): Y_temp × Z, where Y_temp is from y_p1 to y_p2
+4. Calculate Y-axis (spanwise): Z × X (ensures orthogonality and right-handed system)
+5. Extract origin position from origin_idx point
+
+# Arguments
+- `points::Vector{Point}`: All structural points (must have pos_w initialized)
+- `z_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}`:
+  Reference points defining Z-axis (normal direction)
+- `y_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}`:
+  Reference points defining Y-axis (spanwise direction)
+- `origin_idx::Int16`: Point index defining wing origin (KCU position)
+
+# Returns
+- `R_b_w::Matrix{SimFloat}`: 3x3 rotation matrix from body frame to world frame
+- `origin::KVec3`: Origin position in world frame
+"""
+function calc_refine_wing_frame(
+    points::Vector{Point},
+    z_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}},
+    y_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}},
+    origin_idx::Int16
+)
+    # Extract reference point positions (with averaging if vectors provided)
+    z_p1, z_p2 = z_ref_points
+    y_p1, y_p2 = y_ref_points
+
+    pos_z1 = get_ref_position_from_points(points, z_p1)
+    pos_z2 = get_ref_position_from_points(points, z_p2)
+    pos_y1 = get_ref_position_from_points(points, y_p1)
+    pos_y2 = get_ref_position_from_points(points, y_p2)
+
+    # Build rotation matrix from structural geometry
+    # Z direction (normal to wing, normalized)
+    z_axis = normalize(pos_z2 - pos_z1)
+
+    # Y temp direction (not necessarily orthogonal yet)
+    y_temp = normalize(pos_y2 - pos_y1)
+
+    # X = Y_temp × Z (chord direction, orthogonal to Z)
+    x_axis = normalize(y_temp × z_axis)
+
+    # Y = Z × X (ensure orthogonality and right-handed system)
+    y_axis = z_axis × x_axis
+
+    # Construct rotation matrix [x y z]
+    R_b_w = hcat(x_axis, y_axis, z_axis)
+
+    # Extract origin position
+    origin = points[origin_idx].pos_w
+
+    return R_b_w, origin
+end
+
+# ==================== REINIT! ==================== #
+
+"""
+    reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+
+Apply the initial spatial transformations to all components in a `SystemStructure`.
+
+This function iterates through all transforms and applies the specified translation
+and rotation to position and orient the kite system components correctly in the
+world frame at the beginning of a simulation.
+
+If transforms is empty, simply initializes pos_w = pos_cad for all components.
+"""
+function reinit!(transforms::Vector{Transform}, sys_struct::SymbolicAWEModels.SystemStructure;
+                 update_vel::Bool=true)
+    @unpack points, wings = sys_struct
+
+    # Handle the case with no transforms: just copy CAD positions to world positions
+    if isempty(transforms)
+        for point in points
+            point.pos_w .= point.pos_cad
+            update_vel && (point.vel_w .= 0.0)
+        end
+        for wing in wings
+            wing.pos_w .= wing.pos_cad
+            update_vel && (wing.vel_w .= 0.0)
+            update_vel && (wing.ω_b .= 0.0)
+            wing.Q_b_w .= rotation_matrix_to_quaternion(wing.R_b_c)
+        end
+        return  # Early return - no transforms to apply
+    end
+
+    # Apply transforms
+    for transform in transforms
+        # Warn if turn_rate is not zero (not yet implemented)
+        if transform.turn_rate != 0.0
+            @warn "Transform #$(transform.idx): turn_rate = $(rad2deg(transform.turn_rate))°/s is not zero, " *
+                  "but turn_rate dynamics are not yet implemented. This field will be ignored."
+        end
+
+        # ==================== TRANSLATE ==================== #
+        base_pos, curr_base_pos = get_base_pos(transform, wings, points)
+        T = base_pos - curr_base_pos
+        for point in points
+            if point.transform_idx == transform.idx
+                point.pos_w .= point.pos_cad .+ T
+                update_vel && (point.vel_w .= 0.0)
+            end
+        end
+        for wing in wings
+            if wing.transform_idx == transform.idx
+                wing.pos_w .= wing.pos_cad .+ T
+                update_vel && (wing.vel_w .= 0.0)
+            end
+        end
+
+        # ==================== ROTATE (azimuth/elevation only) ==================== #
+        curr_rot_pos = get_rot_pos(transform, wings, points)
+        rel_pos = curr_rot_pos - base_pos
+
+        # Check if wing and base are aligned (avoid division by zero)
+        if norm(rel_pos) < 1e-6
+            @warn "Transform #$(transform.idx): Wing and base positions are aligned at $(base_pos). " *
+                  "Using identity rotation matrix (no rotation applied)."
+            curr_R_t_w = Matrix(1.0I, 3, 3)  # Identity matrix
+        else
+            curr_R_t_w = calc_R_t_w(rel_pos)
+        end
+
+        transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation),
+                                        -transform.azimuth)
+        R_t_w = calc_R_t_w(transform_pos)
+
+        # Compute velocity components from spherical coordinate motion
+        elev = transform.elevation
+        azim = transform.azimuth
+        rot_pos = get_rot_pos(transform, wings, points)
+        r_rot = norm(rot_pos - base_pos)
+        vel_spherical = rotate_around_y([0, 0, r_rot * transform.elevation_vel], -elev) +
+                        rotate_around_z([0, r_rot * transform.azimuth_vel, 0], -azim)
+
+        # First apply only azimuth/elevation rotation (heading=0)
+        for point in points
+            if point.transform_idx == transform.idx
+                vec = point.pos_w - base_pos
+                point.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, 0.0)
+                if update_vel
+                    point.vel_w .= norm(point.pos_w - base_pos) / norm(rot_pos - base_pos) *
+                                   vel_spherical
+                end
+            end
+        end
+        for wing in wings
+            if wing.transform_idx == transform.idx
+                vec = wing.pos_w - base_pos
+                wing.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, 0.0)
+                if update_vel
+                    wing.vel_w .= norm(wing.pos_w - base_pos) / norm(rot_pos - base_pos) *
+                                  vel_spherical
+                    wing.ω_b .= 0.0
+                end
+            end
+        end
+
+        # ==================== APPLY HEADING VIA NONLINEAR SOLVE ==================== #
+        # For each wing in this transform, calculate R_b_w and solve for heading
+        for wing in wings
+            if wing.transform_idx == transform.idx
+                # Calculate R_b_w depending on wing type
+                if wing.wing_type == REFINE
+                    R_b_w, _ = calc_refine_wing_frame(
+                        points, wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
+                else
+                    # For non-REFINE wings, apply az/el rotation to R_b_c
+                    R_b_w = zeros(3, 3)
+                    for i in 1:3
+                        R_b_w[:, i] .= apply_heading(
+                            wing.R_b_c[:, i], R_t_w, curr_R_t_w, 0.0)
+                    end
+                end
+
+                # Solve for the rotation angle that achieves target heading
+                k = normalize(wing.pos_w)
+                wind_norm = normalize(sys_struct.wind_vec_gnd)
+                delta_heading = solve_heading_rotation(
+                    R_b_w, transform.heading, k, wind_norm)
+
+                # Apply the solved rotation to all points in this transform
+                for point in points
+                    if point.transform_idx == transform.idx
+                        point.pos_w .= rotate_v_around_k(point.pos_w, k, delta_heading)
+                    end
+                    if point.type == WING && point.wing_idx == wing.idx
+                        if wing.wing_type != REFINE
+                            point.pos_b .= wing.R_b_c' * (point.pos_cad - wing.pos_cad)
+                        end
+                    end
+                end
+
+                # Apply rotation to wing position and orientation
+                wing.pos_w .= rotate_v_around_k(wing.pos_w, k, delta_heading)
+                for i in 1:3
+                    R_b_w[:, i] .= rotate_v_around_k(R_b_w[:, i], k, delta_heading)
+                end
+                wing.R_b_w = R_b_w
+            end
+        end
+    end
+
+    # Calculate pos_b for REFINE wing points after all transforms are complete
+    for wing in wings
+        if wing.wing_type == REFINE
+            R_b_w, origin = calc_refine_wing_frame(
+                points, wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
+
+            wing.R_b_w = R_b_w
+            wing.pos_w .= origin
+
+            for point in points
+                if point.type == WING && point.wing_idx == wing.idx
+                    point.pos_b .= R_b_w' * (point.pos_w - origin)
+                end
+            end
+        end
+    end
+end
+
+"""
+    reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+
+Update the system's spatial orientation based on its current position, preserving velocities.
+
+This function adjusts the orientation of all components in the `SystemStructure` without
+altering their dynamic state. Unlike `reinit!`, it uses the current world positions (`pos_w`)
+as the starting point for rotations, rather than resetting from the CAD coordinates.
+
+This function is useful for making real-time adjustments to the system's pose during a simulation.
+Crucially, it **preserves the existing velocities (`vel_w`) of all points and wings**.
+
+NOTE: the transform.heading is applied relative to the current heading of the system.
+
+# Arguments
+- `sys_struct::SystemStructure`: The system model to update.
+"""
+function reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+    @unpack points, wings = sys_struct
+    for transform in transforms
+        # Get the current positions of the base and the rotating object
+        base_pos = points[transform.base_point_idx].pos_w
+        rot_pos = get_rot_pos(transform, wings, points)
+
+        # Calculate the current orientation in spherical coordinates
+        curr_rel_pos = rot_pos - base_pos
+
+        # Check if wing and base are aligned (avoid division by zero)
+        if norm(curr_rel_pos) < 1e-6
+            @warn "Transform #$(transform.idx): Wing and base positions are aligned at $(base_pos). " *
+                  "Using identity rotation matrix (no rotation applied)."
+            curr_R_t_w = Matrix(1.0I, 3, 3)  # Identity matrix
+        else
+            curr_R_t_w = calc_R_t_w(curr_rel_pos)
+        end
+
+        transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation), -transform.azimuth)
+        R_t_w = calc_R_t_w(transform_pos)
+
+        # Apply the rotation to all relevant points
+        for point in points
+            if point.transform_idx == transform.idx
+                vec = point.pos_w - base_pos
+                point.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
+            end
+        end
+
+        # Apply the rotation to all relevant wings
+        for wing in wings
+            if wing.transform_idx == transform.idx
+                # Rotate the wing's position
+                vec = wing.pos_w - base_pos
+                wing.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
+
+                # Rotate the wing's orientation matrix
+                R_b_w = zeros(3,3)
+                current_R_b_w = wing.R_b_w
+                for i in 1:3
+                    R_b_w[:, i] .= apply_heading(current_R_b_w[:, i], R_t_w, curr_R_t_w, transform.heading)
+                end
+                wing.R_b_w = R_b_w
+            end
+        end
+    end
+end

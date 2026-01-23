@@ -66,6 +66,7 @@ export load_settings
 export SymbolicAWEModel
 # System Structure Components
 export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
+export AbstractWing, BaseWing, VSMWing
 # Enums
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
@@ -133,6 +134,7 @@ Basic 3-dimensional vector, stack allocated, mutable.
 """
 const KVec3    = MVector{3, SimFloat}
 const KVec4    = MVector{4, SimFloat}
+const MVec3    = MVector{3, Float64}  # Used by VortexStepMethod functions
 
 """
    const SVec3    = SVector{3, SimFloat}
@@ -160,7 +162,7 @@ function __init__()
     end
 end
 
-include("system_structure.jl")
+include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
