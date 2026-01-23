@@ -231,6 +231,15 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     )
 
     eqs = Symbolics.scalarize.(reduce(vcat, Symbolics.scalarize.(eqs)))
+
+    # Debug: Look for any remaining slice references after scalarization
+    for (i, eq) in enumerate(eqs)
+        eq_str = string(eq)
+        if occursin("Colon()", eq_str)
+            @warn "Equation $i contains Colon() after scalarization: $eq"
+        end
+    end
+
     time = @elapsed @named sys = System(eqs, t)
     prn && println("\tCreated System in $time seconds.")
 
@@ -241,6 +250,22 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
             winch in winches
         ]
     ]
+
+    # Debug: Check defaults for slice references
+    for (i, d) in enumerate(defaults)
+        d_str = string(d)
+        if occursin("Colon()", d_str)
+            @warn "Default $i contains Colon(): $d"
+        end
+    end
+
+    # Debug: Check guesses for slice references
+    for (i, g) in enumerate(guesses)
+        g_str = string(g)
+        if occursin("Colon()", g_str)
+            @warn "Guess $i contains Colon(): $g"
+        end
+    end
 
     s.defaults = defaults
     s.guesses = guesses
