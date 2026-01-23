@@ -28,7 +28,7 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
                        axial_damping=NaN, d_pos=zeros(3))
     winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z) .+ d_pos
     dir = winch_pos - attach_point.pos_cad
-    segment_idxs = Int16[]
+    segment_idxs = Int64[]
     winch_point_idx = 0
     for i in 1:set.segments
         frac = i / set.segments
@@ -776,13 +776,13 @@ function segment_stretch_stats(sys::SystemStructure)
     end
 
     # Build set of segment indices that belong to pulleys
-    pulley_seg_idxs = Set{Int16}()
+    pulley_seg_idxs = Set{Int64}()
     for pulley in sys.pulleys
         push!(pulley_seg_idxs, pulley.segment_idxs[1])
         push!(pulley_seg_idxs, pulley.segment_idxs[2])
     end
 
-    stretch_data = Tuple{Int16, Float64}[]
+    stretch_data = Tuple{Int64, Float64}[]
 
     # Add pulley stretches (combined length of both segments)
     for pulley in sys.pulleys

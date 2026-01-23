@@ -379,8 +379,8 @@ function init!(sam::SymbolicAWEModel;
 
         if isnothing(outputs)
             @variables begin
-                heading(t)[1]
-                angle_of_attack(t)[1]
+                heading(t)[1:1]
+                angle_of_attack(t)[1:1]
                 tether_len(t)[1:3]
                 winch_force(t)[1:3]
             end

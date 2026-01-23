@@ -71,9 +71,9 @@ A point mass, representing a node in the mass-spring system.
 $(TYPEDFIELDS)
 """
 mutable struct Point
-    const idx::Int16
-    const transform_idx::Int16 # idx of wing used for initial orientation
-    const wing_idx::Int16
+    const idx::Int64
+    const transform_idx::Int64 # idx of wing used for initial orientation
+    const wing_idx::Int64
     const pos_cad::KVec3
     const pos_b::KVec3 # pos relative to wing COM in body frame
     const pos_w::KVec3 # pos in world frame
@@ -112,14 +112,14 @@ where:
 - ``\\mathbf{r}_b`` is the position in body frame
 
 # Arguments
-- `idx::Int16`: Unique identifier for the point.
+- `idx::Int64`: Unique identifier for the point.
 - `pos_cad::KVec3`: Position of the point in the CAD frame.
 - `type::DynamicsType`: Dynamics type of the point (`STATIC`, `DYNAMIC`, etc.).
 
 # Keyword Arguments
-- `wing_idx::Int16=1`: Index of the wing this point is attached to.
+- `wing_idx::Int64=1`: Index of the wing this point is attached to.
 - `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
-- `transform_idx::Int16=1`: Index of the transform used for initial positioning.
+- `transform_idx::Int64=1`: Index of the transform used for initial positioning.
 - `extra_mass::Float64=0.0`: User-provided mass of the point [kg]. Total mass (including segment weights) is computed during simulation.
 - `body_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping [x,y,z] for bridle points. Scalar applies to all axes.
 - `world_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping [x,y,z] for world frame damping. Scalar applies to all axes.
@@ -155,8 +155,8 @@ A set of bridle lines that share the same twist angle and trailing edge angle.
 $(TYPEDFIELDS)
 """
 mutable struct Group
-    const idx::Int16
-    const point_idxs::Vector{Int16}
+    const idx::Int64
+    const point_idxs::Vector{Int64}
     const gamma::SimFloat  # Spanwise parameter (-1 to 1)
     le_pos::KVec3  # Leading edge position
     chord::KVec3   # Chord vector in body frame
@@ -169,7 +169,7 @@ mutable struct Group
     tether_force::SimFloat
     tether_moment::SimFloat
     aero_moment::SimFloat
-    unrefined_section_idxs::Vector{Int16}  # Indices of VSM unrefined sections in this group
+    unrefined_section_idxs::Vector{Int64}  # Indices of VSM unrefined sections in this group
 end
 
 """
@@ -186,8 +186,8 @@ The group geometry (le_pos, chord, y_airf) is calculated later in the
 SystemStructure constructor once the VSM wing is available.
 
 # Arguments
-- `idx::Int16`: Unique identifier for the group.
-- `point_idxs::Vector{Int16}`: Indices of points that move together.
+- `idx::Int64`: Unique identifier for the group.
+- `point_idxs::Vector{Int64}`: Indices of points that move together.
 - `gamma`: Spanwise parameter (-1 to 1) along the wing.
 - `type::DynamicsType`: DYNAMIC or QUASI_STATIC.
 - `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
@@ -204,7 +204,7 @@ function Group(idx, point_idxs, gamma, type, moment_frac;
           zeros(KVec3), zeros(KVec3), zeros(KVec3),
           type, moment_frac, damping,
           0.0, 0.0, 0.0, 0.0, 0.0,
-          Int16[])
+          Int64[])
 end
 
 """
@@ -223,7 +223,7 @@ function Group(idx, point_idxs, vsm_wing::VortexStepMethod.Wing, gamma,
     Group(idx, point_idxs, gamma, le_pos, chord, y_airf,
           type, moment_frac, damping,
           0.0, 0.0, 0.0, 0.0, 0.0,
-          Int16[])
+          Int64[])
 end
 
 # ==================== SEGMENT ==================== #
@@ -236,8 +236,8 @@ A segment representing a spring-damper connection from one point to another.
 $(TYPEDFIELDS)
 """
 mutable struct Segment
-    const idx::Int16
-    const point_idxs::Tuple{Int16, Int16}
+    const idx::Int64
+    const point_idxs::Tuple{Int64, Int64}
     axial_stiffness::SimFloat
     axial_damping::SimFloat
     l0::SimFloat
@@ -290,9 +290,9 @@ where:
 - ``\\mathbf{v}_{a,\\perp}`` is apparent wind velocity perpendicular to segment
 
 # Arguments
-- `idx::Int16`: Unique identifier for the segment.
+- `idx::Int64`: Unique identifier for the segment.
 - `set::Settings`: The settings object containing material properties.
-- `point_idxs::Tuple{Int16, Int16}`: Tuple containing the indices of the two points.
+- `point_idxs::Tuple{Int64, Int64}`: Tuple containing the indices of the two points.
 - `type::SegmentType`: Type of the segment (`POWER_LINE`, `STEERING_LINE`, `BRIDLE`).
 
 # Keyword Arguments
@@ -356,8 +356,8 @@ A pulley described by two segments with the common point of the segments being t
 $(TYPEDFIELDS)
 """
 mutable struct Pulley
-    const idx::Int16
-    const segment_idxs::Tuple{Int16, Int16}
+    const idx::Int64
+    const segment_idxs::Tuple{Int64, Int64}
     const type::DynamicsType
     sum_len::SimFloat
     len::SimFloat
@@ -397,8 +397,8 @@ The pulley can have two [`DynamicsType`](@ref)s:
 - `QUASI_STATIC`: the forces are balanced instantaneously: ``F_1 = F_2``
 
 # Arguments
-- `idx::Int16`: Unique identifier for the pulley.
-- `segment_idxs::Tuple{Int16, Int16}`: Tuple containing the indices of the two segments.
+- `idx::Int64`: Unique identifier for the pulley.
+- `segment_idxs::Tuple{Int64, Int64}`: Tuple containing the indices of the two segments.
 - `type::DynamicsType`: Dynamics type of the pulley (`DYNAMIC` or `QUASI_STATIC`).
 
 # Returns
@@ -418,9 +418,9 @@ A collection of segments that are controlled together by a winch.
 $(TYPEDFIELDS)
 """
 mutable struct Tether
-    const idx::Int16
-    const segment_idxs::Vector{Int16}
-    const winch_point_idx::Int16
+    const idx::Int64
+    const segment_idxs::Vector{Int64}
+    const winch_point_idx::Int64
     stretched_len::SimFloat
 end
 
@@ -440,9 +440,9 @@ A tether enforces a shared unstretched length constraint across all its constitu
 The unstretched tether length `L` is controlled by a winch.
 
 # Arguments
-- `idx::Int16`: Unique identifier for the tether.
-- `segment_idxs::Vector{Int16}`: Indices of segments that form this tether.
-- `winch_point_idx::Int16`: Index of the ground point where tether attaches to winch.
+- `idx::Int64`: Unique identifier for the tether.
+- `segment_idxs::Vector{Int64}`: Indices of segments that form this tether.
+- `winch_point_idx::Int64`: Index of the ground point where tether attaches to winch.
 
 # Returns
 - `Tether`: A new `Tether` object.
@@ -461,8 +461,8 @@ A set of tethers (or a single tether) connected to a winch mechanism.
 $(TYPEDFIELDS)
 """
 mutable struct Winch
-    const idx::Int16
-    const tether_idxs::Vector{Int16}
+    const idx::Int64
+    const tether_idxs::Vector{Int64}
     tether_len::Union{SimFloat, Nothing}
     tether_vel::SimFloat
     tether_acc::SimFloat
@@ -490,9 +490,9 @@ For detailed mathematical models of winch dynamics, motor characteristics, and c
 see the [WinchModels.jl documentation](https://github.com/aenarete/WinchModels.jl/blob/main/docs/winch.md).
 
 # Arguments
-- `idx::Int16`: Unique identifier for the winch.
+- `idx::Int64`: Unique identifier for the winch.
 - `set::Settings`: The main settings object, used to retrieve winch parameters.
-- `tether_idxs::Vector{Int16}`: Vector of indices of the tethers connected to this winch.
+- `tether_idxs::Vector{Int64}`: Vector of indices of the tethers connected to this winch.
 
 # Keyword Arguments
 - `tether_len::SimFloat=0.0`: Initial tether length [m].
@@ -517,8 +517,8 @@ This constructor is an alternative to creating a winch from a `Settings` object,
 allowing for more modular or programmatic creation of winch components.
 
 # Arguments
-- `idx::Int16`: Unique identifier for the winch.
-- `tether_idxs::Vector{Int16}`: Vector of indices of the tethers connected to this winch.
+- `idx::Int64`: Unique identifier for the winch.
+- `tether_idxs::Vector{Int64}`: Vector of indices of the tethers connected to this winch.
 - `gear_ratio::SimFloat`: The gear ratio of the winch.
 - `drum_radius::SimFloat`: The radius of the winch drum [m].
 - `f_coulomb::SimFloat`: Coulomb friction force [N].
@@ -550,11 +550,11 @@ relative to a base reference point.
 $(TYPEDFIELDS)
 """
 mutable struct Transform
-    const idx::Int16
-    const wing_idx::Union{Int16, Nothing}
-    const rot_point_idx::Union{Int16, Nothing}
-    const base_point_idx::Union{Int16, Nothing}
-    const base_transform_idx::Union{Int16, Nothing}
+    const idx::Int64
+    const wing_idx::Union{Int64, Nothing}
+    const rot_point_idx::Union{Int64, Nothing}
+    const base_point_idx::Union{Int64, Nothing}
+    const base_transform_idx::Union{Int64, Nothing}
     elevation::SimFloat  # [rad]
     azimuth::SimFloat    # [rad]
     heading::SimFloat    # [rad]
@@ -579,7 +579,7 @@ All points and wings with a matching `transform_idx` are transformed together as
 ```
 
 # Arguments
-- `idx::Int16`: Unique identifier for the transform.
+- `idx::Int64`: Unique identifier for the transform.
 - `elevation::SimFloat`: Target elevation angle from base [rad].
 - `azimuth::SimFloat`: Target azimuth angle from base [rad].
 - `heading::SimFloat`: Rotation around base-target vector [rad].

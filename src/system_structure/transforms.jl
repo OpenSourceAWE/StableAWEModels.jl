@@ -120,14 +120,14 @@ end
 # ==================== REFINE WING FRAME CALCULATION ==================== #
 
 """
-    get_ref_position_from_points(points::Vector{Point}, ref::Int16)
-    get_ref_position_from_points(points::Vector{Point}, refs::Vector{Int16})
+    get_ref_position_from_points(points::Vector{Point}, ref::Int64)
+    get_ref_position_from_points(points::Vector{Point}, refs::Vector{Int64})
 
 Helper to get position (single point or average of multiple).
 Used for REFINE wing reference point calculations.
 """
-get_ref_position_from_points(points::Vector{Point}, ref::Int16) = points[ref].pos_w
-function get_ref_position_from_points(points::Vector{Point}, refs::Vector{Int16})
+get_ref_position_from_points(points::Vector{Point}, ref::Int64) = points[ref].pos_w
+function get_ref_position_from_points(points::Vector{Point}, refs::Vector{Int64})
     n = length(refs)
     return sum(points[idx].pos_w for idx in refs) / n
 end
@@ -150,11 +150,11 @@ for REFINE wings, ensuring consistency between initialization (`reinit!`) and si
 
 # Arguments
 - `points::Vector{Point}`: All structural points (must have pos_w initialized)
-- `z_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}`:
+- `z_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}`:
   Reference points defining Z-axis (normal direction)
-- `y_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}`:
+- `y_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}`:
   Reference points defining Y-axis (spanwise direction)
-- `origin_idx::Int16`: Point index defining wing origin (KCU position)
+- `origin_idx::Int64`: Point index defining wing origin (KCU position)
 
 # Returns
 - `R_b_w::Matrix{SimFloat}`: 3x3 rotation matrix from body frame to world frame
@@ -162,9 +162,9 @@ for REFINE wings, ensuring consistency between initialization (`reinit!`) and si
 """
 function calc_refine_wing_frame(
     points::Vector{Point},
-    z_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}},
-    y_ref_points::Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}},
-    origin_idx::Int16
+    z_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}},
+    y_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}},
+    origin_idx::Int64
 )
     # Extract reference point positions (with averaging if vectors provided)
     z_p1, z_p2 = z_ref_points

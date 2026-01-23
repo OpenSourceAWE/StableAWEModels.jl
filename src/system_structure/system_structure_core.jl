@@ -279,7 +279,7 @@ function SystemStructure(name, set;
             # Create a group for each section (LE/TE pair)
             # n_groups = n_unrefined_sections (one group per section)
             vsm_wing = wing.vsm_wing
-            new_group_idxs = Int16[]
+            new_group_idxs = Int64[]
 
             # Check if wing has interpolators (from .obj) or not (from YAML)
             has_interpolators = !isnothing(vsm_wing.le_interp)
@@ -317,7 +317,7 @@ function SystemStructure(name, set;
                 end
 
                 push!(groups, new_group)
-                push!(new_group_idxs, Int16(group_idx))
+                push!(new_group_idxs, Int64(group_idx))
             end
 
             # Update wing with new groups and resize vsm arrays
@@ -383,11 +383,11 @@ function SystemStructure(name, set;
                     closest_idx = unrefined_idx
                 end
             end
-            group.unrefined_section_idxs = Int16[closest_idx]
+            group.unrefined_section_idxs = Int64[closest_idx]
         end
 
         # Validate: check all sections are covered
-        assigned = Set{Int16}()
+        assigned = Set{Int64}()
         for group_idx in the_wing.base.group_idxs
             union!(assigned, groups[group_idx].unrefined_section_idxs)
         end

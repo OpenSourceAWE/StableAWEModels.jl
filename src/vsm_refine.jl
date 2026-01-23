@@ -22,7 +22,7 @@ being leading edge and odd-numbered being trailing edge (or vice versa).
 - `wing_points::Vector{Point}`: All WING-type points for a wing (sorted by index)
 
 # Returns
-- `Vector{Tuple{Int16, Int16}}`: Vector of (le_point_idx, te_point_idx) pairs defining segments
+- `Vector{Tuple{Int64, Int64}}`: Vector of (le_point_idx, te_point_idx) pairs defining segments
 """
 function identify_wing_segments(wing_points::Vector{Point})
     # Sort points by index to ensure consistent ordering
@@ -32,7 +32,7 @@ function identify_wing_segments(wing_points::Vector{Point})
     @assert n_points % 2 == 0 "Wing must have even number of points (LE/TE pairs)"
 
     n_segments = n_points ÷ 2
-    segments = Tuple{Int16, Int16}[]
+    segments = Tuple{Int64, Int64}[]
 
     # Group consecutive pairs: (point[1], point[2]), (point[3], point[4]), ...
     for i in 1:n_segments
@@ -67,7 +67,7 @@ Requires: `length(wing_points) == 2 * length(vsm_wing.unrefined_sections)`
 - `vsm_wing::VortexStepMethod.AbstractWing`: VSM wing with sections
 
 # Returns
-- `Dict{Int16, Tuple{Int16, Symbol}}`: Mapping structural_point_idx -> (section_idx, :LE or :TE)
+- `Dict{Int64, Tuple{Int64, Symbol}}`: Mapping structural_point_idx -> (section_idx, :LE or :TE)
 
 # Algorithm
 1. For each section in vsm_wing.sections:
@@ -88,8 +88,8 @@ function build_point_to_vsm_point_mapping(
               "2 * n_vsm_sections ($(n_sections))")
     end
 
-    point_to_vsm_point = Dict{Int16, Tuple{Int16, Symbol}}()
-    used_points = Set{Int16}()
+    point_to_vsm_point = Dict{Int64, Tuple{Int64, Symbol}}()
+    used_points = Set{Int64}()
 
     for (section_idx, section) in enumerate(vsm_wing.unrefined_sections)
         # Map LE_point to closest unused structural point
@@ -108,7 +108,7 @@ function build_point_to_vsm_point_mapping(
             end
         end
 
-        point_to_vsm_point[closest_le_idx] = (Int16(section_idx), :LE)
+        point_to_vsm_point[closest_le_idx] = (Int64(section_idx), :LE)
         push!(used_points, closest_le_idx)
 
         # Map TE_point to closest unused structural point
@@ -127,7 +127,7 @@ function build_point_to_vsm_point_mapping(
             end
         end
 
-        point_to_vsm_point[closest_te_idx] = (Int16(section_idx), :TE)
+        point_to_vsm_point[closest_te_idx] = (Int64(section_idx), :TE)
         push!(used_points, closest_te_idx)
     end
 
@@ -237,7 +237,7 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point}
     end
 
     # Build inverse mapping: (section_idx, :LE/:TE) -> point_idx
-    vsm_point_to_struct = Dict{Tuple{Int16, Symbol}, Int16}()
+    vsm_point_to_struct = Dict{Tuple{Int64, Symbol}, Int64}()
     for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
         vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
     end
@@ -263,8 +263,8 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point}
         section_idx = panel_to_section[local_panel_idx]
         section = wing.vsm_wing.unrefined_sections[section_idx]
 
-        le_key = (Int16(section_idx), :LE)
-        te_key = (Int16(section_idx), :TE)
+        le_key = (Int64(section_idx), :LE)
+        te_key = (Int64(section_idx), :TE)
         haskey(vsm_point_to_struct, le_key) || continue
         haskey(vsm_point_to_struct, te_key) || continue
 

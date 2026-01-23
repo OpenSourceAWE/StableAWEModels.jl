@@ -16,9 +16,9 @@ Convert field to type T if present, otherwise return nothing.
 
 # Examples
 ```julia
-get_field_or_nothing(Int16, row, :idx)  # -> Int16 or nothing
-get_field_or_nothing(Tuple{Int16,Int16}, row, :pair)
-    # -> (Int16, Int16) or nothing
+get_field_or_nothing(Int64, row, :idx)  # -> Int64 or nothing
+get_field_or_nothing(Tuple{Int64,Int64}, row, :pair)
+    # -> (Int64, Int64) or nothing
 ```
 """
 function get_field_or_nothing(::Type{T}, row::NamedTuple,
@@ -454,8 +454,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:idx, :segment_idxs, :winch_point_idx],
                 [];
                 mappings=Dict(
-                    :segment_idxs => r -> isnothing(r.segment_idxs) ? Int16[] : Vector{Int16}(r.segment_idxs),
-                    :winch_point_idx => r -> isnothing(r.winch_point_idx) ? Int16(0) : Int16(r.winch_point_idx)
+                    :segment_idxs => r -> isnothing(r.segment_idxs) ? Int64[] : Vector{Int64}(r.segment_idxs),
+                    :winch_point_idx => r -> isnothing(r.winch_point_idx) ? Int64(0) : Int64(r.winch_point_idx)
                 ))
             push!(tethers, tether)
         end
@@ -474,7 +474,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:tether_len, :tether_vel, :brake];
                 mappings=Dict(
                     :set => r -> set,
-                    :tether_idxs => r -> Vector{Int16}(r.tether_idxs)
+                    :tether_idxs => r -> Vector{Int64}(r.tether_idxs)
                 ))
             push!(winches, winch)
         end
@@ -498,8 +498,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         # Parse [a, b] or [a, [b, c]]
         @assert length(val) == 2 "ref_points must have 2 elements"
 
-        p1 = val[1] isa Vector ? Int16.(val[1]) : Int16(val[1])
-        p2 = val[2] isa Vector ? Int16.(val[2]) : Int16(val[2])
+        p1 = val[1] isa Vector ? Int64.(val[1]) : Int64(val[1])
+        p2 = val[2] isa Vector ? Int64.(val[2]) : Int64(val[2])
 
         return (p1, p2)
     end
@@ -526,7 +526,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                      :aero_scale_chord, :sort_sections];
                     mappings=Dict(
                         :set => r -> set,
-                        :group_idxs => r -> Int16[],
+                        :group_idxs => r -> Int64[],
                         :vsm_set => r -> vsm_set,
                         :wing_type => r -> wt,
                         :z_ref_points => r ->
@@ -534,12 +534,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         :y_ref_points => r ->
                             parse_ref_points(r, :y_ref_points),
                         :origin_idx => r ->
-                            get_field_or_nothing(Int16, r, :origin_idx),
+                            get_field_or_nothing(Int64, r, :origin_idx),
                         :aero_scale_chord => r ->
                             hasfield(typeof(r), :aero_scale_chord) && !isnothing(r.aero_scale_chord) ?
                                 float(r.aero_scale_chord) : 0.0,
                         :pos_cad => r -> begin
-                            oidx = get_field_or_nothing(Int16, r, :origin_idx)
+                            oidx = get_field_or_nothing(Int64, r, :origin_idx)
                             isnothing(oidx) ? nothing : KVec3(points[oidx].pos_cad)
                         end,
                         :sort_sections => r -> sort_sections
@@ -552,7 +552,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :sort_sections];
                     mappings=Dict(
                         :set => r -> set,
-                        :group_idxs => r -> Int16[],
+                        :group_idxs => r -> Int64[],
                         :vsm_set => r -> vsm_set,
                         :wing_type => r -> wt,
                         :aero_scale_chord => r ->
@@ -591,12 +591,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         deg2rad(r.turn_rate) : 0.0,
                     :base_pos => r -> KVec3(r.base_pos...),
                     :base_point_idx => r ->
-                        Int16(r.base_point_idx),
+                        Int64(r.base_point_idx),
                     :rot_point_idx => r ->
-                        get_field_or_nothing(Int16, r,
+                        get_field_or_nothing(Int64, r,
                             :rot_point_idx),
                     :wing_idx => r ->
-                        get_field_or_nothing(Int16, r, :wing_idx)
+                        get_field_or_nothing(Int64, r, :wing_idx)
                 ))
             push!(transforms, transform)
             elev_deg = rad2deg(transform.elevation)

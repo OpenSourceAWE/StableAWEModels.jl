@@ -137,15 +137,15 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
                 section_va = Vector{Vector{Float64}}(undef, n_sections)
 
                 # Build inverse mapping: (section_idx, :LE/:TE) -> point_idx
-                vsm_point_to_struct = Dict{Tuple{Int16, Symbol}, Int16}()
+                vsm_point_to_struct = Dict{Tuple{Int64, Symbol}, Int64}()
                 for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
                     vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
                 end
 
                 # Calculate va at each section (average of LE and TE points)
                 for section_idx in 1:n_sections
-                    le_point_idx = get(vsm_point_to_struct, (Int16(section_idx), :LE), nothing)
-                    te_point_idx = get(vsm_point_to_struct, (Int16(section_idx), :TE), nothing)
+                    le_point_idx = get(vsm_point_to_struct, (Int64(section_idx), :LE), nothing)
+                    te_point_idx = get(vsm_point_to_struct, (Int64(section_idx), :TE), nothing)
 
                     if !isnothing(le_point_idx) && !isnothing(te_point_idx)
                         va_le = va_point_b_vals[:, le_point_idx]

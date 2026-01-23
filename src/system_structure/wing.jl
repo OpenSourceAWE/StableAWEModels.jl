@@ -46,11 +46,11 @@ wing.Q_b_w = quat
 $(TYPEDFIELDS)
 """
 mutable struct BaseWing <: AbstractWing
-    const idx::Int16
+    const idx::Int64
 
     # Structural information
-    group_idxs::Vector{Int16}
-    const transform_idx::Int16
+    group_idxs::Vector{Int64}
+    const transform_idx::Int64
     const R_b_c::Matrix{SimFloat}
     const pos_cad::KVec3
     const inertia_principal::KVec3
@@ -131,9 +131,9 @@ mutable struct VSMWing <: AbstractWing
     vsm_jac::Matrix{SimFloat}
 
     # REFINE-specific fields (Nothing for QUATERNION wings)
-    point_to_vsm_point::Union{Nothing, Dict{Int16, Tuple{Int16, Symbol}}}
+    point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
     wing_segments::Union{Nothing,
-        Vector{Tuple{Int16, Int16}}}
+        Vector{Tuple{Int64, Int64}}}
 
     # Orientation reference points for REFINE wings
     # (Nothing for QUATERNION wings)
@@ -143,13 +143,13 @@ mutable struct VSMWing <: AbstractWing
     #   (12, [13, 14]) - point 12 to average of points 13,14
     #   ([11, 12], [13, 14]) - average of 11,12 to average of 13,14
     # Z-axis: Normal to wing plane, Y-axis: Spanwise, X = Y × Z (chord)
-    z_ref_points::Union{Nothing, Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}
-    y_ref_points::Union{Nothing, Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}
+    z_ref_points::Union{Nothing, Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}
+    y_ref_points::Union{Nothing, Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}
 
     # KCU origin point for REFINE wings
     # (Nothing for QUATERNION wings)
     # Defines wing.pos_w = pos[:, origin_idx] to track structural deformation
-    origin_idx::Union{Nothing, Int16}
+    origin_idx::Union{Nothing, Int64}
 
     # Additional aerodynamic force scale to compensate chord length errors (REFINE)
     aero_scale_chord::SimFloat
@@ -188,20 +188,20 @@ end
 # ==================== CONSTRUCTORS ==================== #
 
 """
-    BaseWing(idx::Int16, group_idxs::Vector{Int16}, R_b_c::Matrix{SimFloat},
+    BaseWing(idx::Int64, group_idxs::Vector{Int64}, R_b_c::Matrix{SimFloat},
              pos_cad::KVec3, inertia_principal::KVec3; transform_idx=1, y_damping=150.0, wing_type=QUATERNION)
 
 Constructs a `BaseWing` object representing a rigid body reference frame.
 
 # Arguments
-- `idx::Int16`: Unique identifier for the wing.
-- `group_idxs::Vector{Int16}`: Indices of groups attached to this wing.
+- `idx::Int64`: Unique identifier for the wing.
+- `group_idxs::Vector{Int64}`: Indices of groups attached to this wing.
 - `R_b_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
 - `pos_cad::KVec3`: Position of wing center of mass in CAD frame.
 - `inertia_principal::KVec3`: Principal moments of inertia [Ixx, Iyy, Izz] in body frame.
 
 # Keyword Arguments
-- `transform_idx::Int16=1`: Transform used for initial positioning and orientation.
+- `transform_idx::Int64=1`: Transform used for initial positioning and orientation.
 - `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
 - `wing_type::WingType=QUATERNION`: Wing aerodynamic model type.
 
@@ -226,7 +226,7 @@ function BaseWing(idx, group_idxs::AbstractVector, R_b_c::AbstractMatrix,
 end
 
 """
-    VSMWing(idx::Int16, set::Settings, group_idxs::Vector{Int16},
+    VSMWing(idx::Int64, set::Settings, group_idxs::Vector{Int64},
             R_b_c::Matrix{SimFloat}, pos_cad::KVec3;
             transform_idx=1, y_damping=150.0,
             wing_type=QUATERNION, point_to_vsm_point=nothing,
@@ -237,14 +237,14 @@ Constructs a `VSMWing` object with Vortex Step Method aerodynamics.
 Creates vsm_wing, vsm_aero, and vsm_solver internally.
 
 # Arguments
-- `idx::Int16`: Unique identifier for the wing.
+- `idx::Int64`: Unique identifier for the wing.
 - `set::Settings`: Settings object for VSM configuration.
-- `group_idxs::Vector{Int16}`: Indices of groups (QUATERNION only).
+- `group_idxs::Vector{Int64}`: Indices of groups (QUATERNION only).
 - `R_b_c::Matrix{SimFloat}`: Rotation matrix body→CAD.
 - `pos_cad::KVec3`: Position of wing COM in CAD frame.
 
 # Keyword Arguments
-- `transform_idx::Int16=1`: Transform for initial positioning.
+- `transform_idx::Int64=1`: Transform for initial positioning.
 - `y_damping::SimFloat=150.0`: Lateral damping coefficient.
 - `wing_type::WingType=QUATERNION`: Aerodynamic model type.
 - `point_to_vsm_point`: 1:1 structural point to VSM point mapping (REFINE only).
@@ -264,14 +264,14 @@ function VSMWing(idx::Int, set::Settings,
                  transform_idx=1, y_damping=150.0,
                  inertia_diag=nothing,
                  wing_type::WingType=QUATERNION,
-                 point_to_vsm_point::Union{Nothing, Dict{Int16, Tuple{Int16, Symbol}}}=nothing,
+                 point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}=nothing,
                  wing_segments::Union{Nothing,
-                     Vector{Tuple{Int16, Int16}}}=nothing,
+                     Vector{Tuple{Int64, Int64}}}=nothing,
                  z_ref_points::Union{Nothing,
-                     Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}=nothing,
+                     Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}=nothing,
                  y_ref_points::Union{Nothing,
-                     Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}=nothing,
-                 origin_idx::Union{Nothing, Int16}=nothing,
+                     Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}=nothing,
+                 origin_idx::Union{Nothing, Int64}=nothing,
                  aero_scale_chord::SimFloat=0.0,
                  aero_z_offset::SimFloat=0.0,
                  sort_sections::Bool=false)
@@ -379,14 +379,14 @@ This is a convenience constructor that creates a VSMWing for backward compatibil
 with existing code. New code should use `VSMWing(...)` directly.
 
 # Arguments
-- `idx::Int16`: Unique identifier for the wing.
+- `idx::Int64`: Unique identifier for the wing.
 - `vsm_aero`, `vsm_wing`, `vsm_solver`: Vortex Step Method components.
-- `group_idxs::Vector{Int16}`: Indices of groups attached to this wing.
+- `group_idxs::Vector{Int64}`: Indices of groups attached to this wing.
 - `R_b_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
 - `pos_cad::KVec3`: Position of wing center of mass in CAD frame.
 
 # Keyword Arguments
-- `transform_idx::Int16=1`: Transform used for initial positioning and orientation.
+- `transform_idx::Int64=1`: Transform used for initial positioning and orientation.
 - `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
 
 # Returns
