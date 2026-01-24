@@ -95,8 +95,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     end
 
     # Aggregate forces and moments from tethers onto the wing's center of mass
-    tether_wing_force = zeros(Num, length(wings), 3)
-    tether_wing_moment = zeros(Num, length(wings), 3)
+    tether_wing_force = zeros(Num, 3, length(wings))
+    tether_wing_moment = zeros(Num, 3, length(wings))
 
     # Check if we have any REFINE wings (need aero force per point)
     has_refine_wings = any(wing.wing_type == REFINE for wing in wings)

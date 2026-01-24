@@ -26,7 +26,9 @@ using Test
     @test length(wing_points) == 20  # 10 LE/TE pairs
 
     # Create a QUATERNION wing with these points
-    vsm_wing = SymbolicAWEModels.Wing(set; prn=false)
+    vsm_set_path = joinpath(SymbolicAWEModels.get_data_path(), "vsm_settings.yaml")
+    vsm_set = SymbolicAWEModels.VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+    vsm_wing = SymbolicAWEModels.Wing(set, vsm_set; prn=false)
     vsm_aero = SymbolicAWEModels.BodyAerodynamics([vsm_wing])
     vsm_solver = SymbolicAWEModels.Solver(vsm_aero;
                                           solver_type=SymbolicAWEModels.NONLIN,

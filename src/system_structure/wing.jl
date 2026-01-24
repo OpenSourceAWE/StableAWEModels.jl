@@ -496,13 +496,13 @@ function VortexStepMethod.Wing(set::Settings, vsm_set::VortexStepMethod.VSMSetti
         prn && @info "Loading wing from .obj/.dat files"
 
         if set.physical_model == "simple_ram"
-            n_groups=2
+            n_unrefined_sections = 2
         else
-            n_groups=4
+            n_unrefined_sections = 4
         end
 
         return VortexStepMethod.ObjWing(obj_path, dat_path;
-            mass=set.mass, crease_frac=set.crease_frac, n_groups,
+            mass=set.mass, crease_frac=set.crease_frac, n_unrefined_sections,
             align_to_principal=true, prn, kwargs...
         )
     end

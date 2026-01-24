@@ -46,7 +46,9 @@ This model includes:
 - `SystemStructure`: A new `SystemStructure` object representing the detailed model.
 """
 function create_4_attach_ram_sys_struct(set::Settings)
-    vsm_wing = Wing(set; prn=false)
+    vsm_set_path = joinpath(get_data_path(), "vsm_settings.yaml")
+    vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+    vsm_wing = Wing(set, vsm_set; prn=false)
     points = Point[]
     groups = Group[]
     segments = Segment[]
@@ -193,7 +195,9 @@ The model features:
 - `SystemStructure`: A new `SystemStructure` object representing the "ram" model.
 """
 function create_ram_sys_struct(set::Settings; d_winch_pos=[zeros(3), zeros(3)])
-    vsm_wing = VortexStepMethod.Wing(set; prn=false)
+    vsm_set_path = joinpath(get_data_path(), "vsm_settings.yaml")
+    vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false)
     points = Point[]
     groups = Group[]
     segments = Segment[]
@@ -392,11 +396,13 @@ omitting the complex pulley system. Each tether is modeled as a single segment.
 # Returns
 - `SystemStructure`: A new `SystemStructure` representing the simplified model.
 """
-function create_simple_ram_sys_struct(set::Settings; 
-                                      axial_stiffness=fill(NaN, 4), 
+function create_simple_ram_sys_struct(set::Settings;
+                                      axial_stiffness=fill(NaN, 4),
                                       axial_damping=fill(NaN,4))
     set.segments = 1
-    vsm_wing = Wing(set; prn=false)
+    vsm_set_path = joinpath(get_data_path(), "vsm_settings.yaml")
+    vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+    vsm_wing = Wing(set, vsm_set; prn=false)
     gammas = [-1/2, 1/2] * vsm_wing.gamma_tip
     
     bridle_top_left = [vsm_wing.R_cad_body * (set.top_bridle_points[i] + vsm_wing.T_cad_body) for i in eachindex(set.top_bridle_points)] # cad to kite frame
