@@ -18,6 +18,8 @@ using Statistics
 using GLMakie
 using KiteUtils
 using DiscretePIDs
+using V3Kite: V3_STEERING_L0_BASE, V3_STEERING_GAIN, V3_DEPOWER_L0_BASE, V3_DEPOWER_GAIN,
+              V3_DEFAULT_DELTA, steering_percentage_to_lengths, depower_percentage_to_length
 
 REFINE = true
 QUAT = false
@@ -34,37 +36,11 @@ WINCH_P = 1000.0    # Proportional gain [N/m]
 WINCH_I = 100.0     # Integral gain [N/(m·s)]
 WINCH_D = 50.0      # Derivative gain [N·s/m]
 
-# V3 Kite steering/depower calibration (from KCU documentation)
-STEERING_L0 = 1.6  # Neutral steering tape length (m)
-STEERING_GAIN = 1.2  # Maximum differential (m) at |u_s| = 1
-
-# Depower calibration
-DEPOWER_L0 = 0.2
-DEPOWER_GAIN = 5.0
-
-"""
-    steering_percentage_to_lengths(percentage)
-
-Convert steering percentage to left/right tape lengths (m).
-Percentage convention: negative = left turn, positive = right turn.
-"""
-function steering_percentage_to_lengths(percentage)
-    u_s = percentage / 100.0  # Convert percentage to [-1, 1]
-    L_left = STEERING_L0 - STEERING_GAIN * u_s
-    L_right = STEERING_L0 + STEERING_GAIN * u_s
-    return L_left, L_right
-end
-
-"""
-    depower_percentage_to_length(percentage)
-
-Convert depower percentage to tape length (m).
-"""
-function depower_percentage_to_length(percentage)
-    u_p = percentage / 100.0  # Convert percentage to [0, 1]
-    L_depower = DEPOWER_L0 + DEPOWER_GAIN * u_p
-    return L_depower
-end
+# V3 Kite steering/depower calibration
+# Using V3Kite.jl calibration functions (imported above)
+# Base values: V3_STEERING_L0_BASE=1.6, V3_DEPOWER_L0_BASE=0.2
+# Default delta: V3_DEFAULT_DELTA=-0.2
+# Effective values: steering_l0=1.4, depower_l0=0.0
 
 """
     run_v3_kite(wing_type::WingType; kwargs...)

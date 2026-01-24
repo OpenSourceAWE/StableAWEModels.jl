@@ -8,7 +8,11 @@ if isnothing(pkg_file_path)
     error("SymbolicAWEModels not found in the current project environment.")
 else
     package_root_dir = dirname(dirname(pkg_file_path))
-    data_path = joinpath(package_root_dir, "data")
+    src_data_path = joinpath(package_root_dir, "data", "ram_air_kite")
+    # Create temp directory once for all tests
+    tmpdir = mktempdir()
+    data_path = joinpath(tmpdir, "ram_air_kite")
+    cp(src_data_path, data_path; force=true)
     @show data_path
     set_data_path(data_path)
 end

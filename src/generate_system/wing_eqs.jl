@@ -138,14 +138,6 @@ function wing_eqs!(
         I_b = wing.inertia_principal
         axis = collect(sym_normalize(wing_pos[:, wing.idx]))
         axis_b = collect(R_b_w[:, :, wing.idx]' * axis)
-        # ifelse.(
-        #     fix_wing_sphere[wing.idx] == true,
-        #     ω_b[:, wing.idx] - (ω_b[:, wing.idx] ⋅ axis_b) * axis_b,
-        #     ω_b[:, wing.idx],
-        # )
-        # moment_b[:, wing.idx] ~
-        #     aero_moment_b[:, wing.idx] +
-        #     collect(R_b_w[:, :, wing.idx])' * collect(moment_tether_wing[:, wing.idx])
         eqs = [
             eqs
             fix_wing_sphere[wing.idx] ~ get_fix_wing_sphere(psys, wing.idx)
@@ -158,28 +150,26 @@ function wing_eqs!(
                 ) for i = 1:4
             ]
             # Constrain angular velocity for spherical joint
-            ω_b_stable[:, wing.idx] ~ zeros(3)
-            # ifelse.(
-            #     fix_wing == true,
-            #     zeros(3),
-            #     ifelse.(
-            #         fix_wing_sphere[wing.idx] == true,
-            #         ω_b[:, wing.idx] - (ω_b[:, wing.idx] ⋅ axis_b) * axis_b,
-            #         ω_b[:, wing.idx],
-            #     ),
-            # )
+            ω_b_stable[:, wing.idx] ~ ifelse.(
+                fix_wing == true,
+                zeros(3),
+                ifelse.(
+                    fix_wing_sphere[wing.idx] == true,
+                    ω_b[:, wing.idx] - (ω_b[:, wing.idx] ⋅ axis_b) * axis_b,
+                    ω_b[:, wing.idx],
+                ),
+            )
             # Constrain angular acceleration
-            D(ω_b[:, wing.idx]) ~ zeros(3)
-            # ifelse.(
-            #     fix_wing == true,
-            #     zeros(3),
-            #     ifelse.(
-            #         fix_wing_sphere[wing.idx] == true,
-            #         α_b_damped[:, wing.idx] -
-            #         (α_b_damped[:, wing.idx] ⋅ axis_b) * axis_b,
-            #         α_b_damped[:, wing.idx],
-            #     ),
-            # )
+            D(ω_b[:, wing.idx]) ~ ifelse.(
+                fix_wing == true,
+                zeros(3),
+                ifelse.(
+                    fix_wing_sphere[wing.idx] == true,
+                    α_b_damped[:, wing.idx] -
+                    (α_b_damped[:, wing.idx] ⋅ axis_b) * axis_b,
+                    α_b_damped[:, wing.idx],
+                ),
+            )
             # Apply damping and disturbances to angular acceleration
             α_b_damped[:, wing.idx] ~ [
                 α_b[1, wing.idx],
@@ -218,26 +208,24 @@ function wing_eqs!(
                 R_b_w[:, :, wing.idx]' * moment_tether_wing[:, wing.idx]
 
             # Translational dynamics (Newton's second law)
-            D(wing_pos[:, wing.idx]) ~ zeros(3)
-            # ifelse.(
-            #     fix_wing == true,
-            #     zeros(3),
-            #     ifelse.(
-            #         fix_wing_sphere[wing.idx] == true,
-            #         (wing_vel[:, wing.idx] ⋅ axis) * axis,
-            #         wing_vel[:, wing.idx],
-            #     ),
-            # )
-            D(wing_vel[:, wing.idx]) ~ zeros(3)
-            # ifelse.(
-            #     fix_wing == true,
-            #     zeros(3),
-            #     ifelse.(
-            #         fix_wing_sphere[wing.idx] == true,
-            #         (wing_acc[:, wing.idx] ⋅ axis) * axis,
-            #         wing_acc[:, wing.idx],
-            #     ),
-            # )
+            D(wing_pos[:, wing.idx]) ~ ifelse.(
+                fix_wing == true,
+                zeros(3),
+                ifelse.(
+                    fix_wing_sphere[wing.idx] == true,
+                    (wing_vel[:, wing.idx] ⋅ axis) * axis,
+                    wing_vel[:, wing.idx],
+                ),
+            )
+            D(wing_vel[:, wing.idx]) ~ ifelse.(
+                fix_wing == true,
+                zeros(3),
+                ifelse.(
+                    fix_wing_sphere[wing.idx] == true,
+                    (wing_acc[:, wing.idx] ⋅ axis) * axis,
+                    wing_acc[:, wing.idx],
+                ),
+            )
             wing_mass[wing.idx] ~ get_set_mass(pset)
             force_tether_wing[:, wing.idx] ~ tether_wing_force[:, wing.idx]
             wing_acc[:, wing.idx] ~

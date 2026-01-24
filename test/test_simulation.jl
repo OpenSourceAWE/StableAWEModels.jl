@@ -5,11 +5,13 @@ using Test
 using SymbolicAWEModels
 using Statistics, LinearAlgebra
 
-tmpdir=mktempdir()
-mkpath(joinpath(tmpdir, "data"))
-old_data_path = get_data_path()
-set_data_path(joinpath(tmpdir, "data"))
-cp(old_data_path, get_data_path(); force=true)
+# Set up tmpdir if not already done by runtests.jl
+if !startswith(get_data_path(), tempdir())
+    src_data_path = joinpath(dirname(dirname(pathof(SymbolicAWEModels))), "data", "ram_air_kite")
+    tmpdir = mktempdir()
+    set_data_path(joinpath(tmpdir, "ram_air_kite"))
+    cp(src_data_path, get_data_path(); force=true)
+end
 
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
@@ -135,5 +137,3 @@ end
         @test lg.syslog.azimuth[end] ≈ target_azimuth atol=0.05
     end
 end
-
-set_data_path(old_data_path)

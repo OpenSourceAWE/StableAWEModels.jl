@@ -1086,7 +1086,7 @@ function Makie.plot(sys::SystemStructure, logs::Vector{<:SysLog}; kwargs...)
 end
 
 function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
-                   plot_default=false,
+                   plot_default=true,
                    plot_reelout=plot_default,
                    plot_aero_force=plot_default,
                    plot_twist=false,

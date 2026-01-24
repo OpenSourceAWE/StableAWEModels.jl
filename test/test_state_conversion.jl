@@ -5,13 +5,15 @@ using Test
 using SymbolicAWEModels
 using Statistics, LinearAlgebra
 
-@testset verbose=true "SysState ↔ SystemStructure conversion" begin
-    tmpdir=mktempdir()
-    mkpath(joinpath(tmpdir, "data"))
-    old_data_path = get_data_path()
-    set_data_path(joinpath(tmpdir, "data"))
-    cp(old_data_path, get_data_path(); force=true)
+# Set up tmpdir if not already done by runtests.jl
+if !startswith(get_data_path(), tempdir())
+    src_data_path = joinpath(dirname(dirname(pathof(SymbolicAWEModels))), "data", "ram_air_kite")
+    tmpdir = mktempdir()
+    set_data_path(joinpath(tmpdir, "ram_air_kite"))
+    cp(src_data_path, get_data_path(); force=true)
+end
 
+@testset verbose=true "SysState ↔ SystemStructure conversion" begin
     set = Settings("system.yaml")
     original_set = Settings("system.yaml")
 
@@ -277,6 +279,4 @@ using Statistics, LinearAlgebra
         @test sys.points[2].pos_w[1] ≈ 5.0
         @test sys.points[2].pos_w[3] ≈ 10.0
     end
-
-    set_data_path(old_data_path)
 end

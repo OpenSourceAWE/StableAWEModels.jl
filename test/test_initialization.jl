@@ -4,10 +4,13 @@
 using Test
 using SymbolicAWEModels
 
-tmpdir=mktempdir()
-old_data_path = get_data_path()
-set_data_path(joinpath(tmpdir, "data"))
-cp(old_data_path, get_data_path(); force=true)
+# Set up tmpdir if not already done by runtests.jl
+if !startswith(get_data_path(), tempdir())
+    src_data_path = joinpath(dirname(dirname(pathof(SymbolicAWEModels))), "data", "ram_air_kite")
+    tmpdir = mktempdir()
+    set_data_path(joinpath(tmpdir, "ram_air_kite"))
+    cp(src_data_path, get_data_path(); force=true)
+end
 
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
@@ -31,17 +34,18 @@ end
 
 @testset verbose=true "Initialization" begin
     function init(elevation, azimuth, heading)
-        set.elevation = elevation
-        set.azimuth = azimuth
-        set.heading = heading
+        transform = sam.sys_struct.transforms[1]
+        transform.elevation = deg2rad(elevation)
+        transform.azimuth = deg2rad(azimuth)
+        transform.heading = deg2rad(heading)
         init!(sam)
         ss = SysState(sam)
-        @test sam.sys_struct.wings[1].elevation ≈ deg2rad(set.elevation) atol=1e-2
-        @test sam.sys_struct.wings[1].azimuth ≈ deg2rad(set.azimuth) atol=1e-2
-        @test sam.sys_struct.wings[1].heading ≈ deg2rad(set.heading) atol=1e-2
-        @test ss.elevation ≈ deg2rad(set.elevation) atol=1e-2
-        @test ss.azimuth ≈ deg2rad(set.azimuth) atol=1e-2
-        @test ss.heading ≈ deg2rad(set.heading) atol=1e-2
+        @test sam.sys_struct.wings[1].elevation ≈ transform.elevation atol=1e-2
+        @test sam.sys_struct.wings[1].azimuth ≈ transform.azimuth atol=1e-2
+        @test sam.sys_struct.wings[1].heading ≈ transform.heading atol=1e-2
+        @test ss.elevation ≈ transform.elevation atol=1e-2
+        @test ss.azimuth ≈ transform.azimuth atol=1e-2
+        @test ss.heading ≈ transform.heading atol=1e-2
     end
 
     @testset "Model types" begin
@@ -67,5 +71,3 @@ end
         init(zeros(3)...)
     end
 end
-
-set_data_path(old_data_path)
