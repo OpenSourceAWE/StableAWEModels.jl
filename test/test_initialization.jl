@@ -5,7 +5,6 @@ using Test
 using SymbolicAWEModels
 
 tmpdir=mktempdir()
-mkpath(joinpath(tmpdir, "data"))
 old_data_path = get_data_path()
 set_data_path(joinpath(tmpdir, "data"))
 cp(old_data_path, get_data_path(); force=true)

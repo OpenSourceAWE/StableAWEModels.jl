@@ -16,7 +16,7 @@ vsm_interval = 3
 
 # Steering parameters
 steering_freq = 1/2  # Hz - full left-right cycle frequency
-steering_magnitude = 10.0      # Magnitude of steering input [Nm]
+steering_magnitude = 1.0      # Magnitude of steering input [Nm]
 
 # Initialize model
 set_data_path("data/ram_air_kite")
