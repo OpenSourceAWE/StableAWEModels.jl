@@ -5,7 +5,6 @@ Shared utility functions for coupled examples.
 using CSV, DataFrames
 using LinearAlgebra
 using UnPack
-using Rotations
 
 # V3 Kite steering/depower calibration (from KCU documentation)
 const V3_STEERING_L0 = 1.4    # Neutral steering tape length (m)

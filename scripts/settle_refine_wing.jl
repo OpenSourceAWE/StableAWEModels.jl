@@ -16,7 +16,6 @@ using SymbolicAWEModels
 using VortexStepMethod
 using LinearAlgebra
 using KiteUtils
-using OrdinaryDiffEqCore
 using CairoMakie, GLMakie
 using CSV, DataFrames
 using UnPack
@@ -133,7 +132,7 @@ wing_points = [p for p in sys.points if p.type == WING]
 sam = SymbolicAWEModel(set, sys)
 
 # Initialize model
-SymbolicAWEModels.init!(sam; remake=false, ignore_l0=false, remake_vsm=true)
+SymbolicAWEModels.init!(sam; remake=true, ignore_l0=false, remake_vsm=true)
 
 # Enable winch brakes to lock tether length
 for winch in sys.winches

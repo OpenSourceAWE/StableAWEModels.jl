@@ -273,8 +273,7 @@ function VSMWing(idx::Int, set::Settings,
                      Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}=nothing,
                  origin_idx::Union{Nothing, Int64}=nothing,
                  aero_scale_chord::SimFloat=0.0,
-                 aero_z_offset::SimFloat=0.0,
-                 sort_sections::Bool=false)
+                 aero_z_offset::SimFloat=0.0)
 
     # Validation
     if wing_type == REFINE
@@ -295,8 +294,8 @@ function VSMWing(idx::Int, set::Settings,
             "QUATERNION wings don't use origin_idx"
     end
 
-    # Create VSM wing, aero, and solver (sort_sections passed to prevent sorting)
-    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false, sort_sections)
+    # Create VSM wing, aero, and solver
+    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero;
         solver_type=VortexStepMethod.NONLIN,

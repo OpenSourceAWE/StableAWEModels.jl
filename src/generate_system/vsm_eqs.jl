@@ -136,7 +136,7 @@ function linear_vsm_eqs!(
                 # Dynamic pressure for force scaling
                 q_inf[wing.idx] ~
                     0.5 * calc_rho(s.am, wing_pos[3, wing.idx]) *
-                    norm(va_wing_b[:, wing.idx])^2
+                    norm(collect(va_wing_b[:, wing.idx]))^2
 
                 # Load linearization data from VSM (state₀, F₀, ∂F/∂state)
                 [vsm_input_state_prev[iy, wing.idx] ~ get_vsm_y(psys, wing.idx, iy) for iy = 1:ny_quaternion]

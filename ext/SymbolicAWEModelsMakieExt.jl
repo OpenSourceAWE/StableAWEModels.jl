@@ -166,7 +166,12 @@ function Makie.plot!(ax, sys::SystemStructure;
                 origins = Point3f[]
                 directions = Vec3f[]
                 for wing in sys_ref.wings
-                    origin_pos = Point3f(sys_ref.points[wing.origin_idx].pos_w)
+                    # Skip wings without origin_idx (QUATERNION wings use pos_w directly)
+                    if isnothing(wing.origin_idx)
+                        origin_pos = Point3f(wing.pos_w)
+                    else
+                        origin_pos = Point3f(sys_ref.points[wing.origin_idx].pos_w)
+                    end
                     R = wing.R_b_w
                     # Add three arrow vectors for each axis (x, y, z in body frame)
                     for i in 1:3

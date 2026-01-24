@@ -23,7 +23,7 @@ set_data_path("data/ram_air_kite")
 set = Settings("system.yaml")
 set.profile_law = 3
 sam = SymbolicAWEModel(set)
-SymbolicAWEModels.init!(sam; remake=true)
+SymbolicAWEModels.init!(sam; remake=false)
 plot(sam.sys_struct)
 
 find_steady_state!(sam)

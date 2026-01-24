@@ -72,28 +72,29 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
             group_le_pos[:, group.idx] ~ get_group_le_pos(psys, group.idx)
         ]
 
-        x_airf = sym_normalize(group_chord[:, group.idx])
-        init_z_airf = x_airf × group_y_airf[:, group.idx]
-        z_airf =
-            x_airf * sin(twist_angle[group.idx]) +
-            init_z_airf * cos(twist_angle[group.idx])
+        gc = collect(group_chord[:, group.idx])
+        x_airf = sym_normalize(gc)
+        gy = collect(group_y_airf[:, group.idx])
+        init_z_airf = x_airf × gy
+        z_airf = sin(twist_angle[group.idx]) * x_airf + cos(twist_angle[group.idx]) * init_z_airf
+        Rbw = collect(R_b_w[:, :, wing.idx])
+        Rz = Rbw * (-1 * z_airf)  # Note: -z_airf has a bug, use -1 * z_airf instead
+        gl = collect(group_le_pos[:, group.idx])
+
         for (i, point_idx) in enumerate(group.point_idxs)
+            pf = collect(point_force[:, point_idx])
+            rv = collect(r_vec[:, i, group.idx])
             eqs = [
                 eqs
-                r_vec[:, i, group.idx] ~ (
-                    get_pos_b(psys, point_idx) .-
-                    (group_le_pos[:, group.idx] + get_moment_frac(psys, group.idx) * group_chord[:, group.idx])
-                )
-                r_group[i, group.idx] ~
-                    r_vec[:, i, group.idx] ⋅ sym_normalize(group_chord[:, group.idx])
-                tether_force[i, group.idx] ~
-                    (point_force[:, point_idx] ⋅ (R_b_w[:, :, wing.idx] * -z_airf))
-                tether_moment[i, group.idx] ~
-                    r_group[i, group.idx] * tether_force[i, group.idx]
+                r_vec[:, i, group.idx] ~ get_pos_b(psys, point_idx) .- (gl + get_moment_frac(psys, group.idx) * gc)
+                r_group[i, group.idx] ~ rv ⋅ sym_normalize(gc)
+                tether_force[i, group.idx] ~ pf ⋅ Rz
+                tether_moment[i, group.idx] ~ r_group[i, group.idx] * tether_force[i, group.idx]
             ]
         end
 
         # Inertia of a thin rectangular plate rotating around one edge
+        group_chord = collect(group_chord)
         inertia =
             1 / 3 * (get_set_mass(pset) / length(groups)) * (norm(group_chord[:, group.idx]))^2
         @parameters max_twist = deg2rad(90)
