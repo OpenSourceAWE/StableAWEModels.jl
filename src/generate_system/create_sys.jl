@@ -242,8 +242,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
             rethrow(e)
         end
     end
-    flat_eqs = reduce(vcat, Symbolics.scalarize.(eqs))
-    eqs = Symbolics.scalarize.(flat_eqs)
+    
+    eqs = Symbolics.scalarize.(reduce(vcat, Symbolics.scalarize.(eqs)))
 
     # Debug: Look for any remaining slice references after scalarization
     for (i, eq) in enumerate(eqs)

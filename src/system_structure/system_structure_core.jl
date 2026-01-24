@@ -352,15 +352,15 @@ function SystemStructure(name, set;
         n_unrefined = the_vsm_wing.n_unrefined_sections
         n_groups = length(the_wing.base.group_idxs)
 
-        # Compute group centers in body frame
+        # Compute group centers in body frame (average of all attach points)
         group_centers = Vector{MVec3}(undef, n_groups)
         for (local_idx, group_idx) in enumerate(the_wing.base.group_idxs)
             group = groups[group_idx]
-            le_idx = group.point_idxs[1]
-            te_idx = group.point_idxs[2]
-            le_pos_b = the_wing.base.R_b_c' * (points[le_idx].pos_cad - the_wing.base.pos_cad)
-            te_pos_b = the_wing.base.R_b_c' * (points[te_idx].pos_cad - the_wing.base.pos_cad)
-            group_centers[local_idx] = (le_pos_b + te_pos_b) / 2
+            center = zeros(3)
+            for pt_idx in group.point_idxs
+                center += the_wing.base.R_b_c' * (points[pt_idx].pos_cad - the_wing.base.pos_cad)
+            end
+            group_centers[local_idx] = center / length(group.point_idxs)
         end
 
         # Compute unrefined section centers
