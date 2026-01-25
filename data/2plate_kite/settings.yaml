@@ -11,7 +11,7 @@ system:
     g_earth:     9.81
 
 initial:
-    l_tethers: [10.0]  # initial tether length       [m]
+    l_tethers: [0.0]  # initial tether length       [m]
     v_reel_outs: [0.0]   # initial reel out speed    [m/s]
 
 solver:

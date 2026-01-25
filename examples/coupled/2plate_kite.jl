@@ -21,7 +21,7 @@ using GLMakie
 const MODEL_NAME = "2plate_kite"
 const SIM_TIME   = 10.0
 const N_STEPS    = 600
-const REMAKE_CACHE = true
+const REMAKE_CACHE = false
 # =========================================
 
 # Set data path to the 2plate_kite project folder
@@ -70,8 +70,12 @@ for step in 1:n_steps
     try
         next_step!(sam; dt=Δt, vsm_interval=1)
     catch err
-        @error "next_step! failed" step integrator_t=sam.integrator.t integrator_dt=sam.integrator.dt integrator_norm=norm(sam.integrator.u) integrator_max=maximum(abs, sam.integrator.u) exception=(err, catch_backtrace())
-        rethrow(err)
+        if err isa AssertionError
+            @error "next_step! failed"
+            break
+        else
+            rethrow(err)
+        end
     end
 
     # Log current state

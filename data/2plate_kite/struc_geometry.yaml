@@ -47,19 +47,19 @@ segments:
     - [le_tube_right, te_center, te_right, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
 
     # Wing structural elements - struts (chords)
-    - [strut_left,   te_left, le_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
-    - [strut_center, te_center, le_right, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
-    - [strut_right,  te_right, kcu, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [strut_left,   le_left, te_left, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [strut_center, le_center, te_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [strut_right,  le_right, te_right, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
 
     # Wing structural elements - trailing edge wires
     - [te_wire_left,  le_center, le_right, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
-    - [te_wire_right, le_right, kcu, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [te_wire_right, le_center, le_left, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
 
     # Wing structural elements - diagonal springs
-    - [diag_1, te_left, le_right, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
-    - [diag_2, le_center, te_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
-    - [diag_3, te_center, kcu, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
-    - [diag_4, le_right, te_right, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [diag_1, te_left, le_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [diag_2, le_left, te_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [diag_3, te_right, le_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [diag_4, le_right, te_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
 
     # Bridle segments
     - [bridle_le_left, le_left, kcu, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
@@ -111,8 +111,8 @@ wings:
       type: REFINE
       point_ids: [le_left, te_left, le_center, te_center, le_right, te_right]
       origin_idx: kcu
-      z_ref_points: [le_center, te_center]
-      y_ref_points: [le_left, le_right]
+      z_ref_points: [kcu, le_center]
+      y_ref_points: [le_right, le_left]
 
 ###########################
 ## Transforms #############

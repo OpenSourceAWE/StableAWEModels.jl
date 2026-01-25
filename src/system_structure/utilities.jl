@@ -265,7 +265,6 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     for winch in winches
-        winch.tether_len = set.l_tethers[winch.idx]
         winch.tether_vel = set.v_reel_outs[winch.idx]
     end
 
@@ -281,6 +280,18 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                    points[segment.point_idxs[2]].pos_cad)
         (segment.l0 ≈ 0) && (segment.l0 = len)
         segment.len = len
+    end
+
+    # Calculate winch tether_len from settings or sum of segment l0 values
+    for winch in winches
+        l_tether = set.l_tethers[winch.idx]
+        if l_tether == 0
+            # Calculate from total segment l0 of all segments in this winch's tethers
+            l_tether = sum(segments[seg_idx].l0
+                           for tether_idx in winch.tether_idxs
+                           for seg_idx in tethers[tether_idx].segment_idxs)
+        end
+        winch.tether_len = l_tether
     end
 
     for pulley in pulleys

@@ -8,8 +8,8 @@ system:
     g_earth:      0
 
 initial:
-    l_tethers: [260]  # initial tether length       [m]
-    v_reel_outs: [0.0, 0.0, 0.0]   # initial reel out speed    [m/s]
+    l_tethers: [0]  # initial tether length       [m]
+    v_reel_outs: [0]   # initial reel out speed    [m/s]
 
 solver:
     solver: "FBDF"
