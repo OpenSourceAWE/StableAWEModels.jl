@@ -1,5 +1,6 @@
 [deps]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
+RamAirKite = "7ebed07a-3d9a-4117-97d2-0a397f5b89df"
 V3Kite = "4caac9c8-c726-438f-ab10-3553e918eab1"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
@@ -29,5 +30,6 @@ VortexStepMethod = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [sources]
+RamAirKite = {path = "../../RamAirKite.jl"}
 SymbolicAWEModels = {path = ".."}
 V3Kite = {path = "../../V3Kite.jl"}

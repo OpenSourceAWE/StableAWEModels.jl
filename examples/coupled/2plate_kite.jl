@@ -19,11 +19,15 @@ using GLMakie
 
 # ============= User settings =============
 const MODEL_NAME = "2plate_kite"
-const GEOM_PATH  = joinpath("data", MODEL_NAME, "struc_geometry.yaml")
 const SIM_TIME   = 10.0
 const N_STEPS    = 600
 const REMAKE_CACHE = false
 # =========================================
+
+# Set data path to the 2plate_kite project folder
+pkg_root = dirname(dirname(@__DIR__))
+set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
+const GEOM_PATH = joinpath(get_data_path(), "struc_geometry.yaml")
 
 # Include helper utilities first
 yaml_loader_path = joinpath(@__DIR__, "..", "yaml_loader.jl")
@@ -34,7 +38,7 @@ else
 end
 
 # Load settings for the 2-plate kite
-set = Settings(joinpath("data", MODEL_NAME, "system.yaml"))
+set = Settings("system.yaml")
 if hasproperty(set, :c_spring) || hasproperty(set, :damping)
     @info "Legacy tether settings still present" c_spring=(hasproperty(set, :c_spring) ? getproperty(set, :c_spring) : missing) damping=(hasproperty(set, :damping) ? getproperty(set, :damping) : missing)
 end

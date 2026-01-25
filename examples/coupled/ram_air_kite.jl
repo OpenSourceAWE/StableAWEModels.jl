@@ -1,39 +1,58 @@
 # Copyright (c) 2024, 2025 Bart van de Lint, Uwe Fechner
 # SPDX-License-Identifier: MPL-2.0
 
+"""
+Ram Air Kite Simulation Example
+
+This example uses RamAirKite.jl to run a simulation with sinusoidal steering.
+
+Usage:
+    julia --project=examples examples/coupled/ram_air_kite.jl
+"""
+
 using Timers
 tic()
-@info "Loading packages "
+@info "Loading packages..."
 using GLMakie
-using SymbolicAWEModels
+using RamAirKite
 
 toc()
 
-# Simulation parameters
-dt = 0.05
-total_time = 10.0
-vsm_interval = 3
+# Create simulation configuration
+config = RamAirSimConfig(
+    physical_model = "ram",      # Options: "ram", "simple_ram", "4_attach_ram"
+    sim_time = 10.0,
+    dt = 0.05,
+    vsm_interval = 3,
+    steering_freq = 0.5,         # Hz - full left-right cycle frequency
+    steering_magnitude = 1.0,    # Nm
+)
 
-# Steering parameters
-steering_freq = 1/2  # Hz - full left-right cycle frequency
-steering_magnitude = 1.0      # Magnitude of steering input [Nm]
-
-# Initialize model
-set_data_path("data/ram_air_kite")
-set = Settings("system.yaml")
-set.profile_law = 3
-sam = SymbolicAWEModel(set)
-SymbolicAWEModels.init!(sam; remake=false)
+# Create and initialize model
+sam = create_ram_air_model(config)
+init!(sam; remake=false)
 plot(sam.sys_struct)
 
+# Find steady state
 find_steady_state!(sam)
-bias = 0.2
-if set.physical_model == "4_attach_ram"
+
+# Adjust bias for 4_attach_ram model
+bias = config.steering_bias
+if config.physical_model == "4_attach_ram"
     bias = 0.05
 end
 
-sl, _ = sim_oscillate!(sam; dt, total_time, vsm_interval, steering_freq, steering_magnitude, 
-                       bias, prn=true)
+# Run oscillating simulation
+sl, _ = sim_oscillate!(sam;
+    dt = config.dt,
+    total_time = config.sim_time,
+    vsm_interval = config.vsm_interval,
+    steering_freq = config.steering_freq,
+    steering_magnitude = config.steering_magnitude,
+    bias = bias,
+    prn = true)
+
+# Plot and replay
 fig = plot(sam.sys_struct, sl)
 scr = display(fig)
 wait(scr)

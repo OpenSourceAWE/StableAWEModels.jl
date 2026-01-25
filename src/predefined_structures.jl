@@ -479,12 +479,17 @@ Optional `Settings` fields:
 function create_2plate_sys_struct(set::Settings)
     model_name = hasproperty(set, :model_name) ? set.model_name : "2plate_kite"
 
+    # --------------------------- VSM SETTINGS --------------------------- #
+    vsm_set_path = hasproperty(set, :vsm_settings_path) ? set.vsm_settings_path :
+        joinpath(get_data_path(), "vsm_settings.yaml")
+    vsm_set = isfile(vsm_set_path) ? VortexStepMethod.VSMSettings(vsm_set_path) : nothing
+
     # --------------------------- STRUCTURE --------------------------- #
     struc_yaml = hasproperty(set, :struc_geometry_path) ? set.struc_geometry_path :
-        joinpath("data", model_name, "struc_geometry.yaml")
+        joinpath(get_data_path(), "struc_geometry.yaml")
     @assert isfile(struc_yaml) "Structural YAML not found: $struc_yaml"
 
-    sys_from_yaml = load_sys_struct_from_yaml(struc_yaml; system_name=model_name, set=set)
+    sys_from_yaml = load_sys_struct_from_yaml(struc_yaml; system_name=model_name, set=set, vsm_set=vsm_set)
     return sys_from_yaml
 end
 

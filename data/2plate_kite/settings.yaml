@@ -25,8 +25,8 @@ kite:
     model: ""     # 3D model of the kite
     foil_file: "ram_air_kite/ram_air_kite_foil.dat" # filename for the foil shape
     physical_model: "2plate"            # name of the kite model to use (2plate, ram, etc.)
-    struc_geometry_path: "data/2plate_kite/struc_geometry.yaml"  # structural YAML
-    aero_geometry_path: "data/2plate_kite/aero_geometry.yaml"    # aerodynamic YAML
+    struc_geometry_path: "struc_geometry.yaml"  # structural YAML
+    aero_geometry_path: "aero_geometry.yaml"    # aerodynamic YAML
     top_bridle_points:                      # top bridle points that are not on the kite body in CAD frame
         - [0.290199, 0.784697, -2.61305]
         - [0.392683, 0.785271, -2.61201]

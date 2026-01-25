@@ -122,7 +122,7 @@ function parse_table(tbl)::Vector{NamedTuple}
     haskey(tbl, "data") || throw(ArgumentError("table is missing `data`"))
 
     rows = tbl["data"]
-    isempty(rows) && return NamedTuple[]
+    (isnothing(rows) || isempty(rows)) && return NamedTuple[]
 
     # Check format: if first row is a Dict,
     # use dict format; if Array, use header format
@@ -225,9 +225,12 @@ function call_yaml_constructor(
     for kwarg_name in kwargs_spec
         if haskey(mappings, kwarg_name)
             kwargs[kwarg_name] = mappings[kwarg_name](row)
-        elseif haskey(row, kwarg_name) &&
-               !isnothing(row[kwarg_name])
-            kwargs[kwarg_name] = row[kwarg_name]
+        elseif haskey(row, kwarg_name)
+            val = row[kwarg_name]
+            # Skip nothing values (Julia nothing or YAML "nothing" string)
+            if !isnothing(val) && val != "nothing"
+                kwargs[kwarg_name] = val
+            end
         end
     end
 
