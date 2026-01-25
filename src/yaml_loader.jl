@@ -3,9 +3,6 @@ using Logging
 using LinearAlgebra
 using VortexStepMethod, KiteUtils
 
-# Default diameter for wing section segments (in mm)
-DEFAULT_WING_DIAMETER_MM = 1.0
-
 # ------------------ helpers ------------------
 
 """
@@ -290,43 +287,43 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         error("Unknown SegmentType: $s")
     end
 
-    # Load points
+    # Note: Name resolution is now handled by SystemStructure.assign_indices_and_resolve!
+
+    # Helper to convert raw reference to proper type (Int or Symbol)
+    function to_ref(val)
+        if val isa Integer
+            return Int(val)
+        elseif val isa String
+            return Symbol(val)
+        elseif val isa Symbol
+            return val
+        else
+            return Int(val)
+        end
+    end
+
+    # Load points - SystemStructure handles resolution
     points = Point[]
 
     if haskey(data, "points")
         point_rows = parse_table(data["points"])
         for (i, row) in enumerate(point_rows)
-            # Verify sequential indexing
-            @assert Int(row.idx) == i
-                "Point indices must be sequential: " *
-                "expected $i, got $(row.idx)"
-
-            # Create Point using generic constructor
+            # Create Point using new constructor (name as first positional arg)
+            # Raw references are passed - SystemStructure will resolve them
             point = call_yaml_constructor(Point, row,
-                [:idx, :pos_cad, :type],
-                [:wing_idx, :transform_idx, :extra_mass,
+                [:name, :pos_cad, :type],
+                [:wing, :transform, :extra_mass,
                  :body_frame_damping, :world_frame_damping,
                  :area, :drag_coeff];
                 mappings=Dict(
                     :pos_cad => r -> KVec3(r.pos_cad...),
-                    :type => r -> parse_dynamics_type(
-                        String(r.type)),
-                    :body_frame_damping => r -> begin
-                        if haskey(r, :body_frame_damping)
-                            val = r.body_frame_damping
-                            val isa Real ? SVector{3,SimFloat}(val, val, val) : SVector{3,SimFloat}(val...)
-                        else
-                            zeros(KVec3)
-                        end
-                    end,
-                    :world_frame_damping => r -> begin
-                        if haskey(r, :world_frame_damping)
-                            val = r.world_frame_damping
-                            val isa Real ? SVector{3,SimFloat}(val, val, val) : SVector{3,SimFloat}(val...)
-                        else
-                            zeros(KVec3)
-                        end
-                    end
+                    :type => r -> parse_dynamics_type(String(r.type)),
+                    :name => r -> haskey(r, :name) && !isnothing(r.name) ? Symbol(r.name) : i,
+                    # Pass raw references - constructor handles defaults
+                    :wing => r -> haskey(r, :wing_idx) ? to_ref(r.wing_idx) : nothing,
+                    :transform => r -> haskey(r, :transform_idx) ? to_ref(r.transform_idx) : nothing,
+                    :body_frame_damping => r -> haskey(r, :body_frame_damping) ? r.body_frame_damping : nothing,
+                    :world_frame_damping => r -> haskey(r, :world_frame_damping) ? r.world_frame_damping : nothing
                 ))
 
             point.pos_w .= point.pos_cad
@@ -374,13 +371,13 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         property_tables["segment_properties"] = segment_props_dict
     end
 
-    # Load segments
+    # Load segments - SystemStructure handles resolution
     segments = Segment[]
     if haskey(data, "segments")
         segment_rows = parse_table(data["segments"])
 
         for (i, row) in enumerate(segment_rows)
-            # Resolve references and calculate derived properties
+            # Resolve material references and calculate derived properties
             resolved_row = resolve_references(row, property_tables)
             props = Dict{Symbol, Any}(pairs(resolved_row))
             calculate_derived_properties!(props)
@@ -388,15 +385,23 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Convert back to NamedTuple for constructor
             resolved_row = NamedTuple(props)
 
-            # Create Segment using generic constructor
+            # Create Segment using new constructor (name, set, point_i, point_j, type)
+            # Raw point references are passed - SystemStructure will resolve
             segment = call_yaml_constructor(Segment, resolved_row,
-                [:idx, :set, :point_idxs, :type],
+                [:name, :set, :point_i, :point_j, :type],
                 [:l0, :diameter_mm, :axial_stiffness,
                  :axial_damping, :compression_frac];
                 mappings=Dict(
                     :set => r -> set,
-                    :point_idxs => r -> (Int(r.point_i),
-                        Int(r.point_j)),
+                    :point_i => r -> to_ref(r.point_i),
+                    :point_j => r -> to_ref(r.point_j),
+                    :name => r -> begin
+                        if haskey(r, :name) && !isnothing(r.name)
+                            Symbol(r.name)
+                        else
+                            i  # Use index as name if no name provided
+                        end
+                    end,
                     :type => r -> parse_segment_type(
                         String(r.type))
                 ))
@@ -405,24 +410,32 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    # Load pulleys
+    # Load pulleys - SystemStructure handles resolution
     pulleys = Pulley[]
     if haskey(data, "pulleys")
         pulley_rows = parse_table(data["pulleys"])
         for (i, row) in enumerate(pulley_rows)
+            # Create Pulley using new constructor (name, segment_i, segment_j, type)
             pulley = call_yaml_constructor(Pulley, row,
-                [:idx, :segment_idxs, :type],
+                [:name, :segment_i, :segment_j, :type],
                 [];
                 mappings=Dict(
-                    :segment_idxs => r -> (Int(r.segment_i),
-                        Int(r.segment_j)),
+                    :segment_i => r -> to_ref(r.segment_i),
+                    :segment_j => r -> to_ref(r.segment_j),
+                    :name => r -> begin
+                        if haskey(r, :name) && !isnothing(r.name)
+                            Symbol(r.name)
+                        else
+                            i  # Use index as name if no name provided
+                        end
+                    end,
                     :type => r -> parse_dynamics_type(String(r.type))
                 ))
             push!(pulleys, pulley)
         end
     end
 
-    # Load groups (optional, for deformable wings)
+    # Load groups (optional, for deformable wings) - SystemStructure handles resolution
     groups = Group[]
     if haskey(data, "groups") &&
        haskey(data["groups"], "data") &&
@@ -431,13 +444,19 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         group_rows = parse_table(data["groups"])
 
         for (i, row) in enumerate(group_rows)
+            # Create Group using new constructor (name, points, gamma, type, moment_frac)
             group = call_yaml_constructor(Group, row,
-                [:idx, :point_idxs, :gamma, :type,
-                 :moment_frac],
+                [:name, :points, :gamma, :type, :moment_frac],
                 [:damping];
                 mappings=Dict(
-                    :point_idxs => r ->
-                        Vector{Int}(r.point_ids),
+                    :points => r -> [to_ref(p) for p in r.point_ids],
+                    :name => r -> begin
+                        if haskey(r, :name) && !isnothing(r.name)
+                            Symbol(r.name)
+                        else
+                            i  # Use index as name if no name provided
+                        end
+                    end,
                     :type => r -> parse_dynamics_type(
                         String(r.type))
                 ))
@@ -445,7 +464,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    # Load tethers (optional)
+    # Load tethers (optional) - SystemStructure handles resolution
     tethers = Tether[]
     if haskey(data, "tethers") &&
        haskey(data["tethers"], "data") &&
@@ -453,18 +472,39 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
        !isempty(data["tethers"]["data"])
         tether_rows = parse_table(data["tethers"])
         for (i, row) in enumerate(tether_rows)
+            # Create Tether using new constructor (name, segments; winch_point)
+            # Pass raw values - constructor handles defaults
             tether = call_yaml_constructor(Tether, row,
-                [:idx, :segment_idxs, :winch_point_idx],
-                [];
+                [:name, :segments],
+                [:winch_point];
                 mappings=Dict(
-                    :segment_idxs => r -> isnothing(r.segment_idxs) ? Int64[] : Vector{Int64}(r.segment_idxs),
-                    :winch_point_idx => r -> isnothing(r.winch_point_idx) ? Int64(0) : Int64(r.winch_point_idx)
+                    :segments => r -> begin
+                        if !hasfield(typeof(r), :segment_idxs) || isnothing(r.segment_idxs)
+                            []
+                        else
+                            [to_ref(s) for s in r.segment_idxs]
+                        end
+                    end,
+                    :winch_point => r -> begin
+                        if !hasfield(typeof(r), :winch_point_idx) || isnothing(r.winch_point_idx)
+                            nothing  # Constructor handles default
+                        else
+                            to_ref(r.winch_point_idx)
+                        end
+                    end,
+                    :name => r -> begin
+                        if haskey(r, :name) && !isnothing(r.name)
+                            Symbol(r.name)
+                        else
+                            i  # Use index as name if no name provided
+                        end
+                    end
                 ))
             push!(tethers, tether)
         end
     end
 
-    # Load winches (optional)
+    # Load winches (optional) - SystemStructure handles resolution
     winches = Winch[]
     if haskey(data, "winches") &&
        haskey(data["winches"], "data") &&
@@ -472,12 +512,20 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
        !isempty(data["winches"]["data"])
         winch_rows = parse_table(data["winches"])
         for (i, row) in enumerate(winch_rows)
+            # Create Winch using new constructor (name, set, tethers)
             winch = call_yaml_constructor(Winch, row,
-                [:idx, :set, :tether_idxs],
+                [:name, :set, :tethers],
                 [:tether_len, :tether_vel, :brake];
                 mappings=Dict(
                     :set => r -> set,
-                    :tether_idxs => r -> Vector{Int64}(r.tether_idxs)
+                    :tethers => r -> [to_ref(t) for t in r.tether_idxs],
+                    :name => r -> begin
+                        if haskey(r, :name) && !isnothing(r.name)
+                            Symbol(r.name)
+                        else
+                            i  # Use index as name if no name provided
+                        end
+                    end
                 ))
             push!(winches, winch)
         end
@@ -491,18 +539,27 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         error("Unknown WingType: $s")
     end
 
-    # Parse reference points (can be single point or vector of points to average)
-    # Examples: [12, 13], [12, [13, 14]], [[11, 12], [13, 14]]
+    # Parse reference points - returns raw references (SystemStructure will resolve)
+    # Supports both numeric indices and symbolic names
+    # Examples: [12, 13], [le_center, te_center], [12, [13, 14]], [[le_1, le_2], [te_1, te_2]]
     function parse_ref_points(row, field)
         !hasfield(typeof(row), field) && return nothing
         val = getfield(row, field)
         val === nothing && return nothing
 
-        # Parse [a, b] or [a, [b, c]]
+        # Parse [a, b] or [a, [b, c]] - keep as raw references
         @assert length(val) == 2 "ref_points must have 2 elements"
 
-        p1 = val[1] isa Vector ? Int64.(val[1]) : Int64(val[1])
-        p2 = val[2] isa Vector ? Int64.(val[2]) : Int64(val[2])
+        function convert_ref(v)
+            if v isa Vector
+                return [to_ref(x) for x in v]
+            else
+                return to_ref(v)
+            end
+        end
+
+        p1 = convert_ref(val[1])
+        p2 = convert_ref(val[2])
 
         return (p1, p2)
     end
@@ -519,43 +576,78 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Use provided wing_type parameter or parse from YAML
             wt = isnothing(wing_type) ? parse_wing_type(String(row.type)) : wing_type
 
-            # Build kwargs based on wing type
+            # Build kwargs based on wing type - SystemStructure handles resolution
             if wt == REFINE
-                # REFINE wings need z_ref_points, y_ref_points, origin_idx
+                # REFINE wings need z_ref_points, y_ref_points, origin
+                # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
-                    [:idx, :set, :group_idxs, :vsm_set],
-                    [:transform_idx, :y_damping, :wing_type,
-                     :z_ref_points, :y_ref_points, :origin_idx, :pos_cad,
+                    [:name, :set, :groups, :vsm_set],
+                    [:transform, :y_damping, :wing_type,
+                     :z_ref_points, :y_ref_points, :origin, :pos_cad,
                      :aero_scale_chord];
                     mappings=Dict(
                         :set => r -> set,
-                        :group_idxs => r -> Int64[],
+                        :groups => r -> [],  # REFINE wings don't have groups
                         :vsm_set => r -> vsm_set,
                         :wing_type => r -> wt,
+                        :name => r -> begin
+                            if haskey(r, :name) && !isnothing(r.name)
+                                Symbol(r.name)
+                            else
+                                i  # Use index as name if no name provided
+                            end
+                        end,
+                        :transform => r -> begin
+                            if hasfield(typeof(r), :transform_idx) && !isnothing(r.transform_idx)
+                                to_ref(r.transform_idx)
+                            else
+                                nothing  # Constructor handles default
+                            end
+                        end,
                         :z_ref_points => r ->
                             parse_ref_points(r, :z_ref_points),
                         :y_ref_points => r ->
                             parse_ref_points(r, :y_ref_points),
-                        :origin_idx => r ->
-                            get_field_or_nothing(Int64, r, :origin_idx),
+                        :origin => r -> begin
+                            if !hasfield(typeof(r), :origin_idx) || r.origin_idx === nothing
+                                return nothing
+                            end
+                            to_ref(r.origin_idx)
+                        end,
                         :aero_scale_chord => r ->
                             hasfield(typeof(r), :aero_scale_chord) && !isnothing(r.aero_scale_chord) ?
                                 float(r.aero_scale_chord) : 0.0,
                         :pos_cad => r -> begin
-                            oidx = get_field_or_nothing(Int64, r, :origin_idx)
-                            isnothing(oidx) ? nothing : KVec3(points[oidx].pos_cad)
+                            # Note: pos_cad will be set from origin point position after resolution
+                            # For now, return nothing - SystemStructure will handle this
+                            nothing
                         end
                     ))
             else  # QUATERNION
-                # QUATERNION wings don't use these fields
+                # QUATERNION wings don't use REFINE-specific fields
+                # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
-                    [:idx, :set, :group_idxs, :vsm_set],
-                    [:transform_idx, :y_damping, :wing_type, :aero_scale_chord, :aero_z_offset];
+                    [:name, :set, :groups, :vsm_set],
+                    [:transform, :y_damping, :wing_type, :aero_scale_chord, :aero_z_offset];
                     mappings=Dict(
                         :set => r -> set,
-                        :group_idxs => r -> Int64[],
+                        :groups => r -> [],  # Groups will be auto-created
                         :vsm_set => r -> vsm_set,
                         :wing_type => r -> wt,
+                        :name => r -> begin
+                            if haskey(r, :name) && !isnothing(r.name)
+                                Symbol(r.name)
+                            else
+                                i  # Use index as name if no name provided
+                            end
+                        end,
+                        :transform => r -> begin
+                            if hasfield(typeof(r), :transform_idx) && !isnothing(r.transform_idx)
+                                to_ref(r.transform_idx)
+                            else
+                                nothing  # Constructor handles default
+                            end
+                        end,
                         :aero_scale_chord => r ->
                             hasfield(typeof(r), :aero_scale_chord) && !isnothing(r.aero_scale_chord) ?
                                 float(r.aero_scale_chord) : 0.0
@@ -565,7 +657,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    # Load transforms (optional)
+    # Load transforms (optional) - SystemStructure handles resolution
     transforms = Transform[]
     if haskey(data, "transforms") &&
        haskey(data["transforms"], "data") &&
@@ -573,30 +665,52 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
        !isempty(data["transforms"]["data"])
         transform_rows = parse_table(data["transforms"])
 
-        for row in transform_rows
+        for (i, row) in enumerate(transform_rows)
+            # Create Transform using new constructor (name, elevation, azimuth, heading; kwargs)
             transform = call_yaml_constructor(Transform, row,
-                [:idx, :elevation, :azimuth, :heading],
-                [:base_point_idx, :base_pos, :base_transform_idx,
-                 :wing_idx, :rot_point_idx,
+                [:name, :elevation, :azimuth, :heading],
+                [:base_point, :base_pos, :base_transform,
+                 :wing, :rot_point,
                  :elevation_vel, :azimuth_vel, :turn_rate];
                 mappings=Dict(
                     :elevation => r -> deg2rad(r.elevation),
                     :azimuth => r -> deg2rad(r.azimuth),
                     :heading => r -> deg2rad(r.heading),
-                    :elevation_vel => r -> hasfield(typeof(r), :elevation_vel) ?
+                    :elevation_vel => r -> hasfield(typeof(r), :elevation_vel) && !isnothing(r.elevation_vel) ?
                         deg2rad(r.elevation_vel) : 0.0,
-                    :azimuth_vel => r -> hasfield(typeof(r), :azimuth_vel) ?
+                    :azimuth_vel => r -> hasfield(typeof(r), :azimuth_vel) && !isnothing(r.azimuth_vel) ?
                         deg2rad(r.azimuth_vel) : 0.0,
-                    :turn_rate => r -> hasfield(typeof(r), :turn_rate) ?
+                    :turn_rate => r -> hasfield(typeof(r), :turn_rate) && !isnothing(r.turn_rate) ?
                         deg2rad(r.turn_rate) : 0.0,
                     :base_pos => r -> KVec3(r.base_pos...),
-                    :base_point_idx => r ->
-                        Int64(r.base_point_idx),
-                    :rot_point_idx => r ->
-                        get_field_or_nothing(Int64, r,
-                            :rot_point_idx),
-                    :wing_idx => r ->
-                        get_field_or_nothing(Int64, r, :wing_idx)
+                    :base_point => r -> to_ref(r.base_point_idx),
+                    :base_transform => r -> begin
+                        if hasfield(typeof(r), :base_transform_idx) && !isnothing(r.base_transform_idx)
+                            to_ref(r.base_transform_idx)
+                        else
+                            nothing
+                        end
+                    end,
+                    :rot_point => r -> begin
+                        if hasfield(typeof(r), :rot_point_idx) && !isnothing(r.rot_point_idx)
+                            to_ref(r.rot_point_idx)
+                        else
+                            nothing
+                        end
+                    end,
+                    :wing => r -> begin
+                        if !hasfield(typeof(r), :wing_idx) || r.wing_idx === nothing
+                            return nothing
+                        end
+                        to_ref(r.wing_idx)
+                    end,
+                    :name => r -> begin
+                        if haskey(r, :name) && !isnothing(r.name)
+                            Symbol(r.name)
+                        else
+                            i  # Use index as name if no name provided
+                        end
+                    end
                 ))
             push!(transforms, transform)
             elev_deg = rad2deg(transform.elevation)
@@ -605,7 +719,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             elev_vel_deg = rad2deg(transform.elevation_vel)
             azim_vel_deg = rad2deg(transform.azimuth_vel)
             turn_rate_deg = rad2deg(transform.turn_rate)
-            info_msg = "  ✓ Transform $(transform.idx) created: " *
+            info_msg = "  ✓ Transform $(i) created: " *
                        "elevation=$(elev_deg)°, azimuth=$(azim_deg)°, heading=$(head_deg)°"
             if elev_vel_deg != 0.0 || azim_vel_deg != 0.0
                 info_msg *= ", elevation_vel=$(elev_vel_deg)°/s, azimuth_vel=$(azim_vel_deg)°/s"

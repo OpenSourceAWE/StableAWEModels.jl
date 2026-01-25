@@ -41,6 +41,17 @@ mutable struct SystemStructure
     const winches::Vector{Winch}
     const wings::Vector{AbstractWing}
     const transforms::Vector{Transform}
+
+    # Name lookup dictionaries (built from component name fields)
+    const point_names::Dict{Symbol, Int64}
+    const group_names::Dict{Symbol, Int64}
+    const segment_names::Dict{Symbol, Int64}
+    const pulley_names::Dict{Symbol, Int64}
+    const tether_names::Dict{Symbol, Int64}
+    const winch_names::Dict{Symbol, Int64}
+    const wing_names::Dict{Symbol, Int64}
+    const transform_names::Dict{Symbol, Int64}
+
     const y::Array{Float64, 2}
     const x::Array{Float64, 2}
     const jac::Array{Float64, 3}
@@ -67,39 +78,61 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
     elseif sym == :diff_vars
         vars = SimFloat[]
         # points
-        for point in sys.points
+        points = getfield(sys, :points)
+        for point in points
             if point.type == DYNAMIC
                 append!(vars, point.pos_w)
                 append!(vars, point.vel_w)
             end
         end
         # wings
-        for wing in sys.wings
+        wings = getfield(sys, :wings)
+        for wing in wings
             append!(vars, wing.pos_w)
             append!(vars, wing.vel_w)
             append!(vars, wing.Q_b_w)
             append!(vars, wing.ω_b)
         end
         # groups
-        for group in sys.groups
+        groups = getfield(sys, :groups)
+        for group in groups
             if group.type == DYNAMIC
                 push!(vars, group.twist)
                 push!(vars, group.twist_ω)
             end
         end
         # pulleys
-        for pulley in sys.pulleys
+        pulleys = getfield(sys, :pulleys)
+        for pulley in pulleys
             if pulley.type == DYNAMIC
                 push!(vars, pulley.len)
                 push!(vars, pulley.vel)
             end
         end
         # winches
-        for winch in sys.winches
+        winches = getfield(sys, :winches)
+        for winch in winches
             push!(vars, winch.tether_len)
             push!(vars, winch.tether_vel)
         end
         return reshape(vars, :, 1) # Return as a column vector (2D array)
+    # Return NamedCollection wrappers for component vectors
+    elseif sym == :points
+        return NamedCollection(getfield(sys, :points))
+    elseif sym == :groups
+        return NamedCollection(getfield(sys, :groups))
+    elseif sym == :segments
+        return NamedCollection(getfield(sys, :segments))
+    elseif sym == :pulleys
+        return NamedCollection(getfield(sys, :pulleys))
+    elseif sym == :tethers
+        return NamedCollection(getfield(sys, :tethers))
+    elseif sym == :winches
+        return NamedCollection(getfield(sys, :winches))
+    elseif sym == :wings
+        return NamedCollection(getfield(sys, :wings))
+    elseif sym == :transforms
+        return NamedCollection(getfield(sys, :transforms))
     else
         return getfield(sys, sym)
     end
@@ -110,7 +143,8 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
         flat_value = vec(value) # Ensure value is a flat vector
         offset = 1
         # points
-        for point in sys.points
+        points = getfield(sys, :points)
+        for point in points
             if point.type == DYNAMIC
                 point.pos_w .= @view flat_value[offset:offset+2]
                 offset += 3
@@ -119,7 +153,8 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
             end
         end
         # wings
-        for wing in sys.wings
+        wings = getfield(sys, :wings)
+        for wing in wings
             wing.pos_w .= @view flat_value[offset:offset+2]
             offset += 3
             wing.vel_w .= @view flat_value[offset:offset+2]
@@ -130,7 +165,8 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
             offset += 3
         end
         # groups
-        for group in sys.groups
+        groups = getfield(sys, :groups)
+        for group in groups
             if group.type == DYNAMIC
                 group.twist = flat_value[offset]
                 offset += 1
@@ -139,7 +175,8 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
             end
         end
         # pulleys
-        for pulley in sys.pulleys
+        pulleys = getfield(sys, :pulleys)
+        for pulley in pulleys
             if pulley.type == DYNAMIC
                 pulley.len = flat_value[offset]
                 offset += 1
@@ -148,7 +185,8 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
             end
         end
         # winches
-        for winch in sys.winches
+        winches = getfield(sys, :winches)
+        for winch in winches
             winch.tether_len = flat_value[offset]
             offset += 1
             winch.tether_vel = flat_value[offset]
@@ -167,8 +205,200 @@ Calculate heading angles for all wings in the system structure.
 Returns a vector of heading angles, one per wing.
 """
 function calc_heading(sys::SystemStructure)
-    wind_norm = normalize(sys.wind_vec_gnd)
-    return [calc_heading(wing.R_b_w, wind_norm) for wing in sys.wings]
+    wind_norm = normalize(getfield(sys, :wind_vec_gnd))
+    return [calc_heading(wing.R_b_w, wind_norm) for wing in getfield(sys, :wings)]
+end
+
+"""
+    build_name_dict(items::Vector) -> Dict{Symbol, Int64}
+
+Build a name→index dictionary from a vector of items with optional `name` fields.
+Items with `name=nothing` are skipped. Integer names are converted to Symbols.
+"""
+function build_name_dict(items::Vector)
+    name_to_idx = Dict{Symbol, Int64}()
+    for (i, item) in enumerate(items)
+        # Use try-catch to handle both direct fields and delegated properties (e.g., VSMWing.name -> base.name)
+        item_name = try
+            item.name
+        catch
+            nothing
+        end
+        if !isnothing(item_name)
+            name = item_name isa Symbol ? item_name : Symbol(item_name)
+            if haskey(name_to_idx, name)
+                error("Duplicate name '$name' found at indices $(name_to_idx[name]) and $i")
+            end
+            name_to_idx[name] = i
+        end
+    end
+    return name_to_idx
+end
+
+"""
+    resolve_ref(ref::NameRef, name_dict::Dict{Symbol, Int64}, component_type::String) -> Int64
+
+Resolve a reference (name or index) to an index using the name dictionary.
+If ref is an integer, returns it directly. If ref is a symbol, looks up in dictionary.
+"""
+function resolve_ref(ref::Union{Int, Symbol}, name_dict::Dict{Symbol, Int64}, component_type::String)
+    if ref isa Int
+        return Int64(ref)
+    else
+        name = ref isa Symbol ? ref : Symbol(ref)
+        if haskey(name_dict, name)
+            return name_dict[name]
+        else
+            error("Unknown $component_type name: $name")
+        end
+    end
+end
+
+function resolve_ref(ref::Nothing, name_dict::Dict{Symbol, Int64}, component_type::String)
+    return nothing
+end
+
+"""
+    resolve_ref_spec(spec, name_dict, component_type) -> Union{Int64, Vector{Int64}, Nothing}
+
+Resolve a reference point specification (single ref or vector of refs) to indices.
+"""
+function resolve_ref_spec(spec::Union{Int, Symbol}, name_dict::Dict{Symbol, Int64}, component_type::String)
+    return resolve_ref(spec, name_dict, component_type)
+end
+
+function resolve_ref_spec(spec::AbstractVector, name_dict::Dict{Symbol, Int64}, component_type::String)
+    return Int64[resolve_ref(r, name_dict, component_type) for r in spec]
+end
+
+function resolve_ref_spec(spec::Nothing, name_dict::Dict{Symbol, Int64}, component_type::String)
+    return nothing
+end
+
+"""
+    assign_indices_and_resolve!(components, name_dicts)
+
+Assign indices to all components based on their position in the vectors,
+and resolve all references to indices.
+"""
+function assign_indices_and_resolve!(
+    points::Vector{Point},
+    groups::Vector{Group},
+    segments::Vector{Segment},
+    pulleys::Vector{Pulley},
+    tethers::Vector{Tether},
+    winches::Vector{Winch},
+    wings::Vector{<:AbstractWing},
+    transforms::Vector{Transform}
+)
+    # Build name dictionaries FIRST (using idx values after assignment)
+    # First pass: assign indices based on position
+    for (i, point) in enumerate(points)
+        point.idx = i
+    end
+    for (i, group) in enumerate(groups)
+        group.idx = i
+    end
+    for (i, segment) in enumerate(segments)
+        segment.idx = i
+    end
+    for (i, pulley) in enumerate(pulleys)
+        pulley.idx = i
+    end
+    for (i, tether) in enumerate(tethers)
+        tether.idx = i
+    end
+    for (i, winch) in enumerate(winches)
+        winch.idx = i
+    end
+    for (i, wing) in enumerate(wings)
+        wing.idx = i
+    end
+    for (i, transform) in enumerate(transforms)
+        transform.idx = i
+    end
+
+    # Build name lookup dictionaries
+    point_names = build_name_dict(points)
+    group_names = build_name_dict(groups)
+    segment_names = build_name_dict(segments)
+    pulley_names = build_name_dict(pulleys)
+    tether_names = build_name_dict(tethers)
+    winch_names = build_name_dict(winches)
+    wing_names = build_name_dict(wings)
+    transform_names = build_name_dict(transforms)
+
+    # Resolve references for all components
+    # Points: resolve wing_ref and transform_ref
+    for point in points
+        point.wing_idx = resolve_ref(point.wing_ref, wing_names, "wing")
+        point.transform_idx = resolve_ref(point.transform_ref, transform_names, "transform")
+    end
+
+    # Groups: resolve point_refs
+    for group in groups
+        group.point_idxs = Int64[resolve_ref(r, point_names, "point") for r in group.point_refs]
+    end
+
+    # Segments: resolve point_refs
+    for segment in segments
+        p1 = resolve_ref(segment.point_refs[1], point_names, "point")
+        p2 = resolve_ref(segment.point_refs[2], point_names, "point")
+        segment.point_idxs = (p1, p2)
+    end
+
+    # Pulleys: resolve segment_refs
+    for pulley in pulleys
+        s1 = resolve_ref(pulley.segment_refs[1], segment_names, "segment")
+        s2 = resolve_ref(pulley.segment_refs[2], segment_names, "segment")
+        pulley.segment_idxs = (s1, s2)
+    end
+
+    # Tethers: resolve segment_refs and winch_point_ref
+    for tether in tethers
+        tether.segment_idxs = Int64[resolve_ref(r, segment_names, "segment") for r in tether.segment_refs]
+        tether.winch_point_idx = resolve_ref(tether.winch_point_ref, point_names, "point")
+    end
+
+    # Winches: resolve tether_refs
+    for winch in winches
+        winch.tether_idxs = Int64[resolve_ref(r, tether_names, "tether") for r in winch.tether_refs]
+    end
+
+    # Transforms: resolve wing_ref, rot_point_ref, base_point_ref, base_transform_ref
+    for transform in transforms
+        transform.wing_idx = resolve_ref(transform.wing_ref, wing_names, "wing")
+        transform.rot_point_idx = resolve_ref(transform.rot_point_ref, point_names, "point")
+        transform.base_point_idx = resolve_ref(transform.base_point_ref, point_names, "point")
+        transform.base_transform_idx = resolve_ref(transform.base_transform_ref, transform_names, "transform")
+    end
+
+    # Wings: resolve group_refs, transform_ref, and REFINE-specific refs
+    for wing in wings
+        # BaseWing fields
+        wing.group_idxs = Int64[resolve_ref(r, group_names, "group") for r in wing.group_refs]
+        wing.transform_idx = resolve_ref(wing.transform_ref, transform_names, "transform")
+
+        # VSMWing-specific REFINE fields
+        if isa(wing, VSMWing)
+            if !isnothing(wing.origin_ref)
+                wing.origin_idx = resolve_ref(wing.origin_ref, point_names, "point")
+            end
+            if !isnothing(wing.z_ref_points_ref)
+                z1 = resolve_ref_spec(wing.z_ref_points_ref[1], point_names, "point")
+                z2 = resolve_ref_spec(wing.z_ref_points_ref[2], point_names, "point")
+                wing.z_ref_points = (z1, z2)
+            end
+            if !isnothing(wing.y_ref_points_ref)
+                y1 = resolve_ref_spec(wing.y_ref_points_ref[1], point_names, "point")
+                y2 = resolve_ref_spec(wing.y_ref_points_ref[2], point_names, "point")
+                wing.y_ref_points = (y1, y2)
+            end
+        end
+    end
+
+    return (point_names, group_names, segment_names, pulley_names,
+            tether_names, winch_names, wing_names, transform_names)
 end
 
 # ==================== CONSTRUCTOR ==================== #
@@ -213,6 +443,12 @@ function SystemStructure(name, set;
         end
     end
 
+    # Assign indices and resolve all references FIRST
+    # This converts symbolic names to numeric indices
+    (point_names_dict, group_names_dict, segment_names_dict, pulley_names_dict,
+     tether_names_dict, winch_names_dict, wing_names_dict, transform_names_dict) =
+        assign_indices_and_resolve!(points, groups, segments, pulleys, tethers, winches, wings, transforms)
+
     # If no wings defined, convert WING points to STATIC
     if isempty(wings)
         wing_point_idxs = findall(p -> p.type == WING, points)
@@ -222,7 +458,7 @@ function SystemStructure(name, set;
                   "points found. Converting to STATIC."
             for idx in wing_point_idxs
                 points[idx] = Point(
-                    points[idx].idx,
+                    points[idx].name,
                     points[idx].pos_cad,
                     STATIC;
                     extra_mass = points[idx].extra_mass,
@@ -230,14 +466,16 @@ function SystemStructure(name, set;
                         points[idx].body_frame_damping,
                     world_frame_damping =
                         points[idx].world_frame_damping,
-                    transform_idx = points[idx].transform_idx
+                    transform = points[idx].transform_ref
                 )
+                points[idx].idx = idx  # Reassign idx after recreation
                 points[idx].pos_w .= points[idx].pos_cad
                 points[idx].vel_w .= 0.0
             end
         end
     end
 
+    # Validate indices (now assigned by assign_indices_and_resolve!)
     for (i, point) in enumerate(points)
         @assert point.idx == i "Point $(point.idx) != $i"
         # Allow transform_idx=0 (no transform) or valid index
@@ -296,6 +534,8 @@ function SystemStructure(name, set;
 
             for (le_idx, te_idx) in wing_segments
                 group_idx = length(groups) + 1
+                # Use integer as name for auto-created groups
+                group_name = group_idx
 
                 if has_interpolators
                     # For .obj wings, calculate gamma from LE position
@@ -307,14 +547,18 @@ function SystemStructure(name, set;
                     gamma = atan(-y_le, z_le - circle_center_z)
 
                     # Use constructor with vsm_wing (computes geometry from gamma)
-                    new_group = Group(group_idx, [le_idx, te_idx],
+                    new_group = Group(group_name, [le_idx, te_idx],
                                      vsm_wing, gamma, DYNAMIC, 0.25)
                 else
                     # For YAML wings, gamma concept doesn't apply
                     # Use simple constructor (geometry computed from points later)
-                    new_group = Group(group_idx, [le_idx, te_idx],
+                    new_group = Group(group_name, [le_idx, te_idx],
                                      0.0, DYNAMIC, 0.25)
                 end
+
+                # Assign idx and resolve point_refs since these are dynamically created
+                new_group.idx = group_idx
+                new_group.point_idxs = [le_idx, te_idx]
 
                 push!(groups, new_group)
                 push!(new_group_idxs, Int64(group_idx))
@@ -347,7 +591,7 @@ function SystemStructure(name, set;
     Map groups to unrefined sections using spatial proximity.
     Each group is assigned to the closest unrefined section based on distance between centers.
     """
-    function compute_spatial_group_mapping!(the_wing::VSMWing, groups::Vector{Group}, points::Vector{Point})
+    function compute_spatial_group_mapping!(the_wing::VSMWing, groups::AbstractVector{Group}, points::AbstractVector{Point})
         the_vsm_wing = the_wing.vsm_wing
         n_unrefined = the_vsm_wing.n_unrefined_sections
         n_groups = length(the_wing.base.group_idxs)
@@ -553,8 +797,13 @@ function SystemStructure(name, set;
     x = zeros(length(wings), nx)
     jac = zeros(length(wings), nx, ny)
     set.physical_model = name
+
+    # Name dictionaries were already built by assign_indices_and_resolve!
     sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
-        winches, wings, transforms, y, x, jac, zeros(KVec3), 0.0, false, false, vsm_set)
+        winches, wings, transforms,
+        point_names_dict, group_names_dict, segment_names_dict, pulley_names_dict,
+        tether_names_dict, winch_names_dict, wing_names_dict, transform_names_dict,
+        y, x, jac, zeros(KVec3), 0.0, false, false, vsm_set)
     reinit!(sys_struct, set)
 
     # Recalculate segment rest lengths from current positions if requested

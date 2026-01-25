@@ -109,32 +109,32 @@ function create_4_attach_ram_sys_struct(set::Settings)
         ]
         segments = [
             segments
-            Segment(1+i_seg, set, (1+i_pnt, 9+i_pnt), BRIDLE)
-            Segment(2+i_seg, set, (2+i_pnt, 10+i_pnt), BRIDLE)
-            Segment(3+i_seg, set, (3+i_pnt, 11+i_pnt), BRIDLE)
-            Segment(4+i_seg, set, (4+i_pnt, 12+i_pnt), BRIDLE)
+            Segment(1+i_seg, set, 1+i_pnt, 9+i_pnt, BRIDLE)
+            Segment(2+i_seg, set, 2+i_pnt, 10+i_pnt, BRIDLE)
+            Segment(3+i_seg, set, 3+i_pnt, 11+i_pnt, BRIDLE)
+            Segment(4+i_seg, set, 4+i_pnt, 12+i_pnt, BRIDLE)
 
-            Segment(5+i_seg, set, (5+i_pnt, 9+i_pnt), BRIDLE)
-            Segment(6+i_seg, set, (6+i_pnt, 10+i_pnt), BRIDLE)
-            Segment(7+i_seg, set, (7+i_pnt, 11+i_pnt), BRIDLE)
-            Segment(8+i_seg, set, (8+i_pnt, 12+i_pnt), BRIDLE)
+            Segment(5+i_seg, set, 5+i_pnt, 9+i_pnt, BRIDLE)
+            Segment(6+i_seg, set, 6+i_pnt, 10+i_pnt, BRIDLE)
+            Segment(7+i_seg, set, 7+i_pnt, 11+i_pnt, BRIDLE)
+            Segment(8+i_seg, set, 8+i_pnt, 12+i_pnt, BRIDLE)
 
-            Segment(9+i_seg, set, (9+i_pnt, 14+i_pnt), BRIDLE; l0=2)
-            Segment(10+i_seg, set, (10+i_pnt, 13+i_pnt), BRIDLE; l0=1)
-            Segment(11+i_seg, set, (11+i_pnt, 15+i_pnt), BRIDLE; l0=2)
-            Segment(12+i_seg, set, (12+i_pnt, 17+i_pnt), BRIDLE; l0=4)
-            
-            Segment(13+i_seg, set, (13+i_pnt, 14+i_pnt), BRIDLE; l0=1)
-            Segment(14+i_seg, set, (13+i_pnt, 15+i_pnt), BRIDLE; l0=1)
-            
-            Segment(15+i_seg, set, (14+i_pnt, 16+i_pnt), BRIDLE; l0=2)
-            Segment(16+i_seg, set, (15+i_pnt, 16+i_pnt), BRIDLE; l0=2)
-            Segment(17+i_seg, set, (15+i_pnt, 17+i_pnt), BRIDLE; l0=2)
+            Segment(9+i_seg, set, 9+i_pnt, 14+i_pnt, BRIDLE; l0=2)
+            Segment(10+i_seg, set, 10+i_pnt, 13+i_pnt, BRIDLE; l0=1)
+            Segment(11+i_seg, set, 11+i_pnt, 15+i_pnt, BRIDLE; l0=2)
+            Segment(12+i_seg, set, 12+i_pnt, 17+i_pnt, BRIDLE; l0=4)
+
+            Segment(13+i_seg, set, 13+i_pnt, 14+i_pnt, BRIDLE; l0=1)
+            Segment(14+i_seg, set, 13+i_pnt, 15+i_pnt, BRIDLE; l0=1)
+
+            Segment(15+i_seg, set, 14+i_pnt, 16+i_pnt, BRIDLE; l0=2)
+            Segment(16+i_seg, set, 15+i_pnt, 16+i_pnt, BRIDLE; l0=2)
+            Segment(17+i_seg, set, 15+i_pnt, 17+i_pnt, BRIDLE; l0=2)
         ]
         pulleys = [
             pulleys
-            Pulley(1+i_pul, (13+i_seg, 14+i_seg), dynamics_type)
-            Pulley(2+i_pul, (16+i_seg, 17+i_seg), dynamics_type)
+            Pulley(1+i_pul, 13+i_seg, 14+i_seg, dynamics_type)
+            Pulley(2+i_pul, 16+i_seg, 17+i_seg, dynamics_type)
         ]
         push!(attach_points, points[end-1])
         push!(attach_points, points[end])
@@ -168,8 +168,8 @@ function create_4_attach_ram_sys_struct(set::Settings)
     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
     wings = [VSMWing(1, vsm_aero, vsm_wing, vsm_solver, [1,2,3,4], I(3), zeros(3))]
     transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
-                            base_pos= zeros(3), base_point_idx=points[end].idx, wing_idx=1)]
-    
+                            base_pos= zeros(3), base_point=points[end].idx, wing=1)]
+
     return SystemStructure(set.physical_model, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 end
 
@@ -256,30 +256,30 @@ function create_ram_sys_struct(set::Settings; d_winch_pos=[zeros(3), zeros(3)])
         ]
         segments = [
             segments
-            Segment(1+i_seg, set, (1+i_pnt, 7+i_pnt), BRIDLE)
-            Segment(2+i_seg, set, (2+i_pnt, 9+i_pnt), BRIDLE)
-            Segment(3+i_seg, set, (3+i_pnt, 10+i_pnt), BRIDLE)
+            Segment(1+i_seg, set, 1+i_pnt, 7+i_pnt, BRIDLE)
+            Segment(2+i_seg, set, 2+i_pnt, 9+i_pnt, BRIDLE)
+            Segment(3+i_seg, set, 3+i_pnt, 10+i_pnt, BRIDLE)
 
-            Segment(4+i_seg, set, (4+i_pnt, 7+i_pnt), BRIDLE)
-            Segment(5+i_seg, set, (5+i_pnt, 9+i_pnt), BRIDLE)
-            Segment(6+i_seg, set, (6+i_pnt, 10+i_pnt), BRIDLE)
+            Segment(4+i_seg, set, 4+i_pnt, 7+i_pnt, BRIDLE)
+            Segment(5+i_seg, set, 5+i_pnt, 9+i_pnt, BRIDLE)
+            Segment(6+i_seg, set, 6+i_pnt, 10+i_pnt, BRIDLE)
 
-            Segment(7+i_seg, set, (7+i_pnt, 12+i_pnt), BRIDLE; l0=2)
-            Segment(8+i_seg, set, (8+i_pnt, 11+i_pnt), BRIDLE; l0=1)
-            Segment(9+i_seg, set, (9+i_pnt, 13+i_pnt), BRIDLE; l0=2)
-            Segment(10+i_seg, set, (10+i_pnt, 15+i_pnt), BRIDLE; l0=4)
-            
-            Segment(11+i_seg, set, (11+i_pnt, 12+i_pnt), BRIDLE; l0=1)
-            Segment(12+i_seg, set, (11+i_pnt, 13+i_pnt), BRIDLE; l0=1)
-            
-            Segment(13+i_seg, set, (12+i_pnt, 14+i_pnt), BRIDLE; l0=2)
-            Segment(14+i_seg, set, (13+i_pnt, 14+i_pnt), BRIDLE; l0=2)
-            Segment(15+i_seg, set, (13+i_pnt, 15+i_pnt), BRIDLE; l0=2)
+            Segment(7+i_seg, set, 7+i_pnt, 12+i_pnt, BRIDLE; l0=2)
+            Segment(8+i_seg, set, 8+i_pnt, 11+i_pnt, BRIDLE; l0=1)
+            Segment(9+i_seg, set, 9+i_pnt, 13+i_pnt, BRIDLE; l0=2)
+            Segment(10+i_seg, set, 10+i_pnt, 15+i_pnt, BRIDLE; l0=4)
+
+            Segment(11+i_seg, set, 11+i_pnt, 12+i_pnt, BRIDLE; l0=1)
+            Segment(12+i_seg, set, 11+i_pnt, 13+i_pnt, BRIDLE; l0=1)
+
+            Segment(13+i_seg, set, 12+i_pnt, 14+i_pnt, BRIDLE; l0=2)
+            Segment(14+i_seg, set, 13+i_pnt, 14+i_pnt, BRIDLE; l0=2)
+            Segment(15+i_seg, set, 13+i_pnt, 15+i_pnt, BRIDLE; l0=2)
         ]
         pulleys = [
             pulleys
-            Pulley(1+i_pul, (11+i_seg, 12+i_seg), dynamics_type)
-            Pulley(2+i_pul, (14+i_seg, 15+i_seg), dynamics_type)
+            Pulley(1+i_pul, 11+i_seg, 12+i_seg, dynamics_type)
+            Pulley(2+i_pul, 14+i_seg, 15+i_seg, dynamics_type)
         ]
         push!(attach_points, points[end-1])
         push!(attach_points, points[end])
@@ -313,8 +313,8 @@ function create_ram_sys_struct(set::Settings; d_winch_pos=[zeros(3), zeros(3)])
     vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
     wings = [VSMWing(1, vsm_aero, vsm_wing, vsm_solver, [1,2,3,4], I(3), zeros(3))]
     transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
-                                      base_pos= zeros(3), base_point_idx=points[end].idx, wing_idx=1)]
-    
+                                      base_pos= zeros(3), base_point=points[end].idx, wing=1)]
+
     return SystemStructure(set.physical_model, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 end
 
@@ -372,7 +372,7 @@ function create_tether_sys_struct(set::Settings;
     ]
     
     transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
-                                      base_pos=zeros(3), base_point_idx=points[end].idx, rot_point_idx=1)]
+                                      base_pos=zeros(3), base_point=points[end].idx, rot_point=1)]
 
     return SystemStructure("tether", set; points, segments, tethers, winches, transforms)
 end
@@ -424,20 +424,20 @@ function create_simple_ram_sys_struct(set::Settings;
         Group(2, [4], vsm_wing, gammas[2], DYNAMIC, 0.25)
     ]
     segments = [
-        Segment(1, set, (1,5), POWER_LINE; axial_stiffness=axial_stiffness[1],
+        Segment(1, set, 1, 5, POWER_LINE; axial_stiffness=axial_stiffness[1],
                 axial_damping=axial_damping[1])
-        Segment(2, set, (2,6), POWER_LINE; axial_stiffness=axial_stiffness[2],
+        Segment(2, set, 2, 6, POWER_LINE; axial_stiffness=axial_stiffness[2],
                 axial_damping=axial_damping[2])
-        Segment(3, set, (3,7), STEERING_LINE; axial_stiffness=axial_stiffness[3],
+        Segment(3, set, 3, 7, STEERING_LINE; axial_stiffness=axial_stiffness[3],
                 axial_damping=axial_damping[3])
-        Segment(4, set, (4,8), STEERING_LINE; axial_stiffness=axial_stiffness[4],
+        Segment(4, set, 4, 8, STEERING_LINE; axial_stiffness=axial_stiffness[4],
                 axial_damping=axial_damping[4])
     ]
     tethers = [
-        Tether(1, [1], 5)
-        Tether(2, [2], 6)
-        Tether(3, [3], 7)
-        Tether(4, [4], 8)
+        Tether(1, [1]; winch_point=5)
+        Tether(2, [2]; winch_point=6)
+        Tether(3, [3]; winch_point=7)
+        Tether(4, [4]; winch_point=8)
     ]
     winches = [
         Winch(1, set, [1,2])
@@ -449,7 +449,7 @@ function create_simple_ram_sys_struct(set::Settings;
     wings = [VSMWing(1, vsm_aero, vsm_wing, vsm_solver, [1,2], I(3), zeros(3))]
     transforms = [
         Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);
-                base_pos=zeros(3), base_point_idx=5, wing_idx=1)
+                base_pos=zeros(3), base_point=5, wing=1)
     ]
 
     return SystemStructure(set.physical_model, set; 
@@ -457,43 +457,6 @@ function create_simple_ram_sys_struct(set::Settings;
 end
 
 
-# ========================= 2-PLATE KITE CREATOR =========================
-
-"""
-    create_2plate_sys_struct(set::Settings)
-
-Create a `SystemStructure` for a rigid 2-plate kite.
-
-- Structure is loaded from `struc_geometry.yaml` (points, segments, pulleys, etc.).
-- Aerodynamics uses a rigid VSM wing; no deforming `Group`s are created.
-- A single transform orients the structure using `set.elevation`, `set.azimuth`, `set.heading`.
-
-Required `Settings` fields:
-- `physical_model == "2plate"`
-- `struc_geometry_path` (defaults to `data/<model_name>/struc_geometry.yaml`)
-
-Optional `Settings` fields:
-- `vsm_settings_path` (defaults to `data/<model_name>/vsm_settings.yaml`)
-- `mass` (used to approximate inertia if the VSM wing lacks it)
-"""
-function create_2plate_sys_struct(set::Settings)
-    model_name = hasproperty(set, :model_name) ? set.model_name : "2plate_kite"
-
-    # --------------------------- VSM SETTINGS --------------------------- #
-    vsm_set_path = hasproperty(set, :vsm_settings_path) ? set.vsm_settings_path :
-        joinpath(get_data_path(), "vsm_settings.yaml")
-    vsm_set = isfile(vsm_set_path) ? VortexStepMethod.VSMSettings(vsm_set_path) : nothing
-
-    # --------------------------- STRUCTURE --------------------------- #
-    struc_yaml = hasproperty(set, :struc_geometry_path) ? set.struc_geometry_path :
-        joinpath(get_data_path(), "struc_geometry.yaml")
-    @assert isfile(struc_yaml) "Structural YAML not found: $struc_yaml"
-
-    sys_from_yaml = load_sys_struct_from_yaml(struc_yaml; system_name=model_name, set=set, vsm_set=vsm_set)
-    return sys_from_yaml
-end
-
-export create_2plate_sys_struct
 export create_v3_refine_sys_struct
 
 function create_v3_sys_struct(set::Settings)

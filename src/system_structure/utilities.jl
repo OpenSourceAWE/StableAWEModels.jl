@@ -46,11 +46,11 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
         else
             points = [points; Point(point_idx, pos, dynamics_type)]
         end
-        segments = [segments; Segment(segment_idx, set, (last_idx, point_idx), type;
+        segments = [segments; Segment(segment_idx, set, last_idx, point_idx, type;
                                       axial_stiffness, axial_damping)]
         push!(segment_idxs, segment_idx)
     end
-    tethers = [tethers; Tether(tether_idx, segment_idxs, winch_point_idx)]
+    tethers = [tethers; Tether(tether_idx, segment_idxs; winch_point=winch_point_idx)]
     return points, segments, tethers, tethers[end].idx
 end
 
@@ -266,7 +266,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
 
     for winch in winches
         winch.tether_len = set.l_tethers[winch.idx]
-        winch.tether_vel    = set.v_reel_outs[winch.idx]
+        winch.tether_vel = set.v_reel_outs[winch.idx]
     end
 
     for group in groups

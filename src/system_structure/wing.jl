@@ -46,11 +46,18 @@ wing.Q_b_w = quat
 $(TYPEDFIELDS)
 """
 mutable struct BaseWing <: AbstractWing
-    const idx::Int64
+    idx::Int64  # Assigned by SystemStructure based on vector position
+    const name::Union{Int, Symbol, Nothing}  # Name/identifier (Int for backwards compat)
 
-    # Structural information
-    group_idxs::Vector{Int64}
-    const transform_idx::Int64
+    # Structural information - resolved indices
+    group_idxs::Vector{Int64}  # Resolved by SystemStructure from group_refs
+    transform_idx::Int64       # Resolved by SystemStructure from transform_ref
+
+    # Structural information - raw references
+    const group_refs::Vector{NameRef}   # Raw references to groups (names or indices)
+    const transform_ref::NameRef        # Raw reference to transform (name or idx)
+
+    # Geometry
     const R_b_c::Matrix{SimFloat}
     const pos_cad::KVec3
     const inertia_principal::KVec3
@@ -106,6 +113,9 @@ end
 
 # ==================== VSM WING ==================== #
 
+# Reference type for orientation points - single or multiple points
+const RefPointSpec = Union{NameRef, Vector{NameRef}}
+
 """
     mutable struct VSMWing <: AbstractWing
 
@@ -132,10 +142,9 @@ mutable struct VSMWing <: AbstractWing
 
     # REFINE-specific fields (Nothing for QUATERNION wings)
     point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
-    wing_segments::Union{Nothing,
-        Vector{Tuple{Int64, Int64}}}
+    wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}
 
-    # Orientation reference points for REFINE wings
+    # Orientation reference points for REFINE wings - RESOLVED indices
     # (Nothing for QUATERNION wings)
     # Used to calculate R_b_w from structural deformation
     # Can specify single point or vector of points to average:
@@ -146,10 +155,17 @@ mutable struct VSMWing <: AbstractWing
     z_ref_points::Union{Nothing, Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}
     y_ref_points::Union{Nothing, Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}
 
-    # KCU origin point for REFINE wings
+    # Orientation reference points - RAW references (names or indices)
+    const z_ref_points_ref::Union{Nothing, Tuple{RefPointSpec, RefPointSpec}}
+    const y_ref_points_ref::Union{Nothing, Tuple{RefPointSpec, RefPointSpec}}
+
+    # KCU origin point for REFINE wings - RESOLVED index
     # (Nothing for QUATERNION wings)
     # Defines wing.pos_w = pos[:, origin_idx] to track structural deformation
     origin_idx::Union{Nothing, Int64}
+
+    # KCU origin point - RAW reference (name or idx)
+    const origin_ref::Union{Nothing, NameRef}
 
     # Additional aerodynamic force scale to compensate chord length errors (REFINE)
     aero_scale_chord::SimFloat
@@ -159,14 +175,25 @@ mutable struct VSMWing <: AbstractWing
     # to adjust moment arm for improved stability
     aero_z_offset::SimFloat
 
-    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx, aero_scale_chord, aero_z_offset)
-        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac, point_to_vsm_point, wing_segments, z_ref_points, y_ref_points, origin_idx, aero_scale_chord, aero_z_offset)
+    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac,
+                     point_to_vsm_point, wing_segments,
+                     z_ref_points, y_ref_points, z_ref_points_ref, y_ref_points_ref,
+                     origin_idx, origin_ref, aero_scale_chord, aero_z_offset)
+        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac,
+            point_to_vsm_point, wing_segments,
+            z_ref_points, y_ref_points, z_ref_points_ref, y_ref_points_ref,
+            origin_idx, origin_ref, aero_scale_chord, aero_z_offset)
     end
 end
 
 # Delegate property access to base wing for VSMWing
+const VSM_WING_OWN_FIELDS = (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac,
+                              :point_to_vsm_point, :wing_segments,
+                              :z_ref_points, :y_ref_points, :z_ref_points_ref, :y_ref_points_ref,
+                              :origin_idx, :origin_ref, :aero_scale_chord, :aero_z_offset)
+
 function Base.getproperty(wing::VSMWing, sym::Symbol)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx, :aero_scale_chord, :aero_z_offset)
+    if sym in VSM_WING_OWN_FIELDS
         return getfield(wing, sym)
     elseif sym == :vsm_aoa
         # Compute mean angle of attack from VSM solver solution
@@ -178,7 +205,7 @@ function Base.getproperty(wing::VSMWing, sym::Symbol)
 end
 
 function Base.setproperty!(wing::VSMWing, sym::Symbol, value)
-    if sym in (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac, :point_to_vsm_point, :wing_segments, :z_ref_points, :y_ref_points, :origin_idx, :aero_scale_chord, :aero_z_offset)
+    if sym in VSM_WING_OWN_FIELDS
         setfield!(wing, sym, value)
     else
         setproperty!(getfield(wing, :base), sym, value)
@@ -187,32 +214,46 @@ end
 
 # ==================== CONSTRUCTORS ==================== #
 
+# Helper to convert to NameRef
+_to_name_ref(x::Integer) = Int(x)
+_to_name_ref(x) = Symbol(x)
+
 """
-    BaseWing(idx::Int64, group_idxs::Vector{Int64}, R_b_c::Matrix{SimFloat},
-             pos_cad::KVec3, inertia_principal::KVec3; transform_idx=1, y_damping=150.0, wing_type=QUATERNION)
+    BaseWing(name, groups, R_b_c, pos_cad, inertia_principal; transform=nothing, y_damping=150.0, wing_type=QUATERNION)
 
 Constructs a `BaseWing` object representing a rigid body reference frame.
 
 # Arguments
-- `idx::Int64`: Unique identifier for the wing.
-- `group_idxs::Vector{Int64}`: Indices of groups attached to this wing.
+- `name::Union{Int, Symbol}`: Name/identifier for the wing (e.g., `:main_wing` or `1` for legacy).
+- `groups::Vector`: References to groups attached to this wing (names or indices).
 - `R_b_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
 - `pos_cad::KVec3`: Position of wing center of mass in CAD frame.
 - `inertia_principal::KVec3`: Principal moments of inertia [Ixx, Iyy, Izz] in body frame.
 
 # Keyword Arguments
-- `transform_idx::Int64=1`: Transform used for initial positioning and orientation.
+- `transform=nothing`: Reference to the transform (name or index). Defaults to 1 if not specified.
 - `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
 - `wing_type::WingType=QUATERNION`: Wing aerodynamic model type.
 
 # Returns
-- `BaseWing`: A new base wing object.
+- `BaseWing`: A new base wing object. The `idx`, `group_idxs`, and `transform_idx` are resolved by SystemStructure.
 """
-function BaseWing(idx, group_idxs::AbstractVector, R_b_c::AbstractMatrix,
-                  pos_cad, inertia_principal; transform_idx=1, y_damping=150.0, wing_type::WingType=QUATERNION)
-    return BaseWing(idx,
-        # Structural information
-        group_idxs, transform_idx, R_b_c, pos_cad, inertia_principal, wing_type,
+function BaseWing(name, groups::AbstractVector, R_b_c::AbstractMatrix,
+                  pos_cad, inertia_principal; transform=nothing, y_damping=150.0, wing_type::WingType=QUATERNION)
+    # Convert groups to NameRef vector
+    group_refs = Vector{NameRef}([_to_name_ref(g) for g in groups])
+    # Handle nothing - default to transform 1
+    tf = isnothing(transform) ? 1 : transform
+    transform_ref = _to_name_ref(tf)
+
+    # idx, group_idxs, transform_idx are placeholders - resolved by SystemStructure
+    return BaseWing(0, name,
+        # Structural information - resolved (placeholders)
+        Int64[], 0,
+        # Structural information - raw references
+        group_refs, transform_ref,
+        # Geometry
+        R_b_c, pos_cad, inertia_principal, wing_type,
         # Differential variables in world frame, updated during simulation
         zeros(4), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
@@ -225,62 +266,61 @@ function BaseWing(idx, group_idxs::AbstractVector, R_b_c::AbstractMatrix,
         y_damping, 0.0)
 end
 
+# Helper to convert ref point spec to proper type
+_to_ref_point_spec(x::Integer) = Int(x)
+_to_ref_point_spec(x::Symbol) = x
+_to_ref_point_spec(x::AbstractVector) = Vector{NameRef}([_to_name_ref(v) for v in x])
+
 """
-    VSMWing(idx::Int64, set::Settings, group_idxs::Vector{Int64},
-            R_b_c::Matrix{SimFloat}, pos_cad::KVec3;
-            transform_idx=1, y_damping=150.0,
-            wing_type=QUATERNION, point_to_vsm_point=nothing,
-            wing_segments=nothing, x_ref_points=nothing,
-            y_ref_points=nothing)
+    VSMWing(name, set, groups, vsm_set; transform=nothing, y_damping=150.0, ...)
 
 Constructs a `VSMWing` object with Vortex Step Method aerodynamics.
 Creates vsm_wing, vsm_aero, and vsm_solver internally.
 
 # Arguments
-- `idx::Int64`: Unique identifier for the wing.
+- `name::Union{Int, Symbol}`: Name/identifier for the wing.
 - `set::Settings`: Settings object for VSM configuration.
-- `group_idxs::Vector{Int64}`: Indices of groups (QUATERNION only).
-- `R_b_c::Matrix{SimFloat}`: Rotation matrix body→CAD.
-- `pos_cad::KVec3`: Position of wing COM in CAD frame.
+- `groups::Vector`: References to groups (names or indices, QUATERNION only).
+- `vsm_set::VortexStepMethod.VSMSettings`: VSM settings for wing creation.
 
 # Keyword Arguments
-- `transform_idx::Int64=1`: Transform for initial positioning.
+- `transform=nothing`: Reference to the transform (name or index). Defaults to 1 if not specified.
+- `R_b_c::Matrix{SimFloat}`: Rotation matrix body→CAD.
+- `pos_cad::KVec3`: Position of wing COM in CAD frame.
 - `y_damping::SimFloat=150.0`: Lateral damping coefficient.
 - `wing_type::WingType=QUATERNION`: Aerodynamic model type.
 - `point_to_vsm_point`: 1:1 structural point to VSM point mapping (REFINE only).
 - `wing_segments`: LE/TE pairs (REFINE only).
-- `x_ref_points`: Chord direction reference (REFINE only).
-- `y_ref_points`: Span direction reference (REFINE only).
+- `z_ref_points`: Chord direction reference points (REFINE only, names or indices).
+- `y_ref_points`: Span direction reference points (REFINE only, names or indices).
+- `origin`: Reference to origin point (REFINE only, name or index).
 - `aero_z_offset::SimFloat=0.0`: Body frame z-offset for VSM panels (QUATERNION only).
 
 # Returns
-- `VSMWing`: A new VSM wing object.
+- `VSMWing`: A new VSM wing object. References are resolved by SystemStructure.
 """
-function VSMWing(idx::Int, set::Settings,
-                 group_idxs::AbstractVector,
+function VSMWing(name, set::Settings,
+                 groups::AbstractVector,
                  vsm_set::VortexStepMethod.VSMSettings;
                  R_b_c::Union{Nothing,AbstractMatrix}=nothing,
                  pos_cad::Union{Nothing,AbstractVector}=nothing,
-                 transform_idx=1, y_damping=150.0,
+                 transform=nothing, y_damping=150.0,
                  inertia_diag=nothing,
                  wing_type::WingType=QUATERNION,
                  point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}=nothing,
-                 wing_segments::Union{Nothing,
-                     Vector{Tuple{Int64, Int64}}}=nothing,
-                 z_ref_points::Union{Nothing,
-                     Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}=nothing,
-                 y_ref_points::Union{Nothing,
-                     Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}=nothing,
-                 origin_idx::Union{Nothing, Int64}=nothing,
+                 wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}=nothing,
+                 z_ref_points=nothing,
+                 y_ref_points=nothing,
+                 origin=nothing,
                  aero_scale_chord::SimFloat=0.0,
                  aero_z_offset::SimFloat=0.0)
 
     # Validation
     if wing_type == REFINE
-        @assert length(group_idxs) == 0
+        @assert length(groups) == 0
             "REFINE wings cannot have groups"
-        @assert !isnothing(origin_idx)
-            "REFINE wings require origin_idx to define KCU position"
+        @assert !isnothing(origin)
+            "REFINE wings require origin to define KCU position"
     else
         @assert isnothing(point_to_vsm_point)
             "QUATERNION wings: no point_to_vsm_point"
@@ -290,9 +330,16 @@ function VSMWing(idx::Int, set::Settings,
             "QUATERNION wings: no z_ref_points"
         @assert isnothing(y_ref_points)
             "QUATERNION wings: no y_ref_points"
-        @assert isnothing(origin_idx)
-            "QUATERNION wings don't use origin_idx"
+        @assert isnothing(origin)
+            "QUATERNION wings don't use origin"
     end
+
+    # Convert ref points to proper types
+    z_ref_points_ref = isnothing(z_ref_points) ? nothing :
+        (_to_ref_point_spec(z_ref_points[1]), _to_ref_point_spec(z_ref_points[2]))
+    y_ref_points_ref = isnothing(y_ref_points) ? nothing :
+        (_to_ref_point_spec(y_ref_points[1]), _to_ref_point_spec(y_ref_points[2]))
+    origin_ref = isnothing(origin) ? nothing : _to_name_ref(origin)
 
     # Create VSM wing, aero, and solver
     vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false)
@@ -311,9 +358,8 @@ function VSMWing(idx::Int, set::Settings,
     inertia_vec = isnothing(inertia_diag) ?
         wing_inertia_principal(vsm_wing) : inertia_diag
 
-    base = BaseWing(idx, group_idxs, R_b_c, pos_cad,
-                    inertia_vec; transform_idx,
-                    y_damping, wing_type)
+    base = BaseWing(name, groups, R_b_c, pos_cad,
+                    inertia_vec; transform, y_damping, wing_type)
 
     # Size vsm state vectors based on wing type
     if wing_type == REFINE
@@ -326,39 +372,48 @@ function VSMWing(idx::Int, set::Settings,
         nx = 3 + 3 + n_unrefined  # force(3) + moment(3) + unrefined_moments(n_unrefined)
     end
 
+    # Placeholder values for resolved indices (set by SystemStructure)
+    z_ref_resolved = nothing
+    y_ref_resolved = nothing
+    origin_idx_resolved = nothing
+
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
                    zeros(SimFloat, ny), zeros(SimFloat, nx),
                    zeros(SimFloat, nx, ny),
                    point_to_vsm_point, wing_segments,
-                   z_ref_points, y_ref_points, origin_idx, aero_scale_chord,
+                   z_ref_resolved, y_ref_resolved, z_ref_points_ref, y_ref_points_ref,
+                   origin_idx_resolved, origin_ref, aero_scale_chord,
                    aero_z_offset)
 end
 
 """
-    VSMWing(idx, vsm_aero, vsm_wing, vsm_solver,
-            group_idxs, R_b_c, pos_cad)
+    VSMWing(name, vsm_aero, vsm_wing, vsm_solver, groups, R_b_c, pos_cad; transform=nothing)
 
 Legacy constructor accepting pre-created VSM objects directly.
 Kept for backward compatibility with predefined structures.
 
 # Arguments
-- `idx::Int`: Wing identifier
+- `name::Union{Int, Symbol}`: Wing name/identifier
 - `vsm_aero`: Pre-created BodyAerodynamics
 - `vsm_wing`: Pre-created VortexStepMethod.Wing
 - `vsm_solver`: Pre-created Solver
-- `group_idxs`: Group indices
+- `groups`: References to groups (names or indices)
 - `R_b_c`: Rotation matrix body→CAD
 - `pos_cad`: Position in CAD frame
+
+# Keyword Arguments
+- `transform=nothing`: Reference to the transform. Defaults to 1 if not specified.
 
 # Returns
 - `VSMWing`: Wing with QUATERNION type
 """
-function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
-                 group_idxs::AbstractVector,
+function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
+                 groups::AbstractVector,
                  R_b_c::AbstractMatrix,
-                 pos_cad::AbstractVector)
+                 pos_cad::AbstractVector;
+                 transform=nothing)
     inertia_vec = wing_inertia_principal(vsm_wing)
-    base = BaseWing(idx, group_idxs, R_b_c, pos_cad, inertia_vec)
+    base = BaseWing(name, groups, R_b_c, pos_cad, inertia_vec; transform)
     # Use number of unrefined sections
     n_unrefined = vsm_wing.n_unrefined_sections
     ny = 3 + n_unrefined + 3  # va(3) + twist(n_unrefined) + ω(3)
@@ -366,11 +421,14 @@ function VSMWing(idx::Int, vsm_aero, vsm_wing, vsm_solver,
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, ny), zeros(SimFloat, nx),
         zeros(SimFloat, nx, ny),
-        nothing, nothing, nothing, nothing, nothing, 0.0, 0.0)
+        nothing, nothing,
+        nothing, nothing, nothing, nothing,  # z/y_ref_points and refs
+        nothing, nothing,  # origin_idx and origin_ref
+        0.0, 0.0)
 end
 
 """
-    Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; transform_idx)
+    Wing(name, vsm_aero, vsm_wing, vsm_solver, groups, R_b_c, pos_cad; transform=1)
 
 Constructs a `VSMWing` object (backward compatibility constructor).
 
@@ -378,22 +436,22 @@ This is a convenience constructor that creates a VSMWing for backward compatibil
 with existing code. New code should use `VSMWing(...)` directly.
 
 # Arguments
-- `idx::Int64`: Unique identifier for the wing.
+- `name::Union{Int, Symbol}`: Name/identifier for the wing.
 - `vsm_aero`, `vsm_wing`, `vsm_solver`: Vortex Step Method components.
-- `group_idxs::Vector{Int64}`: Indices of groups attached to this wing.
+- `groups::Vector`: References to groups attached to this wing (names or indices).
 - `R_b_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
 - `pos_cad::KVec3`: Position of wing center of mass in CAD frame.
 
 # Keyword Arguments
-- `transform_idx::Int64=1`: Transform used for initial positioning and orientation.
+- `transform::Union{Int, Symbol}=1`: Reference to the transform.
 - `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
 
 # Returns
 - `VSMWing`: A new VSM wing object.
 """
-function SymbolicAWEModels.Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c,
+function SymbolicAWEModels.Wing(name, vsm_aero, vsm_wing, vsm_solver, groups, R_b_c,
                                 pos_cad; kwargs...)
-    return VSMWing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; kwargs...)
+    return VSMWing(name, vsm_aero, vsm_wing, vsm_solver, groups, R_b_c, pos_cad; kwargs...)
 end
 
 # ==================== HELPER FUNCTIONS ==================== #

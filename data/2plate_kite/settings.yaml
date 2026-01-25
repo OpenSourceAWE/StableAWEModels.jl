@@ -11,9 +11,8 @@ system:
     g_earth:     9.81
 
 initial:
-    l_tethers: [50.0, 50.0, 50.0]  # initial tether length       [m]
-    elevation: 70.8                # initial elevation angle   [deg]
-    v_reel_outs: [0.0, 0.0, 0.0]   # initial reel out speed    [m/s]
+    l_tethers: [10.0]  # initial tether length       [m]
+    v_reel_outs: [0.0]   # initial reel out speed    [m/s]
 
 solver:
     solver: "FBDF"
@@ -27,31 +26,10 @@ kite:
     physical_model: "2plate"            # name of the kite model to use (2plate, ram, etc.)
     struc_geometry_path: "struc_geometry.yaml"  # structural YAML
     aero_geometry_path: "aero_geometry.yaml"    # aerodynamic YAML
-    top_bridle_points:                      # top bridle points that are not on the kite body in CAD frame
-        - [0.290199, 0.784697, -2.61305]
-        - [0.392683, 0.785271, -2.61201]
-        - [0.498202, 0.786175, -2.62148]
-        - [0.535543, 0.786175, -2.62148]
-    crease_frac: 0.82                       # distance along normalized foil chord for the trailing edge deformation crease
-    bridle_fracs: [0.088, 0.31, 0.58, 0.93] # distances along normalized foil chord for bridle attachment points
     mass: 0.9                               # kite mass [kg]
     quasi_static: false                     # whether to use quasi static kite points or not
 
-# tether:
-#     # Bosch et al. 2014 used k = AE/L = 4.52E3 N/m for the bridles of the V3
-#     # Bosch et al. 2014 used C = 251.7 Ns/m for bridles of the V3
-#     bridle_tether_diameter: 2 # [mm]
-#     power_tether_diameter: 2 # [mm]
-#     steering_tether_diameter: 1 # [mm]
-#     cd_tether: 0.958       # drag coefficient of the tether
-#     damping: 473.0         # unit damping coefficient        [Ns]
-#     c_spring: 10 #614600.0     # unit spring constant coefficient [N]
-#     rho_tether:  724.0     # density of Dyneema           [kg/m³]
-#     e_tether: 50 #55000000000.0 # axial tensile modulus of Dyneema (M.B. Ruppert) [Pa]
-#                            # SK75: 109 to 132 GPa according to datasheet
-
 tether:
-    d_tether: 2.0
     cd_tether: 0.958
     axial_damping: 350.0
     axial_stiffness: 120000.0

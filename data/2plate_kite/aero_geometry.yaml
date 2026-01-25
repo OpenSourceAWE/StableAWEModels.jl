@@ -1,17 +1,19 @@
-# Symmetric kite aero geometry
+# 2-plate kite aero geometry
+# Must match structural geometry in struc_geometry.yaml
+# 3 sections with LE/TE pairs matching points 2-7
 
 wing_sections:
   # headers: [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]
   headers: [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]
   data:
-    # Right tip chord (as in structure)
-    - [1, -2.52658787,  3.90998347,  8.63399119,  -0.56907534,  3.88818007,  8.98058423]
+    # Right section: points 2 (LE) and 3 (TE)
+    - [1, -0.25, 1.0, 1.0, 0.75, 1.0, 1.0]
 
-    # Left tip chord = mirror of right (y → -y), same x,z
-    - [1, -2.52658787, -3.90998347,  8.63399119,  -0.56907534, -3.88818007,  8.98058423]
+    # Center section: points 4 (LE) and 5 (TE)
+    - [1, -0.25, 0.0, 1.5, 0.75, 0.0, 1.5]
 
-    # Center chord exactly on centerline
-    - [1, -3.10388086,  0.0,         11.66322754, -1.14745968,  0.0,         12.00319579]
+    # Left section: points 6 (LE) and 7 (TE)
+    - [1, -0.25, -1.0, 1.0, 0.75, -1.0, 1.0]
 
 wing_airfoils:
   alpha_range: [-180, 180, 1]  # deg

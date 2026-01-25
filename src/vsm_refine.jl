@@ -11,7 +11,7 @@ structural points.
 const AERO_SCALE_CHORD = 0.0
 
 """
-    identify_wing_segments(wing_points::Vector{Point})
+    identify_wing_segments(wing_points::AbstractVector{Point})
 
 Identify wing segments (LE/TE pairs) from WING-type points.
 
@@ -19,12 +19,12 @@ Assumes points are organized in pairs along the span, with even-numbered points
 being leading edge and odd-numbered being trailing edge (or vice versa).
 
 # Arguments
-- `wing_points::Vector{Point}`: All WING-type points for a wing (sorted by index)
+- `wing_points::AbstractVector{Point}`: All WING-type points for a wing (sorted by index)
 
 # Returns
 - `Vector{Tuple{Int64, Int64}}`: Vector of (le_point_idx, te_point_idx) pairs defining segments
 """
-function identify_wing_segments(wing_points::Vector{Point})
+function identify_wing_segments(wing_points::AbstractVector{Point})
     # Sort points by index to ensure consistent ordering
     sorted_points = sort(wing_points, by=p->p.idx)
 
@@ -53,7 +53,7 @@ function identify_wing_segments(wing_points::Vector{Point})
 end
 
 """
-    build_point_to_vsm_point_mapping(wing_points::Vector{Point}, vsm_wing::VortexStepMethod.AbstractWing)
+    build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, vsm_wing::VortexStepMethod.AbstractWing)
 
 Build 1:1 mapping from structural WING points to VSM wing section points (LE/TE) using closest-point distance.
 
@@ -63,7 +63,7 @@ For each VSM section point (LE/TE), finds the closest structural point in CAD fr
 Requires: `length(wing_points) == 2 * length(vsm_wing.unrefined_sections)`
 
 # Arguments
-- `wing_points::Vector{Point}`: Structural WING-type points
+- `wing_points::AbstractVector{Point}`: Structural WING-type points
 - `vsm_wing::VortexStepMethod.AbstractWing`: VSM wing with sections
 
 # Returns
@@ -76,7 +76,7 @@ Requires: `length(wing_points) == 2 * length(vsm_wing.unrefined_sections)`
 2. Distance measured in CAD/body frame using norm(point.pos_cad - section_point)
 """
 function build_point_to_vsm_point_mapping(
-    wing_points::Vector{Point},
+    wing_points::AbstractVector{Point},
     vsm_wing::VortexStepMethod.AbstractWing
 )
     n_points = length(wing_points)
@@ -199,7 +199,7 @@ function compute_aerostruc_loads(panel, F_panel::SVector{3}, M_panel::SVector{3}
 end
 
 """
-    distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point})
+    distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVector{Point})
 
 Distribute VSM forces to structural points using refined panel forces.
 
@@ -218,9 +218,9 @@ the structural LE/TE points of the parent section (1:1 mapping).
 
 # Arguments
 - `wing::VSMWing`: Wing with REFINE type and solved VSM state
-- `points::Vector{Point}`: All structural points (will filter for WING type)
+- `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
-function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point})
+function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVector{Point})
     @assert wing.wing_type == REFINE "Can only distribute forces for REFINE wings"
 
     sol = wing.vsm_solver.sol
@@ -280,7 +280,7 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::Vector{Point}
 end
 
 """
-    update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
+    update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{Point})
 
 Update VSM section points (LE/TE) directly from structural point positions using 1:1 mapping.
 
@@ -300,9 +300,9 @@ Uses direct 1:1 correspondence between structural points and VSM section points:
 
 # Arguments
 - `wing::VSMWing`: Wing with REFINE type
-- `points::Vector{Point}`: All structural points (will filter for WING type)
+- `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
-function update_vsm_wing_from_structure!(wing::VSMWing, points::Vector{Point})
+function update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{Point})
     @assert wing.wing_type == REFINE "Can only update wing geometry for REFINE wings"
 
     # Get current R_b_w and origin from wing state

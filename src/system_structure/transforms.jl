@@ -120,14 +120,14 @@ end
 # ==================== REFINE WING FRAME CALCULATION ==================== #
 
 """
-    get_ref_position_from_points(points::Vector{Point}, ref::Int64)
-    get_ref_position_from_points(points::Vector{Point}, refs::Vector{Int64})
+    get_ref_position_from_points(points::AbstractVector{Point}, ref::Int64)
+    get_ref_position_from_points(points::AbstractVector{Point}, refs::Vector{Int64})
 
 Helper to get position (single point or average of multiple).
 Used for REFINE wing reference point calculations.
 """
-get_ref_position_from_points(points::Vector{Point}, ref::Int64) = points[ref].pos_w
-function get_ref_position_from_points(points::Vector{Point}, refs::Vector{Int64})
+get_ref_position_from_points(points::AbstractVector{Point}, ref::Int64) = points[ref].pos_w
+function get_ref_position_from_points(points::AbstractVector{Point}, refs::Vector{Int64})
     n = length(refs)
     return sum(points[idx].pos_w for idx in refs) / n
 end
@@ -149,7 +149,7 @@ for REFINE wings, ensuring consistency between initialization (`reinit!`) and si
 5. Extract origin position from origin_idx point
 
 # Arguments
-- `points::Vector{Point}`: All structural points (must have pos_w initialized)
+- `points::AbstractVector{Point}`: All structural points (must have pos_w initialized)
 - `z_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}`:
   Reference points defining Z-axis (normal direction)
 - `y_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}`:
@@ -161,7 +161,7 @@ for REFINE wings, ensuring consistency between initialization (`reinit!`) and si
 - `origin::KVec3`: Origin position in world frame
 """
 function calc_refine_wing_frame(
-    points::Vector{Point},
+    points::AbstractVector{Point},
     z_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}},
     y_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}},
     origin_idx::Int64
@@ -200,7 +200,7 @@ end
 # ==================== REINIT! ==================== #
 
 """
-    reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+    reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure)
 
 Apply the initial spatial transformations to all components in a `SystemStructure`.
 
@@ -210,7 +210,7 @@ world frame at the beginning of a simulation.
 
 If transforms is empty, simply initializes pos_w = pos_cad for all components.
 """
-function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure;
+function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
                  update_vel::Bool=true)
     @unpack points, wings = sys_struct
 
@@ -365,7 +365,7 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure;
 end
 
 """
-    reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+    reposition!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure)
 
 Update the system's spatial orientation based on its current position, preserving velocities.
 
@@ -381,7 +381,7 @@ NOTE: the transform.heading is applied relative to the current heading of the sy
 # Arguments
 - `sys_struct::SystemStructure`: The system model to update.
 """
-function reposition!(transforms::Vector{Transform}, sys_struct::SystemStructure)
+function reposition!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure)
     @unpack points, wings = sys_struct
     for transform in transforms
         # Get the current positions of the base and the rotating object
