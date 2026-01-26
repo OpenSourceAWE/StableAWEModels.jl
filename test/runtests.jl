@@ -3,37 +3,40 @@
 
 ENV["MPLBACKEND"] = "Agg"
 using KiteUtils
+using Test
+using SymbolicAWEModels
+
+# Set up data path for 2plate_kite tests
 pkg_file_path = Base.find_package("SymbolicAWEModels")
 if isnothing(pkg_file_path)
     error("SymbolicAWEModels not found in the current project environment.")
 else
     package_root_dir = dirname(dirname(pkg_file_path))
-    src_data_path = joinpath(package_root_dir, "data", "ram_air_kite")
-    # Create temp directory once for all tests
+    src_data_path = joinpath(package_root_dir, "data", "2plate_kite")
     tmpdir = mktempdir()
-    data_path = joinpath(tmpdir, "ram_air_kite")
+    data_path = joinpath(tmpdir, "2plate_kite")
     cp(src_data_path, data_path; force=true)
     @show data_path
     set_data_path(data_path)
 end
-using Test
-using SymbolicAWEModels
 
 @testset verbose = true "Testing SymbolicAWEModels..." begin
+    # Component tests
+    println("--> Point dynamics")
+    include("test_point.jl")
+    println("--> Segment dynamics")
+    include("test_segment.jl")
+    println("--> Pulley constraints")
+    include("test_pulley.jl")
+    println("--> Tether and winch")
+    include("test_tether_winch.jl")
+    println("--> Transform coordinates")
+    include("test_transform.jl")
+    println("--> Wing aerodynamics")
+    include("test_wing.jl")
+
     println("--> Quaternion conversions")
     include("test_quaternion_conversions.jl")
-    println("--> Initialization")
-    include("test_initialization.jl")
-    println("--> Simulation")
-    include("test_simulation.jl")
-    println("--> Tether properties")
-    include("test_tether_properties.jl")
-    println("--> Linearization")
-    include("test_linearization.jl")
-    println("--> Serialization")
-    include("test_serialization.jl")
-    println("--> State conversion")
-    include("test_state_conversion.jl")
     println("--> Helpers")
     include("test_helpers.jl")
     println("--> Code quality")

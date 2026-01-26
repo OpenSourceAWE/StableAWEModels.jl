@@ -773,7 +773,7 @@ function SystemStructure(name, set;
                 n_wing_points = length(wing_points)
                 mass_per_point = set.mass / n_wing_points
                 for point_idx in wing_point_idxs
-                    points[point_idx].extra_mass = mass_per_point
+                    points[point_idx].extra_mass += mass_per_point
                 end
             end
         end
