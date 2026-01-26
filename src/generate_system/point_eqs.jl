@@ -104,14 +104,22 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                     va_point_w[:, point.idx]
             ]
         else
-            # No wings, just set to zeros
+            # No wings - still compute wind and drag in world frame
             eqs = [
                 eqs
                 height[point.idx] ~ pos[3, point.idx]
-                wind_at_point[:, point.idx] ~ zeros(3)
-                va_point_w[:, point.idx] ~ zeros(3)
-                va_point_b[:, point.idx] ~ zeros(3)
-                point_drag_force[:, point.idx] ~ zeros(3)
+                wind_at_point[:, point.idx] ~
+                    calc_wind_factor(s.am, pos[1, point.idx], pos[2, point.idx],
+                                     pos[3, point.idx], pset) * wind_vec_gnd
+                va_point_w[:, point.idx] ~
+                    wind_at_point[:, point.idx] - vel[:, point.idx]
+                va_point_b[:, point.idx] ~ zeros(3)  # No body frame without wing
+                point_drag_force[:, point.idx] ~
+                    0.5 * calc_rho(s.am, height[point.idx]) *
+                    get_point_drag_coeff(psys, point.idx) *
+                    norm(va_point_w[:, point.idx]) *
+                    get_point_area(psys, point.idx) *
+                    va_point_w[:, point.idx]
             ]
         end
 

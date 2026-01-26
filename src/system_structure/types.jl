@@ -78,8 +78,8 @@ mutable struct Point
     const name::Union{Int, Symbol, Nothing}  # Name/identifier (Int for backwards compat)
     transform_idx::Int64 # idx of transform (resolved by SystemStructure from transform_ref)
     wing_idx::Int64      # idx of wing (resolved by SystemStructure from wing_ref)
-    const transform_ref::Union{Int, Symbol}  # Raw reference to transform (name or idx)
-    const wing_ref::Union{Int, Symbol}       # Raw reference to wing (name or idx)
+    const transform_ref::Union{Int, Symbol}  # Raw reference to transform (name or idx), 0=no transform
+    const wing_ref::Union{Int, Symbol}       # Raw reference to wing (name or idx), 0=no wing
     const pos_cad::KVec3
     const pos_b::KVec3 # pos relative to wing COM in body frame
     const pos_w::KVec3 # pos in world frame
@@ -132,9 +132,9 @@ function Point(name, pos_cad, type;
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
-    # Handle nothing values - use defaults
+    # Handle nothing values - wing defaults to 1, transform 0 means no transform
     wing_ref = isnothing(wing) ? 1 : wing
-    transform_ref = isnothing(transform) ? 1 : transform
+    transform_ref = isnothing(transform) ? 0 : transform
     vel = isnothing(vel_w) ? zeros(KVec3) : KVec3(vel_w...)
 
     # Convert scalar damping to vector (broadcast to all axes), handle nothing

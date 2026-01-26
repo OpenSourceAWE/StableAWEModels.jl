@@ -255,7 +255,7 @@ function resolve_ref(ref::Union{Int, Symbol}, name_dict::Dict{Symbol, Int64}, co
 end
 
 function resolve_ref(ref::Nothing, name_dict::Dict{Symbol, Int64}, component_type::String)
-    return nothing
+    return Int64(0)
 end
 
 """

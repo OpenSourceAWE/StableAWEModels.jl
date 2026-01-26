@@ -484,7 +484,9 @@ function next_step!(sam::SymbolicAWEModel; set_values=nothing, dt=1/sam.set.samp
     if (isnothing(set_values)) 
         set_values = [winch.set_value for winch in sam.sys_struct.winches]
     end
-    prob.set_set_values(sam.integrator, set_values)
+    if !isnothing(prob.set_set_values)
+        prob.set_set_values(sam.integrator, set_values)
+    end
     
     sam.t_0 = sam.integrator.t
     sam.t_step = @elapsed OrdinaryDiffEqCore.step!(sam.integrator, dt, true)

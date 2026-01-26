@@ -291,9 +291,13 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Helper to convert raw reference to proper type (Int or Symbol)
     function to_ref(val)
+        # Handle Julia nothing
+        isnothing(val) && return nothing
         if val isa Integer
             return Int(val)
         elseif val isa String
+            # Handle "nothing" string from YAML as Julia nothing
+            val == "nothing" && return nothing
             return Symbol(val)
         elseif val isa Symbol
             return val

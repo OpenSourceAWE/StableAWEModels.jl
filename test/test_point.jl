@@ -11,6 +11,7 @@
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 
@@ -23,30 +24,12 @@ const POINT_TEST_YAML = """
 ##############################
 
 ###########################
-## Materials ##############
-###########################
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [dyneema, 55000000000.0, 724, 0.00077]
-
-###########################
 ## Points #################
 ###########################
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
   data:
-    - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
-    - [test_point, [0.0, 0.0, 100.0], DYNAMIC, nothing, nothing, 1.0, 0.0, 0.0, 0.1, 1.0]
-
-###########################
-## Segments ###############
-###########################
-# Very stiff segment to keep distance nearly constant but allow dynamics
-segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
-  data:
-    - [tether, ground, test_point, BRIDLE, 100.0, 0.1, 1000000000.0, 10000.0, 0.01]
+    - [test_point, [0.0, 0.0, 100.0], DYNAMIC, nothing, nothing, 0.69, 0.0, 0.0, 0.1, 0.45]
 """
 
 # YAML for zero-area point (no drag)
@@ -56,30 +39,36 @@ const POINT_NO_DRAG_YAML = """
 ##############################
 
 ###########################
-## Materials ##############
-###########################
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [dyneema, 55000000000.0, 724, 0.00077]
-
-###########################
 ## Points #################
 ###########################
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
   data:
-    - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
-    - [test_point, [0.0, 0.0, 100.0], DYNAMIC, nothing, nothing, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [test_point, [0.0, 0.0, 100.0], DYNAMIC, nothing, nothing, 0.69, 0.0, 0.0, 0.0, 0.0]
+"""
 
-###########################
-## Segments ###############
-###########################
-# Very stiff segment
-segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+# World frame damping YAML - point with 0.7 N/(m/s) damping
+const POINT_WORLD_DAMPING_YAML = """
+##############################
+## Point Test - World Damping #
+##############################
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
   data:
-    - [tether, ground, test_point, BRIDLE, 100.0, 0.1, 1000000000.0, 10000.0, 0.01]
+    - [test_point, [0.0, 0.0, 100.0], DYNAMIC, nothing, nothing, 2.3, 0.0, 0.7, 0.0, 0.0]
+"""
+
+# Aerodynamic drag YAML - point with area=4.2, cd=0.33
+const POINT_AERO_DRAG_YAML = """
+##############################
+## Point Test - Aero Drag #####
+##############################
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
+  data:
+    - [test_point, [0.0, 0.0, 100.0], DYNAMIC, nothing, nothing, 2.3, 0.0, 0.0, 4.2, 0.33]
 """
 
 @testset "Point Tests" begin
@@ -134,8 +123,9 @@ winch:
     c_vf: 30.6             # coefficient for the viscous friction            [Ns/m]
 
 environment:
-    v_wind: 15.51            # wind speed at reference height          [m/s]
-    upwind_dir: -90.0        # upwind direction                        [deg]
+    rho_0: 1.225               # air density at sea level               [kg/m^3]
+    v_wind: 0.0              # wind speed at reference height         [m/s]
+    upwind_dir: -90.0        # upwind direction                       [deg]
     profile_law: 0           # 1=EXP, 2=LOG, 3=EXPLOG, 4=FAST_EXP, 5=FAST_LOG, 6=FAST_EXPLOG
 """
     settings_path = joinpath(tmpdir, "settings.yaml")
@@ -150,7 +140,7 @@ system:
 
     # Set data path and load settings
     set_data_path(tmpdir)
-    set = load_settings("system.yaml")
+    set = Settings("system.yaml")
 
     # Load system structure from YAML
     sys = load_sys_struct_from_yaml(yaml_path; system_name="point_test", set=set)
@@ -160,20 +150,16 @@ system:
     # ========================================================================
     @testset "YAML Loading Verification" begin
         # Verify points were loaded correctly
-        @test length(sys.points) == 2
-        @test haskey(sys.points, :ground)
+        @test length(sys.points) == 1
         @test haskey(sys.points, :test_point)
 
         # Verify point properties
         test_point = sys.points[:test_point]
         @test test_point.type == SymbolicAWEModels.DYNAMIC
         @test test_point.pos_cad == KVec3(0.0, 0.0, 100.0)
-        @test test_point.extra_mass == 1.0
+        @test test_point.extra_mass == 0.69
         @test test_point.area == 0.1
-        @test test_point.drag_coeff == 1.0
-
-        # Verify segment is very stiff
-        @test sys.segments[:tether].axial_stiffness == 1e9
+        @test test_point.drag_coeff == 0.45
     end
 
     # ========================================================================
@@ -221,25 +207,25 @@ system:
 
         # Verify point has drag properties
         @test sys.points[:test_point].area == 0.1
-        @test sys.points[:test_point].drag_coeff == 1.0
+        @test sys.points[:test_point].drag_coeff == 0.45
 
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
 
         # Physics parameters for drag calculation
         rho = 1.225  # Air density at sea level [kg/m^3]
-        Cd = 1.0     # Drag coefficient
+        Cd = 0.45    # Drag coefficient
         A = 0.1      # Area [m^2]
-        m = 1.0      # Mass [kg]
+        m = 0.69     # Mass [kg]
         v_wind = 15.0  # Wind speed [m/s]
 
         # Expected drag force: F = 0.5 * rho * Cd * A * v^2
         F_drag_expected = 0.5 * rho * Cd * A * v_wind^2
-        # F = 0.5 * 1.225 * 1.0 * 0.1 * 225 = 13.78 N
+        # F = 0.5 * 1.225 * 0.45 * 0.1 * 225 = 6.20 N
 
         # Expected acceleration: a = F/m
         a_expected = F_drag_expected / m
-        @test a_expected ≈ 13.78 atol=0.1
+        @test a_expected ≈ 8.99 atol=0.1
 
         # Run one small timestep to get initial acceleration
         # Note: Point is constrained by stiff tether, so actual movement is limited
@@ -265,42 +251,20 @@ system:
         @test true  # Placeholder - this test configuration needs refinement
     end
 
+
     # ========================================================================
-    # Physics Test 3: With gravity, zero area - free fall
+    # Physics Test 5: Free fall acceleration (no damping, no drag)
     # ========================================================================
-    @testset "With gravity, zero area - free fall acceleration" begin
+    @testset "Free fall - gravity acceleration" begin
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        # Use a setup where point can fall freely (or nearly so)
-        # Create a slack tether configuration
-        slack_yaml = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [dyneema, 55000000000.0, 724, 0.00077]
+        # Use no-drag YAML - just a point with mass, no segments
+        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="freefall_test", set=set)
 
-points:
-  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
-  data:
-    - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
-    - [test_point, [0.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 1.0, 0.0, 0.0, 0.0, 0.0]
-
-segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
-  data:
-    - [tether, ground, test_point, BRIDLE, 100.0, 0.1, 1000000000.0, 10000.0, 0.01]
-"""
-        # Tether l0 = 100m but point is at z=50m, so tether is slack (compression_frac = 0.01)
-
-        slack_path = joinpath(tmpdir, "slack_geometry.yaml")
-        write(slack_path, slack_yaml)
-
-        sys = load_sys_struct_from_yaml(slack_path; system_name="point_test_fall", set=set)
-
-        @test sys.points[:test_point].area == 0.0  # No drag
-        @test sys.segments[:tether].l0 == 100.0
-        @test sys.segments[:tether].compression_frac == 0.01  # Very low compression stiffness
+        @test sys.points[:test_point].area == 0.0
+        @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
+        @test sys.points[:test_point].extra_mass == 0.69
 
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
@@ -312,103 +276,111 @@ segments:
         # Run for short time
         dt = 0.001
         n_steps = 100  # 0.1 seconds
+        total_time = n_steps * dt
 
-        z_history = Float64[z0]
-        v_history = Float64[vz0]
-        t_history = Float64[0.0]
-
-        for i in 1:n_steps
+        for _ in 1:n_steps
             next_step!(sam; dt=dt, vsm_interval=0)
-            push!(z_history, sam.sys_struct.points[:test_point].pos_w[3])
-            push!(v_history, sam.sys_struct.points[:test_point].vel_w[3])
-            push!(t_history, i * dt)
         end
 
-        # For free fall: z(t) = z0 + v0*t - 0.5*g*t^2
-        # v(t) = v0 - g*t
-        # a = -g = -9.81 m/s^2
+        vz_final = sam.sys_struct.points[:test_point].vel_w[3]
+        z_final = sam.sys_struct.points[:test_point].pos_w[3]
 
-        # Calculate acceleration from velocity change
-        # a ≈ (v_final - v_initial) / total_time
-        total_time = n_steps * dt
-        a_measured = (v_history[end] - v_history[1]) / total_time
+        # Velocity should be v0 - g*t (mass doesn't affect free fall acceleration)
+        vz_expected = vz0 - set.g_earth * total_time
+        @test vz_final ≈ vz_expected atol=0.1
 
-        # In free fall, acceleration should be -g
-        # Note: Sign convention - positive z is up, so a = -g
-        @test a_measured ≈ -9.81 atol=0.5  # Within 0.5 m/s^2 of expected
-
-        # Also verify position follows free fall equation
-        t_final = total_time
-        z_expected = z0 + vz0 * t_final - 0.5 * 9.81 * t_final^2
-        z_final = z_history[end]
-
-        @test z_final ≈ z_expected atol=0.1  # Within 10cm
+        # Position should follow free fall equation: z = z0 + v0*t - 0.5*g*t^2
+        z_expected = z0 + vz0 * total_time - 0.5 * set.g_earth * total_time^2
+        @test z_final ≈ z_expected atol=0.01
     end
 
     # ========================================================================
-    # Physics Test 4: Verify drag coefficient effect
+    # Physics Test 6: World frame damping - terminal velocity
     # ========================================================================
-    @testset "Drag coefficient verification" begin
-        # Create two configurations with different drag coefficients
-        cd_1_yaml = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [dyneema, 55000000000.0, 724, 0.00077]
+    @testset "World frame damping - terminal velocity" begin
+        set.g_earth = 9.81
+        set.v_wind = 0.0
 
-points:
-  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
-  data:
-    - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
-    - [test_point, [0.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 1.0, 0.0, 0.0, 0.5, 1.0]
+        yaml_damping_path = joinpath(tmpdir, "world_damping_geometry.yaml")
+        write(yaml_damping_path, POINT_WORLD_DAMPING_YAML)
 
-segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
-  data:
-    - [tether, ground, test_point, BRIDLE, 100.0, 0.1, 1000000000.0, 10000.0, 0.01]
-"""
+        sys = load_sys_struct_from_yaml(yaml_damping_path; system_name="damping_test", set=set)
 
-        cd_2_yaml = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [dyneema, 55000000000.0, 724, 0.00077]
+        @test sys.points[:test_point].world_frame_damping == KVec3(0.7, 0.7, 0.7)
+        @test sys.points[:test_point].area == 0.0
+        @test sys.points[:test_point].extra_mass == 2.3
 
-points:
-  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
-  data:
-    - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
-    - [test_point, [0.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 1.0, 0.0, 0.0, 0.5, 2.0]
+        sam = SymbolicAWEModel(set, sys)
+        init!(sam; remake=true)
 
-segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
-  data:
-    - [tether, ground, test_point, BRIDLE, 100.0, 0.1, 1000000000.0, 10000.0, 0.01]
-"""
+        # Terminal velocity calculation:
+        # world_frame_damping is a per-mass damping coefficient (damping ratio)
+        # F_damping = damping * m * v, so at terminal velocity: damping * m * v = m * g
+        # v_terminal = g / damping = 9.81 / 0.7 = 14.01 m/s
+        damping = 0.7
+        v_terminal_expected = set.g_earth / damping
 
-        cd1_path = joinpath(tmpdir, "cd1_geometry.yaml")
-        write(cd1_path, cd_1_yaml)
-        cd2_path = joinpath(tmpdir, "cd2_geometry.yaml")
-        write(cd2_path, cd_2_yaml)
+        # Run until terminal velocity is reached (let it settle)
+        dt = 0.01
+        n_steps = 2000  # 20 seconds should be enough
 
-        # Load both configurations
-        sys1 = load_sys_struct_from_yaml(cd1_path; system_name="cd1_test", set=set)
-        sys2 = load_sys_struct_from_yaml(cd2_path; system_name="cd2_test", set=set)
+        for _ in 1:n_steps
+            next_step!(sam; dt=dt, vsm_interval=0)
+        end
 
-        # Verify drag coefficients were loaded correctly
-        @test sys1.points[:test_point].drag_coeff == 1.0
-        @test sys1.points[:test_point].area == 0.5
+        # Check terminal velocity (downward, so negative z velocity)
+        vz_final = sam.sys_struct.points[:test_point].vel_w[3]
+        @test abs(vz_final) ≈ v_terminal_expected atol=0.1
+        @test vz_final < 0  # Moving downward
+    end
 
-        @test sys2.points[:test_point].drag_coeff == 2.0
-        @test sys2.points[:test_point].area == 0.5
+    # ========================================================================
+    # Physics Test 7: Aerodynamic drag - terminal velocity
+    # ========================================================================
+    @testset "Aerodynamic drag - terminal velocity" begin
+        set.g_earth = 9.81
+        set.v_wind = 0.0
 
-        # The drag force ratio should be 2:1
-        # F = 0.5 * rho * Cd * A * v^2
-        # F1/F2 = Cd1/Cd2 = 1/2
+        yaml_aero_path = joinpath(tmpdir, "aero_drag_geometry.yaml")
+        write(yaml_aero_path, POINT_AERO_DRAG_YAML)
 
-        # This can be verified through terminal velocity or force measurements
-        # For now, just verify the loading was correct
-        @test sys2.points[:test_point].drag_coeff / sys1.points[:test_point].drag_coeff == 2.0
+        sys = load_sys_struct_from_yaml(yaml_aero_path; system_name="aero_drag_test", set=set)
+
+        @test sys.points[:test_point].area == 4.2
+        @test sys.points[:test_point].drag_coeff == 0.33
+        @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
+        @test sys.points[:test_point].extra_mass == 2.3
+
+        sam = SymbolicAWEModel(set, sys)
+        init!(sam; remake=true)
+
+        # Verify point properties are preserved after init
+        point = sam.sys_struct.points[:test_point]
+        @test point.area == 4.2
+        @test point.drag_coeff == 0.33
+
+        # Terminal velocity calculation:
+        # At terminal velocity: 0.5 * rho * Cd * A * v^2 = m * g
+        # v = sqrt(2 * m * g / (rho * Cd * A))
+        m = 2.3
+        rho = 1.225  # Air density at sea level [kg/m^3]
+        Cd = 0.33
+        A = 4.2
+        v_terminal_expected = sqrt(2 * m * set.g_earth / (rho * Cd * A))
+        # v = sqrt(2 * 2.3 * 9.81 / (1.225 * 0.33 * 4.2)) ≈ 5.16 m/s
+
+        # Run until terminal velocity is reached
+        dt = 0.01
+        n_steps = 500  # 5 seconds should be enough for this higher drag
+
+        for _ in 1:n_steps
+            next_step!(sam; dt=dt, vsm_interval=0)
+        end
+
+        # Check terminal velocity (downward, so negative z velocity)
+        vz_final = point.vel_w[3]
+        @test abs(vz_final) ≈ v_terminal_expected rtol=0.1
+        @test vz_final < 0  # Moving downward
     end
 
     # Cleanup
