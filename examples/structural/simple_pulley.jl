@@ -153,7 +153,7 @@ display(fig_initial)
 include("damping_analysis.jl")
 freq, zeta, recommended_damping = analyze_damping_response(sys_struct, set; verbose=true)
 println("\n Setting recommended damping to: ", recommended_damping)
-set.axial_damping = recommended_damping  # Update settings with recommended damping
+set.unit_damping = recommended_damping  # Update settings with recommended damping
 
 # Create the symbolic model
 sam = SymbolicAWEModel(set, sys_struct)

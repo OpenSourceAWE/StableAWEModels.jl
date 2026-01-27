@@ -129,12 +129,12 @@ function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winch
             spring_vel[segment.idx] ~
                 rel_vel[:, segment.idx] ⋅ unit_vec[:, segment.idx]
             damping[segment.idx] ~
-                get_axial_damping(psys, segment.idx) / len[segment.idx]
+                get_unit_damping(psys, segment.idx) / len[segment.idx]
             stiffness[segment.idx] ~ ifelse(
                 len[segment.idx] > l0[segment.idx],
-                get_axial_stiffness(psys, segment.idx) / len[segment.idx],
+                get_unit_stiffness(psys, segment.idx) / len[segment.idx],
                 get_compression_frac(psys, segment.idx) *
-                get_axial_stiffness(psys, segment.idx) / len[segment.idx],
+                get_unit_stiffness(psys, segment.idx) / len[segment.idx],
             )
             spring_force[segment.idx] ~ (
                 stiffness[segment.idx] * (len[segment.idx] - l0[segment.idx]) -

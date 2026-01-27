@@ -198,8 +198,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             haskey(raw_to_idx, cj) || (@warn "wing segment $name references missing point id $cj"; continue)
             elem = get(wing_element_dict, name, Dict{Symbol,Any}())
             l0 = haskey(elem, :l0) ? Float64(elem[:l0]) : norm(raw_points[findfirst(rp -> rp.raw_id == ci, raw_points)].pos .- raw_points[findfirst(rp -> rp.raw_id == cj, raw_points)].pos)
-            axial_stiffness = haskey(elem, :k) ? Float64(elem[:k]) : NaN
-            axial_damping   = haskey(elem, :c) ? Float64(elem[:c]) : NaN
+            unit_stiffness = haskey(elem, :k) ? Float64(elem[:k]) : NaN
+            unit_damping   = haskey(elem, :c) ? Float64(elem[:c]) : NaN
             diameter_mm = DEFAULT_WING_DIAMETER_MM
             if haskey(elem, :d)
                 diameter_mm = Float64(elem[:d]) * 1000
@@ -211,8 +211,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 SymbolicAWEModels.POWER_LINE;
                 l0 = l0,
                 diameter_mm = diameter_mm,
-                axial_stiffness = axial_stiffness,
-                axial_damping = axial_damping,
+                unit_stiffness = unit_stiffness,
+                unit_damping = unit_damping,
                 compression_frac = 0.01
             ))
         end
@@ -320,8 +320,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     SymbolicAWEModels.BRIDLE;
                     l0 = l0_ci_cj,
                     diameter_mm = diameter_mm,
-                    axial_stiffness = k_total,
-                    axial_damping = c_total,
+                    unit_stiffness = k_total,
+                    unit_damping = c_total,
                     compression_frac = compression_frac
                 ))
                 
@@ -333,8 +333,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     SymbolicAWEModels.BRIDLE;
                     l0 = l0_cj_ck,
                     diameter_mm = diameter_mm,
-                    axial_stiffness = k_total,
-                    axial_damping = c_total,
+                    unit_stiffness = k_total,
+                    unit_damping = c_total,
                     compression_frac = compression_frac
                 ))
             else
@@ -345,8 +345,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 end
                 diameter_mm = elem !== nothing && haskey(elem, :d) ? Float64(elem[:d]) * 1000 : NaN
                 l0 = elem !== nothing && haskey(elem, :l0) ? Float64(elem[:l0]) : 0.0
-                axial_stiffness = NaN
-                axial_damping = NaN
+                unit_stiffness = NaN
+                unit_damping = NaN
                 if elem !== nothing
                     mat_name = haskey(elem, :material) ? String(elem[:material]) : ""
                     mat_props = get(material_props, mat_name, nothing)
@@ -356,8 +356,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         diameter_m = haskey(elem, :d) ? Float64(elem[:d]) : NaN
                         if !isnan(E) && !isnan(diameter_m) && l0 > 0
                             area = π * (diameter_m / 2)^2
-                            axial_stiffness = E * area / l0
-                            axial_damping = damping_frac * axial_stiffness
+                            unit_stiffness = E * area / l0
+                            unit_damping = damping_frac * unit_stiffness
                         end
                     end
                 end
@@ -373,8 +373,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     SymbolicAWEModels.BRIDLE;
                     l0 = l0,
                     diameter_mm = diameter_mm,
-                    axial_stiffness = axial_stiffness,
-                    axial_damping = axial_damping,
+                    unit_stiffness = unit_stiffness,
+                    unit_damping = unit_damping,
                     compression_frac = compression_frac
                 ))
             end

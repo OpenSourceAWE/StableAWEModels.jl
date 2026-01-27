@@ -53,11 +53,11 @@ push!(points, Point(2, [2.0, 0.0, 2], DYNAMIC; mass=point_mass)) # Hanging mass 
 # compression_frac is set to 0.001, meaning the spring has 0.1% compresive stiffness compared to elongation stiffness
 # diameter_mm is the diameter of the bridle segment in millimeters
 # The stiffness and damping are set by the settings.yaml configuration:
-#     set.axial_stiffness determines the spring constant (N/m)
-#     set.axial_damping determines the damping coefficient (N·s/m)
+#     set.unit_stiffness determines the spring constant (N/m)
+#     set.unit_damping determines the damping coefficient (N·s/m)
 # These can also be computed from material properties:
-#     axial_stiffness = set.e_tether * (diameter_m/2)^2 * π
-#     axial_damping = set.rel_damping * axial_stiffness (if using relative damping)
+#     unit_stiffness = set.e_tether * (diameter_m/2)^2 * π
+#     unit_damping = set.rel_damping * unit_stiffness (if using relative damping)
 segments = Segment[]
 push!(segments, Segment(1, set, (1, 2), BRIDLE; l0=rest_length, compression_frac=0.001, diameter_mm=line_diameter_mm))  # 5mm diameter, 4m rest length
 
@@ -84,7 +84,7 @@ sys_struct = SymbolicAWEModels.SystemStructure("hanging_mass", set; points, segm
 include("damping_analysis.jl")
 freq, zeta, recommended_damping = analyze_damping_response(sys_struct, set; verbose=true)
 println("\n Setting recommended damping to: ", recommended_damping)
-set.axial_damping = recommended_damping  # Update settings with recommended damping
+set.unit_damping = recommended_damping  # Update settings with recommended damping
 
 ### Plot initial state
 # even though the tether is not used here, it defines the size of the plot

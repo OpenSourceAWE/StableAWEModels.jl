@@ -91,13 +91,13 @@ points:
 #   1. Material-based: [id, point_i, point_j, type, l0, diameter_mm, material, compression_frac]
 #      - material is an unquoted string reference (e.g., dyneema)
 #      - stiffness is auto-calculated: k = E*A/l0
-#   2. Explicit stiffness: [id, point_i, point_j, type, l0, diameter_mm, axial_stiffness, compression_frac]
-#      - axial_stiffness is a number (e.g., 2000.0)
-#      - axial_damping defaults to 0.0
+#   2. Explicit stiffness: [id, point_i, point_j, type, l0, diameter_mm, unit_stiffness, compression_frac]
+#      - unit_stiffness is a number (e.g., 2000.0)
+#      - unit_damping defaults to 0.0
 # type: POWER_LINE, STEERING_LINE, BRIDLE
 
 segments:
-  headers: [idx, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+  headers: [idx, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     #TODO: stiffness 
     # Wing structural elements - leading edge tubes (hardcoded stiffness, not dyneema)

@@ -102,7 +102,7 @@ sys.transforms[1].azimuth = deg2rad(ELEVATION * sin(HEADING_SETPOINT))
 sys.transforms[1].heading = HEADING_SETPOINT
 
 # Update tether length: points 39-44 and segments 90-95
-segment_len = TETHER_LENGTH / 6 * (1 + 1000 / sys.segments[end].axial_stiffness)
+segment_len = TETHER_LENGTH / 6 * (1 + 1000 / sys.segments[end].unit_stiffness)
 for i in 39:44
     sys.points[i].pos_cad .= [0.0, 0.0, -(i-38)*segment_len]
 end

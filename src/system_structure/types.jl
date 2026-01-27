@@ -242,6 +242,10 @@ end
 
 A segment representing a spring-damper connection from one point to another.
 
+The spring-damper model uses per-unit-length stiffness and damping:
+- Effective stiffness: `k = unit_stiffness / length` [N/m]
+- Effective damping: `c = unit_damping / length` [N·s/m]
+
 $(TYPEDFIELDS)
 """
 mutable struct Segment
@@ -249,36 +253,45 @@ mutable struct Segment
     const name::Union{Int, Symbol, Nothing}
     point_idxs::Tuple{Int64, Int64}  # Resolved by SystemStructure from point_refs
     const point_refs::Tuple{NameRef, NameRef}  # Raw references to endpoints (names or indices)
-    axial_stiffness::SimFloat
-    axial_damping::SimFloat
+    "Stiffness per unit length [N]. Effective k = unit_stiffness/length [N/m]."
+    unit_stiffness::SimFloat
+    "Damping per unit length [N·s]. Effective c = unit_damping/length [N·s/m]."
+    unit_damping::SimFloat
+    "Rest (unstretched) length [m]."
     l0::SimFloat
+    "Stiffness reduction factor when segment is in compression (0-1)."
     compression_frac::SimFloat
+    "Segment diameter [m]."
     diameter::SimFloat
-    len::SimFloat # current len of the segment
-    force::SimFloat # current force in the segment
+    "Current length of the segment [m]."
+    len::SimFloat
+    "Current force in the segment [N]."
+    force::SimFloat
 end
 
 """
-    Segment(name, point_i, point_j, axial_stiffness, axial_damping, diameter; l0, compression_frac)
+    Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac)
 
 Basic constructor for a `Segment` object.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the segment.
 - `point_i`, `point_j`: References to the two endpoint points (names or indices).
-- `axial_stiffness`, `axial_damping`, `diameter`: Physical properties.
+- `unit_stiffness`: Stiffness per unit length [N]. Effective k = unit_stiffness/length [N/m].
+- `unit_damping`: Damping per unit length [N·s]. Effective c = unit_damping/length [N·s/m].
+- `diameter`: Segment diameter [m].
 """
-function Segment(name, point_i, point_j, axial_stiffness, axial_damping, diameter;
+function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
     l0=zero(SimFloat), compression_frac=0.1
 )
     p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
     p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
-    Segment(0, name, (0, 0), (p1, p2), axial_stiffness, axial_damping, l0, compression_frac,
+    Segment(0, name, (0, 0), (p1, p2), unit_stiffness, unit_damping, l0, compression_frac,
         diameter, zero(SimFloat), zero(SimFloat))
 end
 
 """
-    Segment(name, set, point_i, point_j, type; l0, compression_frac, axial_stiffness, axial_damping)
+    Segment(name, set, point_i, point_j, type; l0, compression_frac, unit_stiffness, unit_damping)
 
 Constructs a `Segment` using settings for material properties.
 
@@ -292,11 +305,11 @@ Constructs a `Segment` using settings for material properties.
 - `l0::SimFloat=zero(SimFloat)`: Unstretched length [m]. Calculated from point positions if zero.
 - `compression_frac::SimFloat=0.0`: Stiffness reduction factor in compression.
 - `diameter_mm::Float64=NaN`: Tether diameter [mm]. If `NaN`, uses default from settings.
-- `axial_stiffness::Float64=NaN`: Axial stiffness [N]. If `NaN`, calculated from properties.
-- `axial_damping::Float64=NaN`: Axial damping [Ns]. If `NaN`, calculated from settings.
+- `unit_stiffness::Float64=NaN`: Stiffness per unit length [N]. Effective k = unit_stiffness/length.
+- `unit_damping::Float64=NaN`: Damping per unit length [N·s]. Effective c = unit_damping/length.
 """
 function Segment(name, set, point_i, point_j, type;
-    l0=zero(SimFloat), compression_frac=0.0, diameter_mm=NaN, axial_stiffness=NaN, axial_damping=NaN
+    l0=zero(SimFloat), compression_frac=0.0, diameter_mm=NaN, unit_stiffness=NaN, unit_damping=NaN
 )
     p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
     p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
@@ -310,32 +323,32 @@ function Segment(name, set, point_i, point_j, type;
     # Convert diameter from mm to m
     diameter_m = 0.001 * diameter_mm
 
-    # Compute axial_stiffness if not provided
-    if isnan(axial_stiffness)
-        axial_stiffness = set.e_tether * (diameter_m/2)^2 * π
+    # Compute unit_stiffness if not provided
+    if isnan(unit_stiffness)
+        unit_stiffness = set.e_tether * (diameter_m/2)^2 * π
         if type == BRIDLE
             stiffness_frac = 0.01
         else
             stiffness_frac = 1.0
         end
-        axial_stiffness *= stiffness_frac
+        unit_stiffness *= stiffness_frac
     end
 
-    # Compute axial_damping if not provided
-    if isnan(axial_damping)
-        # Use rel_damping if available, otherwise compute from axial_damping/axial_stiffness ratio
+    # Compute unit_damping if not provided
+    if isnan(unit_damping)
+        # Use rel_damping if available, otherwise compute from unit_damping/unit_stiffness ratio
         if hasproperty(set, :rel_damping) && set.rel_damping != 0.0
-            axial_damping = set.rel_damping * axial_stiffness
-        elseif hasproperty(set, :axial_damping) && hasproperty(set, :axial_stiffness) &&
-                set.axial_damping != 0.0
-            axial_damping = (set.axial_damping / set.axial_stiffness) * axial_stiffness
+            unit_damping = set.rel_damping * unit_stiffness
+        elseif hasproperty(set, :unit_damping) && hasproperty(set, :unit_stiffness) &&
+                set.unit_damping != 0.0
+            unit_damping = (set.unit_damping / set.unit_stiffness) * unit_stiffness
         else
             @warn "Axial damping is zero!"
-            axial_damping = 0.0  # fallback if no damping info available
+            unit_damping = 0.0  # fallback if no damping info available
         end
     end
 
-    Segment(0, name, (0, 0), (p1, p2), axial_stiffness, axial_damping, l0, compression_frac,
+    Segment(0, name, (0, 0), (p1, p2), unit_stiffness, unit_damping, l0, compression_frac,
         diameter_m, zero(SimFloat), zero(SimFloat))
 end
 

@@ -56,8 +56,11 @@ tether:
     power_tether_diameter: 2 # [mm]
     steering_tether_diameter: 1 # [mm]
     cd_tether: 0.958       # drag coefficient of the tether
-    axial_damping: 473.0         # unit damping coefficient        [Ns]
-    axial_stiffness: 614600.0     # unit spring constant coefficient [N]
+    # Per-unit-length spring-damper properties:
+    # Effective stiffness k = unit_stiffness / length [N/m]
+    # Effective damping   c = unit_damping / length [N·s/m]
+    unit_damping: 473.0         # damping per unit length         [N·s]
+    unit_stiffness: 614600.0    # stiffness per unit length       [N]
     rho_tether:  724.0     # density of Dyneema           [kg/m³]
     e_tether: 55000000000.0 # axial tensile modulus of Dyneema (M.B. Ruppert) [Pa]
                            # SK75: 109 to 132 GPa according to datasheet

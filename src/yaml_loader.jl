@@ -75,43 +75,43 @@ end
 """
     calculate_derived_properties!(props::Dict{Symbol, Any})
 
-Calculate derived properties like axial_stiffness and axial_damping from material properties.
+Calculate derived properties like unit_stiffness and unit_damping from material properties.
 Modifies props in-place.
 """
 function calculate_derived_properties!(props::Dict{Symbol, Any})
-    # Calculate axial_stiffness from material properties if missing or if it's a string (material name)
+    # Calculate unit_stiffness from material properties if missing or if it's a string (material name)
     # Store EA; the spring k is computed later as EA / len in generate_system.jl.
     if haskey(props, :youngs_modulus) && haskey(props, :diameter_mm) && haskey(props, :l0)
         # Check if we need to calculate (missing, nothing, or is a string reference)
-        need_calculation = !haskey(props, :axial_stiffness) ||
-                          props[:axial_stiffness] === nothing ||
-                          props[:axial_stiffness] isa String
+        need_calculation = !haskey(props, :unit_stiffness) ||
+                          props[:unit_stiffness] === nothing ||
+                          props[:unit_stiffness] isa String
 
         if need_calculation
             d_m = Float64(props[:diameter_mm]) / 1000.0  # mm to m
             A = π * (d_m / 2)^2
             E = Float64(props[:youngs_modulus])
-            props[:axial_stiffness] = E * A
+            props[:unit_stiffness] = E * A
         end
     end
 
-    # Calculate axial_damping from damping coefficient if missing or is a string
-    if haskey(props, :damping_per_stiffness) && haskey(props, :axial_stiffness)
-        # Only calculate if axial_stiffness is now a number
-        if props[:axial_stiffness] isa Number
-            need_damping_calc = !haskey(props, :axial_damping) ||
-                               props[:axial_damping] === nothing ||
-                               props[:axial_damping] isa String
+    # Calculate unit_damping from damping coefficient if missing or is a string
+    if haskey(props, :damping_per_stiffness) && haskey(props, :unit_stiffness)
+        # Only calculate if unit_stiffness is now a number
+        if props[:unit_stiffness] isa Number
+            need_damping_calc = !haskey(props, :unit_damping) ||
+                               props[:unit_damping] === nothing ||
+                               props[:unit_damping] isa String
 
             if need_damping_calc
-                props[:axial_damping] = Float64(props[:damping_per_stiffness]) * Float64(props[:axial_stiffness])
+                props[:unit_damping] = Float64(props[:damping_per_stiffness]) * Float64(props[:unit_stiffness])
             end
         end
     end
 
-    # Set default axial_damping if still missing
-    if !haskey(props, :axial_damping) || props[:axial_damping] === nothing || props[:axial_damping] isa String
-        props[:axial_damping] = 0.0
+    # Set default unit_damping if still missing
+    if !haskey(props, :unit_damping) || props[:unit_damping] === nothing || props[:unit_damping] isa String
+        props[:unit_damping] = 0.0
     end
 end
 
@@ -248,10 +248,10 @@ starting from 1 with no gaps.
   - `id` must be sequential: 1, 2, 3, ...
 
 - `segments`: table with one of two formats:
-  - Direct format: `[id,point_i,point_j,type,l0,diameter_mm,axial_stiffness,axial_damping,compression_frac]`
+  - Direct format: `[id,point_i,point_j,type,l0,diameter_mm,unit_stiffness,unit_damping,compression_frac]`
   - Named format: `[name,point_i,point_j]` (requires `segment_properties` block)
 
-- `segment_properties`: (optional) table with headers `[name,type,l0,diameter_mm,axial_stiffness,axial_damping,compression_frac]`
+- `segment_properties`: (optional) table with headers `[name,type,l0,diameter_mm,unit_stiffness,unit_damping,compression_frac]`
   - Used with named segment format for shared properties across symmetric segments
 
 - `pulleys`: table with headers `[id,segment_i,segment_j,type]`
@@ -393,8 +393,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Raw point references are passed - SystemStructure will resolve
             segment = call_yaml_constructor(Segment, resolved_row,
                 [:name, :set, :point_i, :point_j, :type],
-                [:l0, :diameter_mm, :axial_stiffness,
-                 :axial_damping, :compression_frac];
+                [:l0, :diameter_mm, :unit_stiffness,
+                 :unit_damping, :compression_frac];
                 mappings=Dict(
                     :set => r -> set,
                     :point_i => r -> to_ref(r.point_i),
@@ -866,7 +866,7 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
         # Update lines in the segments section
         if in_segments_section
             # Match: "- [idx, point_i, point_j, type, l0, ...]"
-            # Format: [idx, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+            # Format: [idx, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
             # We want to update the l0 field (5th field, index 4)
             m = match(r"^(\s*-\s*\[)(\d+)(,\s*\d+,\s*\d+,\s*\w+,\s*)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(.*)", line)
             if m !== nothing

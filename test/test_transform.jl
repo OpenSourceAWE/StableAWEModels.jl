@@ -51,7 +51,7 @@ points:
 ## Segments ###############
 ###########################
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     - [chord_1, le_1, te_1, POWER_LINE, nothing, 1.0, 10000.0, 10.0, 1.0]
     - [chord_2, le_2, te_2, POWER_LINE, nothing, 1.0, 10000.0, 10.0, 1.0]
@@ -134,7 +134,7 @@ points:
 ## Segments ###############
 ###########################
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     - [chord_1, le_1, te_1, POWER_LINE, nothing, 1.0, 10000.0, 10.0, 1.0]
     - [chord_2, le_2, te_2, POWER_LINE, nothing, 1.0, 10000.0, 10.0, 1.0]
@@ -210,8 +210,8 @@ kite:
 
 tether:
   cd_tether: 0.958
-  axial_damping: 350.0
-  axial_stiffness: 120000.0
+  unit_damping: 350.0
+  unit_stiffness: 120000.0
   rho_tether: 724.0
   e_tether: 55000000000.0
   rel_damping: 0.00077

@@ -49,8 +49,8 @@ Group
 Group(idx, point_idxs, vsm_wing::Wing, gamma, type, moment_frac)
 Group(idx, point_idxs, le_pos, chord, y_airf, type, moment_frac)
 Segment
-Segment(idx, set, point_idxs, type; l0, compression_frac, axial_stiffness, axial_damping)
-Segment(idx, point_idxs, axial_stiffness, axial_damping, diameter; l0, compression_frac)
+Segment(idx, set, point_idxs, type; l0, compression_frac, unit_stiffness, unit_damping)
+Segment(idx, point_idxs, unit_stiffness, unit_damping, diameter; l0, compression_frac)
 Pulley
 Pulley(idx, segment_idxs, type)
 Tether

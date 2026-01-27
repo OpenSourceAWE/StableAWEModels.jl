@@ -26,11 +26,11 @@ function analyze_damping_response(sys_struct::SystemStructure, set::Settings;
     verbose && println("🔧 Damping Analysis: $(sys_struct.name)")
     
     # Current settings
-    current_damping = set.axial_damping
-    current_stiffness = set.axial_stiffness
+    current_damping = set.unit_damping
+    current_stiffness = set.unit_stiffness
     current_a1 = current_damping / current_stiffness
     
-    verbose && @printf "📊 Current: axial_damping=%.0f, axial_stiffness=%.0f, a₁=%.4f [s]\n" current_damping current_stiffness current_a1
+    verbose && @printf "📊 Current: unit_damping=%.0f, unit_stiffness=%.0f, a₁=%.4f [s]\n" current_damping current_stiffness current_a1
     
     try
         # Create and initialize model

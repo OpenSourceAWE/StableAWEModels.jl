@@ -28,12 +28,12 @@ This high-level function orchestrates the simplification process:
 """
 function copy_to_simple!(sam::SymbolicAWEModel, tether_sam::SymbolicAWEModel, 
                          simple_sam::SymbolicAWEModel; prn=true)
-    axial_stiffness, axial_damping, _, _ = calc_spring_props(sam, tether_sam; prn)
+    unit_stiffness, unit_damping, _, _ = calc_spring_props(sam, tether_sam; prn)
     
     for tether in simple_sam.sys_struct.tethers
         segment = simple_sam.sys_struct.segments[tether.segment_idxs[1]]
-        segment.axial_stiffness = axial_stiffness[segment.idx]
-        segment.axial_damping = axial_damping[segment.idx]
+        segment.unit_stiffness = unit_stiffness[segment.idx]
+        segment.unit_damping = unit_damping[segment.idx]
     end
     copy_to_simple!(sam.sys_struct, simple_sam.sys_struct)
     OrdinaryDiffEqCore.reinit!(simple_sam.integrator; reinit_dae=true)
@@ -123,7 +123,7 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
             spoint_idxs = ssegment.point_idxs
             slen = norm(ssys.points[spoint_idxs[1]].pos_w .-
                         ssys.points[spoint_idxs[2]].pos_w)
-            stiffness = ssegment.axial_stiffness / slen
+            stiffness = ssegment.unit_stiffness / slen
             nt = length(winch.tether_idxs)
             swinch.tether_len += (slen - norm(winch.force)/stiffness/nt) / nt
         end
@@ -162,8 +162,8 @@ This function orchestrates the process by performing a step response test on the
 
 # Returns
 - `Tuple{Vector{Float64}, Vector{Float64}, Matrix{Float64}, Float64}`: A tuple containing:
-    1.  `axial_stiffness` [N]
-    2.  `axial_damping` [Ns]
+    1.  `unit_stiffness` [N]
+    2.  `unit_damping` [Ns]
     3.  `tether_lens` (the step response data)
     4.  `dt` (the simulation time step)
 """
@@ -358,10 +358,10 @@ F = k(l - l_0) - c\\dot{l}
 ```
 
 where:
-- `k = axial_stiffness / l` (tension) or
-  `k = compression_frac * axial_stiffness / l` (compression)
+- `k = unit_stiffness / l` (tension) or
+  `k = compression_frac * unit_stiffness / l` (compression)
 - `l` is current length, `l_0` is unstretched length
-- `c = axial_damping / l` is damping coefficient
+- `c = unit_damping / l` is damping coefficient
 - `\\dot{l} = (v₁ - v₂) ⋅ û` is extension rate
 
 # Arguments
@@ -396,14 +396,14 @@ function update_segment_forces!(sys_struct::SystemStructure)
 
         # Stiffness (handles compression)
         if len > segment.l0
-            stiffness = segment.axial_stiffness / len
+            stiffness = segment.unit_stiffness / len
         else
             stiffness = segment.compression_frac *
-                        segment.axial_stiffness / len
+                        segment.unit_stiffness / len
         end
 
         # Damping
-        damping = segment.axial_damping / len
+        damping = segment.unit_damping / len
 
         # Update segment fields in-place
         segment.len = len

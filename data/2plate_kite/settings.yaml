@@ -24,8 +24,8 @@ kite:
 
 tether:
     cd_tether: 0.958
-    axial_damping: 0.0
-    axial_stiffness: 0.0
+    unit_damping: 0.0
+    unit_stiffness: 0.0
     rho_tether: 724.0
     e_tether: 5.5e10
 

@@ -62,7 +62,7 @@ points:
 ## Segments ###############
 ###########################
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     # Wing structural elements
     - [le_tube_left,  te_left, te_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]

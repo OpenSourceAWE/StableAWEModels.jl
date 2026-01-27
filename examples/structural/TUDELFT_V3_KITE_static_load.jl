@@ -215,7 +215,7 @@ freq, zeta, recommended_damping = analyze_damping_response(
     sys, set; verbose=true
 )
 println("  Setting recommended damping to: $recommended_damping")
-set.axial_damping = recommended_damping
+set.unit_damping = recommended_damping
 
 # Create symbolic model
 println("\nInitializing symbolic model...")

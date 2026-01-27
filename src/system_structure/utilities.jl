@@ -16,7 +16,7 @@ This file contains:
 # ==================== TETHER CREATION ==================== #
 
 """
-    create_tether(tether_idx, set, points, segments, tethers, attach_point, type, dynamics_type; z, axial_stiffness, axial_damping)
+    create_tether(tether_idx, set, points, segments, tethers, attach_point, type, dynamics_type; z, unit_stiffness, unit_damping)
 
 Procedurally create a multi-segment tether.
 
@@ -24,8 +24,8 @@ This function builds a tether from a specified number of segments, connecting a 
 `attach_point` on the kite to a new anchor point on the ground.
 """
 function create_tether(tether_idx, set, points, segments, tethers, attach_point,
-                       type, dynamics_type; z=[0,0,1], axial_stiffness=NaN,
-                       axial_damping=NaN, d_pos=zeros(3))
+                       type, dynamics_type; z=[0,0,1], unit_stiffness=NaN,
+                       unit_damping=NaN, d_pos=zeros(3))
     winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z) .+ d_pos
     dir = winch_pos - attach_point.pos_cad
     segment_idxs = Int64[]
@@ -47,7 +47,7 @@ function create_tether(tether_idx, set, points, segments, tethers, attach_point,
             points = [points; Point(point_idx, pos, dynamics_type)]
         end
         segments = [segments; Segment(segment_idx, set, last_idx, point_idx, type;
-                                      axial_stiffness, axial_damping)]
+                                      unit_stiffness, unit_damping)]
         push!(segment_idxs, segment_idx)
     end
     tethers = [tethers; Tether(tether_idx, segment_idxs; winch_point=winch_point_idx)]
@@ -203,16 +203,16 @@ function validate_sys_struct(sys_struct::SystemStructure)
         end
 
         # Warn about zero or negative stiffness/damping
-        if segment.axial_stiffness ≈ 0.0
+        if segment.unit_stiffness ≈ 0.0
             @warn "Segment #$(segment.idx) has zero axial stiffness"
-        elseif segment.axial_stiffness < 0
+        elseif segment.unit_stiffness < 0
             @warn "Segment #$(segment.idx) has negative axial stiffness " *
-                  "$(segment.axial_stiffness) N"
+                  "$(segment.unit_stiffness) N"
         end
 
-        if segment.axial_damping < 0
+        if segment.unit_damping < 0
             @warn "Segment #$(segment.idx) has negative axial damping " *
-                  "$(segment.axial_damping) N⋅s"
+                  "$(segment.unit_damping) N⋅s"
         end
     end
 
@@ -484,7 +484,7 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
                     point_idxs2 = segment2.point_idxs
                     slen = norm(sys2.points[point_idxs2[1]].pos_w .-
                                         sys2.points[point_idxs2[2]].pos_w)
-                    stiffness = segment2.axial_stiffness / slen
+                    stiffness = segment2.unit_stiffness / slen
                     nt = length(winch1.tether_idxs)
                     winch2.tether_len += (slen - norm(winch1.force)/stiffness/nt) / nt
                 end

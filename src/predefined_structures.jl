@@ -319,7 +319,7 @@ function create_ram_sys_struct(set::Settings; d_winch_pos=[zeros(3), zeros(3)])
 end
 
 """
-    create_tether_sys_struct(set::Settings; axial_stiffness, axial_damping)
+    create_tether_sys_struct(set::Settings; unit_stiffness, unit_damping)
 
 Create a simplified `SystemStructure` for testing tether dynamics.
 
@@ -332,15 +332,15 @@ themselves.
 - `set::Settings`: Configuration parameters.
 
 # Keywords
-- `axial_stiffness::Vector{Float64}`: Predefined axial stiffness [N] for each tether.
-- `axial_damping::Vector{Float64}`: Predefined axial damping [Ns] for each tether.
+- `unit_stiffness::Vector{Float64}`: Predefined axial stiffness [N] for each tether.
+- `unit_damping::Vector{Float64}`: Predefined axial damping [Ns] for each tether.
 
 # Returns
 - `SystemStructure`: A new `SystemStructure` representing the 4-tether test system.
 """
 function create_tether_sys_struct(set::Settings; 
-                                  axial_stiffness=fill(NaN, 4), 
-                                  axial_damping=fill(NaN,4))
+                                  unit_stiffness=fill(NaN, 4), 
+                                  unit_damping=fill(NaN,4))
     points = Point[]
     segments = Segment[]
     tethers = Tether[]
@@ -354,16 +354,16 @@ function create_tether_sys_struct(set::Settings;
     
     points, segments, tethers, left_power_idx =
         create_tether(1, set, points, segments, tethers, points[1], POWER_LINE, DYNAMIC, 
-                      axial_stiffness=axial_stiffness[1], axial_damping=axial_damping[1])
+                      unit_stiffness=unit_stiffness[1], unit_damping=unit_damping[1])
     points, segments, tethers, right_power_idx =
         create_tether(2, set, points, segments, tethers, points[2], POWER_LINE, DYNAMIC, 
-                      axial_stiffness=axial_stiffness[2], axial_damping=axial_damping[2])
+                      unit_stiffness=unit_stiffness[2], unit_damping=unit_damping[2])
     points, segments, tethers, left_steering_idx =
         create_tether(3, set, points, segments, tethers, points[3], STEERING_LINE, DYNAMIC, 
-                      axial_stiffness=axial_stiffness[3], axial_damping=axial_damping[3])
+                      unit_stiffness=unit_stiffness[3], unit_damping=unit_damping[3])
     points, segments, tethers, right_steering_idx =
         create_tether(4, set, points, segments, tethers, points[4], STEERING_LINE, DYNAMIC, 
-                      axial_stiffness=axial_stiffness[4], axial_damping=axial_damping[4])
+                      unit_stiffness=unit_stiffness[4], unit_damping=unit_damping[4])
     
     winches = [
         Winch(1, set, [left_power_idx, right_power_idx]; brake=true)
@@ -378,7 +378,7 @@ function create_tether_sys_struct(set::Settings;
 end
 
 """
-    create_simple_ram_sys_struct(set::Settings; axial_stiffness, axial_damping)
+    create_simple_ram_sys_struct(set::Settings; unit_stiffness, unit_damping)
 
 Create a simplified `SystemStructure` for a ram-air kite with direct tether connections.
 
@@ -390,15 +390,15 @@ omitting the complex pulley system. Each tether is modeled as a single segment.
 - `set::Settings`: Configuration parameters.
 
 # Keywords
-- `axial_stiffness::Vector{Float64}`: Predefined axial stiffness [N] for each tether.
-- `axial_damping::Vector{Float64}`: Predefined axial damping [Ns] for each tether.
+- `unit_stiffness::Vector{Float64}`: Predefined axial stiffness [N] for each tether.
+- `unit_damping::Vector{Float64}`: Predefined axial damping [Ns] for each tether.
 
 # Returns
 - `SystemStructure`: A new `SystemStructure` representing the simplified model.
 """
 function create_simple_ram_sys_struct(set::Settings;
-                                      axial_stiffness=fill(NaN, 4),
-                                      axial_damping=fill(NaN,4))
+                                      unit_stiffness=fill(NaN, 4),
+                                      unit_damping=fill(NaN,4))
     set.segments = 1
     vsm_set_path = joinpath(get_data_path(), "vsm_settings.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
@@ -424,14 +424,14 @@ function create_simple_ram_sys_struct(set::Settings;
         Group(2, [4], vsm_wing, gammas[2], DYNAMIC, 0.25)
     ]
     segments = [
-        Segment(1, set, 1, 5, POWER_LINE; axial_stiffness=axial_stiffness[1],
-                axial_damping=axial_damping[1])
-        Segment(2, set, 2, 6, POWER_LINE; axial_stiffness=axial_stiffness[2],
-                axial_damping=axial_damping[2])
-        Segment(3, set, 3, 7, STEERING_LINE; axial_stiffness=axial_stiffness[3],
-                axial_damping=axial_damping[3])
-        Segment(4, set, 4, 8, STEERING_LINE; axial_stiffness=axial_stiffness[4],
-                axial_damping=axial_damping[4])
+        Segment(1, set, 1, 5, POWER_LINE; unit_stiffness=unit_stiffness[1],
+                unit_damping=unit_damping[1])
+        Segment(2, set, 2, 6, POWER_LINE; unit_stiffness=unit_stiffness[2],
+                unit_damping=unit_damping[2])
+        Segment(3, set, 3, 7, STEERING_LINE; unit_stiffness=unit_stiffness[3],
+                unit_damping=unit_damping[3])
+        Segment(4, set, 4, 8, STEERING_LINE; unit_stiffness=unit_stiffness[4],
+                unit_damping=unit_damping[4])
     ]
     tethers = [
         Tether(1, [1]; winch_point=5)

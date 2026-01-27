@@ -189,8 +189,8 @@ catch
 end
 
 # Make sure recent naming is used (KiteUtils ≥ v0.11.0)
-if hasfield(typeof(set), :axial_damping) == false && hasfield(typeof(set), :damping)
-    @warn "Old settings field 'damping' detected; consider upgrading to 'axial_damping'."
+if hasfield(typeof(set), :unit_damping) == false && hasfield(typeof(set), :damping)
+    @warn "Old settings field 'damping' detected; consider upgrading to 'unit_damping'."
 end
 
 

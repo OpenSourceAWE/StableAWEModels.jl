@@ -88,7 +88,7 @@ Build saddle form points and segments from YAML file.
 Returns (points, segments, fixed_nodes::Vector{Int}, positions).
 """
 function build_saddle_from_yaml(yaml_file::String, set; 
-                                axial_stiffness, axial_damping,
+                                unit_stiffness, unit_damping,
                                 diameter_mm, rest_length,
                                 segment_mass,
                                 world_frame_damping,
@@ -120,8 +120,8 @@ function build_saddle_from_yaml(yaml_file::String, set;
         push!(segments, Segment(sid, set, (i,j), BRIDLE;
             compression_frac=compression_frac,
             diameter_mm=diameter_mm,
-            axial_stiffness=axial_stiffness,
-            axial_damping=axial_damping,
+            unit_stiffness=unit_stiffness,
+            unit_damping=unit_damping,
             l0=rest_length
         ))
     end
@@ -197,8 +197,8 @@ function main(; yaml_file)
     else
         error("Could not determine n_nodes from yaml_file name: $yaml_file")
     end
-    axial_stiffness = n_nodes-1
-    axial_damping = 1
+    unit_stiffness = n_nodes-1
+    unit_damping = 1
     diameter_mm = 2.0
     rest_length = 0.01
     segment_mass = 1.0
@@ -210,7 +210,7 @@ function main(; yaml_file)
     yaml_path = joinpath(@__DIR__, yaml_file)
     isfile(yaml_path) || error("Missing YAML file: $yaml_path")
     points, segments, fixed_nodes, positions = build_saddle_from_yaml(
-        yaml_path, set; axial_stiffness, axial_damping, diameter_mm, rest_length, segment_mass, world_frame_damping, compression_frac)
+        yaml_path, set; unit_stiffness, unit_damping, diameter_mm, rest_length, segment_mass, world_frame_damping, compression_frac)
 
     # --------------- System Structure -----------------------
     transforms = [neutral_transform(1; points, base_point_idx=1, rot_point_idx=2, base_pos=Vector(points[1].pos_cad))]

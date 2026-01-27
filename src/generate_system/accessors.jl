@@ -116,12 +116,12 @@ get_tether_len(sys::SystemStructure, idx::Int64) = sys.winches[idx].tether_len
 @register_symbolic get_tether_len(sys::SystemStructure, idx::Int64)
 get_tether_vel(sys::SystemStructure, idx::Int64) = sys.winches[idx].tether_vel
 @register_symbolic get_tether_vel(sys::SystemStructure, idx::Int64)
-get_axial_stiffness(sys::SystemStructure, idx::Int64) =
-    sys.segments[idx].axial_stiffness
-@register_symbolic get_axial_stiffness(sys::SystemStructure, idx::Int64)
-get_axial_damping(sys::SystemStructure, idx::Int64) =
-    sys.segments[idx].axial_damping
-@register_symbolic get_axial_damping(sys::SystemStructure, idx::Int64)
+get_unit_stiffness(sys::SystemStructure, idx::Int64) =
+    sys.segments[idx].unit_stiffness
+@register_symbolic get_unit_stiffness(sys::SystemStructure, idx::Int64)
+get_unit_damping(sys::SystemStructure, idx::Int64) =
+    sys.segments[idx].unit_damping
+@register_symbolic get_unit_damping(sys::SystemStructure, idx::Int64)
 get_body_frame_damping(sys::SystemStructure, idx::Int64) = sys.points[idx].body_frame_damping
 @register_array_symbolic get_body_frame_damping(sys::SystemStructure, idx::Int64) begin
     size = (3,)

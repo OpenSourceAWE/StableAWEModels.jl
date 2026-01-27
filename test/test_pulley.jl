@@ -49,7 +49,7 @@ points:
 ## Segments ###############
 ###########################
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     # Left bridle leg - use dyneema for stiff tether
     - [left_leg, attach_left, pulley_point, BRIDLE, 6.0, 5.0, dyneema, nothing, 0.01]
@@ -99,7 +99,7 @@ points:
 ## Segments ###############
 ###########################
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     - [left_leg, attach_left, pulley_point, BRIDLE, 6.0, 5.0, dyneema, nothing, 0.01]
     - [right_leg, attach_right, pulley_point, BRIDLE, 6.0, 5.0, dyneema, nothing, 0.01]
@@ -140,8 +140,8 @@ kite:
 
 tether:
   cd_tether: 0.958
-  axial_damping: 350.0
-  axial_stiffness: 120000.0
+  unit_damping: 350.0
+  unit_stiffness: 120000.0
   rho_tether: 724.0
   e_tether: 55000000000.0
   rel_damping: 0.00077
