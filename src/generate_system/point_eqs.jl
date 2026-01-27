@@ -88,7 +88,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
         if !isnothing(wing_idx_for_transform)
             eqs = [
                 eqs
-                height[point.idx] ~ pos[3, point.idx]
+                height[point.idx] ~ max(0.0, pos[3, point.idx])
                 wind_at_point[:, point.idx] ~
                     calc_wind_factor(s.am, pos[1, point.idx], pos[2, point.idx],
                                      pos[3, point.idx], pset) * wind_vec_gnd
@@ -107,7 +107,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             # No wings - still compute wind and drag in world frame
             eqs = [
                 eqs
-                height[point.idx] ~ pos[3, point.idx]
+                height[point.idx] ~ max(0.0, pos[3, point.idx])
                 wind_at_point[:, point.idx] ~
                     calc_wind_factor(s.am, pos[1, point.idx], pos[2, point.idx],
                                      pos[3, point.idx], pset) * wind_vec_gnd

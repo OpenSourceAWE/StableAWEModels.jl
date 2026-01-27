@@ -116,6 +116,24 @@ segments:
     - [vert_segment, point_top, point_bottom, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
 """
 
+# YAML for high altitude drag test - starts at 5000m where air is thinner
+const SEGMENT_HIGH_ALTITUDE_YAML = """
+##############################
+## High Altitude Segment #####
+##############################
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
+  data:
+    - [point_left, [-5.0, 0.0, 5000.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [point_right, [5.0, 0.0, 5000.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+segments:
+  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  data:
+    - [horiz_segment, point_left, point_right, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
+"""
+
 # Helper function for mean
 function mean(x)
     return sum(x) / length(x)
@@ -135,6 +153,9 @@ end
 
     yaml_vert_wind_path = joinpath(tmpdir, "test_vert_wind_geometry.yaml")
     write(yaml_vert_wind_path, SEGMENT_VERTICAL_WIND_YAML)
+
+    yaml_high_alt_path = joinpath(tmpdir, "test_high_alt_geometry.yaml")
+    write(yaml_high_alt_path, SEGMENT_HIGH_ALTITUDE_YAML)
 
     # Create minimal settings file
     settings_yaml = """
@@ -384,15 +405,6 @@ system:
         set.cd_tether = 0.958  # enable segment aero drag for this test
 
         sys = load_sys_struct_from_yaml(yaml_horiz_drag_path; system_name="horiz_drag_test", set=set)
-
-        # Verify no extra mass on points (segment mass only)
-        @test sys.points[:point_left].extra_mass == 0.0
-        @test sys.points[:point_right].extra_mass == 0.0
-
-        sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
-
-        # Get segment properties
         segment = sys.segments[:horiz_segment]
         L = segment.l0  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
@@ -400,10 +412,15 @@ system:
         # Segment mass from tether density
         rho_tether = set.rho_tether  # 724 kg/m^3
         segment_mass = rho_tether * π * (d/2)^2 * L
-
-        # Total mass (segment distributed to both points)
         m_total = segment_mass
         cd = set.cd_tether  # 0.958
+
+        # Verify no extra mass on points (segment mass only)
+        @test sys.points[:point_left].extra_mass == 0.0
+        @test sys.points[:point_right].extra_mass == 0.0
+
+        sam = SymbolicAWEModel(set, sys)
+        init!(sam; remake=true)
 
         # Run simulation until terminal velocity is reached
         dt = 0.1
@@ -418,15 +435,12 @@ system:
         final_z_right = sam.sys_struct.points[:point_right].pos_w[3]
         @test abs(final_z_left - final_z_right) < 0.01  # Within 1cm
 
-        # Calculate air density at final height using barometric formula
-        # rho = rho_0 * (1 - L*h/T0)^(g*M/(R*L) - 1) where L=0.0065 K/m, T0=288.15 K
+        # Calculate air density at final height using same model as simulation
+        # Note: simulation clamps height to max(0.0, h) for density calculation
         final_height = (final_z_left + final_z_right) / 2
-        rho_air = set.rho_0 * (1 - 0.0065 * final_height / 288.15)^4.256
+        rho_air = SymbolicAWEModels.calc_rho(sam.am, max(0.0, final_height))
 
-        # Terminal velocity: drag = weight
-        # F_drag = 0.5 * rho * cd * L * d * v^2 (for perpendicular flow)
-        # F_gravity = m_total * g
-        # v_t = sqrt(2 * m * g / (rho * cd * L * d))
+        # Terminal velocity: v_t = sqrt(2 * m * g / (rho * cd * L * d))
         v_terminal_expected = sqrt(2 * m_total * set.g_earth / (rho_air * cd * L * d))
 
         # Check terminal velocity (downward)
@@ -447,10 +461,10 @@ system:
         set.g_earth = 0.0  # No gravity
         set.v_wind = 10.0  # 10 m/s wind
         set.cd_tether = 0.958  # enable segment aero drag for this test
-
-        sys = load_sys_struct_from_yaml(yaml_vert_wind_path; system_name="vert_wind_test", set=set)
+        set.profile_law = 0  # Use constant wind profile
 
         # Verify no extra mass on points (segment mass only)
+        sys = load_sys_struct_from_yaml(yaml_vert_wind_path; system_name="vert_wind_test", set=set)
         @test sys.points[:point_top].extra_mass == 0.0
         @test sys.points[:point_bottom].extra_mass == 0.0
 
@@ -463,7 +477,7 @@ system:
 
         # Run simulation until terminal velocity is reached
         dt = 0.1
-        n_steps = 1000  # 10 seconds
+        n_steps = 1000
 
         for _ in 1:n_steps
             next_step!(sam; dt=dt, vsm_interval=0)
@@ -488,10 +502,77 @@ system:
         avg_vx = (vx_top + vx_bottom) / 2
 
         # Wind direction: upwind_dir = -90 deg means wind blows in x direction
-        @test avg_vx > 0  # Moving in -x direction (with wind)
+        @test avg_vx > 0  # Moving in +x direction (with wind)
         @test abs(avg_vx) ≈ set.v_wind rtol=0.01  # Within 1% of wind speed
 
-        println("\n  ====== Wind-driven velocity: measured=$(round(abs(avg_vx), digits=2)) m/s, wind=$(set.v_wind) m/s ======\n")
+        println("\n  ====== Wind-driven velocity: measured=$(round(avg_vx, digits=2)) m/s, expected=$(set.v_wind) m/s ======\n")
+    end
+
+    # ========================================================================
+    # Physics Test 5: High altitude segment - lower air density = faster fall
+    # Demonstrates that rho is NOT clamped for positive heights
+    # ========================================================================
+    @testset "High altitude segment - thin air faster fall" begin
+        set.g_earth = 9.81
+        set.v_wind = 0.0
+        set.cd_tether = 0.958
+        set.profile_law = 0  # Reset to constant profile
+
+        # Get segment properties
+        sys = load_sys_struct_from_yaml(yaml_high_alt_path; system_name="high_alt_test", set=set)
+        segment = sys.segments[:horiz_segment]
+        L = segment.l0  # 10.0 m
+        d = segment.diameter  # 0.004 m (4mm)
+
+        # Segment mass from tether density
+        rho_tether = set.rho_tether
+        segment_mass = rho_tether * π * (d/2)^2 * L
+        m_total = segment_mass
+        cd = set.cd_tether
+
+        sam = SymbolicAWEModel(set, sys)
+        init!(sam; remake=true)
+
+        # Run simulation - shorter time since we want to stay at altitude
+        dt = 0.1
+        n_steps = 200  # 20 seconds
+
+        for _ in 1:n_steps
+            next_step!(sam; dt=dt, vsm_interval=0)
+        end
+
+        # Get final state
+        final_z_left = sam.sys_struct.points[:point_left].pos_w[3]
+        final_z_right = sam.sys_struct.points[:point_right].pos_w[3]
+        final_height = (final_z_left + final_z_right) / 2
+
+        # Height should still be positive (above sea level)
+        @test final_height > 0
+
+        # Calculate air density at altitude (no clamping needed since h > 0)
+        rho_at_altitude = SymbolicAWEModels.calc_rho(sam.am, final_height)
+        rho_at_sea_level = SymbolicAWEModels.calc_rho(sam.am, 0.0)
+
+        # Air should be thinner at altitude
+        @test rho_at_altitude < rho_at_sea_level
+
+        # Terminal velocity at altitude vs sea level
+        v_terminal_altitude = sqrt(2 * m_total * set.g_earth / (rho_at_altitude * cd * L * d))
+        v_terminal_sea_level = sqrt(2 * m_total * set.g_earth / (rho_at_sea_level * cd * L * d))
+
+        # Should fall faster at altitude due to thinner air
+        @test v_terminal_altitude > v_terminal_sea_level
+
+        # Check actual terminal velocity matches expected
+        vz_left = sam.sys_struct.points[:point_left].vel_w[3]
+        vz_right = sam.sys_struct.points[:point_right].vel_w[3]
+        avg_vz = (vz_left + vz_right) / 2
+
+        @test avg_vz < 0  # Moving downward
+        @test abs(avg_vz) ≈ v_terminal_altitude rtol=0.01
+
+        println("\n  ====== High altitude (h=$(round(final_height, digits=0))m): v=$(round(abs(avg_vz), digits=2)) m/s")
+        println("  ====== Sea level would be: v=$(round(v_terminal_sea_level, digits=2)) m/s ($(round((v_terminal_altitude/v_terminal_sea_level - 1)*100, digits=1))% faster at altitude) ======\n")
     end
 
     # Cleanup

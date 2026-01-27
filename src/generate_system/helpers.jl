@@ -91,9 +91,6 @@ rotation_matrix_to_quaternion_z(R) = rotation_matrix_to_quaternion(R)[4]
 function calc_wind_factor(am::AtmosphericModel, pos_x, pos_y, pos_z, set::Settings)
     if set.profile_law == 0
         return 1.0
-    elseif set.profile_law == 4
-        # Linear scaling: 1.0 at kite position, 0.0 at origin
-        return sqrt(pos_x^2 + pos_y^2 + pos_z^2) / set.l_tether
     else
         return AtmosphericModels.calc_wind_factor(am, max(1.0, pos_z), set.profile_law)
     end

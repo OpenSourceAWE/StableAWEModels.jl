@@ -71,6 +71,18 @@ points:
     - [test_point, [0.0, 0.0, 100.0], DYNAMIC, nothing, nothing, 2.3, 0.0, 0.0, 4.2, 0.33]
 """
 
+# High altitude YAML - point at 5000m where air is thinner
+const POINT_HIGH_ALTITUDE_YAML = """
+##############################
+## Point Test - High Altitude #
+##############################
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
+  data:
+    - [test_point, [0.0, 0.0, 5000.0], DYNAMIC, nothing, nothing, 2.3, 0.0, 0.0, 4.2, 0.33]
+"""
+
 @testset "Point Tests" begin
     # Write YAML to temp file
     tmpdir = mktempdir()
@@ -160,6 +172,8 @@ system:
         @test test_point.extra_mass == 0.69
         @test test_point.area == 0.1
         @test test_point.drag_coeff == 0.45
+
+        println("\n  ====== Loaded point: mass=$(test_point.extra_mass)kg, area=$(test_point.area)m², Cd=$(test_point.drag_coeff) ======\n")
     end
 
     # ========================================================================
@@ -190,10 +204,12 @@ system:
         final_vel = sam.sys_struct.points[:test_point].vel_w
 
         # Position should be unchanged (within numerical tolerance)
-        @test norm(final_pos - initial_pos) < 0.01  # Less than 1cm movement
+        @test norm(final_pos - initial_pos) == 0.0
 
         # Velocity should remain near zero
-        @test norm(final_vel) < 0.01  # Less than 1cm/s
+        @test norm(final_vel) < 0.001  # Less than 1mm/s
+
+        println("\n  ====== Position drift: $(round(norm(final_pos - initial_pos)*1000, digits=3)) mm (limit: 0 mm) ======\n")
     end
 
     # ========================================================================
@@ -202,6 +218,7 @@ system:
     @testset "No gravity, with wind - drag acceleration" begin
         set.g_earth = 0.0
         set.v_wind = 15.0  # 15 m/s wind
+        set.profile_law = 0  # Use constant wind profile
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="point_test_drag", set=set)
 
@@ -225,7 +242,7 @@ system:
 
         # Expected acceleration: a = F/m
         a_expected = F_drag_expected / m
-        @test a_expected ≈ 8.99 atol=0.1
+        @test a_expected ≈ 8.99 atol=0.01
 
         # Run one small timestep to get initial acceleration
         # Note: Point is constrained by stiff tether, so actual movement is limited
@@ -249,6 +266,8 @@ system:
         # The tether keeps point at fixed distance, so we mainly see tangential motion
         # This is a limited test due to the constraint - more detailed would need force inspection
         @test true  # Placeholder - this test configuration needs refinement
+
+        println("\n  ====== Wind drag test: a_expected=$(round(a_expected, digits=2)) m/s² ======\n")
     end
 
 
@@ -287,11 +306,13 @@ system:
 
         # Velocity should be v0 - g*t (mass doesn't affect free fall acceleration)
         vz_expected = vz0 - set.g_earth * total_time
-        @test vz_final ≈ vz_expected atol=0.1
+        @test vz_final ≈ vz_expected rtol=0.001
 
         # Position should follow free fall equation: z = z0 + v0*t - 0.5*g*t^2
         z_expected = z0 + vz0 * total_time - 0.5 * set.g_earth * total_time^2
-        @test z_final ≈ z_expected atol=0.01
+        @test z_final ≈ z_expected atol=0.001
+
+        println("\n  ====== Free fall: v=$(round(vz_final, digits=3)) m/s, expected=$(round(vz_expected, digits=3)) m/s ======\n")
     end
 
     # ========================================================================
@@ -330,8 +351,10 @@ system:
 
         # Check terminal velocity (downward, so negative z velocity)
         vz_final = sam.sys_struct.points[:test_point].vel_w[3]
-        @test abs(vz_final) ≈ v_terminal_expected atol=0.1
+        @test abs(vz_final) ≈ v_terminal_expected atol=0.001
         @test vz_final < 0  # Moving downward
+
+        println("\n  ====== World damping terminal velocity: measured=$(round(abs(vz_final), digits=2)) m/s, expected=$(round(v_terminal_expected, digits=2)) m/s ======\n")
     end
 
     # ========================================================================
@@ -350,37 +373,108 @@ system:
         @test sys.points[:test_point].drag_coeff == 0.33
         @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
         @test sys.points[:test_point].extra_mass == 2.3
+        @test sys.points[:test_point].total_mass == 0.0 # Not initialized yet
 
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
+        @test sys.points[:test_point].total_mass == 2.3
 
         # Verify point properties are preserved after init
         point = sam.sys_struct.points[:test_point]
         @test point.area == 4.2
         @test point.drag_coeff == 0.33
 
-        # Terminal velocity calculation:
-        # At terminal velocity: 0.5 * rho * Cd * A * v^2 = m * g
-        # v = sqrt(2 * m * g / (rho * Cd * A))
         m = 2.3
-        rho = 1.225  # Air density at sea level [kg/m^3]
         Cd = 0.33
         A = 4.2
-        v_terminal_expected = sqrt(2 * m * set.g_earth / (rho * Cd * A))
-        # v = sqrt(2 * 2.3 * 9.81 / (1.225 * 0.33 * 4.2)) ≈ 5.16 m/s
 
-        # Run until terminal velocity is reached
-        dt = 0.01
-        n_steps = 500  # 5 seconds should be enough for this higher drag
+        # Run until terminal velocity is reached at lower altitude
+        dt = 0.1
+        n_steps = 1000  # 100 seconds to fall to lower altitude with higher air density
 
         for _ in 1:n_steps
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
+        # Calculate air density at final height using same model as simulation
+        # Note: simulation clamps height to max(0.0, h) for density calculation
+        final_height = point.pos_w[3]
+        rho = SymbolicAWEModels.calc_rho(sam.am, max(0.0, final_height))
+
+        # Terminal velocity: 0.5 * rho * Cd * A * v^2 = m * g
+        # v = sqrt(2 * m * g / (rho * Cd * A))
+        v_terminal_expected = sqrt(2 * m * set.g_earth / (rho * Cd * A))
+
         # Check terminal velocity (downward, so negative z velocity)
         vz_final = point.vel_w[3]
-        @test abs(vz_final) ≈ v_terminal_expected rtol=0.1
         @test vz_final < 0  # Moving downward
+
+        println("\n  ====== Aero drag terminal velocity: measured=$(round(abs(vz_final), digits=2)) m/s, expected=$(round(v_terminal_expected, digits=2)) m/s (h=$(round(final_height, digits=0))m) ======\n")
+        @test abs(vz_final) ≈ v_terminal_expected rtol=0.01
+    end
+
+    # ========================================================================
+    # Physics Test 8: High altitude point - lower air density = faster fall
+    # Demonstrates that rho is NOT clamped for positive heights
+    # ========================================================================
+    @testset "High altitude point - thin air faster fall" begin
+        set.g_earth = 9.81
+        set.v_wind = 0.0
+        set.profile_law = 0  # Reset to constant profile
+
+        yaml_high_alt_path = joinpath(tmpdir, "high_alt_geometry.yaml")
+        write(yaml_high_alt_path, POINT_HIGH_ALTITUDE_YAML)
+
+        sys = load_sys_struct_from_yaml(yaml_high_alt_path; system_name="high_alt_point_test", set=set)
+
+        @test sys.points[:test_point].area == 4.2
+        @test sys.points[:test_point].drag_coeff == 0.33
+        @test sys.points[:test_point].extra_mass == 2.3
+
+        sam = SymbolicAWEModel(set, sys)
+        init!(sam; remake=true)
+
+        point = sam.sys_struct.points[:test_point]
+        m = 2.3
+        Cd = 0.33
+        A = 4.2
+
+        # Run simulation - shorter time to stay at altitude
+        dt = 0.1
+        n_steps = 200  # 20 seconds
+
+        for _ in 1:n_steps
+            next_step!(sam; dt=dt, vsm_interval=0)
+        end
+
+        # Get final state
+        final_height = point.pos_w[3]
+
+        # Height should still be positive (above sea level)
+        @test final_height > 0
+
+        # Calculate air density at altitude (no clamping needed since h > 0)
+        rho_at_altitude = SymbolicAWEModels.calc_rho(sam.am, final_height)
+        rho_at_sea_level = SymbolicAWEModels.calc_rho(sam.am, 0.0)
+
+        # Air should be thinner at altitude
+        @test rho_at_altitude < rho_at_sea_level
+
+        # Terminal velocity at altitude vs sea level
+        v_terminal_altitude = sqrt(2 * m * set.g_earth / (rho_at_altitude * Cd * A))
+        v_terminal_sea_level = sqrt(2 * m * set.g_earth / (rho_at_sea_level * Cd * A))
+
+        # Should fall faster at altitude due to thinner air
+        @test v_terminal_altitude > v_terminal_sea_level
+
+        # Check actual terminal velocity matches expected
+        vz_final = point.vel_w[3]
+
+        @test vz_final < 0  # Moving downward
+        @test abs(vz_final) ≈ v_terminal_altitude rtol=0.01
+
+        println("\n  ====== High altitude (h=$(round(final_height, digits=0))m): v=$(round(abs(vz_final), digits=2)) m/s")
+        println("  ====== Sea level would be: v=$(round(v_terminal_sea_level, digits=2)) m/s ($(round((v_terminal_altitude/v_terminal_sea_level - 1)*100, digits=1))% faster at altitude) ======\n")
     end
 
     # Cleanup
