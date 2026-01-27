@@ -12,6 +12,7 @@
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 
@@ -196,56 +197,67 @@ transforms:
     # Create minimal settings file
     settings_yaml = """
 system:
-  sim_time: 10.0
-  segments: 1
-  sample_freq: 50
+    log_file: "data/transform_test"
+    g_earth: 9.81
+
+initial:
+    l_tethers: [0.0]
+    v_reel_outs: [0.0]
 
 solver:
-  solver: "FBDF"
-  abs_tol: 0.0001
-  rel_tol: 0.0001
+    solver: "FBDF"
+    abs_tol: 0.0001
+    rel_tol: 0.0001
+    relaxation: 0.6
 
 kite:
-  physical_model: "from_yaml"
+    model: ""
+    foil_file: "ram_air_kite/ram_air_kite_foil.dat"
+    physical_model: "2plate"
+    struc_geometry_path: "struc_geometry.yaml"
+    aero_geometry_path: "aero_geometry.yaml"
+    mass: 0.0
+    quasi_static: false
 
 tether:
-  cd_tether: 0.958
-  unit_damping: 350.0
-  unit_stiffness: 120000.0
-  rho_tether: 724.0
-  e_tether: 55000000000.0
-  rel_damping: 0.00077
-  d_tether: 10.0
+    cd_tether: 0.958
+    unit_damping: 350.0
+    unit_stiffness: 120000.0
+    rho_tether: 724.0
+    e_tether: 55000000000.0
+    rel_damping: 0.00077
+    d_tether: 10.0
 
 winch:
-  winch_model: "TorqueControlledMachine"
-  max_force: 4000
-  v_ro_max: 8.0
-  drum_radius: 0.110
-  gear_ratio: 1.0
-  inertia_total: 0.024
-  f_coulomb: 10.0
-  c_vf: 5.0
+    winch_model: "TorqueControlledMachine"
+    max_force: 4000
+    v_ro_max: 8.0
+    drum_radius: 0.110
+    gear_ratio: 1.0
+    inertia_total: 0.024
+    f_coulomb: 10.0
+    c_vf: 5.0
 
 environment:
-  v_wind: 10.0
-  upwind_dir: -90.0
-  h_ref: 6.0
-  rho_0: 1.225
+    rho_0: 1.225
+    v_wind: 10.0
+    upwind_dir: -90.0
+    h_ref: 6.0
+    profile_law: 0
 """
     settings_path = joinpath(tmpdir, "settings.yaml")
     write(settings_path, settings_yaml)
 
     system_yaml = """
 system:
-  settings: settings.yaml
+  sim_settings: settings.yaml
 """
     system_path = joinpath(tmpdir, "system.yaml")
     write(system_path, system_yaml)
 
     # Set data path and load settings
     set_data_path(tmpdir)
-    set = load_settings("system.yaml")
+    set = Settings("system.yaml")
 
     # Load system structure from YAML
     sys = load_sys_struct_from_yaml(yaml_path; system_name="transform_test", set=set)
@@ -274,6 +286,8 @@ system:
 
         # Verify wing reference
         @test transform.wing_idx == 1  # main_wing index
+
+        println("\n  ====== Loaded transform: elev=$(round(rad2deg(transform.elevation), digits=1))°, azim=$(round(rad2deg(transform.azimuth), digits=1))°, heading=$(round(rad2deg(transform.heading), digits=1))° ======\n")
     end
 
     # ========================================================================
@@ -290,6 +304,8 @@ system:
         @test transform.elevation ≈ deg2rad(60) atol=0.01
         @test transform.azimuth ≈ deg2rad(15) atol=0.01
         @test transform.heading ≈ deg2rad(10) atol=0.01
+
+        println("\n  ====== After init: elev=$(round(rad2deg(transform.elevation), digits=1))°, azim=$(round(rad2deg(transform.azimuth), digits=1))°, heading=$(round(rad2deg(transform.heading), digits=1))° ======\n")
     end
 
     # ========================================================================
@@ -304,6 +320,8 @@ system:
 
         @test transform.elevation_vel ≈ deg2rad(0.0) atol=0.01
         @test transform.azimuth_vel ≈ deg2rad(0.5) atol=0.01
+
+        println("\n  ====== Velocities: elev_vel=$(round(rad2deg(transform.elevation_vel), digits=2))°/s, azim_vel=$(round(rad2deg(transform.azimuth_vel), digits=2))°/s ======\n")
     end
 
     # ========================================================================
@@ -346,6 +364,8 @@ system:
         # More specific tests depend on coordinate convention
         # Check that z component is positive (wing above ground level in world frame)
         @test wing_pos[3] > ground_pos[3]
+
+        println("\n  ====== Geometry: wing_pos=$(round.(wing_pos, digits=2)), distance=$(round(distance, digits=2))m ======\n")
     end
 
     # ========================================================================
@@ -370,6 +390,8 @@ system:
         transform_after = sam.sys_struct.transforms[:main_transform]
         @test transform_after.elevation ≈ deg2rad(45) atol=0.01
         @test transform_after.azimuth ≈ deg2rad(30) atol=0.01
+
+        println("\n  ====== Alt config: elev=$(round(rad2deg(transform_after.elevation), digits=1))°, azim=$(round(rad2deg(transform_after.azimuth), digits=1))° ======\n")
     end
 
     # ========================================================================
@@ -392,6 +414,8 @@ system:
         # Higher elevation should result in higher z position
         # (wing more overhead)
         @test wing_z1 > wing_z2
+
+        println("\n  ====== Elevation effect: z(60°)=$(round(wing_z1, digits=2))m > z(45°)=$(round(wing_z2, digits=2))m ======\n")
     end
 
     # ========================================================================
@@ -413,6 +437,8 @@ system:
         # Both have positive azimuth, so y should be positive
         # Larger azimuth should give larger |y| component
         @test abs(wing_y2) > abs(wing_y1)
+
+        println("\n  ====== Azimuth effect: |y|(30°)=$(round(abs(wing_y2), digits=2))m > |y|(15°)=$(round(abs(wing_y1), digits=2))m ======\n")
     end
 
     # ========================================================================
@@ -432,6 +458,8 @@ system:
         # R_b_w should be a valid rotation matrix (orthonormal)
         @test det(wing.base.R_b_w) ≈ 1.0 atol=0.01
         @test wing.base.R_b_w * wing.base.R_b_w' ≈ I(3) atol=0.01
+
+        println("\n  ====== Heading affects rotation: det(R_b_w)=$(round(det(wing.base.R_b_w), digits=4)) ======\n")
     end
 
     # ========================================================================
@@ -450,6 +478,8 @@ system:
         # Ground position should be the base for the transform
         ground_pos = sam.sys_struct.points[:ground].pos_w
         @test ground_pos ≈ KVec3(0.0, 0.0, -50.0) atol=1.0
+
+        println("\n  ====== Base point: ground_pos=$(round.(ground_pos, digits=2)) ======\n")
     end
 
     # Cleanup

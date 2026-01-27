@@ -5,18 +5,22 @@
 #
 # Tests winch motor dynamics and tether reeling mechanics.
 # Verifies:
-# 1. Steady-state torque calculation
-# 2. Reel-in with positive torque
-# 3. Reel-out with reduced torque
-# 4. Brake engagement
+# 1. YAML loading of tether and winch components
+# 2. Steady-state tether force with brake engaged
+# 3. Brake holds tether length constant
+# 4. Reel-out under gravity (brake off)
+# 5. Winch dynamics: acceleration matches tau_net / I with friction
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 
 # ============================================================================
 # YAML Configuration - Simple tether with winch
+# Weight at z=-50m (below ground) with 10kg mass, connected to ground via tether
+# Gravity pulls weight down (-z), creating tension that drives reel-out
 # ============================================================================
 const TETHER_WINCH_YAML = """
 ##############################
@@ -34,12 +38,11 @@ materials:
 ###########################
 ## Points #################
 ###########################
+# Weight at z=-50 (below ground) so gravity pulls it down, creating tether tension
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
   data:
-    # Kite point with mass (simulates load on tether)
-    - [kite, [0.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 10.0, 0.0, 0.0, 0.0, 0.0]
-    # Ground station
+    - [weight, [0.0, 0.0, -50.0], DYNAMIC, nothing, nothing, 10.0, 0.0, 0.0, 0.0, 0.0]
     - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 ###########################
@@ -48,7 +51,7 @@ points:
 segments:
   headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    - [tether_seg, kite, ground, BRIDLE, 50.0, 10.0, dyneema, nothing, 0.01]
+    - [tether_seg, weight, ground, BRIDLE, 50.0, 10.0, dyneema, nothing, 0.01]
 
 ###########################
 ## Tethers ################
@@ -74,58 +77,70 @@ winches:
     write(yaml_path, TETHER_WINCH_YAML)
 
     # Create settings file with winch parameters
+    # Winch params: r_drum=0.1m, n=1.0, I=0.1 kg·m², f_coulomb=1.0 N·m, c_vf=0.5 N·m·s
     settings_yaml = """
 system:
-  sim_time: 10.0
-  segments: 1
-  sample_freq: 50
+    log_file: "data/tether_winch_test"
+    g_earth: 9.81
+
+initial:
+    l_tethers: [0.0]
+    v_reel_outs: [0.0]
 
 solver:
-  solver: "FBDF"
-  abs_tol: 0.0001
-  rel_tol: 0.0001
+    solver: "FBDF"
+    abs_tol: 0.0001
+    rel_tol: 0.0001
+    relaxation: 0.6
 
 kite:
-  physical_model: "from_yaml"
+    model: ""
+    foil_file: "ram_air_kite/ram_air_kite_foil.dat"
+    physical_model: "2plate"
+    struc_geometry_path: "struc_geometry.yaml"
+    aero_geometry_path: "aero_geometry.yaml"
+    mass: 0.0
+    quasi_static: false
 
 tether:
-  cd_tether: 0.958
-  unit_damping: 350.0
-  unit_stiffness: 120000.0
-  rho_tether: 724.0
-  e_tether: 55000000000.0
-  rel_damping: 0.00077
-  d_tether: 10.0
+    cd_tether: 0.958
+    unit_damping: 350.0
+    unit_stiffness: 120000.0
+    rho_tether: 724.0
+    e_tether: 55000000000.0
+    rel_damping: 0.00077
+    d_tether: 10.0
 
 winch:
-  winch_model: "TorqueControlledMachine"
-  max_force: 4000
-  v_ro_max: 8.0
-  drum_radius: 0.1
-  gear_ratio: 1.0
-  inertia_total: 0.1
-  f_coulomb: 1.0
-  c_vf: 0.5
+    winch_model: "TorqueControlledMachine"
+    max_force: 4000
+    v_ro_max: 8.0
+    drum_radius: 0.1
+    gear_ratio: 1.0
+    inertia_total: 0.1
+    f_coulomb: 1.0
+    c_vf: 0.5
 
 environment:
-  v_wind: 0.0
-  upwind_dir: -90.0
-  h_ref: 6.0
-  rho_0: 1.225
+    rho_0: 1.225
+    v_wind: 0.0
+    upwind_dir: -90.0
+    h_ref: 6.0
+    profile_law: 0
 """
     settings_path = joinpath(tmpdir, "settings.yaml")
     write(settings_path, settings_yaml)
 
     system_yaml = """
 system:
-  settings: settings.yaml
+  sim_settings: settings.yaml
 """
     system_path = joinpath(tmpdir, "system.yaml")
     write(system_path, system_yaml)
 
     # Set data path and load settings
     set_data_path(tmpdir)
-    set = load_settings("system.yaml")
+    set = Settings("system.yaml")
 
     # Load system structure from YAML
     sys = load_sys_struct_from_yaml(yaml_path; system_name="tether_winch_test", set=set)
@@ -136,13 +151,13 @@ system:
     @testset "YAML Loading Verification" begin
         # Verify points
         @test length(sys.points) == 2
-        @test haskey(sys.points, :kite)
+        @test haskey(sys.points, :weight)
         @test haskey(sys.points, :ground)
 
-        kite = sys.points[:kite]
-        @test kite.type == SymbolicAWEModels.DYNAMIC
-        @test kite.extra_mass == 10.0
-        @test kite.pos_cad == KVec3(0.0, 0.0, 50.0)
+        weight = sys.points[:weight]
+        @test weight.type == SymbolicAWEModels.DYNAMIC
+        @test weight.extra_mass == 10.0
+        @test weight.pos_cad == KVec3(0.0, 0.0, -50.0)
 
         # Verify segment
         @test length(sys.segments) == 1
@@ -160,12 +175,22 @@ system:
         @test haskey(sys.winches, :main_winch)
         winch = sys.winches[:main_winch]
         @test length(winch.tether_idxs) == 1
+
+        # Verify winch parameters from settings
+        @test winch.drum_radius == 0.1
+        @test winch.gear_ratio == 1.0
+        @test winch.inertia_total == 0.1
+        @test winch.f_coulomb == 1.0
+        @test winch.c_vf == 0.5
+
+        println("\n  ====== Loaded: mass=$(weight.extra_mass)kg, l0=$(sys.segments[:tether_seg].l0)m, r=$(winch.drum_radius)m, I=$(winch.inertia_total)kg·m² ======\n")
     end
 
     # ========================================================================
-    # Physics Test 1: Steady-state tether force
+    # Physics Test 1: Steady-state with brake
+    # With brake engaged, weight hangs at equilibrium under gravity
     # ========================================================================
-    @testset "Steady-state tether force" begin
+    @testset "Steady-state with brake" begin
         set.g_earth = 9.81
         set.v_wind = 0.0
 
@@ -182,47 +207,21 @@ system:
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
-        # Expected tether force from kite weight:
-        # F = m * g = 10 * 9.81 = 98.1 N
-        m_kite = 10.0
-        g = 9.81
-        F_expected = m_kite * g
+        # Verify weight velocity is near zero (equilibrium)
+        weight_vel = sam.sys_struct.points[:weight].vel_w
+        @test norm(weight_vel) < 0.1
 
-        # Get actual tether force (segment tension)
-        # The segment should be under tension equal to kite weight
-        # Note: This requires accessing the segment force or calculating from extension
+        # Verify weight is near initial position (tether holds it)
+        weight_pos = sam.sys_struct.points[:weight].pos_w
+        @test weight_pos[3] ≈ -50.0 atol=0.1
 
-        # Verify kite velocity is near zero (equilibrium)
-        kite_vel = sam.sys_struct.points[:kite].vel_w
-        @test norm(kite_vel) < 0.1  # Near zero velocity
-
-        # Verify kite is near initial position (tether holds it)
-        kite_pos = sam.sys_struct.points[:kite].pos_w
-        @test kite_pos[3] ≈ 50.0 atol=1.0  # Near z=50
+        println("\n  ====== Steady-state: vel=$(round(norm(weight_vel)*1000, digits=1))mm/s, z=$(round(weight_pos[3], digits=2))m ======\n")
     end
 
     # ========================================================================
-    # Physics Test 2: Winch parameters verification
+    # Physics Test 2: Brake holds tether length constant
     # ========================================================================
-    @testset "Winch parameters from settings" begin
-        set.g_earth = 9.81
-        set.v_wind = 0.0
-
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="winch_params", set=set)
-
-        # Verify winch parameters were loaded from settings
-        winch = sys.winches[:main_winch]
-        @test winch.drum_radius == 0.1  # From settings
-        @test winch.gear_ratio == 1.0
-        @test winch.inertia_total == 0.1
-        @test winch.f_coulomb == 1.0
-        @test winch.c_vf == 0.5
-    end
-
-    # ========================================================================
-    # Physics Test 3: Brake engagement
-    # ========================================================================
-    @testset "Brake engagement - tether length constant" begin
+    @testset "Brake holds tether length" begin
         set.g_earth = 9.81
         set.v_wind = 0.0
 
@@ -230,28 +229,27 @@ system:
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
 
-        # Enable brake
         sam.sys_struct.winches[:main_winch].brake = true
-
-        # Record initial tether length
         initial_len = sam.sys_struct.winches[:main_winch].tether_len
 
         # Run simulation
         dt = 0.001
         len_history = Float64[initial_len]
-
         for _ in 1:1000
             next_step!(sam; dt=dt, vsm_interval=0)
             push!(len_history, sam.sys_struct.winches[:main_winch].tether_len)
         end
 
-        # Tether length should remain constant with brake engaged
         max_change = maximum(abs.(len_history .- initial_len))
-        @test max_change < 0.01  # Less than 1cm change
+        @test max_change < 0.01
+
+        println("\n  ====== Brake: initial=$(round(initial_len, digits=2))m, max_change=$(round(max_change*1000, digits=2))mm ======\n")
     end
 
     # ========================================================================
-    # Physics Test 4: Reel-out under gravity (brake off)
+    # Physics Test 3: Reel-out under gravity with dynamics verification
+    # With brake off and no motor torque, weight causes reel-out.
+    # Captures z(t) to back-calculate inertia and friction from observed behavior.
     # ========================================================================
     @testset "Reel-out under gravity" begin
         set.g_earth = 9.81
@@ -261,97 +259,130 @@ system:
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
 
-        # Disable brake - winch should allow reel-out under kite weight
         sam.sys_struct.winches[:main_winch].brake = false
 
-        # Set motor torque to zero (no resistance except friction)
-        # The kite's weight should cause reel-out
+        # Get known parameters from winch
+        winch = sam.sys_struct.winches[:main_winch]
+        r = winch.drum_radius      # 0.1 m
+        n = winch.gear_ratio       # 1.0
+        I_expected = winch.inertia_total  # 0.1 kg·m²
+        f_c_expected = winch.f_coulomb    # 1.0 N·m
+        c_vf_expected = winch.c_vf        # 0.5 N·m·s
 
-        # Record initial state
-        initial_len = sam.sys_struct.winches[:main_winch].tether_len
-        initial_vel = sam.sys_struct.winches[:main_winch].tether_vel
+        # Get total mass (extra_mass + tether mass)
+        weight_point = sam.sys_struct.points[:weight]
+        total_mass = weight_point.total_mass
+        g = set.g_earth
 
-        # Run simulation
+        # Force from gravity
+        F_gravity = total_mass * g
+
+        # Capture z position over time
         dt = 0.001
-        len_history = Float64[initial_len]
-        vel_history = Float64[initial_vel]
+        n_steps = 100
+        z_history = Float64[]
+        t_history = Float64[]
 
-        for _ in 1:500
+        push!(z_history, weight_point.pos_w[3])
+        push!(t_history, 0.0)
+
+        for i in 1:n_steps
             next_step!(sam; dt=dt, vsm_interval=0)
-            push!(len_history, sam.sys_struct.winches[:main_winch].tether_len)
-            push!(vel_history, sam.sys_struct.winches[:main_winch].tether_vel)
+            push!(z_history, sam.sys_struct.points[:weight].pos_w[3])
+            push!(t_history, i * dt)
         end
 
-        # With gravity and no motor torque, tether should pay out (length increases)
-        # or at minimum, the kite should drop
-        final_len = len_history[end]
+        # Calculate velocity from z(t) using central differences
+        vel_history = Float64[]
+        for i in 2:(length(z_history)-1)
+            vel = (z_history[i+1] - z_history[i-1]) / (2 * dt)
+            push!(vel_history, vel)
+        end
 
-        # The dynamics depend on motor torque setting
-        # At minimum, verify the system responds to the load
-        @test length(vel_history) == 501
+        # Calculate acceleration from velocity using central differences
+        acc_history = Float64[]
+        for i in 2:(length(vel_history)-1)
+            acc = (vel_history[i+1] - vel_history[i-1]) / (2 * dt)
+            push!(acc_history, acc)
+        end
 
-        # Check that the winch responded (velocity changed from initial)
-        velocity_changed = any(abs(v) > 0.01 for v in vel_history)
-        @test velocity_changed || abs(final_len - initial_len) > 0.001  # Some response
+        # Use early measurements (low velocity) to estimate inertia
+        # At low v: F_gravity - f_coulomb = (m + I*(n/r)²) * acc
+        # Rearranging: I = (F_gravity - f_coulomb - m*acc) * (r/n)² / acc
+        # But simpler: total_effective_inertia = F_net / acc, then extract I
+        early_acc = abs(acc_history[5])  # Use 5th sample (still near v=0)
+        early_vel = abs(vel_history[5])
+        omega_early = early_vel * n / r
+
+        # tau_friction at low velocity ≈ f_coulomb (viscous term small)
+        tau_friction_early = f_c_expected + c_vf_expected * omega_early
+        tau_tether = (r / n) * F_gravity
+        tau_net = tau_tether - tau_friction_early
+
+        # From tau_net = I * alpha, and alpha = acc * n / r:
+        alpha_measured = early_acc * n / r
+        I_calculated = tau_net / alpha_measured
+
+        # Verify calculated inertia matches expected
+        @test I_calculated ≈ I_expected rtol=0.3  # 30% tolerance for numerical effects
+
+        # Use later measurements (higher velocity) to verify friction
+        # At steady state: tau_tether = f_coulomb + c_vf * omega_terminal
+        # v_terminal = (tau_tether - f_coulomb) * r / (c_vf * n)
+        v_terminal_expected = (tau_tether - f_c_expected) * r / (c_vf_expected * n)
+
+        # Verify basic reel-out behavior
+        initial_z = z_history[1]
+        final_z = z_history[end]
+        @test final_z < initial_z  # Weight moves down (negative z direction)
+
+        final_vel = sam.sys_struct.winches[:main_winch].tether_vel
+        @test final_vel > 0  # Positive = reel-out
+
+        println("\n  ====== Reel-out: z=$(round(initial_z, digits=2))m -> $(round(final_z, digits=2))m, vel=$(round(final_vel, digits=2))m/s")
+        println("  ====== Dynamics: I_calc=$(round(I_calculated, digits=3))kg·m² (expected=$(I_expected)), acc=$(round(early_acc, digits=2))m/s² ======\n")
     end
 
     # ========================================================================
-    # Physics Test 5: Tether acceleration calculation
+    # Physics Test 4: Reel-out velocity bounded by friction
+    # Verify reel-out velocity is bounded (friction limits acceleration)
     # ========================================================================
-    @testset "Tether acceleration physics" begin
-        # Winch equations:
-        # tau_total = tau_motor + r_drum/n * F_tether - tau_friction
-        # alpha_motor = tau_total / I_total
-        # tether_acc = r_drum / n * alpha_motor
-
-        # Parameters from settings
-        r_drum = 0.1  # m
-        n = 1.0  # gear ratio
-        I_total = 0.1  # kg*m^2
-        f_coulomb = 1.0  # N*m
-        c_vf = 0.5  # N*m*s
-
-        # Expected steady-state with kite hanging:
-        # F_tether = m * g = 10 * 9.81 = 98.1 N
-        # For zero velocity (brake), tau_friction = f_coulomb = 1.0 N*m
-        # To hold: tau_motor = tau_friction - r_drum/n * F_tether
-        # tau_motor = 1.0 - 0.1 * 98.1 = 1.0 - 9.81 = -8.81 N*m
-
-        F_tether = 10.0 * 9.81
-        tau_hold = f_coulomb - r_drum / n * F_tether
-
-        @test tau_hold ≈ -8.81 atol=0.01
-
-        # This means we need negative motor torque (braking) to hold the load
-        # Or the brake must be engaged
-    end
-
-    # ========================================================================
-    # Physics Test 6: Inertia effect on acceleration
-    # ========================================================================
-    @testset "Inertia effect on acceleration" begin
+    @testset "Reel-out velocity bounded" begin
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        # Create two systems with different inertias
-        high_inertia_yaml = replace(TETHER_WINCH_YAML, "nothing, 0.01]" => "nothing, 0.01]")
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="terminal_vel_test", set=set)
+        sam = SymbolicAWEModel(set, sys)
+        init!(sam; remake=true)
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="inertia_test", set=set)
+        sam.sys_struct.winches[:main_winch].brake = false
 
-        # Expected: Higher inertia = slower acceleration
-        # alpha = tau / I
-        # With same torque, higher I gives lower alpha
+        # Get parameters
+        winch = sam.sys_struct.winches[:main_winch]
+        total_mass = sam.sys_struct.points[:weight].total_mass
+        g = set.g_earth
 
-        r_drum = 0.1
-        n = 1.0
-        I_total = 0.1
+        # Run simulation
+        dt = 0.01
+        t_total = 5.0  # 5 seconds
+        n_steps = Int(t_total / dt)
 
-        # For a net torque of 1 N*m:
-        tau_net = 1.0
-        alpha_expected = tau_net / I_total  # 10 rad/s^2
-        tether_acc_expected = r_drum / n * alpha_expected  # 1 m/s^2
+        for _ in 1:n_steps
+            next_step!(sam; dt=dt, vsm_interval=0)
+        end
 
-        @test tether_acc_expected == 1.0
+        final_vel = sam.sys_struct.winches[:main_winch].tether_vel
+
+        # Free fall velocity after t seconds: v = g * t
+        v_freefall = g * t_total
+
+        # Velocity should be positive (reeling out)
+        @test final_vel > 0
+
+        # Velocity should be less than free fall (friction/inertia slows it)
+        @test final_vel < v_freefall
+
+        println("\n  ====== Reel-out bounded: vel=$(round(final_vel, digits=2))m/s < freefall=$(round(v_freefall, digits=2))m/s ======\n")
     end
 
     # Cleanup

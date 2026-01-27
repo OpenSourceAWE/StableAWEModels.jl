@@ -13,6 +13,7 @@
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 
@@ -164,11 +165,9 @@ transforms:
     data_path = joinpath(tmpdir, "2plate_kite")
     cp(src_data_path, data_path; force=true)
 
-    # Set data path
+    # Set data path and load settings
     set_data_path(data_path)
-
-    # Load settings
-    set = load_settings("system.yaml")
+    set = Settings("system.yaml")
 
     # Read the actual YAML content for verification
     yaml_path = joinpath(data_path, "struc_geometry.yaml")
@@ -208,6 +207,8 @@ transforms:
         # Verify bridle points are DYNAMIC
         @test sys.points[:kcu].type == SymbolicAWEModels.DYNAMIC
         @test sys.points[:steering_left].type == SymbolicAWEModels.DYNAMIC
+
+        println("\n  ====== Loaded wing: $(length(sys.points)) points, type=$(wing.wing_type), elev=$(round(rad2deg(sys.transforms[:main_transform].elevation), digits=1))° ======\n")
     end
 
     # ========================================================================
@@ -232,6 +233,8 @@ transforms:
 
         # Simulation completed without error
         @test true
+
+        println("\n  ====== Wing init: pos=$(round.(wing.base.pos_w, digits=2)) ======\n")
     end
 
     # ========================================================================
@@ -261,6 +264,8 @@ transforms:
         # Wing should have some position in flight window
         wing_pos = sam.sys_struct.wings[:main_wing].base.pos_w
         @test wing_pos[3] > 0  # Above ground (positive z in this coordinate system)
+
+        println("\n  ====== Aero balance: kcu_vel=$(round(norm(kcu_vel), digits=2))m/s, wing_z=$(round(wing_pos[3], digits=2))m ======\n")
     end
 
     # ========================================================================
@@ -303,6 +308,8 @@ transforms:
         # The wing forces should scale approximately with v^2
         # This is a qualitative check - exact values depend on angle of attack, etc.
         @test expected_ratio ≈ 2.25 atol=0.01
+
+        println("\n  ====== Aero v² law: F($(v2)m/s)/F($(v1)m/s) ≈ $(round(expected_ratio, digits=2)) ======\n")
     end
 
     # ========================================================================
@@ -338,6 +345,8 @@ transforms:
 
         # This is a basic stability check - the simulation should complete
         @test true
+
+        println("\n  ====== Steering test: initial_y=$(round(initial_y_pos, digits=2))m, final_y=$(round(final_y_pos, digits=2))m ======\n")
     end
 
     # ========================================================================
@@ -364,6 +373,8 @@ transforms:
 
         # For now, just verify the load was successful
         @test true
+
+        println("\n  ====== YAML roundtrip: $(length(sys.points)) points, $(length(sys.segments)) segments, $(length(sys.wings)) wing ======\n")
     end
 
     # Cleanup
