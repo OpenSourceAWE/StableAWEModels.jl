@@ -3,19 +3,23 @@
 
 # test_segment.jl - Spring-damper segment dynamics tests
 #
-# Tests a minimal 2-point system (1 STATIC, 1 DYNAMIC) with 1 segment.
 # Verifies:
-# 1. No gravity, no wind: point stays still
-# 2. With gravity: oscillation frequency and equilibrium position
-# 3. Damping ratio from decay
+# 1. No gravity, no wind: point stays still (STATIC + DYNAMIC system)
+# 2. With gravity: oscillation frequency, equilibrium, damping ratio (STATIC + DYNAMIC)
+# 3. Horizontal segment gravity drag: terminal velocity (two DYNAMIC points)
+# 4. Vertical segment wind drag: terminal velocity matches wind (two DYNAMIC points)
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 
 # ============================================================================
 # YAML Configuration - Minimal 2-point system with 1 segment
+# Note: unit_stiffness and unit_damping are per-unit-length properties:
+#   effective k = unit_stiffness / length [N/m]
+#   effective c = unit_damping / length [N·s/m]
 # ============================================================================
 const SEGMENT_TEST_YAML = """
 ##############################
@@ -36,77 +40,162 @@ materials:
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
   data:
-    - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
-    - [mass_point, [0.0, 0.0, 10.0], DYNAMIC, nothing, nothing, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [anchor, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [mass_point, [0.0, 0.0, -10.0], DYNAMIC, nothing, nothing, 1.0, 0.0, 0.0, 0.0, 0.0]
 
 ###########################
 ## Segments ###############
 ###########################
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    - [test_segment, ground, mass_point, BRIDLE, 10.0, 5.0, 1000.0, 10.0, 0.1]
+    # unit_stiffness=1000, l0=10 -> k=100 N/m; unit_damping=10, l0=10 -> c=1 N·s/m
+    - [test_segment, anchor, mass_point, BRIDLE, 10.0, 5.0, 1000.0, 10.0, 0.1]
 """
 
+# YAML for oscillation test
+# Uses 5.0 kg point mass (>> segment mass ~0.14 kg) for clean spring-damper dynamics
+# Mass hangs below anchor (z=-10), so gravity stretches spring
+# Note: effective k = unit_stiffness/l0, effective c = unit_damping/l0
+const SEGMENT_LOW_DAMP_YAML = """
+##############################
+## Segment Test - Oscillation #
+##############################
+
+materials:
+  headers: [name, youngs_modulus, density, damping_per_stiffness]
+  data:
+    - [test_material, 55000000000.0, 724, 0.00077]
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
+  data:
+    - [anchor, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [mass_point, [0.0, 0.0, -10.0], DYNAMIC, nothing, nothing, 5.0, 0.0, 0.0, 0.0, 0.0]
+
+segments:
+  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  data:
+    # unit_stiffness=1000 -> k=100 N/m, unit_damping=100 -> c=10 N*s/m -> zeta=0.224
+    - [test_segment, anchor, mass_point, BRIDLE, 10.0, 5.0, 1000.0, 100.0, 0.1]
+"""
+
+# YAML for horizontal segment drag test - two dynamic points, no extra mass
+const SEGMENT_HORIZONTAL_DRAG_YAML = """
+##############################
+## Horizontal Segment Drag ###
+##############################
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
+  data:
+    - [point_left, [-5.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [point_right, [5.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+segments:
+  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  data:
+    - [horiz_segment, point_left, point_right, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
+"""
+
+# YAML for vertical segment wind drag test - two dynamic points, no extra mass
+const SEGMENT_VERTICAL_WIND_YAML = """
+##############################
+## Vertical Segment Wind #####
+##############################
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
+  data:
+    - [point_top, [0.0, 0.0, 60.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [point_bottom, [0.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+segments:
+  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  data:
+    - [vert_segment, point_top, point_bottom, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
+"""
+
+# Helper function for mean
+function mean(x)
+    return sum(x) / length(x)
+end
+
 @testset "Segment Tests" begin
-    # Write YAML to temp file
+    # Write YAML to temp files
     tmpdir = mktempdir()
     yaml_path = joinpath(tmpdir, "test_segment_geometry.yaml")
     write(yaml_path, SEGMENT_TEST_YAML)
 
-    # Create minimal settings file for loading
+    yaml_low_damp_path = joinpath(tmpdir, "test_segment_low_damp_geometry.yaml")
+    write(yaml_low_damp_path, SEGMENT_LOW_DAMP_YAML)
+
+    yaml_horiz_drag_path = joinpath(tmpdir, "test_horiz_drag_geometry.yaml")
+    write(yaml_horiz_drag_path, SEGMENT_HORIZONTAL_DRAG_YAML)
+
+    yaml_vert_wind_path = joinpath(tmpdir, "test_vert_wind_geometry.yaml")
+    write(yaml_vert_wind_path, SEGMENT_VERTICAL_WIND_YAML)
+
+    # Create minimal settings file
     settings_yaml = """
 system:
-  sim_time: 10.0
-  segments: 1
-  sample_freq: 50
+    log_file: "data/segment_test"  # filename without extension  [replay only]
+                                   #   use / as path delimiter, even on Windows
+    g_earth:     9.81
+
+initial:
+    l_tethers: [0.0]  # initial tether length       [m]
+    v_reel_outs: [0.0]   # initial reel out speed    [m/s]
 
 solver:
-  solver: "FBDF"
-  abs_tol: 0.0001
-  rel_tol: 0.0001
+    solver: "FBDF"
+    abs_tol: 0.0001          # absolute tolerance of the DAE solver [m, m/s]
+    rel_tol: 0.0001          # relative tolerance of the DAE solver [-]
+    relaxation: 0.6        # relaxation factor of inner linear Newton solver, needed for quasi-steady solver
 
 kite:
-  physical_model: "from_yaml"
+    model: ""     # 3D model of the kite
+    foil_file: "ram_air_kite/ram_air_kite_foil.dat" # filename for the foil shape
+    physical_model: "2plate"            # name of the kite model to use (2plate, ram, etc.)
+    struc_geometry_path: "struc_geometry.yaml"  # structural YAML
+    aero_geometry_path: "aero_geometry.yaml"    # aerodynamic YAML
+    mass: 0.0                               # kite mass [kg]
+    quasi_static: false                     # whether to use quasi static kite points or not
 
 tether:
-  cd_tether: 0.958
-  axial_damping: 350.0
-  axial_stiffness: 120000.0
-  rho_tether: 724.0
-  e_tether: 55000000000.0
-  rel_damping: 0.00077
+    cd_tether: 0.0             # disable segment aero drag for pure spring-damper test
+    unit_damping: 0.0
+    unit_stiffness: 0.0
+    rho_tether: 724.0
+    e_tether: 5.5e10
 
 winch:
-  winch_model: "TorqueControlledMachine"
-  max_force: 4000
-  v_ro_max: 8.0
-  drum_radius: 0.110
-  gear_ratio: 1.0
-  inertia_total: 0.024
-  f_coulomb: 10.0
-  c_vf: 5.0
+    winch_model: "TorqueControlledMachine" # or AsynchMachine
+    drum_radius: 0.110    # radius of the drum                              [m]
+    gear_ratio: 1.0        # gear ratio of the winch                         [-]
+    inertia_total: 0.024   # total inertia, as seen from the motor/generator [kgm²]
+    f_coulomb: 122.0       # coulomb friction                                [N]
+    c_vf: 30.6             # coefficient for the viscous friction            [Ns/m]
 
 environment:
-  v_wind: 0.0
-  upwind_dir: -90.0
-  h_ref: 6.0
-  rho_0: 1.225
+    rho_0: 1.225               # air density at sea level               [kg/m^3]
+    v_wind: 0.0              # wind speed at reference height         [m/s]
+    upwind_dir: -90.0        # upwind direction                       [deg]
+    profile_law: 0           # 1=EXP, 2=LOG, 3=EXPLOG, 4=FAST_EXP, 5=FAST_LOG, 6=FAST_EXPLOG
 """
     settings_path = joinpath(tmpdir, "settings.yaml")
     write(settings_path, settings_yaml)
 
-    # Also create system.yaml that points to settings
     system_yaml = """
 system:
-  settings: settings.yaml
+  sim_settings: settings.yaml
 """
     system_path = joinpath(tmpdir, "system.yaml")
     write(system_path, system_yaml)
 
     # Set data path and load settings
     set_data_path(tmpdir)
-    set = load_settings("system.yaml")
+    set = Settings("system.yaml")
 
     # Load system structure from YAML
     sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
@@ -117,18 +206,18 @@ system:
     @testset "YAML Loading Verification" begin
         # Verify points were loaded correctly
         @test length(sys.points) == 2
-        @test haskey(sys.points, :ground)
+        @test haskey(sys.points, :anchor)
         @test haskey(sys.points, :mass_point)
 
         # Verify point properties
-        ground = sys.points[:ground]
-        @test ground.type == SymbolicAWEModels.STATIC
-        @test ground.pos_cad == KVec3(0.0, 0.0, 0.0)
-        @test ground.extra_mass == 0.0
+        anchor = sys.points[:anchor]
+        @test anchor.type == SymbolicAWEModels.STATIC
+        @test anchor.pos_cad == KVec3(0.0, 0.0, 0.0)
+        @test anchor.extra_mass == 0.0
 
         mass_point = sys.points[:mass_point]
         @test mass_point.type == SymbolicAWEModels.DYNAMIC
-        @test mass_point.pos_cad == KVec3(0.0, 0.0, 10.0)
+        @test mass_point.pos_cad == KVec3(0.0, 0.0, -10.0)
         @test mass_point.extra_mass == 1.0
         @test mass_point.area == 0.0
         @test mass_point.drag_coeff == 0.0
@@ -139,17 +228,18 @@ system:
 
         segment = sys.segments[:test_segment]
         @test segment.l0 == 10.0
-        @test segment.axial_stiffness == 1000.0
-        @test segment.axial_damping == 10.0
+        @test segment.unit_stiffness == 1000.0
+        @test segment.unit_damping == 10.0
         @test segment.diameter == 0.005  # 5mm in meters
         @test segment.compression_frac == 0.1
+
+        println("\n  ====== Loaded segment: l0=$(segment.l0)m, unit_stiffness=$(segment.unit_stiffness)N, unit_damping=$(segment.unit_damping)N·s ======\n")
     end
 
     # ========================================================================
     # Physics Test 1: No gravity, no wind - point stays still
     # ========================================================================
     @testset "No gravity, no wind - stationary" begin
-        # Reload with zero gravity
         set.g_earth = 0.0
         set.v_wind = 0.0
 
@@ -170,47 +260,67 @@ system:
         # Position should be unchanged
         final_z = sam.sys_struct.points[:mass_point].pos_w[3]
         @test abs(final_z - initial_z) < 0.001  # Should not move more than 1mm
+
+        println("\n  ====== Position drift: $(round(abs(final_z - initial_z)*1000, digits=3)) mm (limit: 1 mm) ======\n")
     end
 
     # ========================================================================
-    # Physics Test 2: With gravity - oscillation and equilibrium
+    # Physics Test 2: With gravity - oscillation dynamics
     # ========================================================================
     @testset "With gravity - oscillation dynamics" begin
-        # Reload with gravity
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test_grav", set=set)
+        # Use low damping YAML with 5.0 kg point mass (>> segment mass ~0.14 kg)
+        # This ensures clean spring-damper dynamics where point mass dominates
+        sys = load_sys_struct_from_yaml(yaml_low_damp_path; system_name="segment_test_grav", set=set)
+
+        # Verify the properties were loaded
+        @test sys.segments[:test_segment].unit_damping == 100.0
+        @test sys.points[:mass_point].extra_mass == 5.0
+
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
 
         # Physics parameters
-        m = 1.0  # mass [kg]
-        k = 1000.0 / 10.0  # stiffness [N/m] = axial_stiffness / l0
-        c = 10.0  # damping [N*s/m]
-        g = 9.81  # gravity [m/s^2]
         l0 = 10.0  # rest length [m]
+        z0 = -10.0  # initial z position (unstretched spring)
+        unit_stiffness = 1000.0
+        unit_damping = 100.0
 
-        # Expected equilibrium: z_eq = l0 - m*g/k
-        # Spring force at equilibrium: k * delta_l = m * g
-        # delta_l = m*g/k = 1.0 * 9.81 / 100 = 0.0981 m
-        z_eq_expected = l0 - m * g / k
-        @test z_eq_expected ≈ 9.902 atol=0.001
+        # Calculate expected total mass: extra_mass + half segment mass
+        segment = sys.segments[:test_segment]
+        half_segment_mass = 0.5 * set.rho_tether * π * (segment.diameter / 2)^2 * l0
+        expected_total_mass = sys.points[:mass_point].extra_mass + half_segment_mass
+
+        # Verify total_mass is correctly computed
+        m = sam.sys_struct.points[:mass_point].total_mass
+        @test m ≈ expected_total_mass rtol=0.01
+
+        # Expected equilibrium stretch, accounting for k = unit_stiffness / len
+        # At equilibrium: k * stretch = m * g
+        # (unit_stiffness / (l0 + stretch)) * stretch = m * g
+        # Solving: stretch = m * g * l0 / (unit_stiffness - m * g)
+        stretch_eq = m * set.g_earth * l0 / (unit_stiffness - m * set.g_earth)
+        len_eq = l0 + stretch_eq
+        z_eq_expected = z0 - stretch_eq
+
+        # At equilibrium length, effective k and c are:
+        k = unit_stiffness / len_eq
+        c = unit_damping / len_eq
 
         # Expected natural frequency: omega_n = sqrt(k/m)
-        omega_n = sqrt(k / m)
-        @test omega_n ≈ 10.0 atol=0.001  # 10 rad/s
+        omega_n_expected = sqrt(k / m)
 
         # Expected damping ratio: zeta = c / (2 * sqrt(k*m))
-        zeta = c / (2 * sqrt(k * m))
-        @test zeta ≈ 0.5 atol=0.001  # Underdamped
+        zeta_expected = c / (2 * sqrt(k * m))
 
-        # Damped frequency: omega_d = omega_n * sqrt(1 - zeta^2)
-        omega_d = omega_n * sqrt(1 - zeta^2)
+        # Expected damped frequency: omega_d = omega_n * sqrt(1 - zeta^2)
+        omega_d_expected = omega_n_expected * sqrt(1 - zeta_expected^2)
 
         # Run simulation for several periods
-        dt = 0.001  # Small timestep for accuracy
-        total_time = 3.0  # Several oscillation periods
+        dt = 0.01  # Small timestep for accuracy
+        total_time = 50.0  # Several oscillation periods
         n_steps = Int(ceil(total_time / dt))
 
         z_history = Float64[]
@@ -223,95 +333,14 @@ system:
         end
 
         # Check equilibrium (final position should converge)
+        # Calculate stiffness from measured equilibrium and compare to expected
         z_final = z_history[end]
-        @test z_final ≈ z_eq_expected atol=0.05  # Within 5cm of equilibrium
+        stretch_measured = z0 - z_final
+        len_measured = l0 + stretch_measured
+        k_measured = unit_stiffness / len_measured
+        @test k_measured ≈ k rtol=0.001
 
-        # Check oscillation occurred (should have crossed equilibrium multiple times)
-        crossings = 0
-        for i in 2:length(z_history)
-            if (z_history[i-1] - z_eq_expected) * (z_history[i] - z_eq_expected) < 0
-                crossings += 1
-            end
-        end
-        @test crossings >= 4  # At least 2 full oscillations (4 crossings)
-
-        # Verify damping - amplitude should decrease
-        # Find first peak and a later peak
-        peaks = Int[]
-        for i in 2:(length(z_history)-1)
-            if z_history[i] > z_history[i-1] && z_history[i] > z_history[i+1]
-                push!(peaks, i)
-            end
-        end
-
-        if length(peaks) >= 2
-            amp1 = abs(z_history[peaks[1]] - z_eq_expected)
-            amp2 = abs(z_history[peaks[end]] - z_eq_expected)
-            @test amp2 < amp1  # Later amplitude should be smaller
-        end
-    end
-
-    # ========================================================================
-    # Physics Test 3: Recalculate stiffness/damping from oscillation
-    # ========================================================================
-    @testset "Extract parameters from oscillation" begin
-        # Reload with gravity and small damping for clearer oscillation
-        set.g_earth = 9.81
-        set.v_wind = 0.0
-
-        # Create YAML with lower damping for clearer oscillation
-        low_damp_yaml = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_material, 55000000000.0, 724, 0.00077]
-
-points:
-  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
-  data:
-    - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
-    - [mass_point, [0.0, 0.0, 10.0], DYNAMIC, nothing, nothing, 1.0, 0.0, 0.0, 0.0, 0.0]
-
-segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
-  data:
-    - [test_segment, ground, mass_point, BRIDLE, 10.0, 5.0, 1000.0, 2.0, 0.1]
-"""
-        # Use lower damping: c = 2.0 → zeta = 2/(2*sqrt(100*1)) = 0.1
-
-        low_damp_path = joinpath(tmpdir, "low_damp_geometry.yaml")
-        write(low_damp_path, low_damp_yaml)
-
-        sys = load_sys_struct_from_yaml(low_damp_path; system_name="segment_test_lowdamp", set=set)
-
-        # Verify the damping was loaded
-        @test sys.segments[:test_segment].axial_damping == 2.0
-
-        sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
-
-        # Physics parameters
-        m = 1.0
-        k = 1000.0 / 10.0  # 100 N/m
-        c = 2.0
-        zeta_expected = c / (2 * sqrt(k * m))  # 0.1
-        omega_n_expected = sqrt(k / m)  # 10 rad/s
-
-        # Run simulation and record
-        dt = 0.001
-        total_time = 5.0
-        n_steps = Int(ceil(total_time / dt))
-
-        z_history = Float64[]
-        t_history = Float64[]
-
-        for i in 1:n_steps
-            next_step!(sam; dt=dt, vsm_interval=0)
-            push!(z_history, sam.sys_struct.points[:mass_point].pos_w[3])
-            push!(t_history, i * dt)
-        end
-
-        # Find peaks for frequency estimation
+        # Find peaks for frequency and damping estimation
         peaks_t = Float64[]
         peaks_z = Float64[]
         for i in 2:(length(z_history)-1)
@@ -321,37 +350,152 @@ segments:
             end
         end
 
-        if length(peaks_t) >= 3
-            # Estimate period from peak spacing
-            periods = diff(peaks_t)
-            avg_period = mean(periods)
-            omega_d_measured = 2π / avg_period
+        @test length(peaks_t) >= 3  # Should have at least 3 peaks
 
-            # For underdamped: omega_d = omega_n * sqrt(1 - zeta^2)
-            omega_d_expected = omega_n_expected * sqrt(1 - zeta_expected^2)
+        # Estimate damped frequency from peak spacing
+        periods = diff(peaks_t)
+        avg_period = mean(periods)
+        omega_d_measured = 2π / avg_period
+        @test omega_d_measured ≈ omega_d_expected rtol=0.1  # Within 10%
 
-            @test omega_d_measured ≈ omega_d_expected rtol=0.1  # Within 10%
+        # Estimate damping ratio from logarithmic decrement
+        # δ = ln(A₁/A₂) = 2πζ/√(1-ζ²)
+        # Solving for ζ: ζ = δ/√(4π² + δ²)
+        # Use actual equilibrium (z_final) for amplitude calculation, not theoretical
+        amps = abs.(peaks_z .- z_final)
+        @test amps[end] < amps[1]  # Amplitude should decrease
 
-            # Estimate damping ratio from logarithmic decrement
-            # delta = ln(A1/A2) = 2*pi*zeta/sqrt(1-zeta^2)
-            z_eq = 10.0 - 1.0 * 9.81 / 100.0  # equilibrium position
-            amps = abs.(peaks_z .- z_eq)
+        # Average multiple log decrements for robustness
+        log_decrements = [log(amps[i] / amps[i+1]) for i in 1:min(5, length(amps)-1) if amps[i+1] > 0.001]
+        log_decrement = mean(log_decrements)
+        zeta_measured = log_decrement / sqrt(4π^2 + log_decrement^2)
 
-            if length(amps) >= 2 && amps[1] > 0.001 && amps[2] > 0.001
-                log_decrement = log(amps[1] / amps[2])
-                # From log decrement: zeta = delta / sqrt(4*pi^2 + delta^2)
-                zeta_measured = log_decrement / sqrt(4π^2 + log_decrement^2)
+        println("\n  ====== Damping ratio: measured=$(round(zeta_measured, digits=3)), expected=$(round(zeta_expected, digits=3))")
+        println("  ====== Stiffness: measured=$(round(k_measured, digits=1)) N/m, expected=$(round(k, digits=1)) N/m ======\n")
+        @test zeta_measured ≈ zeta_expected rtol=0.2  # Within 20%
+    end
 
-                @test zeta_measured ≈ zeta_expected rtol=0.3  # Within 30% (numerical errors)
-            end
+    # ========================================================================
+    # Physics Test 3: Horizontal segment with gravity - drag terminal velocity
+    # ========================================================================
+    @testset "Horizontal segment - gravity drag terminal velocity" begin
+        set.g_earth = 9.81
+        set.v_wind = 0.0
+        set.cd_tether = 0.958  # enable segment aero drag for this test
+
+        sys = load_sys_struct_from_yaml(yaml_horiz_drag_path; system_name="horiz_drag_test", set=set)
+
+        # Verify no extra mass on points (segment mass only)
+        @test sys.points[:point_left].extra_mass == 0.0
+        @test sys.points[:point_right].extra_mass == 0.0
+
+        sam = SymbolicAWEModel(set, sys)
+        init!(sam; remake=true)
+
+        # Get segment properties
+        segment = sys.segments[:horiz_segment]
+        L = segment.l0  # 10.0 m
+        d = segment.diameter  # 0.004 m (4mm)
+
+        # Segment mass from tether density
+        rho_tether = set.rho_tether  # 724 kg/m^3
+        segment_mass = rho_tether * π * (d/2)^2 * L
+
+        # Total mass (segment distributed to both points)
+        m_total = segment_mass
+
+        # Drag parameters
+        rho_air = set.rho_0  # 1.225 kg/m^3
+        cd = set.cd_tether  # 0.958
+
+        # Terminal velocity: drag = weight
+        # F_drag = 0.5 * rho * cd * L * d * v^2 (for perpendicular flow)
+        # F_gravity = m_total * g
+        # v_t = sqrt(2 * m * g / (rho * cd * L * d))
+        v_terminal_expected = sqrt(2 * m_total * set.g_earth / (rho_air * cd * L * d))
+
+        # Record initial height
+        initial_z_left = sam.sys_struct.points[:point_left].pos_w[3]
+        initial_z_right = sam.sys_struct.points[:point_right].pos_w[3]
+
+        # Run simulation until terminal velocity is reached
+        dt = 0.1
+        n_steps = 1000
+
+        for _ in 1:n_steps
+            next_step!(sam; dt=dt, vsm_interval=0)
         end
+
+        # Check segment stays horizontal (both points at same height)
+        final_z_left = sam.sys_struct.points[:point_left].pos_w[3]
+        final_z_right = sam.sys_struct.points[:point_right].pos_w[3]
+        @test abs(final_z_left - final_z_right) < 0.01  # Within 1cm
+
+        # Check terminal velocity (downward)
+        vz_left = sam.sys_struct.points[:point_left].vel_w[3]
+        vz_right = sam.sys_struct.points[:point_right].vel_w[3]
+        avg_vz = (vz_left + vz_right) / 2
+
+        @test avg_vz < 0  # Moving downward
+        @test abs(avg_vz) ≈ v_terminal_expected rtol=0.15  # Within 15%
+
+        println("\n  ====== Terminal velocity: measured=$(round(abs(avg_vz), digits=2)) m/s, expected=$(round(v_terminal_expected, digits=2)) m/s ======\n")
+    end
+
+    # ========================================================================
+    # Physics Test 4: Vertical segment with wind - wind drag terminal velocity
+    # ========================================================================
+    @testset "Vertical segment - wind drag terminal velocity" begin
+        set.g_earth = 0.0  # No gravity
+        set.v_wind = 10.0  # 10 m/s wind
+        set.cd_tether = 0.958  # enable segment aero drag for this test
+
+        sys = load_sys_struct_from_yaml(yaml_vert_wind_path; system_name="vert_wind_test", set=set)
+
+        # Verify no extra mass on points (segment mass only)
+        @test sys.points[:point_top].extra_mass == 0.0
+        @test sys.points[:point_bottom].extra_mass == 0.0
+
+        sam = SymbolicAWEModel(set, sys)
+        init!(sam; remake=true)
+
+        # Record initial positions
+        initial_z_top = sam.sys_struct.points[:point_top].pos_w[3]
+        initial_z_bottom = sam.sys_struct.points[:point_bottom].pos_w[3]
+
+        # Run simulation until terminal velocity is reached
+        dt = 0.1
+        n_steps = 1000  # 10 seconds
+
+        for _ in 1:n_steps
+            next_step!(sam; dt=dt, vsm_interval=0)
+        end
+
+        # Check segment stays vertical (points at same height difference)
+        final_z_top = sam.sys_struct.points[:point_top].pos_w[3]
+        final_z_bottom = sam.sys_struct.points[:point_bottom].pos_w[3]
+        height_diff_initial = initial_z_top - initial_z_bottom
+        height_diff_final = final_z_top - final_z_bottom
+        @test abs(height_diff_final - height_diff_initial) < 0.1  # Within 10cm
+
+        # Check vertical position unchanged (no gravity)
+        @test abs(final_z_top - initial_z_top) < 0.5  # Within 50cm (some drift acceptable)
+        @test abs(final_z_bottom - initial_z_bottom) < 0.5
+
+        # Check terminal velocity matches wind velocity
+        # Wind blows in x direction (upwind_dir = -90 means wind from +x)
+        # At steady state, segment velocity = wind velocity
+        vx_top = sam.sys_struct.points[:point_top].vel_w[1]
+        vx_bottom = sam.sys_struct.points[:point_bottom].vel_w[1]
+        avg_vx = (vx_top + vx_bottom) / 2
+
+        # Wind direction: upwind_dir = -90 deg means wind blows in x direction
+        @test avg_vx > 0  # Moving in -x direction (with wind)
+        @test abs(avg_vx) ≈ set.v_wind rtol=0.01  # Within 1% of wind speed
+
+        println("\n  ====== Wind-driven velocity: measured=$(round(abs(avg_vx), digits=2)) m/s, wind=$(set.v_wind) m/s ======\n")
     end
 
     # Cleanup
     rm(tmpdir; recursive=true)
-end
-
-# Helper function for mean
-function mean(x)
-    return sum(x) / length(x)
 end
