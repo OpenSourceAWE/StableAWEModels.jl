@@ -403,20 +403,7 @@ system:
 
         # Total mass (segment distributed to both points)
         m_total = segment_mass
-
-        # Drag parameters
-        rho_air = set.rho_0  # 1.225 kg/m^3
         cd = set.cd_tether  # 0.958
-
-        # Terminal velocity: drag = weight
-        # F_drag = 0.5 * rho * cd * L * d * v^2 (for perpendicular flow)
-        # F_gravity = m_total * g
-        # v_t = sqrt(2 * m * g / (rho * cd * L * d))
-        v_terminal_expected = sqrt(2 * m_total * set.g_earth / (rho_air * cd * L * d))
-
-        # Record initial height
-        initial_z_left = sam.sys_struct.points[:point_left].pos_w[3]
-        initial_z_right = sam.sys_struct.points[:point_right].pos_w[3]
 
         # Run simulation until terminal velocity is reached
         dt = 0.1
@@ -431,15 +418,26 @@ system:
         final_z_right = sam.sys_struct.points[:point_right].pos_w[3]
         @test abs(final_z_left - final_z_right) < 0.01  # Within 1cm
 
+        # Calculate air density at final height using barometric formula
+        # rho = rho_0 * (1 - L*h/T0)^(g*M/(R*L) - 1) where L=0.0065 K/m, T0=288.15 K
+        final_height = (final_z_left + final_z_right) / 2
+        rho_air = set.rho_0 * (1 - 0.0065 * final_height / 288.15)^4.256
+
+        # Terminal velocity: drag = weight
+        # F_drag = 0.5 * rho * cd * L * d * v^2 (for perpendicular flow)
+        # F_gravity = m_total * g
+        # v_t = sqrt(2 * m * g / (rho * cd * L * d))
+        v_terminal_expected = sqrt(2 * m_total * set.g_earth / (rho_air * cd * L * d))
+
         # Check terminal velocity (downward)
         vz_left = sam.sys_struct.points[:point_left].vel_w[3]
         vz_right = sam.sys_struct.points[:point_right].vel_w[3]
         avg_vz = (vz_left + vz_right) / 2
 
         @test avg_vz < 0  # Moving downward
-        @test abs(avg_vz) ≈ v_terminal_expected rtol=0.15  # Within 15%
+        @test abs(avg_vz) ≈ v_terminal_expected rtol=0.001
 
-        println("\n  ====== Terminal velocity: measured=$(round(abs(avg_vz), digits=2)) m/s, expected=$(round(v_terminal_expected, digits=2)) m/s ======\n")
+        println("\n  ====== Terminal velocity: measured=$(round(abs(avg_vz), digits=2)) m/s, expected=$(round(v_terminal_expected, digits=2)) m/s (h=$(round(final_height, digits=0))m) ======\n")
     end
 
     # ========================================================================
