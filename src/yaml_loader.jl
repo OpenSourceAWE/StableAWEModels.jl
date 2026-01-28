@@ -257,7 +257,7 @@ starting from 1 with no gaps.
 - `pulleys`: table with headers `[id,segment_i,segment_j,type]`
   - `type`: DYNAMIC or QUASI_STATIC
 
-- `groups`: (optional) table with headers `[id,point_ids,gamma,type,reference_chord_frac]`
+- `groups`: (optional) table with headers `[id,point_idxs,gamma,type,reference_chord_frac]`
 - `tethers`: (optional) table with headers `[id,segment_ids,ground_point_id]`
 - `winches`: (optional) table with headers `[id,tether_ids]`
 - `wings`: (optional, typically from VSM configuration)
@@ -453,7 +453,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:name, :points, :type, :moment_frac],
                 [:damping];
                 mappings=Dict(
-                    :points => r -> [to_ref(p) for p in r.point_ids],
+                    :points => r -> [to_ref(p) for p in r.point_idxs],
                     :name => r -> begin
                         if haskey(r, :name) && !isnothing(r.name)
                             Symbol(r.name)
@@ -641,7 +641,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     [:transform, :y_damping, :wing_type, :aero_scale_chord, :aero_z_offset];
                     mappings=Dict(
                         :set => r -> set,
-                        :groups => r -> [],  # Groups will be auto-created
+                        :groups => r -> hasfield(typeof(r), :groups) && !isnothing(r.groups) ?
+                            [to_ref(g) for g in r.groups] : [],
                         :vsm_set => r -> vsm_set,
                         :wing_type => r -> wt,
                         :name => r -> begin

@@ -253,11 +253,11 @@ pulleys:
 ## Groups #################
 ###########################
 # Deformable wing sections with twist dynamics
-# headers: [id, point_ids, gamma, type, reference_chord_frac]
+# headers: [id, point_idxs, gamma, type, reference_chord_frac]
 # type: DYNAMIC, QUASI_STATIC
 
 groups:
-  headers: [idx, point_ids, gamma, type, reference_chord_frac]
+  headers: [idx, point_idxs, gamma, type, reference_chord_frac]
   data:
     # Note: groups would be defined here if using deformable wing model
     # For a rigid structure, this can be empty or omitted
@@ -290,19 +290,19 @@ winches:
 ## Wings ##################
 ###########################
 # Wing aerodynamic bodies
-# headers: [id, type, point_ids]
+# headers: [id, type, point_idxs]
 # type: REFINE or QUATERNION
-# point_ids: List of WING-type points (for REFINE: must be LE/TE pairs)
+# point_idxs: List of WING-type points (for REFINE: must be LE/TE pairs)
 
 wings:
   data:
     # QUATERNION wing: Rigid body with twist groups (auto-created from LE/TE pairs)
     # Points 2-21 form 10 LE/TE segment pairs (2,3), ..., (20,21)
     # For QUATERNION wings, use aero_z_offset to shift VSM panels in body frame z
-    # For REFINE wings, use point_ids, origin_idx, z_ref_points, y_ref_points
+    # For REFINE wings, use point_idxs, origin_idx, z_ref_points, y_ref_points
     - idx: 1
       type: REFINE
-      point_ids: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      point_idxs: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
         13, 14, 15, 16, 17, 18, 19, 20, 21]
       origin_idx: 1
       z_ref_points: [1, [12, 11]]  # KCU to LE for Z (normal)

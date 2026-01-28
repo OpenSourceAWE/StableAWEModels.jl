@@ -93,8 +93,11 @@ pulleys:
 ## Groups #################
 ###########################
 groups:
-  headers: [name, point_ids, gamma, type, reference_chord_frac]
+  headers: [name, point_idxs, type, moment_frac]
   data:
+    - [left, [te_left], DYNAMIC, 0.0]
+    - [center, [te_center], DYNAMIC, 0.0]
+    - [right, [te_right], DYNAMIC, 0.0]
 
 ###########################
 ## Tethers ################
@@ -119,7 +122,8 @@ wings:
   data:
     - name: main_wing
       type: QUATERNION
-      point_ids: [le_left, te_left, le_center, te_center, le_right, te_right]
+      point_idxs: [le_left, te_left, le_center, te_center, le_right, te_right]
+      groups: [left, center, right]
       origin_idx: kcu
       z_ref_points: [kcu, le_center]
       y_ref_points: [le_right, le_left]

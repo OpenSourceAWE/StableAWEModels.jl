@@ -449,6 +449,14 @@ function SystemStructure(name, set;
      tether_names_dict, winch_names_dict, wing_names_dict, transform_names_dict) =
         assign_indices_and_resolve!(points, groups, segments, pulleys, tethers, winches, wings, transforms)
 
+    # For REFINE wings, clear group_idxs - groups are not used with REFINE
+    # (REFINE applies panel forces directly to structural points)
+    for wing in wings
+        if wing.wing_type == REFINE && !isempty(wing.group_idxs)
+            empty!(wing.group_idxs)
+        end
+    end
+
     # If no wings defined, convert WING points to STATIC
     if isempty(wings)
         wing_point_idxs = findall(p -> p.type == WING, points)

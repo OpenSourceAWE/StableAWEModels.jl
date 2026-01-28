@@ -106,7 +106,7 @@ pulleys:
 ## Groups #################
 ###########################
 groups:
-  headers: [name, point_ids, gamma, type, reference_chord_frac]
+  headers: [name, point_idxs, gamma, type, reference_chord_frac]
   data:
 
 ###########################
@@ -132,7 +132,7 @@ wings:
   data:
     - name: main_wing
       type: REFINE
-      point_ids: [le_left, te_left, le_center, te_center, le_right, te_right]
+      point_idxs: [le_left, te_left, le_center, te_center, le_right, te_right]
       origin_idx: kcu
       z_ref_points: [kcu, le_center]
       y_ref_points: [le_right, le_left]
