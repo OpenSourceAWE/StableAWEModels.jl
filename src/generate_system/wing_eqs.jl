@@ -226,7 +226,7 @@ function wing_eqs!(
                     wing_acc[:, wing.idx],
                 ),
             )
-            wing_mass[wing.idx] ~ get_set_mass(pset)
+            wing_mass[wing.idx] ~ get_wing_mass(psys, wing.idx)
             force_tether_wing[:, wing.idx] ~ tether_wing_force[:, wing.idx]
             wing_acc[:, wing.idx] ~
                 (

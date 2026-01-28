@@ -448,9 +448,9 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         group_rows = parse_table(data["groups"])
 
         for (i, row) in enumerate(group_rows)
-            # Create Group using new constructor (name, points, gamma, type, moment_frac)
+            # Create Group using new constructor (name, points, type, moment_frac)
             group = call_yaml_constructor(Group, row,
-                [:name, :points, :gamma, :type, :moment_frac],
+                [:name, :points, :type, :moment_frac],
                 [:damping];
                 mappings=Dict(
                     :points => r -> [to_ref(p) for p in r.point_ids],
@@ -575,6 +575,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
        data["wings"]["data"] !== nothing &&
        !isempty(data["wings"]["data"])
         wing_rows = parse_table(data["wings"])
+
+        # Validate vsm_set is provided when wings are defined
+        if isnothing(vsm_set)
+            error("Wings are defined in YAML but vsm_set was not provided to load_sys_struct_from_yaml. " *
+                  "Please pass a VortexStepMethod.VSMSettings object via the vsm_set keyword argument.")
+        end
 
         for (i, row) in enumerate(wing_rows)
             # Use provided wing_type parameter or parse from YAML

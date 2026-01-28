@@ -86,8 +86,8 @@ function create_4_attach_ram_sys_struct(set::Settings)
         ]
         groups = [
             groups
-            Group(1+i_grp, [1+i_pnt, 2+i_pnt, 3+i_pnt, 4+i_pnt], vsm_wing, gammas[1], DYNAMIC, set.bridle_fracs[2])
-            Group(2+i_grp, [5+i_pnt, 6+i_pnt, 7+i_pnt, 8+i_pnt], vsm_wing, gammas[2], DYNAMIC, set.bridle_fracs[2])
+            Group(1+i_grp, [1+i_pnt, 2+i_pnt, 3+i_pnt, 4+i_pnt], DYNAMIC, set.bridle_fracs[2])
+            Group(2+i_grp, [5+i_pnt, 6+i_pnt, 7+i_pnt, 8+i_pnt], DYNAMIC, set.bridle_fracs[2])
         ]
 
         # ==================== CREATE PULLEY BRIDLE SYSTEM ==================== #
@@ -233,8 +233,8 @@ function create_ram_sys_struct(set::Settings; d_winch_pos=[zeros(3), zeros(3)])
         ]
         groups = [
             groups
-            Group(1+i_grp, [1+i_pnt, 2+i_pnt, 3+i_pnt], vsm_wing, gammas[1], DYNAMIC, 0.25)
-            Group(2+i_grp, [4+i_pnt, 5+i_pnt, 6+i_pnt], vsm_wing, gammas[2], DYNAMIC, 0.25)
+            Group(1+i_grp, [1+i_pnt, 2+i_pnt, 3+i_pnt], DYNAMIC, 0.25)
+            Group(2+i_grp, [4+i_pnt, 5+i_pnt, 6+i_pnt], DYNAMIC, 0.25)
         ]
 
         # ==================== CREATE PULLEY BRIDLE SYSTEM ==================== #
@@ -420,8 +420,8 @@ function create_simple_ram_sys_struct(set::Settings;
         Point(8, [0, 0, -set.l_tether], STATIC)
     ]
     groups = [
-        Group(1, [3], vsm_wing, gammas[1], DYNAMIC, 0.25)
-        Group(2, [4], vsm_wing, gammas[2], DYNAMIC, 0.25)
+        Group(1, [3], DYNAMIC, 0.25)
+        Group(2, [4], DYNAMIC, 0.25)
     ]
     segments = [
         Segment(1, set, 1, 5, POWER_LINE; unit_stiffness=unit_stiffness[1],

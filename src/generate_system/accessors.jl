@@ -45,6 +45,8 @@ get_Q_b_w(sys::SystemStructure, idx::Int64) = sys.wings[idx].Q_b_w
     size = (4,)
     eltype = SimFloat
 end
+get_wing_mass(sys::SystemStructure, idx::Int64) = sys.wings[idx].mass
+@register_symbolic get_wing_mass(sys::SystemStructure, idx::Int64)
 get_ω_b(sys::SystemStructure, idx::Int64) = sys.wings[idx].ω_b
 @register_array_symbolic get_ω_b(sys::SystemStructure, idx::Int64) begin
     size = (3,)
@@ -170,8 +172,6 @@ get_winch_inertia_total(sys::SystemStructure, idx::Int64) =
 @register_symbolic get_winch_inertia_total(sys::SystemStructure, idx::Int64)
 @register_symbolic get_wind_elevation(sys::SystemStructure)
 get_wind_elevation(sys::SystemStructure) = sys.wind_elevation
-get_set_mass(set::Settings) = set.mass
-@register_symbolic get_set_mass(set::Settings)
 get_rho_tether(set::Settings) = set.rho_tether
 @register_symbolic get_rho_tether(set::Settings)
 get_cd_tether(set::Settings) = set.cd_tether

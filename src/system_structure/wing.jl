@@ -93,6 +93,7 @@ mutable struct BaseWing <: AbstractWing
     fix_sphere::Bool
     y_damping::SimFloat
     z_disturb::SimFloat
+    mass::SimFloat  # Total mass of wing (sum of WING point masses if set.mass is zero)
 end
 
 function Base.getproperty(wing::BaseWing, sym::Symbol)
@@ -263,7 +264,7 @@ function BaseWing(name, groups::AbstractVector, R_b_c::AbstractMatrix,
         zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
-        y_damping, 0.0)
+        y_damping, 0.0, 0.0)  # mass initialized to 0, set by SystemStructure
 end
 
 # Helper to convert ref point spec to proper type

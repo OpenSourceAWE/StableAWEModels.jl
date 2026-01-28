@@ -344,45 +344,99 @@ system:
     end
 
     # ========================================================================
-    # Physics Test 4: Reel-out velocity bounded by friction
-    # Verify reel-out velocity is bounded (friction limits acceleration)
+    # Physics Test 4: Initial acceleration and terminal velocity
+    # At v≈0: a = (m*g - f_c*n/r) / (m + I*n²/r²)
+    # At terminal: F_drive = F_friction, so v_term = (m*g*r/n - f_c) * r / (c_vf*n)
     # ========================================================================
-    @testset "Reel-out velocity bounded" begin
+    @testset "Winch dynamics verification" begin
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="terminal_vel_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="dynamics_test", set=set)
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
 
         sam.sys_struct.winches[:main_winch].brake = false
 
-        # Get parameters
+        # Get winch parameters
         winch = sam.sys_struct.winches[:main_winch]
-        total_mass = sam.sys_struct.points[:weight].total_mass
+        r = winch.drum_radius      # 0.1 m
+        n = winch.gear_ratio       # 1.0
+        I = winch.inertia_total    # 0.1 kg·m²
+        f_c = winch.f_coulomb      # 1.0 N·m
+        c_vf = winch.c_vf          # 0.5 N·m·s
+
+        # Get mass (use initial value before significant tether payout)
+        m = sam.sys_struct.points[:weight].total_mass
         g = set.g_earth
 
-        # Run simulation
-        dt = 0.01
-        t_total = 5.0  # 5 seconds
-        n_steps = Int(t_total / dt)
+        # === Part 1: Initial acceleration ===
+        # Expected at v≈0 (viscous friction ≈ 0):
+        # a = (m*g - f_c*n/r) / (m + I*n²/r²)
+        M_eff = m + I * n^2 / r^2  # Effective mass including drum inertia
+        F_drive = m * g            # Gravity force
+        F_coulomb = f_c * n / r    # Coulomb friction converted to linear force
+        a_expected = (F_drive - F_coulomb) / M_eff
 
-        for _ in 1:n_steps
+        # Capture velocity over first few timesteps
+        dt = 0.001
+        n_steps = 20
+        vel_history = Float64[]
+        t_history = Float64[]
+
+        push!(vel_history, winch.tether_vel)
+        push!(t_history, 0.0)
+
+        for i in 1:n_steps
+            next_step!(sam; dt=dt, vsm_interval=0)
+            push!(vel_history, sam.sys_struct.winches[:main_winch].tether_vel)
+            push!(t_history, i * dt)
+        end
+
+        # Measure acceleration (linear fit: v = a*t + v0)
+        t_mean = sum(t_history) / length(t_history)
+        v_mean = sum(vel_history) / length(vel_history)
+        numerator = sum((t_history .- t_mean) .* (vel_history .- v_mean))
+        denominator = sum((t_history .- t_mean).^2)
+        a_measured = numerator / denominator
+
+        @test a_measured > 0
+        @test abs(a_measured - a_expected) / a_expected < 0.3
+
+        println("\n  ====== Initial: a_meas=$(round(a_measured, digits=2))m/s², a_exp=$(round(a_expected, digits=2))m/s²")
+
+        # === Part 2: Terminal velocity ===
+        # Run longer to approach terminal velocity
+        # Time constant: τ = M_eff / (c_vf * n² / r²)
+        tau = M_eff / (c_vf * n^2 / r^2)
+        t_settle = 10 * tau  # Run for 10 time constants
+
+        n_settle_steps = Int(ceil(t_settle / dt))
+        for _ in 1:n_settle_steps
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
-        final_vel = sam.sys_struct.winches[:main_winch].tether_vel
+        v_final = sam.sys_struct.winches[:main_winch].tether_vel
 
-        # Free fall velocity after t seconds: v = g * t
-        v_freefall = g * t_total
+        # At terminal velocity: F_drive = F_friction
+        # F_friction = (f_c + c_vf * omega) * n / r = (f_c + c_vf * v * n / r) * n / r
+        # Solving for v_terminal: v = (F_drive * r / n - f_c) * r / (c_vf * n)
+        v_terminal_expected = (F_drive * r / n - f_c) * r / (c_vf * n)
 
-        # Velocity should be positive (reeling out)
-        @test final_vel > 0
+        # Calculate friction force at measured velocity
+        omega_final = v_final * n / r
+        tau_friction_final = f_c + c_vf * omega_final
+        F_friction_final = tau_friction_final * n / r
 
-        # Velocity should be less than free fall (friction/inertia slows it)
-        @test final_vel < v_freefall
+        # At terminal: F_friction should equal F_drive
+        force_ratio = F_friction_final / F_drive
 
-        println("\n  ====== Reel-out bounded: vel=$(round(final_vel, digits=2))m/s < freefall=$(round(v_freefall, digits=2))m/s ======\n")
+        @test v_final > 0
+        @test abs(v_final - v_terminal_expected) / v_terminal_expected < 0.3
+        @test abs(force_ratio - 1.0) < 0.3  # Forces should be balanced
+
+        println("  ====== Terminal: v_meas=$(round(v_final, digits=2))m/s, v_exp=$(round(v_terminal_expected, digits=2))m/s")
+        println("  ====== Force balance: F_friction=$(round(F_friction_final, digits=1))N, F_drive=$(round(F_drive, digits=1))N, ratio=$(round(force_ratio, digits=2)) ======\n")
     end
 
     # Cleanup

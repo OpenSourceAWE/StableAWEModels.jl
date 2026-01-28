@@ -174,10 +174,9 @@ mutable struct Group
     const name::Union{Int, Symbol, Nothing}
     point_idxs::Vector{Int64}  # Resolved by SystemStructure from point_refs
     const point_refs::Vector{NameRef}  # Raw references to points (names or indices)
-    const gamma::SimFloat  # Spanwise parameter (-1 to 1)
-    le_pos::KVec3  # Leading edge position
-    chord::KVec3   # Chord vector in body frame
-    y_airf::KVec3  # Spanwise vector in local panel frame
+    le_pos::KVec3  # Leading edge position in body frame (from closest VSM panel)
+    chord::KVec3   # Chord vector in body frame (from closest VSM panel)
+    y_airf::KVec3  # Spanwise vector in local panel frame (from closest VSM panel)
     const type::DynamicsType
     moment_frac::SimFloat
     damping::SimFloat
@@ -190,15 +189,17 @@ mutable struct Group
 end
 
 """
-    Group(name, points, gamma, type, moment_frac; damping=50.0)
+    Group(name, points, type, moment_frac; damping=50.0)
 
 Constructs a `Group` object representing a collection of points on a
 kite body that share a common twist deformation.
 
+Group geometry (le_pos, chord, y_airf) is computed later by SystemStructure
+using the closest VSM panel to the group's mean point position.
+
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the group.
 - `points::Vector`: References to points (names or indices).
-- `gamma`: Spanwise parameter (-1 to 1) along the wing.
 - `type::DynamicsType`: DYNAMIC or QUASI_STATIC.
 - `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
 
@@ -207,29 +208,13 @@ kite body that share a common twist deformation.
 
 # Returns
 - `Group`: A new `Group` object. The `idx` and `point_idxs` are resolved by SystemStructure.
+  Geometry fields (le_pos, chord, y_airf) are initialized to zero and computed during
+  SystemStructure construction from the closest VSM panel.
 """
-function Group(name, points, gamma, type, moment_frac; damping=50.0)
+function Group(name, points, type, moment_frac; damping=50.0)
     point_refs = Vector{NameRef}([p isa Integer ? Int(p) : Symbol(p) for p in points])
-    Group(0, name, Int64[], point_refs, gamma,
+    Group(0, name, Int64[], point_refs,
           zeros(KVec3), zeros(KVec3), zeros(KVec3),
-          type, moment_frac, damping,
-          0.0, 0.0, 0.0, 0.0, 0.0,
-          Int64[])
-end
-
-"""
-    Group(name, points, vsm_wing::Wing, gamma, type, moment_frac; damping=50.0)
-
-Constructor that calculates geometry from vsm_wing directly.
-"""
-function Group(name, points, vsm_wing::VortexStepMethod.Wing, gamma,
-               type, moment_frac; damping=50.0)
-    point_refs = Vector{NameRef}([p isa Integer ? Int(p) : Symbol(p) for p in points])
-    le_pos = [vsm_wing.le_interp[i](gamma) for i in 1:3]
-    chord = [vsm_wing.te_interp[i](gamma) for i in 1:3] .- le_pos
-    y_airf = normalize([vsm_wing.le_interp[i](gamma-0.01)
-        for i in 1:3] - le_pos)
-    Group(0, name, Int64[], point_refs, gamma, le_pos, chord, y_airf,
           type, moment_frac, damping,
           0.0, 0.0, 0.0, 0.0, 0.0,
           Int64[])

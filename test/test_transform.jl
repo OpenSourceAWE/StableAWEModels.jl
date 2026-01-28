@@ -12,7 +12,7 @@
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using SymbolicAWEModels: KVec3, VortexStepMethod
 using KiteUtils
 using LinearAlgebra
 
@@ -80,8 +80,6 @@ winches:
 ###########################
 ## Wings ##################
 ###########################
-# Note: For transform tests, we use QUATERNION wing type without VSM
-# to avoid VSM dependencies. This tests the coordinate system only.
 wings:
   data:
     - name: main_wing
@@ -255,12 +253,24 @@ system:
     system_path = joinpath(tmpdir, "system.yaml")
     write(system_path, system_yaml)
 
+    # Copy 2plate_kite VSM files to temp directory (preserving path structure)
+    plate_kite_src = joinpath(@__DIR__, "..", "data", "2plate_kite")
+    plate_kite_dst = joinpath(tmpdir, "data", "2plate_kite")
+    mkpath(plate_kite_dst)
+    cp(joinpath(plate_kite_src, "aero_geometry.yaml"), joinpath(plate_kite_dst, "aero_geometry.yaml"))
+    cp(joinpath(plate_kite_src, "vsm_settings.yaml"), joinpath(plate_kite_dst, "vsm_settings.yaml"))
+    cp(joinpath(plate_kite_src, "polars"), joinpath(plate_kite_dst, "polars"))
+
     # Set data path and load settings
     set_data_path(tmpdir)
     set = Settings("system.yaml")
 
+    # Load VSM settings
+    vsm_settings_path = joinpath(plate_kite_dst, "vsm_settings.yaml")
+    vsm_set = VortexStepMethod.VSMSettings(vsm_settings_path; data_prefix=false)
+
     # Load system structure from YAML
-    sys = load_sys_struct_from_yaml(yaml_path; system_name="transform_test", set=set)
+    sys = load_sys_struct_from_yaml(yaml_path; system_name="transform_test", set=set, vsm_set=vsm_set)
 
     # ========================================================================
     # YAML Loading Verification
@@ -294,7 +304,7 @@ system:
     # Physics Test 1: Initial angles after init
     # ========================================================================
     @testset "Initial angles after init!" begin
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="angles_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="angles_test", set=set, vsm_set=vsm_set)
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
 
@@ -312,7 +322,7 @@ system:
     # Physics Test 2: Initial velocities after init
     # ========================================================================
     @testset "Initial velocities after init!" begin
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="vel_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="vel_test", set=set, vsm_set=vsm_set)
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
 
@@ -331,7 +341,7 @@ system:
         # For elevation=60deg, azimuth=15deg, the wing should be positioned
         # according to spherical coordinate transformation
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="geom_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="geom_test", set=set, vsm_set=vsm_set)
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
 
@@ -372,7 +382,7 @@ system:
     # Physics Test 4: Different angle configuration
     # ========================================================================
     @testset "Alternative angles configuration" begin
-        sys = load_sys_struct_from_yaml(yaml_alt_path; system_name="alt_angles", set=set)
+        sys = load_sys_struct_from_yaml(yaml_alt_path; system_name="alt_angles", set=set, vsm_set=vsm_set)
 
         # Verify alternative YAML loaded correctly
         transform = sys.transforms[:main_transform]
@@ -400,13 +410,13 @@ system:
     @testset "Transform affects wing position" begin
         # Compare two systems with different elevations
         # System 1: elevation = 60 deg
-        sys1 = load_sys_struct_from_yaml(yaml_path; system_name="elev_test_1", set=set)
+        sys1 = load_sys_struct_from_yaml(yaml_path; system_name="elev_test_1", set=set, vsm_set=vsm_set)
         sam1 = SymbolicAWEModel(set, sys1)
         init!(sam1; remake=true)
         wing_z1 = sam1.sys_struct.wings[:main_wing].base.pos_w[3]
 
         # System 2: elevation = 45 deg (lower)
-        sys2 = load_sys_struct_from_yaml(yaml_alt_path; system_name="elev_test_2", set=set)
+        sys2 = load_sys_struct_from_yaml(yaml_alt_path; system_name="elev_test_2", set=set, vsm_set=vsm_set)
         sam2 = SymbolicAWEModel(set, sys2)
         init!(sam2; remake=true)
         wing_z2 = sam2.sys_struct.wings[:main_wing].base.pos_w[3]
@@ -423,13 +433,13 @@ system:
     # ========================================================================
     @testset "Azimuth affects y-position" begin
         # System 1: azimuth = 15 deg
-        sys1 = load_sys_struct_from_yaml(yaml_path; system_name="azim_test_1", set=set)
+        sys1 = load_sys_struct_from_yaml(yaml_path; system_name="azim_test_1", set=set, vsm_set=vsm_set)
         sam1 = SymbolicAWEModel(set, sys1)
         init!(sam1; remake=true)
         wing_y1 = sam1.sys_struct.wings[:main_wing].base.pos_w[2]
 
         # System 2: azimuth = 30 deg (more to the side)
-        sys2 = load_sys_struct_from_yaml(yaml_alt_path; system_name="azim_test_2", set=set)
+        sys2 = load_sys_struct_from_yaml(yaml_alt_path; system_name="azim_test_2", set=set, vsm_set=vsm_set)
         sam2 = SymbolicAWEModel(set, sys2)
         init!(sam2; remake=true)
         wing_y2 = sam2.sys_struct.wings[:main_wing].base.pos_w[2]
@@ -445,7 +455,7 @@ system:
     # Physics Test 7: Heading affects wing orientation (not position)
     # ========================================================================
     @testset "Heading affects orientation" begin
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="heading_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="heading_test", set=set, vsm_set=vsm_set)
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
 
@@ -466,7 +476,7 @@ system:
     # Physics Test 8: Base position offset
     # ========================================================================
     @testset "Base position from base_point" begin
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="base_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="base_test", set=set, vsm_set=vsm_set)
 
         # The transform references ground as base_point
         transform = sys.transforms[:main_transform]

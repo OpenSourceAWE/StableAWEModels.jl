@@ -94,9 +94,10 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
         end
 
         # Inertia of a thin rectangular plate rotating around one edge
+        # I = 1/3 × m × L² where m is total mass of group points
         group_chord = collect(group_chord)
-        inertia =
-            1 / 3 * (get_set_mass(pset) / length(groups)) * (norm(group_chord[:, group.idx]))^2
+        group_mass = sum(get_extra_mass(psys, point_idx) for point_idx in group.point_idxs)
+        inertia = 1 / 3 * group_mass * norm(group_chord[:, group.idx])^2
         @parameters max_twist = deg2rad(90)
 
         eqs = [

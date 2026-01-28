@@ -118,7 +118,7 @@ winches:
 wings:
   data:
     - name: main_wing
-      type: REFINE
+      type: QUATERNION
       point_ids: [le_left, te_left, le_center, te_center, le_right, te_right]
       origin_idx: kcu
       z_ref_points: [kcu, le_center]

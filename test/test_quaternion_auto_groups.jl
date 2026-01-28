@@ -1,6 +1,7 @@
 # Test auto-creation of groups for QUATERNION wings
 using SymbolicAWEModels
 using Test
+using LinearAlgebra
 
 @testset "QUATERNION wing auto-group creation" begin
     set_data_path("data/v3")
@@ -64,9 +65,10 @@ using Test
 
     println("✓ QUATERNION wing: $(length(sys_quat.groups)) groups auto-created")
 
-    # Check that gamma values were calculated
+    # Check that geometry was computed from closest VSM panel
     for (i, group) in enumerate(sys_quat.groups)
-        println("  Group $i: gamma = $(group.gamma), points = $(group.point_idxs)")
-        @test !iszero(group.gamma) || i == 5 || i == 6  # Center groups may have gamma ≈ 0
+        println("  Group $i: le_pos = $(group.le_pos), chord_norm = $(norm(group.chord)), points = $(group.point_idxs)")
+        @test !iszero(group.chord)  # Chord should be computed from panel
+        @test !iszero(group.y_airf)  # y_airf should be computed from panel
     end
 end

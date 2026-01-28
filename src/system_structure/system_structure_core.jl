@@ -519,10 +519,8 @@ function SystemStructure(name, set;
             vsm_wing = wing.vsm_wing
             new_group_idxs = Int64[]
 
-            # Check if wing has interpolators (from .obj) or not (from YAML)
+            # For YAML wings (no interpolators), calculate COM from WING points
             has_interpolators = !isnothing(vsm_wing.le_interp)
-
-            # For YAML wings, calculate COM from WING points and update transforms
             if !has_interpolators && !isempty(wing_points)
                 calculated_com = mean([p.pos_cad for p in wing_points])
                 wing.pos_cad .= calculated_com
@@ -537,24 +535,8 @@ function SystemStructure(name, set;
                 # Use integer as name for auto-created groups
                 group_name = group_idx
 
-                if has_interpolators
-                    # For .obj wings, calculate gamma from LE position
-                    le_point = points[le_idx]
-                    y_le = le_point.pos_cad[2]
-                    z_le = le_point.pos_cad[3]
-                    # Compute circle_center_z = middle_le_z - radius
-                    circle_center_z = vsm_wing.le_interp[3](0.0) - vsm_wing.radius
-                    gamma = atan(-y_le, z_le - circle_center_z)
-
-                    # Use constructor with vsm_wing (computes geometry from gamma)
-                    new_group = Group(group_name, [le_idx, te_idx],
-                                     vsm_wing, gamma, DYNAMIC, 0.25)
-                else
-                    # For YAML wings, gamma concept doesn't apply
-                    # Use simple constructor (geometry computed from points later)
-                    new_group = Group(group_name, [le_idx, te_idx],
-                                     0.0, DYNAMIC, 0.25)
-                end
+                # Simple constructor - geometry computed later from closest panel
+                new_group = Group(group_name, [le_idx, te_idx], DYNAMIC, 0.25)
 
                 # Assign idx and resolve point_refs since these are dynamically created
                 new_group.idx = group_idx
@@ -649,70 +631,38 @@ function SystemStructure(name, set;
         end
     end
 
-    # Initialize group geometries from VSM wing or point positions
+    # Initialize group geometries from closest VSM panel
     for group in groups
         if iszero(group.chord)
             # Find which wing this group belongs to
             for wing in wings
                 if group.idx in wing.group_idxs
-                    vsm_wing = wing.vsm_wing
-
-                    if !isnothing(vsm_wing.le_interp)
-                        # For .obj wings: use interpolators with gamma
-                        gamma = group.gamma
-                        group.le_pos .= [vsm_wing.le_interp[i](gamma)
-                            for i in 1:3]
-                        te_pos = [vsm_wing.te_interp[i](gamma)
-                            for i in 1:3]
-                        group.chord .= te_pos .- group.le_pos
-                        le_minus = [vsm_wing.le_interp[i](gamma-0.01)
-                            for i in 1:3]
-                        group.y_airf .= normalize(
-                            le_minus - group.le_pos)
-                    else
-                        # For YAML wings: compute from point positions
-                        # group.point_idxs contains [le_idx, te_idx]
-                        @assert length(group.point_idxs) >= 2 "Group $(group.idx) needs at least LE and TE points"
-                        le_idx = group.point_idxs[1]
-                        te_idx = group.point_idxs[2]
-
-                        # Calculate pos_b manually (same as done in reinit!)
-                        # pos_b = R_b_c' * (pos_cad - wing.pos_cad)
-                        le_point = points[le_idx]
-                        te_point = points[te_idx]
-
-                        le_pos_b = wing.R_b_c' * (le_point.pos_cad - wing.pos_cad)
-                        te_pos_b = wing.R_b_c' * (te_point.pos_cad - wing.pos_cad)
-
-                        group.le_pos .= le_pos_b
-                        group.chord .= te_pos_b .- le_pos_b
-
-                        # y_airf: find the two closest non_deformed_sections
-                        group_center = (le_pos_b .+ te_pos_b) ./ 2
-                        # Find closest section
-                        min_dist1 = Inf
-                        closest_idx1 = 1
-                        for i in 1:length(vsm_wing.non_deformed_sections)
-                            section = vsm_wing.non_deformed_sections[i]
-                            section_center = (section.LE_point .+ section.TE_point) ./ 2
-                            dist = norm(group_center .- section_center)
-                            if dist < min_dist1
-                                min_dist1 = dist
-                                closest_idx1 = i
-                            end
-                        end
-
-                        # Use adjacent section to compute local_y
-                        section1 = vsm_wing.non_deformed_sections[closest_idx1]
-                        if closest_idx1 < length(vsm_wing.non_deformed_sections)
-                            section2 = vsm_wing.non_deformed_sections[closest_idx1 + 1]
-                            local_y = normalize(section1.LE_point .- section2.LE_point)
-                        else
-                            section_prev = vsm_wing.non_deformed_sections[closest_idx1 - 1]
-                            local_y = normalize(section_prev.LE_point .- section1.LE_point)
-                        end
-                        group.y_airf .= local_y
+                    # Compute group center in body frame (average of all attach points)
+                    center = zeros(3)
+                    for pt_idx in group.point_idxs
+                        center += wing.R_b_c' * (points[pt_idx].pos_cad - wing.pos_cad)
                     end
+                    center ./= length(group.point_idxs)
+
+                    # Find closest panel
+                    panels = wing.vsm_aero.panels
+                    min_dist = Inf
+                    closest_panel = panels[1]
+                    for panel in panels
+                        panel_center = (panel.LE_point_1 + panel.LE_point_2 +
+                                        panel.TE_point_1 + panel.TE_point_2) / 4
+                        dist = norm(center - panel_center)
+                        if dist < min_dist
+                            min_dist = dist
+                            closest_panel = panel
+                        end
+                    end
+
+                    # Use panel geometry
+                    group.le_pos .= (closest_panel.LE_point_1 + closest_panel.LE_point_2) / 2
+                    group.chord .= closest_panel.x_airf * closest_panel.chord
+                    group.y_airf .= closest_panel.y_airf
+
                     break
                 end
             end
@@ -778,6 +728,25 @@ function SystemStructure(name, set;
             end
         end
     end
+    # Calculate wing mass: set.mass + sum of WING point extra_mass
+    for wing in wings
+        point_mass = sum(
+            p.extra_mass for p in points if p.type == WING && p.wing_idx == wing.idx;
+            init=0.0
+        )
+        wing.mass = set.mass + point_mass
+        if wing.mass ≈ 0
+            @warn "Wing $(wing.idx) has zero mass (set.mass=$(set.mass), " *
+                  "point_mass=$point_mass). This will cause division by zero in " *
+                  "acceleration calculations."
+        end
+        # Check for zero inertia
+        if any(wing.inertia_principal .≈ 0)
+            @warn "Wing $(wing.idx) has zero inertia components: " *
+                  "$(wing.inertia_principal). This will cause infinite angular acceleration."
+        end
+    end
+
     for (i, transform) in enumerate(transforms)
         @assert transform.idx == i
         set.elevations[i] = rad2deg(transform.elevation)

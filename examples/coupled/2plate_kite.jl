@@ -18,10 +18,10 @@ using GLMakie
 @info "Loading 2-plate kite model..."
 
 # ============= User settings =============
-const MODEL_NAME = "2plate_kite"
-const SIM_TIME   = 10.0
-const N_STEPS    = 600
-const REMAKE_CACHE = false
+MODEL_NAME = "2plate_kite"
+SIM_TIME   = 10.0
+N_STEPS    = 600
+REMAKE_CACHE = true
 # =========================================
 
 # Set data path to the 2plate_kite project folder
