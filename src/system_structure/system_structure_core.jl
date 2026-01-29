@@ -418,6 +418,7 @@ Constructs a `SystemStructure` object representing a complete kite system.
 
 # Keyword Arguments
 - `points`, `groups`, `segments`, etc.: Vectors of the system components.
+- `prn::Bool=true`: If true, print info messages about auto-generated components.
 
 # Returns
 - `SystemStructure`: A complete system ready for building a `SymbolicAWEModel`.
@@ -433,6 +434,7 @@ function SystemStructure(name, set;
         transforms=Transform[],
         ignore_l0::Bool=false,
         vsm_set=nothing,
+        prn::Bool=true,
     )
     # Load VSMSettings if not provided and wings exist
     if isnothing(vsm_set) && !isempty(wings)
@@ -543,12 +545,12 @@ function SystemStructure(name, set;
                 # Use integer as name for auto-created groups
                 group_name = group_idx
 
-                # Simple constructor - geometry computed later from closest panel
-                new_group = Group(group_name, [le_idx, te_idx], DYNAMIC, 0.25)
+                # Only TE point, moment_frac=0.0 (rotate around LE)
+                new_group = Group(group_name, [te_idx], DYNAMIC, 0.0)
 
                 # Assign idx and resolve point_refs since these are dynamically created
                 new_group.idx = group_idx
-                new_group.point_idxs = [le_idx, te_idx]
+                new_group.point_idxs = [te_idx]
 
                 push!(groups, new_group)
                 push!(new_group_idxs, Int64(group_idx))
@@ -565,7 +567,7 @@ function SystemStructure(name, set;
             wing.vsm_x = zeros(SimFloat, nx)
             wing.vsm_jac = zeros(SimFloat, nx, ny)
 
-            @info "Auto-created $(length(new_group_idxs)) groups " *
+            prn && @info "Auto-created $(length(new_group_idxs)) groups " *
                   "for QUATERNION wing $(wing.idx)" *
                   (!has_interpolators && !isempty(wing_points) ?
                    " (COM from WING points: " *
@@ -726,40 +728,82 @@ function SystemStructure(name, set;
                 end
             end
 
-            # Distribute kite mass to WING points for REFINE wings
-            if hasproperty(set, :mass) && set.mass > 0
-                n_wing_points = length(wing_points)
-                mass_per_point = set.mass / n_wing_points
-                for point_idx in wing_point_idxs
-                    points[point_idx].extra_mass += mass_per_point
-                end
-            end
         end
     end
-    # Calculate wing mass: set.mass + sum of WING point extra_mass
+
+    # Calculate wing mass with either/or priority logic:
+    # - If wing points have extra_mass specified, use point masses (priority)
+    # - If only set.mass specified, distribute to wing points
+    # - Warn if both sources have nonzero values
     for wing in wings
-        point_mass = sum(
-            p.extra_mass for p in points if p.type == WING && p.wing_idx == wing.idx;
+        wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
+
+        # Sum of user-specified WING point masses
+        point_mass_sum = sum(
+            p.extra_mass for p in points if p.idx in wing_point_idxs;
             init=0.0
         )
-        wing.mass = set.mass + point_mass
-        if wing.mass ≈ 0
-            @warn "Wing $(wing.idx) has zero mass (set.mass=$(set.mass), " *
-                  "point_mass=$point_mass). This will cause division by zero in " *
-                  "acceleration calculations."
+
+        # Check for conflict between set.mass and point masses
+        set_mass = hasproperty(set, :mass) ? set.mass : 0.0
+
+        if set_mass > 0 && point_mass_sum > 0
+            @warn "Both set.mass ($set_mass) and wing point masses ($point_mass_sum) " *
+                  "specified for wing $(wing.idx). Using wing point masses (sys_struct " *
+                  "priority)."
+            wing.mass = point_mass_sum
+        elseif point_mass_sum > 0
+            # Wing point masses specified, no set.mass
+            wing.mass = point_mass_sum
+        elseif set_mass > 0
+            # set.mass specified, distribute equally to wing points
+            n_wing_points = length(wing_point_idxs)
+            if n_wing_points > 0
+                mass_per_point = set_mass / n_wing_points
+                for point_idx in wing_point_idxs
+                    points[point_idx].extra_mass = mass_per_point  # ASSIGN, not add
+                end
+            end
+            wing.mass = set_mass
+        else
+            # Neither specified - wing has no mass
+            wing.mass = 0.0
         end
-        # Check for zero inertia
-        if any(wing.inertia_principal .≈ 0)
-            @warn "Wing $(wing.idx) has zero inertia components: " *
-                  "$(wing.inertia_principal). This will cause infinite angular acceleration."
-        end
+
+        # Mass and inertia validation is done in validate_sys_struct()
     end
 
     for (i, transform) in enumerate(transforms)
         @assert transform.idx == i
-        set.elevations[i] = rad2deg(transform.elevation)
-        set.azimuths[i]   = rad2deg(transform.azimuth)
-        set.headings[i]   = rad2deg(transform.heading)
+
+        # Check for conflict with Settings (only warn if values differ)
+        set_elev = hasproperty(set, :elevations) && i <= length(set.elevations) ?
+                   set.elevations[i] : 0.0
+        set_azim = hasproperty(set, :azimuths) && i <= length(set.azimuths) ?
+                   set.azimuths[i] : 0.0
+        set_head = hasproperty(set, :headings) && i <= length(set.headings) ?
+                   set.headings[i] : 0.0
+
+        sys_elev = rad2deg(transform.elevation)
+        sys_azim = rad2deg(transform.azimuth)
+        sys_head = rad2deg(transform.heading)
+
+        # Only warn if both have nonzero values AND they differ
+        elev_conflict = (set_elev != 0.0 && sys_elev != 0.0 && !isapprox(set_elev, sys_elev))
+        azim_conflict = (set_azim != 0.0 && sys_azim != 0.0 && !isapprox(set_azim, sys_azim))
+        head_conflict = (set_head != 0.0 && sys_head != 0.0 && !isapprox(set_head, sys_head))
+
+        if elev_conflict || azim_conflict || head_conflict
+            @warn "Transform $(transform.name): Settings and sys_struct have different " *
+                  "angles. Settings: (elev=$(set_elev)°, azim=$(set_azim)°, " *
+                  "head=$(set_head)°). Using sys_struct: (elev=$(sys_elev)°, " *
+                  "azim=$(sys_azim)°, head=$(sys_head)°)."
+        end
+
+        # sys_struct values take priority - update Settings to match
+        set.elevations[i] = sys_elev
+        set.azimuths[i]   = sys_azim
+        set.headings[i]   = sys_head
     end
     if length(wings) > 0
         # Use number of unrefined sections

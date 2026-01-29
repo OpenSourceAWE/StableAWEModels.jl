@@ -84,24 +84,28 @@ configurations and throws assertions for definite errors.
 # Validations Performed
 
 ## Point Validations
-- NaN mass (error)
-- Negative mass (warning)
-- NaN position (error)
+- NaN extra_mass (error)
+- Negative extra_mass (warning)
+- Non-positive total_mass for DYNAMIC points (error) - checked before NaN position
+- NaN position (error) - often caused by zero mass
 
 ## Wing Validations
-- NaN position (error)
+- Non-positive mass (error) - checked before NaN position
 - Zero or near-zero principal inertia components on QUATERNION wings (error/warning)
 - NaN inertia values (error)
 - Empty group list for QUATERNION wings (warning)
+- NaN position (error) - often caused by zero mass/inertia
 
 ## Winch Validations
 - Zero or negative inertia_total (error)
 - Very small inertia_total (warning)
 - NaN inertia_total (error)
+- Non-positive drum_radius (error)
+- Non-positive gear_ratio (error)
 
 ## Segment Validations
 - Unusual diameter outside (0, 1) m range (warning)
-- Non-positive rest length (error)
+- Non-positive rest length l0 (error)
 - Zero or negative axial stiffness (warning)
 - Negative axial damping (warning)
 
@@ -118,52 +122,66 @@ function validate_sys_struct(sys_struct::SystemStructure)
     for point in points
         # Check for NaN extra_mass
         if isnan(point.extra_mass)
-            error("Point #$(point.idx) has NaN extra_mass")
+            error("Point $(point.name) has NaN extra_mass")
         end
 
         # Warn about negative extra_mass (physically nonsensical but still works)
         if point.extra_mass < 0
-            @warn "Point #$(point.idx) has negative extra_mass $(point.extra_mass) kg. " *
+            @warn "Point $(point.name) has negative extra_mass $(point.extra_mass) kg. " *
                   "This is physically nonsensical."
         end
 
-        # Check for NaN position
+        # Check total_mass for division by zero (DYNAMIC points only)
+        # NOTE: Check mass before NaN position - NaN pos is often caused by zero mass
+        if point.type == DYNAMIC && point.total_mass <= 0
+            error("Point $(point.name) has non-positive total_mass ($(point.total_mass)). " *
+                  "This will cause division by zero in acceleration calculations.")
+        end
+
+        # Check for NaN position (often a symptom of zero mass)
         if any(isnan.(point.pos_w))
-            error("Point #$(point.idx) has NaN position: pos_w = $(point.pos_w)")
+            error("Point $(point.name) has NaN position: pos_w = $(point.pos_w)")
         end
     end
 
     # ==================== WING VALIDATIONS ==================== #
     for wing in wings
-        # Check for NaN position (applies to all wing types)
-        if any(isnan.(wing.pos_w))
-            error("Wing #$(wing.idx) has NaN position: pos_w = $(wing.pos_w)")
+        # Check for non-positive mass (all wing types)
+        # NOTE: Check mass/inertia before NaN position - NaN pos is often caused by zero mass
+        if wing.mass <= 0
+            error("Wing $(wing.name) has non-positive mass ($(wing.mass)). " *
+                  "This will cause division by zero in acceleration calculations.")
         end
 
         if wing.wing_type == QUATERNION
             I_b = wing.inertia_principal
 
-            # Check for NaN inertia
-            if any(isnan.(I_b))
-                error("Wing #$(wing.idx) has NaN inertia: I_b = $I_b")
-            end
-
-            # Check for zero or suspiciously small inertia
+            # Check for zero or suspiciously small inertia (before NaN checks)
             for i in 1:3
                 if I_b[i] ≈ 0.0
-                    error("Wing #$(wing.idx) has zero inertia component " *
+                    error("Wing $(wing.name) has zero inertia component " *
                           "I_b[$i] = $(I_b[i]). " *
                           "All principal inertia components must be non-zero.")
                 elseif I_b[i] < 1e-6
-                    @warn "Wing #$(wing.idx) has very small inertia component " *
+                    @warn "Wing $(wing.name) has very small inertia component " *
                           "I_b[$i] = $(I_b[i]) kg⋅m², may cause numerical issues"
                 end
             end
 
+            # Check for NaN inertia
+            if any(isnan.(I_b))
+                error("Wing $(wing.name) has NaN inertia: I_b = $I_b")
+            end
+
             # Warn if QUATERNION wing has no groups
             if isempty(wing.group_idxs)
-                @warn "Wing #$(wing.idx) (QUATERNION) has no groups"
+                @warn "Wing $(wing.name) (QUATERNION) has no groups"
             end
+        end
+
+        # Check for NaN position (often a symptom of zero mass/inertia)
+        if any(isnan.(wing.pos_w))
+            error("Wing $(wing.name) has NaN position: pos_w = $(wing.pos_w)")
         end
         # REFINE wings don't use rigid body inertia, skip
     end
@@ -172,19 +190,31 @@ function validate_sys_struct(sys_struct::SystemStructure)
     for winch in winches
         # Check for NaN inertia
         if isnan(winch.inertia_total)
-            error("Winch #$(winch.idx) has NaN inertia_total")
+            error("Winch $(winch.name) has NaN inertia_total")
         end
 
         # Check for zero or negative inertia
         if winch.inertia_total ≈ 0.0
-            error("Winch #$(winch.idx) has zero inertia_total. " *
+            error("Winch $(winch.name) has zero inertia_total. " *
                   "All winches must have non-zero inertia.")
         elseif winch.inertia_total < 0
-            error("Winch #$(winch.idx) has negative inertia_total " *
+            error("Winch $(winch.name) has negative inertia_total " *
                   "$(winch.inertia_total) kg⋅m². Inertia must be positive.")
         elseif winch.inertia_total < 1e-6
-            @warn "Winch #$(winch.idx) has very small inertia_total " *
+            @warn "Winch $(winch.name) has very small inertia_total " *
                   "$(winch.inertia_total) kg⋅m², may cause numerical issues"
+        end
+
+        # Check for non-positive drum_radius
+        if winch.drum_radius <= 0
+            error("Winch $(winch.name) has non-positive drum_radius ($(winch.drum_radius)). " *
+                  "This will cause division by zero in torque conversions.")
+        end
+
+        # Check for non-positive gear_ratio
+        if winch.gear_ratio <= 0
+            error("Winch $(winch.name) has non-positive gear_ratio ($(winch.gear_ratio)). " *
+                  "This will cause division by zero in speed/torque calculations.")
         end
     end
 
@@ -192,26 +222,26 @@ function validate_sys_struct(sys_struct::SystemStructure)
     for segment in segments
         # Diameter should be in valid range (warn only, not critical)
         if !(0 < segment.diameter < 1)
-            @warn "Segment #$(segment.idx) has unusual diameter " *
+            @warn "Segment $(segment.name) has unusual diameter " *
                   "$(segment.diameter) m (expected range: 0 to 1 m)"
         end
 
-        # Rest length must be positive (after initialization)
-        if segment.l0 > 0 && !(segment.l0 > 0)
-            error("Segment #$(segment.idx) has non-positive rest length " *
-                  "l0 = $(segment.l0) m. All segment rest lengths must be positive.")
+        # Rest length must be positive
+        if segment.l0 <= 0
+            error("Segment $(segment.name) has non-positive rest length " *
+                  "l0 = $(segment.l0) m. This will cause division by zero.")
         end
 
         # Warn about zero or negative stiffness/damping
         if segment.unit_stiffness ≈ 0.0
-            @warn "Segment #$(segment.idx) has zero axial stiffness"
+            @warn "Segment $(segment.name) has zero axial stiffness"
         elseif segment.unit_stiffness < 0
-            @warn "Segment #$(segment.idx) has negative axial stiffness " *
+            @warn "Segment $(segment.name) has negative axial stiffness " *
                   "$(segment.unit_stiffness) N"
         end
 
         if segment.unit_damping < 0
-            @warn "Segment #$(segment.idx) has negative axial damping " *
+            @warn "Segment $(segment.name) has negative axial damping " *
                   "$(segment.unit_damping) N⋅s"
         end
     end
@@ -219,7 +249,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
     # ==================== PULLEY VALIDATIONS ==================== #
     for pulley in pulleys
         if pulley.sum_len ≈ 0
-            error("Pulley #$(pulley.idx) has zero total length constraint " *
+            error("Pulley $(pulley.name) has zero total length constraint " *
                   "(sum_len = $(pulley.sum_len) m). " *
                   "Pulley constraints must have non-zero total length.")
         end
@@ -230,7 +260,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
         first_moment_frac = groups[1].moment_frac
         for group in groups
             if !(group.moment_frac ≈ first_moment_frac)
-                error("Group #$(group.idx) has moment_frac = " *
+                error("Group $(group.name) has moment_frac = " *
                       "$(group.moment_frac), but all groups must have the " *
                       "same moment_frac (first group has $(first_moment_frac))")
             end
@@ -387,8 +417,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         end
     end
 
-    # Validate the system structure after initialization
-    validate_sys_struct(sys_struct)
+    # NOTE: validate_sys_struct() is called from model_management.jl after update_sys_struct!
+    # because total_mass is only computed after the integrator exists.
 
     # Recalculate segment rest lengths from current positions if requested
     if ignore_l0
