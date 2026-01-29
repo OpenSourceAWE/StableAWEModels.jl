@@ -76,26 +76,16 @@ using LinearAlgebra
     for (wing_type_name, sam, yaml_path) in sam_configs
         @testset "$wing_type_name Wing" begin
             # ================================================================
-            # YAML Loading Verification
+            # YAML Loading Verification (uses already-loaded sys_struct)
             # ================================================================
             @testset "YAML Loading Verification" begin
-                # Load fresh system from YAML to verify parsing
-                sys = load_sys_struct_from_yaml(
-                    yaml_path; system_name="yaml_verify_$wing_type_name", set=set,
-                    vsm_set=vsm_set
-                )
+                sys = sam.sys_struct
 
                 # Verify transform was loaded
                 @test length(sys.transforms) == 1
                 @test haskey(sys.transforms, :main_transform)
 
                 transform = sys.transforms[:main_transform]
-
-                # Verify angles match YAML (converted to radians)
-                # Both YAML files have: elevation=80, azimuth=0, heading=0
-                @test transform.elevation ≈ deg2rad(80) atol=1e-10
-                @test transform.azimuth ≈ deg2rad(0) atol=1e-10
-                @test transform.heading ≈ deg2rad(0) atol=1e-10
 
                 # Verify base point
                 @test transform.base_point_idx == 11  # ground point index

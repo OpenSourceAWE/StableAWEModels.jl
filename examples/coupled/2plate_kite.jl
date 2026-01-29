@@ -21,7 +21,10 @@ using GLMakie
 MODEL_NAME = "2plate_kite"
 SIM_TIME   = 10.0
 N_STEPS    = 600
-REMAKE_CACHE = true
+REMAKE_CACHE = false
+RAMP_TIME = 2.0            # Time to ramp inputs from 0 to magnitude [s]
+STEERING_MAGNITUDE = 0.1   # Final steering line length offset [m] (differential)
+DEPOWER_MAGNITUDE = -0.0    # Final depower line length offset [m] (both lines shorten)
 # =========================================
 
 # Set data path to the 2plate_kite project folder
@@ -35,7 +38,7 @@ vsm_set = VortexStepMethod.VSMSettings(vsm_set_path)
 
 # Load system structure directly from YAML
 @info "Creating 2-plate kite system structure..."
-struc_yaml = joinpath(get_data_path(), "quat_struc_geometry.yaml")
+struc_yaml = joinpath(get_data_path(), "refine_struc_geometry.yaml")
 sys = SymbolicAWEModels.load_sys_struct_from_yaml(struc_yaml; system_name=MODEL_NAME, set=set, vsm_set=vsm_set)
 sys.winches[1].brake = false
 
@@ -43,7 +46,12 @@ sys.winches[1].brake = false
 
 # Create symbolic model with the 2-plate system
 @info "Creating SymbolicAWEModel with aerodynamics..."
+sys.winches[:main_winch].brake = true
 sam = SymbolicAWEModel(set, sys)
+
+# Store baseline steering line lengths for ramping
+l0_left_base = sam.sys_struct.segments[:kcu_steering_left].l0
+l0_right_base = sam.sys_struct.segments[:kcu_steering_right].l0
 
 # Initialize the model
 @info "Initializing model..."
@@ -66,6 +74,13 @@ log!(logger, sys_state)
 
 for step in 1:n_steps
     t = step * Δt
+
+    # Ramp steering and depower from 0 to magnitude over RAMP_TIME
+    ramp = clamp(t / RAMP_TIME, 0.0, 1.0)
+    steering = STEERING_MAGNITUDE * ramp
+    depower = DEPOWER_MAGNITUDE * ramp
+    sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left_base - steering + depower
+    sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right_base + steering + depower
 
     try
         next_step!(sam; dt=Δt, vsm_interval=1)
