@@ -61,7 +61,7 @@ using LinearAlgebra
     # Helper to reset transform to default YAML values
     function reset_transform!(sys)
         tf = sys.transforms[:main_transform]
-        tf.elevation = deg2rad(80)
+        tf.elevation = deg2rad(60)
         tf.azimuth = deg2rad(0)
         tf.heading = deg2rad(0)
         tf.elevation_vel = 0.0
@@ -260,7 +260,7 @@ using LinearAlgebra
             end
 
             # ================================================================
-            # Physics Test 5: Steering direction test
+            # Physics Test 5: Steering direction with ramped input
             # ================================================================
             @testset "Steering direction" begin
                 set.v_wind = 15.0
@@ -270,29 +270,47 @@ using LinearAlgebra
                 init!(sam; remake=false, reload=false)
                 sam.sys_struct.winches[:main_winch].brake = true
 
-                # Run to initial state
-                for _ in 1:100
-                    next_step!(sam; dt=0.01, vsm_interval=1)
-                end
+                # Store baseline steering line lengths
+                l0_left_base = sam.sys_struct.segments[:kcu_steering_left].l0
+                l0_right_base = sam.sys_struct.segments[:kcu_steering_right].l0
 
-                # Record initial azimuth
+                # Steering parameters
+                ramp_time = 2.0
+                steering_magnitude = 0.1
+                dt = 0.01
+                total_steps = 1000  # 10 seconds
+
+                # Record initial y position
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_y_pos = wing.base.pos_w[2]
 
-                # Run more steps - the kite should respond to aerodynamic forces
-                for _ in 1:200
-                    next_step!(sam; dt=0.01, vsm_interval=1)
+                # Run with ramped steering input
+                for step in 1:total_steps
+                    t = step * dt
+
+                    # Ramp steering from 0 to magnitude over ramp_time
+                    ramp = clamp(t / ramp_time, 0.0, 1.0)
+                    steering = steering_magnitude * ramp
+                    sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left_base - steering
+                    sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right_base + steering
+
+                    next_step!(sam; dt=dt, vsm_interval=1)
                 end
 
-                # The system should have evolved (y position may have changed due to dynamics)
+                # Record final y position after steering
                 final_y_pos = sam.sys_struct.wings[:main_wing].base.pos_w[2]
 
-                # This is a basic stability check - the simulation should complete
-                @test true
+                # Steering left (shortening left line) should move kite left (negative y)
+                @test final_y_pos < initial_y_pos
+
+                # Reset steering lines for next test
+                sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left_base
+                sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right_base
 
                 println("\n  ====== [$wing_type_name] Steering test: " *
                     "initial_y=$(round(initial_y_pos, digits=2))m, " *
-                    "final_y=$(round(final_y_pos, digits=2))m ======\n")
+                    "final_y=$(round(final_y_pos, digits=2))m, " *
+                    "delta=$(round(final_y_pos - initial_y_pos, digits=2))m ======\n")
             end
 
             # ================================================================
@@ -307,7 +325,7 @@ using LinearAlgebra
 
                 # Verify system was loaded
                 @test length(sys.points) == 11
-                @test length(sys.segments) == 22
+                @test length(sys.segments) == 23
                 @test length(sys.wings) == 1
 
                 # Test update_yaml_from_sys_struct!

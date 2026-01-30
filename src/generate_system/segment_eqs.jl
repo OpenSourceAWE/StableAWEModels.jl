@@ -4,7 +4,7 @@
 # Segment spring-damper equation generation
 
 """
-    segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winches, psys, pset;
+    segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winches, wings, psys, pset;
                  pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
                  pulley_len, tether_len)
 
@@ -13,7 +13,7 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
 - `eqs`, `guesses`: Accumulating vectors for the MTK system.
-- `points`, `segments`, `pulleys`, `tethers`, `winches`: System components.
+- `points`, `segments`, `pulleys`, `tethers`, `winches`, `wings`: System components.
 - `psys`, `pset`: Symbolic parameters representing system and settings.
 - `pos`, `vel`: Symbolic point state variables.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
@@ -24,8 +24,8 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 - Tuple `(eqs, guesses, len, spring_force)` with updated equation vectors
   and the segment length and spring force variables for use by other components.
 """
-function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winches, psys, pset;
-                      pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
+function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winches, wings,
+                      psys, pset; pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
                       pulley_len, tether_len)
     @variables begin
         # Spring-damper model
@@ -57,12 +57,20 @@ function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winch
             ]
         ]
 
-        # Check if both endpoints are WING points (structural segments within REFINE wings)
-        # Only skip aerodynamic drag for segments between two WING points
-        # Bridle segments attached to WING points should still have drag
+        # Check if both endpoints are WING points (structural segments within wings)
+        # For QUATERNION wings: skip both spring and drag forces (rigid body)
+        # For REFINE wings: skip only drag forces (spring forces needed for deformation)
         p1_obj = points[p1]
         p2_obj = points[p2]
         is_wing_structural_segment = (p1_obj.type == WING && p2_obj.type == WING)
+
+        # Check if this is a QUATERNION wing structural segment
+        is_quaternion_wing_segment = false
+        if is_wing_structural_segment
+            # Both points should belong to the same wing
+            wing = wings[p1_obj.wing_idx]
+            is_quaternion_wing_segment = (wing.wing_type == QUATERNION)
+        end
 
         in_pulley = 0
         for pulley in pulleys
@@ -118,31 +126,43 @@ function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winch
             end
         end
 
+        # Geometric quantities (always needed)
         eqs = [
             eqs
-            # Spring force equations (Hooke's Law with damping)
             segment_vec[:, segment.idx] ~ pos[:, p2] - pos[:, p1]
             len[segment.idx] ~ norm(segment_vec[:, segment.idx])
-            unit_vec[:, segment.idx] ~
-                segment_vec[:, segment.idx] / len[segment.idx]
+            unit_vec[:, segment.idx] ~ segment_vec[:, segment.idx] / len[segment.idx]
             rel_vel[:, segment.idx] ~ vel[:, p1] - vel[:, p2]
-            spring_vel[segment.idx] ~
-                rel_vel[:, segment.idx] ⋅ unit_vec[:, segment.idx]
-            damping[segment.idx] ~
-                get_unit_damping(psys, segment.idx) / len[segment.idx]
-            stiffness[segment.idx] ~ ifelse(
-                len[segment.idx] > l0[segment.idx],
-                get_unit_stiffness(psys, segment.idx) / len[segment.idx],
-                get_compression_frac(psys, segment.idx) *
-                get_unit_stiffness(psys, segment.idx) / len[segment.idx],
-            )
-            spring_force[segment.idx] ~ (
-                stiffness[segment.idx] * (len[segment.idx] - l0[segment.idx]) -
-                damping[segment.idx] * spring_vel[segment.idx]
-            )
-            spring_force_vec[:, segment.idx] ~
-                spring_force[segment.idx] * unit_vec[:, segment.idx]
+            spring_vel[segment.idx] ~ rel_vel[:, segment.idx] ⋅ unit_vec[:, segment.idx]
         ]
+
+        # Spring force: zero for QUATERNION wing segments (rigid body), computed otherwise
+        if is_quaternion_wing_segment
+            eqs = [
+                eqs
+                damping[segment.idx] ~ 0.0
+                stiffness[segment.idx] ~ 0.0
+                spring_force[segment.idx] ~ 0.0
+                spring_force_vec[:, segment.idx] ~ zeros(3)
+            ]
+        else
+            eqs = [
+                eqs
+                damping[segment.idx] ~ get_unit_damping(psys, segment.idx) / len[segment.idx]
+                stiffness[segment.idx] ~ ifelse(
+                    len[segment.idx] > l0[segment.idx],
+                    get_unit_stiffness(psys, segment.idx) / len[segment.idx],
+                    get_compression_frac(psys, segment.idx) *
+                    get_unit_stiffness(psys, segment.idx) / len[segment.idx],
+                )
+                spring_force[segment.idx] ~ (
+                    stiffness[segment.idx] * (len[segment.idx] - l0[segment.idx]) -
+                    damping[segment.idx] * spring_vel[segment.idx]
+                )
+                spring_force_vec[:, segment.idx] ~
+                    spring_force[segment.idx] * unit_vec[:, segment.idx]
+            ]
+        end
 
         # Aerodynamic properties for all segments
         segment_pos_x = 0.5 * (pos[1, p1] + pos[1, p2])
