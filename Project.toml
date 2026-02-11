@@ -43,6 +43,9 @@ YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 [weakdeps]
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
+[sources]
+VortexStepMethod = {rev = "wing_groups_unify_wing", url = "https://github.com/OpenSourceAWE/VortexStepMethod.jl.git"}
+
 [extensions]
 SymbolicAWEModelsMakieExt = "Makie"
 
@@ -53,15 +56,15 @@ ControlSystemsBase = "1.18.1"
 Dates = "1.11.0"
 DocStringExtensions = "0.9.4"
 GeometryBasics = "0.5.10"
-KiteUtils = "0.11.0"
+KiteUtils = "0.11.1"
 LaTeXStrings = "1.4.0"
 LinearAlgebra = "1"
 Logging = "1"
 Makie = "0.24.6"
 ModelingToolkit = "11.7.2"
 NonlinearSolve = "4.8.0"
-OrdinaryDiffEqBDF = "1.5.0"
-OrdinaryDiffEqCore = "1.23.0"
+OrdinaryDiffEqBDF = "1.16.0"
+OrdinaryDiffEqCore = "1,2,3"
 OrdinaryDiffEqNonlinearSolve = "1.6.1"
 Parameters = "0.12"
 Pkg = "1"
@@ -74,7 +77,7 @@ StaticArrays = "1.9.7"
 Statistics = "1"
 SteadyStateDiffEq = "2.5"
 Suppressor = "0.2.8"
-SymbolicIndexingInterface = "0.3"
+SymbolicIndexingInterface = "0"
 SymbolicUtils = "4.13.1"
 TOML = "1"
 Tar = "1.10.0"

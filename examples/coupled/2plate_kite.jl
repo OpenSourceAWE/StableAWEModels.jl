@@ -21,9 +21,9 @@ using GLMakie
 MODEL_NAME = "2plate_kite"
 SIM_TIME   = 10.0
 N_STEPS    = 600
-REMAKE_CACHE = false
+REMAKE_CACHE = true
 RAMP_TIME = 2.0            # Time to ramp inputs from 0 to magnitude [s]
-STEERING_MAGNITUDE = 0.0   # Final steering line length offset [m] (differential)
+STEERING_MAGNITUDE = 0.1   # Final steering line length offset [m] (differential)
 DEPOWER_MAGNITUDE =  0.0    # Final depower line length offset [m] (both lines shorten)
 # =========================================
 
@@ -31,14 +31,19 @@ DEPOWER_MAGNITUDE =  0.0    # Final depower line length offset [m] (both lines s
 pkg_root = dirname(dirname(@__DIR__))
 set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
 
+# Sync aero geometry positions from structural geometry
+struc_yaml = joinpath(get_data_path(), "refine_struc_geometry.yaml")
+aero_yaml = joinpath(get_data_path(), "aero_geometry.yaml")
+update_aero_yaml_from_struc_yaml!(struc_yaml, aero_yaml)
+
 # Load settings and VSM settings
 set = Settings("system.yaml")
+set.g_earth = 0.0
 vsm_set_path = joinpath(get_data_path(), "vsm_settings.yaml")
 vsm_set = VortexStepMethod.VSMSettings(vsm_set_path)
 
 # Load system structure directly from YAML
 @info "Creating 2-plate kite system structure..."
-struc_yaml = joinpath(get_data_path(), "quat_struc_geometry.yaml")
 sys = SymbolicAWEModels.load_sys_struct_from_yaml(struc_yaml; system_name=MODEL_NAME, set=set, vsm_set=vsm_set)
 sys.winches[1].brake = false
 

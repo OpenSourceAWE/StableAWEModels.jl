@@ -24,8 +24,8 @@ points:
     # Wing points - leading edge (LE) and trailing edge (TE)
     - [le_left,    [-0.5, 1.0, 2.0], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
     - [te_left,    [0.5,  1.0, 2.2], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [le_center,  [-0.5, 0.0, 2.3], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [te_center,  [0.5,  0.0, 2.5], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [le_center,  [-0.5, 0.0, 2.5], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [te_center,  [0.5,  0.0, 2.7], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
     - [le_right,   [-0.5,-1.0, 2.0], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
     - [te_right,   [0.5, -1.0, 2.2], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
 

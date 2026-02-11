@@ -519,7 +519,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Create Winch using new constructor (name, set, tethers)
             winch = call_yaml_constructor(Winch, row,
                 [:name, :set, :tethers],
-                [:tether_len, :tether_vel, :brake];
+                [:tether_len, :tether_vel, :brake,
+                 :friction_epsilon];
                 mappings=Dict(
                     :set => r -> set,
                     :tethers => r -> [to_ref(t) for t in r.tether_idxs],
@@ -943,6 +944,194 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
                 end
             end
         end
+    end
+
+    @info "Updated aerodynamic positions" n_sections=n_aero_updated
+
+    # Write updated aero YAML
+    @info "Writing updated aero YAML" source=aero_full_path dest=dest_aero_full_path
+    open(dest_aero_full_path, "w") do io
+        for line in aero_lines
+            println(io, line)
+        end
+    end
+
+    @info "Done!"
+    return nothing
+end
+
+"""
+    update_aero_yaml_from_struc_yaml!(source_struc_yaml, source_aero_yaml,
+                                       dest_aero_yaml=source_aero_yaml)
+
+Update aero geometry YAML positions directly from structural geometry YAML, without
+requiring a full SystemStructure object. This is a simpler alternative to
+`update_yaml_from_sys_struct!()` when you just need to sync positions between YAML files.
+
+# Arguments
+- `source_struc_yaml`: Path to the structural geometry YAML file
+- `source_aero_yaml`: Path to the aerodynamic geometry YAML file
+- `dest_aero_yaml`: Destination path for updated aero YAML (defaults to `source_aero_yaml`
+  for in-place updates)
+
+# Assumptions
+- WING-type points are ordered as LE, TE, LE, TE, ... pairs
+- Number of aero sections equals number of WING points / 2
+- Uses `pos_cad` coordinates from struc YAML (body-frame positions)
+
+# Example
+```julia
+update_aero_yaml_from_struc_yaml!(
+    "data/2plate_kite/struc_geometry.yaml",
+    "data/2plate_kite/aero_geometry.yaml",
+    "/tmp/claude/aero_geometry_updated.yaml")
+```
+"""
+function update_aero_yaml_from_struc_yaml!(source_struc_yaml::AbstractString,
+                                            source_aero_yaml::AbstractString,
+                                            dest_aero_yaml::AbstractString=source_aero_yaml)
+    # Helper to format coordinate with rounding (same as update_yaml_from_sys_struct!)
+    function format_coord(val::Float64)
+        rounded = abs(val) < 1e-4 ? 0.0 : round(val, digits=4)
+        return rounded
+    end
+
+    # Resolve paths
+    struc_full_path = isabspath(source_struc_yaml) ? source_struc_yaml :
+                      joinpath(pwd(), source_struc_yaml)
+    aero_full_path = isabspath(source_aero_yaml) ? source_aero_yaml :
+                     joinpath(pwd(), source_aero_yaml)
+    dest_aero_full_path = isabspath(dest_aero_yaml) ? dest_aero_yaml :
+                          joinpath(pwd(), dest_aero_yaml)
+
+    if !isfile(struc_full_path)
+        error("Source structural YAML file not found: $struc_full_path")
+    end
+    if !isfile(aero_full_path)
+        error("Source aero YAML file not found: $aero_full_path")
+    end
+
+    # Parse struc YAML to extract WING-type point positions
+    struc_lines = readlines(struc_full_path)
+    wing_points = Vector{Tuple{String, Vector{Float64}}}()  # (name, [x, y, z])
+
+    in_points_section = false
+    in_data = false
+
+    for line in struc_lines
+        # Track which section we're in
+        if occursin(r"^points:", line)
+            in_points_section = true
+            in_data = false
+            continue
+        elseif occursin(r"^\w+:", line) && !startswith(strip(line), "-")
+            in_points_section = false
+            in_data = false
+            continue
+        end
+
+        if in_points_section
+            if occursin(r"^\s*data:", line)
+                in_data = true
+                continue
+            end
+
+            if in_data
+                # Match point data line with named or indexed points
+                # Format: - [name, [x, y, z], TYPE, ...]
+                m = match(r"^\s*-\s*\[(\w+)\s*,\s*\[([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*\]\s*,\s*(\w+)", line)
+                if m !== nothing
+                    name = m.captures[1]
+                    x = parse(Float64, m.captures[2])
+                    y = parse(Float64, m.captures[3])
+                    z = parse(Float64, m.captures[4])
+                    point_type = m.captures[5]
+
+                    if point_type == "WING"
+                        push!(wing_points, (name, [x, y, z]))
+                    end
+                end
+            end
+        end
+    end
+
+    # Validate WING point count
+    n_wing_points = length(wing_points)
+    if n_wing_points == 0
+        error("No WING-type points found in $struc_full_path")
+    end
+    if n_wing_points % 2 != 0
+        error("Odd number of WING points ($n_wing_points) - expected LE/TE pairs")
+    end
+
+    # Build LE/TE pairs (assumes ordering: LE, TE, LE, TE, ...)
+    n_sections = n_wing_points ÷ 2
+    le_te_pairs = Vector{Tuple{Vector{Float64}, Vector{Float64}}}()
+    for i in 1:n_sections
+        le_pos = wing_points[2i - 1][2]
+        te_pos = wing_points[2i][2]
+        push!(le_te_pairs, (le_pos, te_pos))
+    end
+
+    @info "Parsed structural YAML" n_wing_points n_sections
+
+    # Update aero YAML wing_sections
+    aero_lines = readlines(aero_full_path)
+    in_wing_sections = false
+    in_data = false
+    section_idx = 0
+    n_aero_updated = 0
+
+    for (i, line) in enumerate(aero_lines)
+        # Track which section we're in
+        if occursin(r"^wing_sections:", line)
+            in_wing_sections = true
+            in_data = false
+            continue
+        elseif occursin(r"^\w+:", line) && !startswith(strip(line), "-")
+            in_wing_sections = false
+            in_data = false
+            continue
+        end
+
+        if in_wing_sections
+            if occursin(r"^\s*data:", line)
+                in_data = true
+                continue
+            end
+
+            if in_data
+                # Match data line: - [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]
+                m = match(r"^(\s*-\s*\[)(\d+)(,\s*)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(\].*)$", line)
+                if m !== nothing
+                    section_idx += 1
+
+                    if section_idx <= n_sections
+                        le_pos, te_pos = le_te_pairs[section_idx]
+                        airfoil_id = m.captures[2]
+                        prefix = m.captures[1]
+                        comma = m.captures[3]
+                        suffix = m.captures[10]
+
+                        new_line = "$(prefix)$(airfoil_id)$(comma)" *
+                                   "$(format_coord(le_pos[1])), " *
+                                   "$(format_coord(le_pos[2])), " *
+                                   "$(format_coord(le_pos[3])), " *
+                                   "$(format_coord(te_pos[1])), " *
+                                   "$(format_coord(te_pos[2])), " *
+                                   "$(format_coord(te_pos[3]))$(suffix)"
+
+                        aero_lines[i] = new_line
+                        n_aero_updated += 1
+                    end
+                end
+            end
+        end
+    end
+
+    # Warn if section count mismatch
+    if section_idx != n_sections
+        @warn "Section count mismatch" struc_sections=n_sections aero_sections=section_idx
     end
 
     @info "Updated aerodynamic positions" n_sections=n_aero_updated

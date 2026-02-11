@@ -51,28 +51,30 @@ function winch_eqs!(eqs, defaults, winches, tethers, points, psys, pset;
         f_coulomb = get_winch_f_coulomb(psys, winch.idx)
         c_vf = get_winch_c_vf(psys, winch.idx)
         inertia_total = get_winch_inertia_total(psys, winch.idx)
+        friction_eps = get_winch_friction_epsilon(psys, winch.idx)
 
-        # Smooth sign function to avoid discontinuities at zero velocity
-        function smooth_sign(x)
-            EPSILON = 6
-            x / sqrt(x * x + EPSILON * EPSILON)
-        end
+        # Smooth sign function to avoid discontinuities
+        # at zero velocity. eps controls transition width.
+        smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
 
         eqs = [
             eqs
             brake[winch.idx] ~ get_brake(psys, winch.idx)
             D(tether_len[winch.idx]) ~
-                ifelse(brake[winch.idx] == true, 0, tether_vel[winch.idx])
+                ifelse(brake[winch.idx] == true, 0,
+                       tether_vel[winch.idx])
             D(tether_vel[winch.idx]) ~
-                ifelse(brake[winch.idx] == true, 0, tether_acc[winch.idx])
+                ifelse(brake[winch.idx] == true, 0,
+                       tether_acc[winch.idx])
 
             # Winch motor, gear, and friction dynamics
             ω_motor[winch.idx] ~
                 gear_ratio / drum_radius * tether_vel[winch.idx]
             tau_friction[winch.idx] ~
-                smooth_sign(ω_motor[winch.idx]) * f_coulomb * drum_radius /
-                gear_ratio +
-                c_vf * ω_motor[winch.idx] * drum_radius^2 / gear_ratio^2
+                smooth_sign(ω_motor[winch.idx], friction_eps) *
+                f_coulomb * drum_radius / gear_ratio +
+                c_vf * ω_motor[winch.idx] *
+                drum_radius^2 / gear_ratio^2
             tau_motor[winch.idx] ~ set_values[winch.idx]
             tau_total[winch.idx] ~
                 tau_motor[winch.idx] +

@@ -439,6 +439,7 @@ mutable struct Winch
     c_vf::SimFloat
     inertia_total::SimFloat
     friction::SimFloat
+    friction_epsilon::SimFloat
 end
 
 """
@@ -455,12 +456,19 @@ Constructs a `Winch` object that controls tether length through torque or speed 
 - `tether_len::SimFloat=0.0`: Initial tether length [m].
 - `tether_vel::SimFloat=0.0`: Initial tether velocity (reel-out rate) [m/s].
 - `brake::Bool=false`: If true, the winch brake is engaged.
+- `friction_epsilon::SimFloat=6.0`: Smoothing parameter for sign function in Coulomb friction.
 """
-function Winch(name, set::Settings, tethers; tether_len=0.0, tether_vel=0.0, brake=false)
+function Winch(name, set::Settings, tethers;
+               tether_len=0.0, tether_vel=0.0, brake=false,
+               friction_epsilon=6.0)
     tether_refs = Vector{NameRef}([t isa Integer ? Int(t) : Symbol(t) for t in tethers])
-    return Winch(0, name, Int64[], tether_refs, tether_len, tether_vel, 0.0, 0.0, brake, zeros(KVec3),
-                 set.gear_ratio, set.drum_radius, set.f_coulomb, set.c_vf,
-                 set.inertia_total, zero(SimFloat))
+    return Winch(0, name, Int64[], tether_refs,
+                 tether_len, tether_vel, 0.0, 0.0,
+                 brake, zeros(KVec3),
+                 set.gear_ratio, set.drum_radius,
+                 set.f_coulomb, set.c_vf,
+                 set.inertia_total, zero(SimFloat),
+                 friction_epsilon)
 end
 
 """
@@ -473,11 +481,17 @@ Constructs a `Winch` object by directly providing its physical parameters.
 - `tethers::Vector`: References to tethers connected to this winch (names or indices).
 - `gear_ratio`, `drum_radius`, `f_coulomb`, `c_vf`, `inertia_total`: Physical parameters.
 """
-function Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total;
-               tether_len=0.0, tether_vel=0.0, brake=false)
+function Winch(name, tethers, gear_ratio, drum_radius,
+               f_coulomb, c_vf, inertia_total;
+               tether_len=0.0, tether_vel=0.0, brake=false,
+               friction_epsilon=6.0)
     tether_refs = Vector{NameRef}([t isa Integer ? Int(t) : Symbol(t) for t in tethers])
-    return Winch(0, name, Int64[], tether_refs, tether_len, tether_vel, 0.0, 0.0, brake, zeros(KVec3),
-                 gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total, zero(SimFloat))
+    return Winch(0, name, Int64[], tether_refs,
+                 tether_len, tether_vel, 0.0, 0.0,
+                 brake, zeros(KVec3),
+                 gear_ratio, drum_radius, f_coulomb,
+                 c_vf, inertia_total, zero(SimFloat),
+                 friction_epsilon)
 end
 
 # ==================== TRANSFORM ==================== #

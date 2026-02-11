@@ -669,19 +669,21 @@ This function uses a settings object to define the physical parameters of the wi
 # Returns
 - The calculated force on the winch tether [N].
 """
-function calc_winch_force(sys::SystemStructure, tether_vel, tether_acc, set_values)
+function calc_winch_force(sys::SystemStructure,
+        tether_vel, tether_acc, set_values)
     winches = sys.winches
-    function smooth_sign(x)
-        EPSILON = 6
-        x / sqrt(x * x + EPSILON * EPSILON)
-    end
+    smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
     winch_force = zeros(length(winches))
     for i in eachindex(winches)
-        @unpack gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total = winches[i]
+        @unpack gear_ratio, drum_radius, f_coulomb,
+            c_vf, inertia_total,
+            friction_epsilon = winches[i]
         ω_motor = gear_ratio / drum_radius * tether_vel[i]
-        tau_friction = smooth_sign(ω_motor) *
-                                  f_coulomb * drum_radius / gear_ratio +
-                                  c_vf * ω_motor * drum_radius^2 / gear_ratio^2
+        tau_friction =
+            smooth_sign(ω_motor, friction_epsilon) *
+            f_coulomb * drum_radius / gear_ratio +
+            c_vf * ω_motor *
+            drum_radius^2 / gear_ratio^2
         tau_motor = set_values[i] # set_value is the motor torque
         α_motor = tether_acc[i] / drum_radius * gear_ratio
         tau_total = α_motor * inertia_total

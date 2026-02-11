@@ -170,6 +170,10 @@ get_winch_c_vf(sys::SystemStructure, idx::Int64) = sys.winches[idx].c_vf
 get_winch_inertia_total(sys::SystemStructure, idx::Int64) =
     sys.winches[idx].inertia_total
 @register_symbolic get_winch_inertia_total(sys::SystemStructure, idx::Int64)
+get_winch_friction_epsilon(sys::SystemStructure, idx::Int64) =
+    sys.winches[idx].friction_epsilon
+@register_symbolic get_winch_friction_epsilon(
+    sys::SystemStructure, idx::Int64)
 @register_symbolic get_wind_elevation(sys::SystemStructure)
 get_wind_elevation(sys::SystemStructure) = sys.wind_elevation
 get_rho_tether(set::Settings) = set.rho_tether
