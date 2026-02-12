@@ -9,7 +9,6 @@ CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
 ControlSystemsBase = "aaaaaaaa-a6ca-5380-bf3e-84a91bcd477e"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
-GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 KiteUtils = "90980105-b163-44e5-ba9f-8b1c83bb0533"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -41,13 +40,14 @@ VortexStepMethod = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [weakdeps]
+GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
 [sources]
 VortexStepMethod = {rev = "wing_groups_unify_wing", url = "https://github.com/OpenSourceAWE/VortexStepMethod.jl.git"}
 
 [extensions]
-SymbolicAWEModelsMakieExt = "Makie"
+SymbolicAWEModelsMakieExt = ["GeometryBasics", "Makie"]
 
 [compat]
 AtmosphericModels = "0.3.2"
@@ -78,10 +78,12 @@ Statistics = "1"
 SteadyStateDiffEq = "2.5"
 Suppressor = "0.2.8"
 SymbolicIndexingInterface = "0"
+Symbolics = "6"
 SymbolicUtils = "4.13.1"
 TOML = "1"
 Tar = "1.10.0"
 Timers = "0.1.5"
 UnPack = "1.0.2"
 VortexStepMethod = "2.3.0"
+YAML = "0.4"
 julia = "1.10"

@@ -457,7 +457,6 @@ function create_simple_ram_sys_struct(set::Settings;
 end
 
 
-export create_v3_refine_sys_struct
 
 function create_v3_sys_struct(set::Settings)
     model_name = hasproperty(set, :model_name) ? set.model_name : "v3"

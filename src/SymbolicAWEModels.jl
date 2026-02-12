@@ -89,7 +89,6 @@ export segment_stretch_stats
 export create_ram_sys_struct
 export create_tether_sys_struct
 export create_simple_ram_sys_struct
-export create_2plate_sys_struct
 
 # --- Getter Functions ---
 export winch_force

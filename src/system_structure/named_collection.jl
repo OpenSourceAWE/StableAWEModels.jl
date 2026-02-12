@@ -134,6 +134,8 @@ Base.eltype(nc::NamedCollection{T}) where T = T
 
 # Allow findall and other array operations
 Base.findall(f::Function, nc::NamedCollection) = findall(f, nc.items)
+Base.findall(f::Base.Fix2{typeof(in)}, nc::NamedCollection) =
+    findall(f, nc.items)
 Base.filter(f::Function, nc::NamedCollection) = filter(f, nc.items)
 Base.findfirst(f::Function, nc::NamedCollection) = findfirst(f, nc.items)
 
