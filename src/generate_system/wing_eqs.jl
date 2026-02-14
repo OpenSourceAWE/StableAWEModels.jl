@@ -130,7 +130,7 @@ function wing_eqs!(
                 wing_acc_b[:, wing.idx] ~ zeros(3)
                 α_b_damped[:, wing.idx] ~ zeros(3)
                 ω_b_stable[:, wing.idx] ~ zeros(3)
-                # aero_force_b and aero_moment_b will be set in linear_vsm_eqs!
+                # aero_force_b and aero_moment_b will be set in vsm_eqs!
             ]
             continue
         end

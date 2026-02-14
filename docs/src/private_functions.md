@@ -62,7 +62,7 @@ SymbolicAWEModels.calc_aoa
 SymbolicAWEModels.create_sys!
 SymbolicAWEModels.scalar_eqs!
 SymbolicAWEModels.wing_eqs!
-SymbolicAWEModels.linear_vsm_eqs!
+SymbolicAWEModels.vsm_eqs!
 SymbolicAWEModels.force_eqs!
 SymbolicAWEModels.update_vsm!
 SymbolicAWEModels.jacobian

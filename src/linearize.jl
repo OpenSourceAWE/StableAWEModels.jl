@@ -54,22 +54,23 @@ This function updates the VSM aerodynamics for all wings, with wing-type-specifi
 
 This is typically called periodically during simulation based on the `vsm_interval` parameter.
 """
-function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.integrator)
+function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
+                     integ=sam.integrator)
     wings = sam.sys_struct.wings
     groups = sam.sys_struct.groups
     points = sam.sys_struct.points
 
-    if length(wings) == 0
-        return nothing
-    end
+    length(wings) == 0 && return nothing
 
-    # Handle QUATERNION wings (linearization approach)
-    has_quaternion_wings = any(w.wing_type == QUATERNION for w in wings)
+    # Handle QUATERNION wings
+    has_quaternion_wings = any(
+        w.wing_type == QUATERNION for w in wings)
     if has_quaternion_wings && !isnothing(prob.get_vsm_y)
         vsm_y = prob.get_vsm_y(integ)
 
         for wing in wings
             wing.wing_type != QUATERNION && continue
+            wing.aero_mode == AERO_NONE && continue
 
             wing.vsm_y .= vsm_y[:, wing.idx]
             if any(isnan.(wing.vsm_solver.sol.force))
@@ -77,10 +78,10 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
                 @warn "Resetting vsm solver."
             end
 
-            n_unrefined = wing.vsm_wing.n_unrefined_sections
+            n_unrefined =
+                wing.vsm_wing.n_unrefined_sections
             group_idxs = wing.group_idxs
 
-            # Determine moment_frac and theta_idxs
             moment_frac = if isempty(group_idxs)
                 0.25
             elseif length(groups) >= maximum(group_idxs)
@@ -89,101 +90,144 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.
                 0.25
             end
 
-            # All unrefined sections get twist (not just groups)
-            theta_idxs = isempty(group_idxs) ? nothing : (4:(3+n_unrefined))
+            theta_idxs = isempty(group_idxs) ?
+                nothing : (4:(3 + n_unrefined))
 
+            # Both modes call linearize to get the VSM
+            # solution at the current operating point.
+            # AERO_LINEARIZED also stores the Jacobian.
             res = VortexStepMethod.linearize(
                 wing.vsm_solver,
                 wing.vsm_aero,
                 wing.vsm_y;
-                va_idxs = 1:3,
-                theta_idxs = theta_idxs,
-                omega_idxs = (4+n_unrefined):(6+n_unrefined),
-                moment_frac = moment_frac,
-                aero_coeffs = true
+                va_idxs=1:3,
+                theta_idxs=theta_idxs,
+                omega_idxs=(4 + n_unrefined):(6 + n_unrefined),
+                moment_frac=moment_frac,
+                aero_coeffs=true
             )
 
-            wing.vsm_jac .= res[1]
-            wing.vsm_x .= res[2]
+            if wing.aero_mode == AERO_LINEARIZED
+                # Store Jacobian and coefficients for
+                # the symbolic linearization equations
+                wing.vsm_jac .= res[1]
+                wing.vsm_x .= res[2]
+
+            elseif wing.aero_mode == AERO_DIRECT
+                # Compute physical forces from baseline
+                # coefficients: F = q∞·A·C₀
+                va_sq = wing.va_b[1]^2 +
+                    wing.va_b[2]^2 + wing.va_b[3]^2
+                rho = calc_rho(
+                    sam.am, wing.pos_w[3])
+                q_inf = 0.5 * rho * va_sq
+                area = wing.vsm_aero.projected_area
+                coeffs = res[2]
+                wing.aero_force_b .=
+                    q_inf * area .* coeffs[1:3]
+                wing.aero_moment_b .=
+                    q_inf * area .* coeffs[4:6]
+            end
 
             # Map unrefined moments back to groups
+            # (same for both LINEARIZED and DIRECT)
             if !isempty(group_idxs)
-                unrefined_moments = res[2][7:end]  # First 6 are force+moment
-                for group_idx in group_idxs
-                    group = groups[group_idx]
-                    group.aero_moment = sum(unrefined_moments[group.unrefined_section_idxs])
+                unrefined_moments = res[2][7:end]
+                for gidx in group_idxs
+                    g = groups[gidx]
+                    g.aero_moment = sum(
+                        unrefined_moments[
+                            g.unrefined_section_idxs])
                 end
             end
         end
     end
 
     # Handle REFINE wings (full nonlinear solve)
-    has_refine_wings = any(w.wing_type == REFINE for w in wings)
+    has_refine_wings = any(
+        w.wing_type == REFINE for w in wings)
     if has_refine_wings
-        # Get point state including va_point_b (calculated for all points)
         point_state = prob.get_point_state(integ)
-        # point_state = [pos, vel, point_force, va_point_b]
-        # Extract va_point_b (4th element in point_state)
         va_point_b_vals = point_state[4]
 
         for wing in wings
             wing.wing_type != REFINE && continue
+            wing.aero_mode == AERO_NONE && continue
 
-            update_vsm_wing_from_structure!(wing, points)
+            if wing.aero_mode == AERO_LINEARIZED
+                error(
+                    "REFINE + AERO_LINEARIZED " *
+                    "not yet implemented")
+            end
+
+            update_vsm_wing_from_structure!(
+                wing, points)
 
             if !isnothing(wing.point_to_vsm_point)
-                # First calculate va at each section from structural points
-                n_sections = length(wing.vsm_wing.unrefined_sections)
-                section_va = Vector{Vector{Float64}}(undef, n_sections)
+                n_sections = length(
+                    wing.vsm_wing.unrefined_sections)
+                section_va =
+                    Vector{Vector{Float64}}(
+                        undef, n_sections)
 
-                # Build inverse mapping: (section_idx, :LE/:TE) -> point_idx
-                vsm_point_to_struct = Dict{Tuple{Int64, Symbol}, Int64}()
-                for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
-                    vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
+                vsm_point_to_struct =
+                    Dict{Tuple{Int64, Symbol}, Int64}()
+                for (point_idx, (section_idx, le_or_te)) in
+                        wing.point_to_vsm_point
+                    vsm_point_to_struct[
+                        (section_idx, le_or_te)] =
+                        point_idx
                 end
 
-                # Calculate va at each section (average of LE and TE points)
                 for section_idx in 1:n_sections
-                    le_point_idx = get(vsm_point_to_struct, (Int64(section_idx), :LE), nothing)
-                    te_point_idx = get(vsm_point_to_struct, (Int64(section_idx), :TE), nothing)
+                    le_pi = get(vsm_point_to_struct,
+                        (Int64(section_idx), :LE),
+                        nothing)
+                    te_pi = get(vsm_point_to_struct,
+                        (Int64(section_idx), :TE),
+                        nothing)
 
-                    if !isnothing(le_point_idx) && !isnothing(te_point_idx)
-                        va_le = va_point_b_vals[:, le_point_idx]
-                        va_te = va_point_b_vals[:, te_point_idx]
-                        section_va[section_idx] = 0.5 * (va_le + va_te)
+                    if !isnothing(le_pi) &&
+                            !isnothing(te_pi)
+                        va_le =
+                            va_point_b_vals[:, le_pi]
+                        va_te =
+                            va_point_b_vals[:, te_pi]
+                        section_va[section_idx] =
+                            0.5 * (va_le + va_te)
                     else
-                        # Fallback to wing average va_b
-                        section_va[section_idx] = wing.va_b
+                        section_va[section_idx] =
+                            wing.va_b
                     end
                 end
 
-                # Map section va to all refined panels using refined_panel_mapping
-                n_panels = length(wing.vsm_aero.panels)
-                va_distribution = zeros(n_panels, 3)
+                n_panels =
+                    length(wing.vsm_aero.panels)
+                va_dist = zeros(n_panels, 3)
 
-                for refined_panel_idx in 1:n_panels
-                    # Get the original section index this refined panel came from
-                    original_section_idx = wing.vsm_wing.refined_panel_mapping[refined_panel_idx]
-                    va_distribution[refined_panel_idx, :] .= section_va[original_section_idx]
+                mapping = wing.vsm_wing.refined_panel_mapping
+                for rpi in 1:n_panels
+                    va_dist[rpi, :] .=
+                        section_va[mapping[rpi]]
                 end
 
-                # Set per-panel va with omega=0 (REFINE wings have no rigid rotation)
-                set_va!(wing.vsm_aero, va_distribution, zeros(MVec3))
+                set_va!(wing.vsm_aero, va_dist,
+                    zeros(MVec3))
             else
-                # Fallback to single va if per-point values not available
                 set_va!(wing.vsm_aero, wing.va_b)
             end
 
-            # Solve full nonlinear VSM (updates wing.vsm_solver.sol in-place)
-            VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero; log=false)
-
-            # Distribute panel forces to structural points
-            distribute_panel_forces_to_points!(wing, points)
+            VortexStepMethod.solve!(
+                wing.vsm_solver, wing.vsm_aero;
+                log=false)
+            distribute_panel_forces_to_points!(
+                wing, points)
         end
     end
 
     nothing
 end
+
 
 """
     linearize!(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator)) -> LinType

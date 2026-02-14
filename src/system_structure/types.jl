@@ -61,6 +61,23 @@ Enumeration for the aerodynamic model type of a wing.
     REFINE
 end
 
+"""
+    AeroMode `AERO_NONE` `AERO_DIRECT` `AERO_LINEARIZED`
+
+Enumeration for how aerodynamic forces enter the ODE system.
+Orthogonal to WingType — determines the aero computation strategy at runtime.
+
+# Elements
+- `AERO_NONE`: No aerodynamic forces (returns zeros). For debugging rigid body dynamics.
+- `AERO_DIRECT`: Stored forces from nonlinear VSM solve, piecewise-constant between updates.
+- `AERO_LINEARIZED`: First-order Taylor expansion using Jacobian from VSM linearization.
+"""
+@enum AeroMode begin
+    AERO_NONE
+    AERO_DIRECT
+    AERO_LINEARIZED
+end
+
 # ==================== POINT ==================== #
 
 "Reference type that can be an integer index or a symbolic name"

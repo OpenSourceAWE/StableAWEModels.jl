@@ -200,9 +200,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
 
     # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
 
-    # Build linearized aerodynamic equations
+    # Build aerodynamic equations (dispatches on aero_mode at runtime)
     if has_refine_wings
-        eqs, guesses = linear_vsm_eqs!(
+        eqs, guesses = vsm_eqs!(
             s, eqs, guesses, psys;
             aero_force_b, R_v_w, aero_moment_b, group_aero_moment,
             twist_angle, va_wing_b, wing_pos, ω_b,
@@ -210,7 +210,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
             va_point_b=va_point_b
         )
     else
-        eqs, guesses = linear_vsm_eqs!(
+        eqs, guesses = vsm_eqs!(
             s, eqs, guesses, psys;
             aero_force_b, R_v_w, aero_moment_b, group_aero_moment,
             twist_angle, va_wing_b, wing_pos, ω_b

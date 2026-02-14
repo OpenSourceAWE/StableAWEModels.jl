@@ -181,8 +181,6 @@ $(TYPEDFIELDS)
     sys_struct::SystemStructure
     "Container for the compiled and serialized model components"
     serialized_model::SerializedModel # Now strongly typed
-    "Reference to the atmospheric model as implemented in the package AtmosphericModels"
-    am::AtmosphericModel = AtmosphericModel(set)
     "The ODE integrator for the full nonlinear model"
     integrator::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
     "Relative start time of the current time interval"
@@ -205,7 +203,9 @@ This provides a convenient way to access compiled functions and other model
 components without explicitly referencing `sam.serialized_model`.
 """
 function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
-    if hasfield(SymbolicAWEModel, sym)
+    if sym === :am
+        getfield(sam, :sys_struct).am
+    elseif hasfield(SymbolicAWEModel, sym)
         getfield(sam, sym)
     else
         getproperty(getfield(sam, :serialized_model), sym)
@@ -623,7 +623,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
         suffix = ".default"
     end
 
-    # Determine wing type
+    # Determine wing type and aero mode
     wing_types = [wing.wing_type for wing in sys_struct.wings]
     wing_type_str = if isempty(wing_types)
         "nowng"
@@ -635,6 +635,19 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
         "mixed"
     end
 
+    aero_modes = [wing.aero_mode for wing in sys_struct.wings]
+    aero_mode_str = if isempty(aero_modes)
+        ""
+    elseif all(m -> m == AERO_LINEARIZED, aero_modes)
+        "lin"
+    elseif all(m -> m == AERO_DIRECT, aero_modes)
+        "dir"
+    elseif all(m -> m == AERO_NONE, aero_modes)
+        "none"
+    else
+        "mixaero"
+    end
+
     dynamics_type = ifelse(set.quasi_static, "static", "dynamic")
 
     # Count components
@@ -644,7 +657,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
 
-    return "model_$(ver)_$(set.physical_model)_$(wing_type_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_groups)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
+    return "model_$(ver)_$(set.physical_model)_$(wing_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_groups)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
 end
 
 """

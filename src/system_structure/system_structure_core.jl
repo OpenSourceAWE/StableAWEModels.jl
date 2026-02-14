@@ -56,6 +56,7 @@ mutable struct SystemStructure
     const x::Array{Float64, 2}
     const jac::Array{Float64, 3}
     const wind_vec_gnd::KVec3
+    const am::AtmosphericModel
     wind_elevation::SimFloat
     stabilize::Bool
     fix_wing::Bool
@@ -824,7 +825,7 @@ function SystemStructure(name, set;
         winches, wings, transforms,
         point_names_dict, group_names_dict, segment_names_dict, pulley_names_dict,
         tether_names_dict, winch_names_dict, wing_names_dict, transform_names_dict,
-        y, x, jac, zeros(KVec3), 0.0, false, false, vsm_set)
+        y, x, jac, zeros(KVec3), AtmosphericModel(set), 0.0, false, false, vsm_set)
     reinit!(sys_struct, set)
 
     # Recalculate segment rest lengths from current positions if requested

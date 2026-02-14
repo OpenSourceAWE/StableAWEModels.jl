@@ -263,7 +263,7 @@ starting from 1 with no gaps.
 - `wings`: (optional, typically from VSM configuration)
 - `transforms`: (optional, typically from settings)
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing(), ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, vsm_set=nothing)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing(), ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set=nothing)
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
@@ -544,6 +544,15 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         error("Unknown WingType: $s")
     end
 
+    # Parse aero mode
+    function parse_aero_mode(s::String)
+        s_upper = uppercase(s)
+        s_upper == "AERO_NONE" && return AERO_NONE
+        s_upper == "AERO_DIRECT" && return AERO_DIRECT
+        s_upper == "AERO_LINEARIZED" && return AERO_LINEARIZED
+        error("Unknown AeroMode: $s")
+    end
+
     # Parse reference points - returns raw references (SystemStructure will resolve)
     # Supports both numeric indices and symbolic names
     # Examples: [12, 13], [le_center, te_center], [12, [13, 14]], [[le_1, le_2], [te_1, te_2]]
@@ -588,12 +597,24 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             wt = isnothing(wing_type) ? parse_wing_type(String(row.type)) : wing_type
 
             # Build kwargs based on wing type - SystemStructure handles resolution
+            # Determine aero_mode: kwarg > YAML > default
+            am = if !isnothing(aero_mode)
+                aero_mode
+            elseif hasfield(typeof(row), :aero_mode) &&
+                    !isnothing(row.aero_mode)
+                parse_aero_mode(String(row.aero_mode))
+            else
+                wt == QUATERNION ? AERO_LINEARIZED :
+                    AERO_DIRECT
+            end
+
             if wt == REFINE
                 # REFINE wings need z_ref_points, y_ref_points, origin
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
                     [:transform, :y_damping, :wing_type,
+                     :aero_mode,
                      :z_ref_points, :y_ref_points, :origin, :pos_cad,
                      :aero_scale_chord];
                     mappings=Dict(
@@ -601,6 +622,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         :groups => r -> [],  # REFINE wings don't have groups
                         :vsm_set => r -> vsm_set,
                         :wing_type => r -> wt,
+                        :aero_mode => r -> am,
                         :name => r -> begin
                             if haskey(r, :name) && !isnothing(r.name)
                                 Symbol(r.name)
@@ -639,9 +661,10 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
-                    [:transform, :y_damping, :wing_type, :aero_scale_chord, :aero_z_offset];
+                    [:transform, :y_damping, :wing_type, :aero_mode, :aero_scale_chord, :aero_z_offset];
                     mappings=Dict(
                         :set => r -> set,
+                        :aero_mode => r -> am,
                         :groups => r -> hasfield(typeof(r), :groups) && !isnothing(r.groups) ?
                             [to_ref(g) for g in r.groups] : [],
                         :vsm_set => r -> vsm_set,

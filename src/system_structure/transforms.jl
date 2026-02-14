@@ -197,6 +197,43 @@ function calc_refine_wing_frame(
     return R_b_w, origin
 end
 
+# ==================== HELPERS ==================== #
+
+"""
+    init_untransformed_components!(points, wings, update_vel;
+                                   filter=true)
+
+Initialize `pos_w = pos_cad` for untransformed components.
+When `filter=true` (default), only components with
+`transform_idx == 0` are initialized. When `filter=false`,
+all components are initialized (used when no transforms exist).
+"""
+function init_untransformed_components!(
+    points, wings, update_vel::Bool; filter::Bool=true
+)
+    for point in points
+        filter && point.transform_idx != 0 && continue
+        point.pos_w .= point.pos_cad
+        update_vel && (point.vel_w .= 0.0)
+    end
+    for wing in wings
+        filter && wing.transform_idx != 0 && continue
+        wing.pos_w .= wing.pos_cad
+        update_vel && (wing.vel_w .= 0.0)
+        update_vel && (wing.ω_b .= 0.0)
+        wing.Q_b_w .= rotation_matrix_to_quaternion(wing.R_b_c)
+        wing.R_b_w = copy(wing.R_b_c)
+        # Set pos_b for QUATERNION wing points
+        wing.wing_type != QUATERNION && continue
+        for point in points
+            if point.type == WING && point.wing_idx == wing.idx
+                point.pos_b .= wing.R_b_c' *
+                    (point.pos_cad - wing.pos_cad)
+            end
+        end
+    end
+end
+
 # ==================== REINIT! ==================== #
 
 """
@@ -214,20 +251,15 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
                  update_vel::Bool=true)
     @unpack points, wings = sys_struct
 
-    # Handle the case with no transforms: just copy CAD positions to world positions
+    # No transforms: init ALL as pos_w = pos_cad
     if isempty(transforms)
-        for point in points
-            point.pos_w .= point.pos_cad
-            update_vel && (point.vel_w .= 0.0)
-        end
-        for wing in wings
-            wing.pos_w .= wing.pos_cad
-            update_vel && (wing.vel_w .= 0.0)
-            update_vel && (wing.ω_b .= 0.0)
-            wing.Q_b_w .= rotation_matrix_to_quaternion(wing.R_b_c)
-        end
-        return  # Early return - no transforms to apply
+        init_untransformed_components!(
+            points, wings, update_vel; filter=false)
+        return
     end
+
+    # Initialize untransformed components (transform_idx == 0)
+    init_untransformed_components!(points, wings, update_vel)
 
     # Apply transforms
     for transform in transforms
@@ -257,11 +289,11 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
         curr_rot_pos = get_rot_pos(transform, wings, points)
         rel_pos = curr_rot_pos - base_pos
 
-        # Check if wing and base are aligned (avoid division by zero)
+        # Error if wing/rot position coincides with base (cannot define rotation)
         if norm(rel_pos) < 1e-6
-            @warn "Transform #$(transform.idx): Wing and base positions are aligned at $(base_pos). " *
-                  "Using identity rotation matrix (no rotation applied)."
-            curr_R_t_w = Matrix(1.0I, 3, 3)  # Identity matrix
+            error("Transform #$(transform.idx): Wing/rot position and base position " *
+                  "overlap at $(base_pos). Cannot define elevation/azimuth rotation. " *
+                  "Use transform_idx: 0 to skip transforms, or adjust positions.")
         else
             curr_R_t_w = calc_R_t_w(rel_pos)
         end
@@ -391,11 +423,10 @@ function reposition!(transforms::AbstractVector{Transform}, sys_struct::SystemSt
         # Calculate the current orientation in spherical coordinates
         curr_rel_pos = rot_pos - base_pos
 
-        # Check if wing and base are aligned (avoid division by zero)
+        # Error if wing/rot position coincides with base (cannot define rotation)
         if norm(curr_rel_pos) < 1e-6
-            @warn "Transform #$(transform.idx): Wing and base positions are aligned at $(base_pos). " *
-                  "Using identity rotation matrix (no rotation applied)."
-            curr_R_t_w = Matrix(1.0I, 3, 3)  # Identity matrix
+            error("Transform #$(transform.idx): Wing/rot position and base position " *
+                  "overlap at $(base_pos). Cannot define rotation.")
         else
             curr_R_t_w = calc_R_t_w(curr_rel_pos)
         end

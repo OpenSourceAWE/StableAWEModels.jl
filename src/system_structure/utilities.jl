@@ -397,7 +397,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     for wing in wings
         # Calculate wind at wing position using atmospheric model
         # Matches symbolic equations in generate_system.jl
-        wind_factor = calc_wind_factor(AtmosphericModel(set),
+        wind_factor = calc_wind_factor(sys_struct.am,
                                        wing.pos_w[1], wing.pos_w[2], wing.pos_w[3], set)
         wing.v_wind .= wind_factor * wind_vec_gnd
 

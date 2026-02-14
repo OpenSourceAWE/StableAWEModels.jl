@@ -33,10 +33,12 @@ function generate_prob_getters(sys_struct, sys)
         ])
         get_wing_state = getu(sys, wing_vars)
 
-        # vsm_input_state only exists for QUATERNION wings (not REFINE)
-        # Check if any wing is QUATERNION type before trying to access it
-        has_quaternion = any(w.wing_type == QUATERNION for w in sys_struct.wings)
-        if has_quaternion
+        # vsm_input_state only exists for QUATERNION + AERO_LINEARIZED wings
+        has_linearized = any(
+            w.wing_type == QUATERNION &&
+            w.aero_mode == AERO_LINEARIZED
+            for w in sys_struct.wings)
+        if has_linearized
             get_vsm_y = getu(sys, sys.vsm_input_state)
         else
             get_vsm_y = nothing
@@ -534,7 +536,7 @@ Includes all structural properties that affect the symbolic equations:
 - Pulley constraints and types
 - Tether topology
 - Winch configuration
-- Wing topology, connectivity, and aerodynamic model type (QUATERNION vs REFINE)
+- Wing topology, connectivity, aerodynamic model type (QUATERNION vs REFINE), and aero mode
 - Transform hierarchy
 
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
@@ -561,7 +563,9 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("winch", winch.idx, winch.tether_idxs))
     end
     for wing in wings
-        wing_data = ("wing", wing.idx, wing.group_idxs, Int(wing.base.wing_type))
+        wing_data = ("wing", wing.idx, wing.group_idxs,
+                     Int(wing.base.wing_type),
+                     Int(wing.base.aero_mode))
 
         # Include REFINE wing reference points in hash
         if wing isa VSMWing

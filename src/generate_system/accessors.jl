@@ -138,8 +138,18 @@ get_point_area(sys::SystemStructure, idx::Int64) = sys.points[idx].area
 @register_symbolic get_point_area(sys::SystemStructure, idx::Int64)
 get_point_drag_coeff(sys::SystemStructure, idx::Int64) = sys.points[idx].drag_coeff
 @register_symbolic get_point_drag_coeff(sys::SystemStructure, idx::Int64)
-get_point_aero_force(sys::SystemStructure, idx::Int64, component::Int) = sys.points[idx].aero_force_b[component]
-@register_symbolic get_point_aero_force(sys::SystemStructure, idx::Int64, component::Int)
+function get_point_aero_force(
+    sys::SystemStructure, idx::Int64, component::Int
+)
+    point = sys.points[idx]
+    if point.wing_idx > 0
+        wing = sys.wings[point.wing_idx]
+        wing.aero_mode == AERO_NONE && return 0.0
+    end
+    return point.aero_force_b[component]
+end
+@register_symbolic get_point_aero_force(
+    sys::SystemStructure, idx::Int64, component::Int)
 get_brake(sys::SystemStructure, idx::Int64) = sys.winches[idx].brake
 @register_symbolic get_brake(sys::SystemStructure, idx::Int64)
 get_fix_point_sphere(sys::SystemStructure, idx::Int64) =
@@ -186,3 +196,61 @@ get_upwind_dir(set::Settings) = set.upwind_dir
 @register_symbolic get_upwind_dir(set::Settings)
 get_g_earth(set::Settings) = set.g_earth
 @register_symbolic get_g_earth(set::Settings)
+
+# ==================== AERO MODE FUNCTIONS ==================== #
+# Aero mode is a build-time decision (part of model SHA hash).
+# For AERO_LINEARIZED: symbolic linearization equations in vsm_eqs.jl.
+# For AERO_DIRECT: override functions below read stored forces.
+# For AERO_NONE: equations are zeros (no registered functions needed).
+
+"""
+    get_aero_force_override(sys, wing_idx, component)
+
+Return override aero force for non-LINEARIZED modes:
+- `AERO_DIRECT`: stored `wing.aero_force_b[c]`
+- `AERO_NONE`:   `0.0`
+"""
+function get_aero_force_override(
+    sys::SystemStructure, idx::Int64, component::Int
+)
+    wing = sys.wings[idx]
+    wing.aero_mode == AERO_DIRECT &&
+        return wing.aero_force_b[component]
+    return 0.0
+end
+@register_symbolic get_aero_force_override(
+    sys::SystemStructure, idx::Int64, component::Int)
+
+"""
+    get_aero_moment_override(sys, wing_idx, component)
+
+Return override aero moment for non-LINEARIZED modes.
+"""
+function get_aero_moment_override(
+    sys::SystemStructure, idx::Int64, component::Int
+)
+    wing = sys.wings[idx]
+    wing.aero_mode == AERO_DIRECT &&
+        return wing.aero_moment_b[component]
+    return 0.0
+end
+@register_symbolic get_aero_moment_override(
+    sys::SystemStructure, idx::Int64, component::Int)
+
+"""
+    get_group_moment_override(sys, wing_idx, group_idx)
+
+Return override group aero moment for non-LINEARIZED modes.
+"""
+function get_group_moment_override(
+    sys::SystemStructure, wing_idx::Int64,
+    group_idx::Int64
+)
+    wing = sys.wings[wing_idx]
+    wing.aero_mode == AERO_DIRECT &&
+        return sys.groups[group_idx].aero_moment
+    return 0.0
+end
+@register_symbolic get_group_moment_override(
+    sys::SystemStructure, wing_idx::Int64,
+    group_idx::Int64)

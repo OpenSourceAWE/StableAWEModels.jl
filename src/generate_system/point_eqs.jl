@@ -132,7 +132,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 # Similar to DYNAMIC points but with aero forces included
                 # (va already calculated above for all points)
 
-                # Add aerodynamic forces (calculated in linear_vsm_eqs!)
+                # Add aerodynamic forces (calculated in vsm_eqs!)
                 aero_force_w = R_b_w[:, :, wing.idx] * aero_force_point_b[:, point.idx]
 
                 eqs = [
