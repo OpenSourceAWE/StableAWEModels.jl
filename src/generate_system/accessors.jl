@@ -164,6 +164,9 @@ get_drag_frac(sys::SystemStructure, idx::Int64) = sys.wings[idx].drag_frac
 @register_symbolic get_drag_frac(sys::SystemStructure, idx::Int64)
 get_y_damping(sys::SystemStructure, idx::Int64) = sys.wings[idx].y_damping
 @register_symbolic get_y_damping(sys::SystemStructure, idx::Int64)
+get_angular_damping(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].angular_damping
+@register_symbolic get_angular_damping(sys::SystemStructure, idx::Int64)
 get_z_disturb(sys::SystemStructure, idx::Int64) = sys.wings[idx].z_disturb
 @register_symbolic get_z_disturb(sys::SystemStructure, idx::Int64)
 get_winch_gear_ratio(sys::SystemStructure, idx::Int64) =

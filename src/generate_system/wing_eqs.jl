@@ -171,10 +171,15 @@ function wing_eqs!(
                 ),
             )
             # Apply damping and disturbances to angular acceleration
+            # y_damping: pitch-axis only; angular_damping: isotropic on all axes
             α_b_damped[:, wing.idx] ~ [
-                α_b[1, wing.idx],
-                α_b[2, wing.idx] - get_y_damping(psys, wing.idx) * ω_b[2, wing.idx],
-                α_b[3, wing.idx] + get_z_disturb(psys, wing.idx),
+                α_b[1, wing.idx] -
+                    get_angular_damping(psys, wing.idx) * ω_b[1, wing.idx],
+                α_b[2, wing.idx] -
+                    (get_y_damping(psys, wing.idx) +
+                     get_angular_damping(psys, wing.idx)) * ω_b[2, wing.idx],
+                α_b[3, wing.idx] + get_z_disturb(psys, wing.idx) -
+                    get_angular_damping(psys, wing.idx) * ω_b[3, wing.idx],
             ]
 
             # Convert quaternion to rotation matrix

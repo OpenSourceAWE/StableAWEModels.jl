@@ -93,6 +93,7 @@ mutable struct BaseWing <: AbstractWing
     aoa::SimFloat
     fix_sphere::Bool
     y_damping::SimFloat
+    angular_damping::SimFloat
     z_disturb::SimFloat
     mass::SimFloat  # Total mass of wing (sum of WING point masses if set.mass is zero)
 end
@@ -234,7 +235,8 @@ Constructs a `BaseWing` object representing a rigid body reference frame.
 
 # Keyword Arguments
 - `transform=nothing`: Reference to the transform (name or index). Defaults to 1 if not specified.
-- `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
+- `y_damping::SimFloat=150.0`: Damping coefficient for y-axis (pitch) rotation.
+- `angular_damping::SimFloat=0.0`: Isotropic angular damping on all 3 rotation axes.
 - `wing_type::WingType=QUATERNION`: Wing aerodynamic model type.
 
 # Returns
@@ -243,6 +245,7 @@ Constructs a `BaseWing` object representing a rigid body reference frame.
 function BaseWing(name, groups::AbstractVector, R_b_c::AbstractMatrix,
                   pos_cad, inertia_principal;
                   transform=nothing, y_damping=150.0,
+                  angular_damping=0.0,
                   wing_type::WingType=QUATERNION,
                   aero_mode::AeroMode=(wing_type == QUATERNION ?
                       AERO_LINEARIZED : AERO_DIRECT))
@@ -270,7 +273,8 @@ function BaseWing(name, groups::AbstractVector, R_b_c::AbstractMatrix,
         zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
-        y_damping, 0.0, 0.0)  # mass initialized to 0, set by SystemStructure
+        y_damping, angular_damping, 0.0,
+        0.0)  # mass initialized to 0, set by SystemStructure
 end
 
 # Helper to convert ref point spec to proper type
@@ -312,6 +316,7 @@ function VSMWing(name, set::Settings,
                  R_b_c::Union{Nothing,AbstractMatrix}=nothing,
                  pos_cad::Union{Nothing,AbstractVector}=nothing,
                  transform=nothing, y_damping=150.0,
+                 angular_damping=0.0,
                  inertia_diag=nothing,
                  wing_type::WingType=QUATERNION,
                  aero_mode::AeroMode=(wing_type == QUATERNION ?
@@ -369,7 +374,7 @@ function VSMWing(name, set::Settings,
 
     base = BaseWing(name, groups, R_b_c, pos_cad,
                     inertia_vec; transform, y_damping,
-                    wing_type, aero_mode)
+                    angular_damping, wing_type, aero_mode)
 
     # Size vsm state vectors based on wing type
     if wing_type == REFINE

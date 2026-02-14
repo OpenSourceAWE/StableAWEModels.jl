@@ -8,7 +8,7 @@
 # and loose tolerances to catch "crazy stuff" without being brittle.
 #
 # QUATERNION wing type is currently broken (commit 4982878), so
-# physics tests use @test_broken for QUATERNION.
+# physics tests use @test for QUATERNION.
 
 using Test
 using SymbolicAWEModels
@@ -169,9 +169,9 @@ end
                 wing_speed = norm(wing.vel_w)
 
                 if is_quat
-                    @test_broken wing_drift < 1.0
-                    @test_broken kcu_drift < 1.0
-                    @test_broken wing_speed < 2.0
+                    @test wing_drift < 1.0
+                    @test kcu_drift < 1.0
+                    @test wing_speed < 2.0
                 else
                     @test wing_drift < 1.0
                     @test kcu_drift < 1.0
@@ -206,7 +206,7 @@ end
                 final_z = wing.pos_w[3]
 
                 if is_quat
-                    @test_broken final_z < initial_z
+                    @test final_z < initial_z
                 else
                     @test final_z < initial_z
                 end
@@ -233,7 +233,7 @@ end
                 final_norm = norm(wing.pos_w)
 
                 if is_quat
-                    @test_broken final_norm < 2 * initial_norm
+                    @test final_norm < 2 * initial_norm
                 else
                     @test final_norm < 2 * initial_norm
                 end
@@ -261,8 +261,8 @@ end
                 speed = norm(wing.vel_w)
 
                 if is_quat
-                    @test_broken displacement > 0.1
-                    @test_broken speed > 0.1
+                    @test displacement > 0.1
+                    @test speed > 0.1
                 else
                     @test displacement > 0.1
                     @test speed > 0.1
@@ -291,8 +291,8 @@ end
                 q_norm = norm(wing.Q_b_w)
 
                 if is_quat
-                    @test_broken q_diff > 0.001
-                    @test_broken q_norm ≈ 1.0 atol = 0.1
+                    @test q_diff > 0.001
+                    @test q_norm ≈ 1.0 atol = 0.1
                 else
                     @test q_diff > 0.001
                     @test q_norm ≈ 1.0 atol = 0.1
@@ -333,7 +333,7 @@ end
                 dir_change = norm(final_dir - initial_dir)
 
                 if is_quat
-                    @test_broken dir_change < 1e-6
+                    @test dir_change < 1e-6
                 else
                     @test dir_change < 1e-6
                 end
@@ -378,7 +378,7 @@ end
                         initial_positions[name]
                     )
                     if is_quat
-                        @test_broken drift < 1e-6
+                        @test drift < 1e-6
                     else
                         @test drift < 1e-6
                     end
@@ -430,8 +430,8 @@ end
                 damped_drift = norm(wing.pos_w - init_pos)
 
                 if is_quat
-                    @test_broken damped_speed < 0.5 * undamped_speed
-                    @test_broken damped_drift < 0.5 * undamped_drift
+                    @test damped_speed < 0.5 * undamped_speed
+                    @test damped_drift < 0.5 * undamped_drift
                 else
                     @test damped_speed < 0.5 * undamped_speed
                     @test damped_drift < 0.5 * undamped_drift

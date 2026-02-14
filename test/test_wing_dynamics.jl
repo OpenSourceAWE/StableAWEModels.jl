@@ -13,6 +13,8 @@ using SymbolicAWEModels: KVec3, VortexStepMethod
 using KiteUtils
 using LinearAlgebra
 
+# ==================== YAML DEFINITIONS ==================== #
+
 # Minimal YAML: just wing + ground point, no segments/tethers/winches
 const WING_FREEFALL_YAML = """
 points:
@@ -52,6 +54,60 @@ wings:
                     le_right, te_right]
       groups: [left, center, right]
       y_damping: 0.0
+      aero_z_offset: 0.0
+"""
+
+# Wing + segment pendulum: wing hangs from static anchor via segment.
+# attach point is 1.0 above wing CoM; anchor is 1.0 to the side.
+# Under gravity + angular damping, settles to vertical alignment:
+#   anchor (top) → attach → wing CoM (bottom)
+const WING_PENDULUM_YAML = """
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx,
+            extra_mass, body_frame_damping,
+            world_frame_damping, area, drag_coeff]
+  data:
+    - [le_left,   [-0.5,  1.0, 0.0], WING, wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [te_left,   [ 0.5,  1.0, 0.0], WING, wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [le_center, [-0.5,  0.0, 0.0], WING, wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [te_center, [ 0.5,  0.0, 0.0], WING, wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [le_right,  [-0.5, -1.0, 0.0], WING, wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [te_right,  [ 0.5, -1.0, 0.0], WING, wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [attach,    [ 0.0,  0.0, 1.0], WING, wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [anchor,    [ 1.0,  0.0, 0.0], STATIC, ~,
+       ~, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+segments:
+  headers: [name, point_i, point_j, type, l0,
+            diameter_mm, unit_stiffness, unit_damping,
+            compression_frac]
+  data:
+    - [tether, attach, anchor, POWER_LINE, ~,
+       1.0, 5000.0, 0.0, 0.01]
+
+groups:
+  headers: [name, point_idxs, type, moment_frac, damping]
+  data:
+    - [left,   [le_left, te_left],     DYNAMIC, 0.25, 0.0]
+    - [center, [le_center, te_center], DYNAMIC, 0.25, 0.0]
+    - [right,  [le_right, te_right],   DYNAMIC, 0.25, 0.0]
+
+wings:
+  data:
+    - name: wing
+      type: QUATERNION
+      aero_mode: AERO_NONE
+      transform_idx: 0
+      groups: [left, center, right]
+      y_damping: 0.0
+      angular_damping: 10.0
       aero_z_offset: 0.0
 """
 
@@ -193,6 +249,73 @@ environment:
 
         # Magnitude check
         @test norm(measured_acc) ≈ 9.81 atol=0.15
+    end
+
+    # ==================== Pendulum settling ==================== #
+    # Wing + segment: attach point connected to static anchor.
+    # Wing should rotate and translate until vertical alignment.
+
+    pendulum_yaml_path = joinpath(data_path, "wing_pendulum.yaml")
+    write(pendulum_yaml_path, WING_PENDULUM_YAML)
+
+    pend_sys = load_sys_struct_from_yaml(
+        pendulum_yaml_path;
+        system_name="wing_pendulum",
+        set, vsm_set,
+        aero_mode=AERO_NONE
+    )
+
+    @testset "Pendulum setup" begin
+        @test length(pend_sys.wings) == 1
+        @test length(pend_sys.segments) == 1
+        @test pend_sys.wings[1].aero_mode == AERO_NONE
+        # 7 WING points × 0.5 kg
+        @test pend_sys.wings[1].mass ≈ 3.5
+    end
+
+    pend_sam = SymbolicAWEModel(set, pend_sys)
+    init!(pend_sam; remake=true, prn=true)
+
+    @testset "Pendulum vertical alignment" begin
+        wing = pend_sam.sys_struct.wings[1]
+        anchor = pend_sam.sys_struct.points[:anchor]
+        attach = pend_sam.sys_struct.points[:attach]
+
+        # Simulate until settled (near-critical angular_damping=10)
+        dt = 0.05
+        n_steps = 2000  # 100 seconds
+        for i in 1:n_steps
+            next_step!(pend_sam; dt, vsm_interval=0,
+                error_on_unstable=false)
+        end
+
+        # Get final positions
+        anchor_pos = copy(anchor.pos_w)
+        attach_pos = copy(attach.pos_w)
+        com_pos = copy(wing.pos_w)
+
+        println("  anchor: $(round.(anchor_pos; digits=3))")
+        println("  attach: $(round.(attach_pos; digits=3))")
+        println("  CoM:    $(round.(com_pos; digits=3))")
+        println("  ω_b:    $(round.(wing.ω_b; digits=4))")
+
+        tol = 0.3
+
+        # x-alignment: all at anchor.x
+        @test attach_pos[1] ≈ anchor_pos[1] atol=tol
+        @test com_pos[1] ≈ anchor_pos[1] atol=tol
+
+        # y-alignment: all near 0
+        @test abs(attach_pos[2]) < tol
+        @test abs(com_pos[2]) < tol
+
+        # z-ordering: anchor above attach above CoM
+        # (gravity is -z, so higher z = higher up)
+        @test anchor_pos[3] > attach_pos[3]
+        @test attach_pos[3] > com_pos[3]
+
+        # Angular velocity should be near zero (settled)
+        @test norm(wing.ω_b) < 0.5
     end
 
     rm(tmpdir; recursive=true)

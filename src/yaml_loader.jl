@@ -613,8 +613,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
-                    [:transform, :y_damping, :wing_type,
-                     :aero_mode,
+                    [:transform, :y_damping, :angular_damping,
+                     :wing_type, :aero_mode,
                      :z_ref_points, :y_ref_points, :origin, :pos_cad,
                      :aero_scale_chord];
                     mappings=Dict(
@@ -661,7 +661,9 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
-                    [:transform, :y_damping, :wing_type, :aero_mode, :aero_scale_chord, :aero_z_offset];
+                    [:transform, :y_damping, :angular_damping,
+                     :wing_type, :aero_mode, :aero_scale_chord,
+                     :aero_z_offset];
                     mappings=Dict(
                         :set => r -> set,
                         :aero_mode => r -> am,
