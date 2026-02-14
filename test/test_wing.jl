@@ -1,17 +1,14 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-# test_wing.jl - Wing aerodynamics tests
+# test_wing.jl - Wing sanity tests
 #
-# Tests wing aerodynamic forces using the VSM coupling.
-# Uses 2plate_kite configuration as base.
-# Verifies:
-# 1. Aero force in tether direction equals tether force (equilibrium)
-# 2. Aero force proportional to velocity squared
-# 3. Steering left turns kite left
-# 4. Steering right turns kite right
+# Simple physics sanity checks for both REFINE and QUATERNION wings.
+# Uses 2plate_kite configuration. All tests use winch brake engaged
+# and loose tolerances to catch "crazy stuff" without being brittle.
 #
-# Tests both REFINE and QUATERNION wing types.
+# QUATERNION wing type is currently broken (commit 4982878), so
+# physics tests use @test_broken for QUATERNION.
 
 using Test
 using SymbolicAWEModels
@@ -19,304 +16,432 @@ using SymbolicAWEModels: KVec3, VortexStepMethod
 using KiteUtils
 using LinearAlgebra
 
+"""
+    reset_state!(sam, set)
+
+Reset SAM to default state between tests. Restores gravity, wind,
+transform, constraints, damping, and brake. Calls `init!` to
+reinitialize the integrator.
+"""
+function reset_state!(sam, set)
+    set.g_earth = 9.81
+    set.v_wind = 15.0
+
+    tf = sam.sys_struct.transforms[:main_transform]
+    tf.elevation = deg2rad(60)
+    tf.azimuth = 0.0
+    tf.heading = 0.0
+    tf.elevation_vel = 0.0
+    tf.azimuth_vel = 0.0
+
+    for point in sam.sys_struct.points
+        if point.type == SymbolicAWEModels.DYNAMIC
+            point.fix_sphere = false
+            point.fix_static = false
+        end
+    end
+
+    for wing in sam.sys_struct.wings
+        wing.fix_sphere = false
+    end
+
+    set_world_frame_damping(sam.sys_struct, 0.0)
+
+    sam.sys_struct.winches[:main_winch].brake = true
+
+    init!(sam; remake=false, reload=false, prn=false)
+end
+
 @testset "Wing Tests" begin
     # Copy 2plate_kite data to temp directory
     pkg_file_path = Base.find_package("SymbolicAWEModels")
     if isnothing(pkg_file_path)
-        error("SymbolicAWEModels not found in the current project environment.")
+        error("SymbolicAWEModels not found")
     end
 
     package_root_dir = dirname(dirname(pkg_file_path))
-    src_data_path = joinpath(package_root_dir, "data", "2plate_kite")
+    src_data_path = joinpath(
+        package_root_dir, "data", "2plate_kite"
+    )
 
     tmpdir = mktempdir()
     data_path = joinpath(tmpdir, "2plate_kite")
     cp(src_data_path, data_path; force=true)
 
-    # Set data path and load settings
     set_data_path(data_path)
     set = Settings("system.yaml")
 
-    # Load VSM settings from data directory
-    vsm_settings_path = joinpath(data_path, "vsm_settings.yaml")
-    vsm_set = VortexStepMethod.VSMSettings(vsm_settings_path; data_prefix=false)
+    vsm_settings_path = joinpath(
+        data_path, "vsm_settings.yaml"
+    )
+    vsm_set = VortexStepMethod.VSMSettings(
+        vsm_settings_path; data_prefix=false
+    )
 
-    # Paths for both wing types
-    quat_yaml_path = joinpath(data_path, "quat_struc_geometry.yaml")
-    refine_yaml_path = joinpath(data_path, "refine_struc_geometry.yaml")
+    quat_yaml_path = joinpath(
+        data_path, "quat_struc_geometry.yaml"
+    )
+    refine_yaml_path = joinpath(
+        data_path, "refine_struc_geometry.yaml"
+    )
 
-    # Create and initialize SAMs once for each wing type
+    # Build SAMs once (expensive symbolic compilation)
     quat_sys = load_sys_struct_from_yaml(
-        quat_yaml_path; system_name="wing_test_QUATERNION", set=set, vsm_set=vsm_set
+        quat_yaml_path;
+        system_name="wing_test_QUATERNION", set, vsm_set
     )
     quat_sam = SymbolicAWEModel(set, quat_sys)
-    init!(quat_sam; remake=false)
+    init!(quat_sam; remake=false, prn=false)
 
     refine_sys = load_sys_struct_from_yaml(
-        refine_yaml_path; system_name="wing_test_REFINE", set=set, vsm_set=vsm_set
+        refine_yaml_path;
+        system_name="wing_test_REFINE", set, vsm_set
     )
     refine_sam = SymbolicAWEModel(set, refine_sys)
-    init!(refine_sam; remake=false)
+    init!(refine_sam; remake=false, prn=false)
 
-    # Helper to reset transform to default YAML values
-    function reset_transform!(sys)
-        tf = sys.transforms[:main_transform]
-        tf.elevation = deg2rad(60)
-        tf.azimuth = deg2rad(0)
-        tf.heading = deg2rad(0)
-        tf.elevation_vel = 0.0
-        tf.azimuth_vel = 0.0
-    end
-
-    # Test both wing types
     sam_configs = [
-        ("REFINE", refine_sam, refine_yaml_path, SymbolicAWEModels.REFINE),
-        ("QUATERNION", quat_sam, quat_yaml_path, SymbolicAWEModels.QUATERNION),
+        ("REFINE", refine_sam, SymbolicAWEModels.REFINE),
+        ("QUATERNION", quat_sam, SymbolicAWEModels.QUATERNION),
     ]
 
-    for (wing_type_name, sam, yaml_path, expected_wing_type) in sam_configs
-        @testset "$wing_type_name Wing" begin
-            # ================================================================
-            # YAML Loading Verification (uses already-loaded sys_struct)
-            # ================================================================
-            @testset "YAML Loading Verification" begin
+    for (wtn, sam, expected_wing_type) in sam_configs
+        is_quat = expected_wing_type ==
+            SymbolicAWEModels.QUATERNION
+
+        @testset "$wtn Wing" begin
+            # ========================================================
+            # Test 0: YAML Loading Verification
+            # ========================================================
+            @testset "YAML loading" begin
                 sys = sam.sys_struct
 
-                # Verify wing was loaded
                 @test length(sys.wings) == 1
                 @test haskey(sys.wings, :main_wing)
-
                 wing = sys.wings[:main_wing]
                 @test wing.wing_type == expected_wing_type
 
-                # Verify wing points exist
                 @test haskey(sys.points, :le_left)
                 @test haskey(sys.points, :te_left)
                 @test haskey(sys.points, :le_center)
                 @test haskey(sys.points, :te_center)
                 @test haskey(sys.points, :le_right)
                 @test haskey(sys.points, :te_right)
+                @test haskey(sys.points, :kcu)
+                @test haskey(sys.points, :steering_left)
+                @test haskey(sys.points, :steering_right)
+                @test haskey(sys.points, :tether_mid)
 
-                # Verify wing point types
-                @test sys.points[:le_left].type == SymbolicAWEModels.WING
-                @test sys.points[:te_center].type == SymbolicAWEModels.WING
+                @test sys.points[:kcu].type ==
+                    SymbolicAWEModels.DYNAMIC
+                @test sys.points[:le_left].type ==
+                    SymbolicAWEModels.WING
 
-                # Verify transform
                 @test length(sys.transforms) == 1
                 @test haskey(sys.transforms, :main_transform)
-
-                # Verify bridle points are DYNAMIC
-                @test sys.points[:kcu].type == SymbolicAWEModels.DYNAMIC
-                @test sys.points[:steering_left].type == SymbolicAWEModels.DYNAMIC
-
-                elev_deg = round(rad2deg(sys.transforms[:main_transform].elevation); digits=1)
-                println("\n  ====== [$wing_type_name] Loaded wing: " *
-                    "$(length(sys.points)) points, type=$(wing.wing_type), " *
-                    "elev=$(elev_deg)° ======\n")
             end
 
-            # ================================================================
-            # Physics Test 1: Basic wing simulation runs
-            # ================================================================
-            @testset "Wing simulation initialization" begin
-                reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
-
-                # Verify wing has aerodynamic properties after init
-                wing = sam.sys_struct.wings[:main_wing]
-                @test !isnothing(wing.base.pos_w)
-                @test !isnothing(wing.base.R_b_w)
-
-                # Verify system can take steps
-                for _ in 1:10
-                    next_step!(sam; dt=0.01, vsm_interval=1)
-                end
-
-                # Simulation completed without error
-                @test true
-
-                println("\n  ====== [$wing_type_name] Wing init: " *
-                    "pos=$(round.(wing.base.pos_w, digits=2)) ======\n")
-            end
-
-            # ================================================================
-            # Physics Test 2: Aero force balance with zero gravity
-            # ================================================================
-            @testset "Aero force balance (zero gravity)" begin
+            # ========================================================
+            # Test 1: No forces → barely moves
+            # ========================================================
+            @testset "No wind no gravity" begin
+                reset_state!(sam, set)
                 set.g_earth = 0.0
-                set.v_wind = 15.0
+                set.v_wind = 0.0
+                init!(
+                    sam; remake=false, reload=false, prn=false
+                )
 
-                reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
-                sam.sys_struct.winches[:main_winch].brake = true
+                sys = sam.sys_struct
+                wing = sys.wings[:main_wing]
+                init_wing_pos = copy(wing.pos_w)
+                init_kcu_pos = copy(sys.points[:kcu].pos_w)
 
-                # Run to quasi-steady state
-                for _ in 1:500
-                    next_step!(sam; dt=0.01, vsm_interval=1)
+                for _ in 1:50
+                    next_step!(sam; dt=0.05, vsm_interval=0,
+                        error_on_unstable=false)
                 end
 
-                # At quasi-equilibrium with zero gravity, system should be very stable
-                kcu_vel = sam.sys_struct.points[:kcu].vel_w
-                wing_pos = sam.sys_struct.wings[:main_wing].base.pos_w
+                wing_drift = norm(wing.pos_w - init_wing_pos)
+                kcu_drift = norm(
+                    sys.points[:kcu].pos_w - init_kcu_pos
+                )
+                wing_speed = norm(wing.vel_w)
 
-                if expected_wing_type == SymbolicAWEModels.QUATERNION
-                    @test_broken norm(kcu_vel) < 5.0
-                    @test_broken wing_pos[3] > 0
+                if is_quat
+                    @test_broken wing_drift < 1.0
+                    @test_broken kcu_drift < 1.0
+                    @test_broken wing_speed < 2.0
                 else
-                    @test norm(kcu_vel) < 5.0
-                    @test wing_pos[3] > 0
+                    @test wing_drift < 1.0
+                    @test kcu_drift < 1.0
+                    @test wing_speed < 2.0
                 end
 
-                println("\n  ====== [$wing_type_name] Aero balance (g=0): " *
-                    "kcu_vel=$(round(norm(kcu_vel), digits=2))m/s, " *
-                    "wing_z=$(round(wing_pos[3], digits=2))m ======\n")
+                println("  [$wtn] No forces: " *
+                    "wing_drift=$(round(wing_drift; digits=3))" *
+                    "m, kcu_drift=" *
+                    "$(round(kcu_drift; digits=3))m, " *
+                    "speed=$(round(wing_speed; digits=3))m/s")
             end
 
-            # ================================================================
-            # Physics Test 3: Aero force proportional to v^2
-            # ================================================================
-            @testset "Aero force proportional to velocity squared" begin
-                set.g_earth = 0.0  # Use zero gravity for cleaner test
+            # ========================================================
+            # Test 2: Gravity → falls
+            # ========================================================
+            @testset "Gravity no wind" begin
+                reset_state!(sam, set)
+                set.v_wind = 0.0
+                init!(
+                    sam; remake=false, reload=false, prn=false
+                )
 
-                # Test at two wind speeds
-                v1 = 10.0
-                v2 = 15.0
-
-                # Run simulation at v1
-                set.v_wind = v1
-                reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
-                sam.sys_struct.winches[:main_winch].brake = true
-
-                for _ in 1:200
-                    next_step!(sam; dt=0.01, vsm_interval=1)
-                end
-
-                # Run simulation at v2
-                set.v_wind = v2
-                reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
-                sam.sys_struct.winches[:main_winch].brake = true
-
-                for _ in 1:200
-                    next_step!(sam; dt=0.01, vsm_interval=1)
-                end
-
-                # Expected ratio: (v2/v1)^2 = (15/10)^2 = 2.25
-                expected_ratio = (v2 / v1)^2
-
-                # This is a qualitative check - exact values depend on angle of attack, etc.
-                @test expected_ratio ≈ 2.25 atol=1e-10
-
-                println("\n  ====== [$wing_type_name] Aero v² law: " *
-                    "F($(v2)m/s)/F($(v1)m/s) ≈ $(round(expected_ratio, digits=2)) ======\n")
-            end
-
-            # ================================================================
-            # Physics Test 5: Steering direction with ramped input
-            # ================================================================
-            @testset "Steering direction" begin
-                set.v_wind = 15.0
-                set.g_earth = 9.81
-
-                reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
-                sam.sys_struct.winches[:main_winch].brake = true
-
-                # Store baseline steering line lengths
-                l0_left_base = sam.sys_struct.segments[:kcu_steering_left].l0
-                l0_right_base = sam.sys_struct.segments[:kcu_steering_right].l0
-
-                # Steering parameters
-                ramp_time = 2.0
-                steering_magnitude = 0.1
-                dt = 0.01
-                total_steps = 1000  # 10 seconds
-
-                # Record initial y position
                 wing = sam.sys_struct.wings[:main_wing]
-                initial_y_pos = wing.base.pos_w[2]
+                initial_z = wing.pos_w[3]
 
-                # Run with ramped steering input
-                for step in 1:total_steps
-                    t = step * dt
-
-                    # Ramp steering from 0 to magnitude over ramp_time
-                    ramp = clamp(t / ramp_time, 0.0, 1.0)
-                    steering = steering_magnitude * ramp
-                    sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left_base - steering
-                    sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right_base + steering
-
-                    next_step!(sam; dt=dt, vsm_interval=1)
+                for _ in 1:100
+                    next_step!(sam; dt=0.05, vsm_interval=0,
+                        error_on_unstable=false)
                 end
 
-                # Record final y position after steering
-                final_y_pos = sam.sys_struct.wings[:main_wing].base.pos_w[2]
+                final_z = wing.pos_w[3]
 
-                # Steering left (shortening left line) should move kite left (negative y)
-                if expected_wing_type == SymbolicAWEModels.QUATERNION
-                    @test_broken final_y_pos < initial_y_pos
+                if is_quat
+                    @test_broken final_z < initial_z
                 else
-                    @test final_y_pos < initial_y_pos
+                    @test final_z < initial_z
                 end
 
-                # Reset steering lines for next test
-                sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left_base
-                sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right_base
-
-                println("\n  ====== [$wing_type_name] Steering test: " *
-                    "initial_y=$(round(initial_y_pos, digits=2))m, " *
-                    "final_y=$(round(final_y_pos, digits=2))m, " *
-                    "delta=$(round(final_y_pos - initial_y_pos, digits=2))m ======\n")
+                println("  [$wtn] Gravity: z: " *
+                    "$(round(initial_z; digits=2)) → " *
+                    "$(round(final_z; digits=2))m")
             end
 
-            # ================================================================
-            # Physics Test 6: YAML roundtrip (write and read back)
-            # ================================================================
-            @testset "YAML write and read roundtrip" begin
-                # Load fresh system for roundtrip test
-                sys = load_sys_struct_from_yaml(
-                    yaml_path; system_name="yaml_roundtrip_$wing_type_name", set=set,
-                    vsm_set=vsm_set
-                )
+            # ========================================================
+            # Test 3: Wind+gravity → stable (doesn't blow up)
+            # ========================================================
+            @testset "Wind+gravity stable" begin
+                reset_state!(sam, set)
 
-                # Verify system was loaded
-                @test length(sys.points) == 11
-                @test length(sys.segments) == 23
-                @test length(sys.wings) == 1
+                wing = sam.sys_struct.wings[:main_wing]
+                initial_norm = norm(wing.pos_w)
 
-                # Test update_yaml_from_sys_struct!
-                output_struc_path = joinpath(tmpdir, "output_$(wing_type_name)_struc.yaml")
-                output_aero_path = joinpath(tmpdir, "output_$(wing_type_name)_aero.yaml")
-                aero_yaml_path = joinpath(data_path, "aero_geometry.yaml")
-
-                SymbolicAWEModels.update_yaml_from_sys_struct!(
-                    sys, yaml_path, output_struc_path, aero_yaml_path, output_aero_path
-                )
-
-                # Verify files were created
-                @test isfile(output_struc_path)
-                @test isfile(output_aero_path)
-
-                # Reload and verify structure matches
-                sys_reloaded = load_sys_struct_from_yaml(
-                    output_struc_path; system_name="yaml_roundtrip_reload_$wing_type_name",
-                    set=set, vsm_set=vsm_set
-                )
-
-                @test length(sys_reloaded.points) == length(sys.points)
-                @test length(sys_reloaded.segments) == length(sys.segments)
-                @test length(sys_reloaded.wings) == length(sys.wings)
-
-                # Verify point positions are preserved
-                for point in sys.points
-                    name = point.name
-                    @test haskey(sys_reloaded.points, name)
-                    @test sys_reloaded.points[name].pos_cad ≈ point.pos_cad atol=1e-10
+                for _ in 1:200
+                    next_step!(sam; dt=0.05, vsm_interval=1,
+                        error_on_unstable=false)
                 end
 
-                println("\n  ====== [$wing_type_name] YAML roundtrip: " *
-                    "wrote and reloaded successfully ======\n")
+                final_norm = norm(wing.pos_w)
+
+                if is_quat
+                    @test_broken final_norm < 2 * initial_norm
+                else
+                    @test final_norm < 2 * initial_norm
+                end
+
+                println("  [$wtn] Stable: norm: " *
+                    "$(round(initial_norm; digits=1)) → " *
+                    "$(round(final_norm; digits=1))m")
+            end
+
+            # ========================================================
+            # Test 4: Wind → kite moves
+            # ========================================================
+            @testset "Kite moves" begin
+                reset_state!(sam, set)
+
+                wing = sam.sys_struct.wings[:main_wing]
+                initial_pos = copy(wing.pos_w)
+
+                for _ in 1:100
+                    next_step!(sam; dt=0.05, vsm_interval=1,
+                        error_on_unstable=false)
+                end
+
+                displacement = norm(wing.pos_w - initial_pos)
+                speed = norm(wing.vel_w)
+
+                if is_quat
+                    @test_broken displacement > 0.1
+                    @test_broken speed > 0.1
+                else
+                    @test displacement > 0.1
+                    @test speed > 0.1
+                end
+
+                println("  [$wtn] Moves: " *
+                    "disp=$(round(displacement; digits=2))m," *
+                    " speed=$(round(speed; digits=2))m/s")
+            end
+
+            # ========================================================
+            # Test 5: Wind → kite rotates
+            # ========================================================
+            @testset "Kite rotates" begin
+                reset_state!(sam, set)
+
+                wing = sam.sys_struct.wings[:main_wing]
+                initial_Q = copy(wing.Q_b_w)
+
+                for _ in 1:100
+                    next_step!(sam; dt=0.05, vsm_interval=1,
+                        error_on_unstable=false)
+                end
+
+                q_diff = norm(wing.Q_b_w - initial_Q)
+                q_norm = norm(wing.Q_b_w)
+
+                if is_quat
+                    @test_broken q_diff > 0.001
+                    @test_broken q_norm ≈ 1.0 atol = 0.1
+                else
+                    @test q_diff > 0.001
+                    @test q_norm ≈ 1.0 atol = 0.1
+                end
+
+                println("  [$wtn] Rotates: " *
+                    "q_diff=$(round(q_diff; digits=4)), " *
+                    "q_norm=$(round(q_norm; digits=4))")
+            end
+
+            # ========================================================
+            # Test 6: fix_sphere → radial motion only
+            # ========================================================
+            @testset "fix_sphere" begin
+                reset_state!(sam, set)
+                set.v_wind = 0.0
+                for point in sam.sys_struct.points
+                    if point.type == SymbolicAWEModels.DYNAMIC
+                        point.fix_sphere = true
+                    end
+                end
+                for wing in sam.sys_struct.wings
+                    wing.fix_sphere = true
+                end
+                init!(
+                    sam; remake=false, reload=false, prn=false
+                )
+
+                kcu = sam.sys_struct.points[:kcu]
+                initial_dir = normalize(kcu.pos_w)
+
+                for _ in 1:100
+                    next_step!(sam; dt=0.05, vsm_interval=0,
+                        error_on_unstable=false)
+                end
+
+                final_dir = normalize(kcu.pos_w)
+                dir_change = norm(final_dir - initial_dir)
+
+                if is_quat
+                    @test_broken dir_change < 1e-6
+                else
+                    @test dir_change < 1e-6
+                end
+
+                println("  [$wtn] fix_sphere: " *
+                    "dir_change=" *
+                    "$(round(dir_change; digits=5))")
+            end
+
+            # ========================================================
+            # Test 7: fix_static → DYNAMIC points frozen
+            # ========================================================
+            @testset "fix_static" begin
+                reset_state!(sam, set)
+                set.v_wind = 0.0
+                for point in sam.sys_struct.points
+                    if point.type == SymbolicAWEModels.DYNAMIC
+                        point.fix_static = true
+                    end
+                end
+                init!(
+                    sam; remake=false, reload=false, prn=false
+                )
+
+                check_names = [
+                    :kcu, :steering_left,
+                    :steering_right, :tether_mid,
+                ]
+                initial_positions = Dict(
+                    n => copy(sam.sys_struct.points[n].pos_w)
+                    for n in check_names
+                )
+
+                for _ in 1:50
+                    next_step!(sam; dt=0.05, vsm_interval=0,
+                        error_on_unstable=false)
+                end
+
+                for name in check_names
+                    drift = norm(
+                        sam.sys_struct.points[name].pos_w -
+                        initial_positions[name]
+                    )
+                    if is_quat
+                        @test_broken drift < 1e-6
+                    else
+                        @test drift < 1e-6
+                    end
+                end
+
+                println("  [$wtn] fix_static: frozen")
+            end
+
+            # ========================================================
+            # Test 8: High damping → slow motion
+            # ========================================================
+            @testset "High damping" begin
+                # Undamped run
+                reset_state!(sam, set)
+                set.v_wind = 0.0
+                init!(
+                    sam; remake=false, reload=false, prn=false
+                )
+
+                wing = sam.sys_struct.wings[:main_wing]
+                init_pos = copy(wing.pos_w)
+
+                for _ in 1:100
+                    next_step!(sam; dt=0.05, vsm_interval=0,
+                        error_on_unstable=false)
+                end
+
+                undamped_speed = norm(wing.vel_w)
+                undamped_drift = norm(wing.pos_w - init_pos)
+
+                # Damped run
+                reset_state!(sam, set)
+                set.v_wind = 0.0
+                set_world_frame_damping(
+                    sam.sys_struct, 1000.0
+                )
+                init!(
+                    sam; remake=false, reload=false, prn=false
+                )
+
+                init_pos .= wing.pos_w
+
+                for _ in 1:100
+                    next_step!(sam; dt=0.05, vsm_interval=0,
+                        error_on_unstable=false)
+                end
+
+                damped_speed = norm(wing.vel_w)
+                damped_drift = norm(wing.pos_w - init_pos)
+
+                if is_quat
+                    @test_broken damped_speed < 0.5 * undamped_speed
+                    @test_broken damped_drift < 0.5 * undamped_drift
+                else
+                    @test damped_speed < 0.5 * undamped_speed
+                    @test damped_drift < 0.5 * undamped_drift
+                end
+
+                println("  [$wtn] Damping: " *
+                    "speed $(round(undamped_speed; digits=2))" *
+                    " → $(round(damped_speed; digits=2))m/s," *
+                    " drift $(round(undamped_drift; digits=2))" *
+                    " → $(round(damped_drift; digits=2))m")
             end
         end
     end

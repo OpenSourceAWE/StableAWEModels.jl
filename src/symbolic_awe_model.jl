@@ -457,13 +457,15 @@ Take a simulation step, using the provided integrator.
 
 This is a convenience method that calls the main `next_step!` function.
 """
-function next_step!(s::SymbolicAWEModel, integrator::OrdinaryDiffEqCore.ODEIntegrator; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
+function next_step!(s::SymbolicAWEModel, integrator::OrdinaryDiffEqCore.ODEIntegrator;
+    set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1, error_on_unstable=true
+)
     !(s.integrator === integrator) && error("The ODEIntegrator doesn't belong to the SymbolicAWEModel")
-    next_step!(s; set_values=set_values, dt=dt, vsm_interval=vsm_interval)
+    next_step!(s; set_values, dt, vsm_interval, error_on_unstable)
 end
 
 """
-    next_step!(s::SymbolicAWEModel; set_values, dt, vsm_interval)
+    next_step!(s::SymbolicAWEModel; set_values, dt, vsm_interval, error_on_unstable)
 
 Take a simulation step forward in time.
 
@@ -478,22 +480,28 @@ with the new state from the ODE integrator.
 - `set_values=nothing`: New values for the control inputs. If `nothing`, the current values are used.
 - `dt=1/s.set.sample_freq`: Time step size [s].
 - `vsm_interval=1`: The interval (in steps) to re-linearize the VSM model. If 0, it is not re-linearized.
+- `error_on_unstable=true`: If `true`, throw an error when the solver returns an unstable retcode.
 """
-function next_step!(sam::SymbolicAWEModel; set_values=nothing, dt=1/sam.set.sample_freq, vsm_interval=1)
+function next_step!(sam::SymbolicAWEModel;
+    set_values=nothing, dt=1/sam.set.sample_freq, vsm_interval=1, error_on_unstable=true
+)
     prob = sam.prob
-    if (isnothing(set_values)) 
+    if (isnothing(set_values))
         set_values = [winch.set_value for winch in sam.sys_struct.winches]
     end
     if !isnothing(prob.set_set_values)
         prob.set_set_values(sam.integrator, set_values)
     end
-    
+
     sam.t_0 = sam.integrator.t
     sam.t_step = @elapsed OrdinaryDiffEqCore.step!(sam.integrator, dt, true)
     if !successful_retcode(sam.integrator.sol)
         @warn "Return code for solution: $(sam.integrator.sol.retcode)"
+        if error_on_unstable
+            error("Solver returned unstable retcode: $(sam.integrator.sol.retcode)")
+        end
+        return nothing
     end
-    @assert successful_retcode(sam.integrator.sol)
     sam.iter += 1
     update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
     if vsm_interval != 0 && sam.iter % vsm_interval == 0
