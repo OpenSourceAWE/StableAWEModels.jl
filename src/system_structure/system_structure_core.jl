@@ -402,6 +402,25 @@ function assign_indices_and_resolve!(
             tether_names, winch_names, wing_names, transform_names)
 end
 
+"""
+    calc_inertia_y_rotation(I_tensor)
+
+Find the Y-axis rotation that diagonalizes the XZ block
+of the inertia tensor (zeros out `I[1,3]` and `I[3,1]`).
+
+Returns `(I_diag, Ry)` where `I_diag = Ry * I_tensor * Ry'`
+and `Ry` is a rotation about the Y axis by angle
+`θ = atan(2·I₁₃, I₁₁ − I₃₃) / 2`.
+"""
+function calc_inertia_y_rotation(I_tensor)
+    θ = atan(2 * I_tensor[1, 3],
+             I_tensor[1, 1] - I_tensor[3, 3]) / 2
+    cθ, sθ = cos(θ), sin(θ)
+    Ry = [cθ 0 sθ; 0 1 0; -sθ 0 cθ]
+    I_diag = Ry * I_tensor * Ry'
+    return I_diag, Ry
+end
+
 # ==================== CONSTRUCTOR ==================== #
 
 """
@@ -514,9 +533,115 @@ function SystemStructure(name, set;
             end
         end
     end
+    # Compute body frame (COM + principal axes) and
+    # transform VSM panels from CAD → body frame.
+    # QUATERNION: COM from point masses, Y-axis rotation
+    #   to diagonalize inertia tensor.
+    # REFINE: origin from origin_idx, R_b_c from
+    #   z/y_ref_points (no inertia needed).
+    for wing in wings
+        isa(wing, VSMWing) || continue
+        vsm_wing = wing.vsm_wing
+
+        if wing.wing_type == QUATERNION
+            wing_pts = [p for p in points
+                if p.type == WING &&
+                   p.wing_idx == wing.idx]
+            isempty(wing_pts) && continue
+
+            masses = [p.extra_mass for p in wing_pts]
+            total_m = sum(masses)
+            com = if total_m > 0
+                sum(masses[j] .* wing_pts[j].pos_cad
+                    for j in eachindex(wing_pts)) /
+                    total_m
+            else
+                mean([p.pos_cad for p in wing_pts])
+            end
+
+            wing.pos_cad .= com
+
+            # Inertia tensor about COM in CAD frame
+            if total_m > 0
+                I_cad = zeros(3, 3)
+                for (m, p) in zip(masses, wing_pts)
+                    r = p.pos_cad - com
+                    I_cad += m * (dot(r, r) * I(3) -
+                                  r * r')
+                end
+                I_diag, Ry = calc_inertia_y_rotation(I_cad)
+                wing.R_b_c .= Ry
+                wing.inertia_principal .= diag(I_diag)
+            end
+
+            # Transform VSM sections: CAD → body
+            vsm_wing.T_cad_body .= com
+            adjust_vsm_panels_to_origin!(vsm_wing, com)
+            rotate_vsm_sections!(vsm_wing, wing.R_b_c)
+            VortexStepMethod.reinit!(wing.vsm_aero)
+            vsm_wing.R_cad_body .= wing.R_b_c
+            apply_aero_z_offset!(
+                vsm_wing, wing.aero_z_offset)
+
+            if prn
+                I_rnd = round.(wing.inertia_principal;
+                               digits=4)
+                θ_deg = round(rad2deg(
+                    asin(wing.R_b_c[3, 1])); digits=2)
+                @info "QUATERNION wing $(wing.idx):" *
+                    " COM=[$(round.(com; digits=3))]" *
+                    ", I=$I_rnd" *
+                    ", R_b_c Y-rot=$(θ_deg)°"
+            end
+
+        elseif wing.wing_type == REFINE
+            # Body frame from structural ref points.
+            # Points are in CAD frame at construction
+            # time (pos_w = pos_cad before transforms).
+            if !isnothing(wing.origin_idx) &&
+               !isnothing(wing.z_ref_points) &&
+               !isnothing(wing.y_ref_points)
+                origin_pos = points[
+                    wing.origin_idx].pos_cad
+                wing.pos_cad .= origin_pos
+
+                # Temporarily set pos_w = pos_cad so
+                # calc_refine_wing_frame can read them
+                for p in points
+                    p.type == WING &&
+                        p.wing_idx == wing.idx &&
+                        (p.pos_w .= p.pos_cad)
+                end
+                R_b_c, _ = calc_refine_wing_frame(
+                    points, wing.z_ref_points,
+                    wing.y_ref_points,
+                    wing.origin_idx)
+                wing.R_b_c .= R_b_c
+
+                # Transform VSM sections: CAD → body
+                vsm_wing.T_cad_body .= origin_pos
+                adjust_vsm_panels_to_origin!(
+                    vsm_wing, origin_pos)
+                rotate_vsm_sections!(
+                    vsm_wing, wing.R_b_c)
+                VortexStepMethod.reinit!(wing.vsm_aero)
+                vsm_wing.R_cad_body .= wing.R_b_c
+
+                if prn
+                    o = round.(origin_pos; digits=3)
+                    @info "REFINE wing " *
+                        "$(wing.idx): origin=[$o]"
+                end
+            end
+        end
+    end
+
     # Auto-create groups for QUATERNION wings if needed (before geometry initialization)
+    # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
     for (i, wing) in enumerate(wings)
-        if wing.wing_type == QUATERNION && isempty(wing.group_idxs)
+        if wing.wing_type == QUATERNION &&
+           isempty(wing.group_idxs) &&
+           wing.aero_mode != AERO_NONE
             # Get WING-type points for this wing
             wing_point_idxs = findall(
                 p -> p.type == WING && p.wing_idx == wing.idx, points)
@@ -527,19 +652,7 @@ function SystemStructure(name, set;
 
             # Create a group for each section (LE/TE pair)
             # n_groups = n_unrefined_sections (one group per section)
-            vsm_wing = wing.vsm_wing
             new_group_idxs = Int64[]
-
-            # For YAML wings (no interpolators), calculate COM from WING points
-            has_interpolators = !isnothing(vsm_wing.le_interp)
-            if !has_interpolators && !isempty(wing_points)
-                calculated_com = mean([p.pos_cad for p in wing_points])
-                wing.pos_cad .= calculated_com
-                wing.vsm_wing.T_cad_body .= calculated_com
-                adjust_vsm_panels_to_origin!(vsm_wing, calculated_com)
-                # Apply aero_z_offset after COM adjustment
-                apply_aero_z_offset!(vsm_wing, wing.aero_z_offset)
-            end
 
             for (le_idx, te_idx) in wing_segments
                 group_idx = length(groups) + 1
@@ -569,12 +682,7 @@ function SystemStructure(name, set;
             wing.vsm_jac = zeros(SimFloat, nx, ny)
 
             prn && @info "Auto-created $(length(new_group_idxs)) groups " *
-                  "for QUATERNION wing $(wing.idx)" *
-                  (!has_interpolators && !isempty(wing_points) ?
-                   " (COM from WING points: " *
-                   "[$(round(wing.pos_cad[1], digits=2)), " *
-                   "$(round(wing.pos_cad[2], digits=2)), " *
-                   "$(round(wing.pos_cad[3], digits=2))])" : "")
+                  "for QUATERNION wing $(wing.idx)"
         end
     end
 
@@ -655,24 +763,35 @@ function SystemStructure(name, set;
                     end
                     center ./= length(group.point_idxs)
 
-                    # Find closest panel
+                    # Find closest panel (panels are in CAD
+                    # frame; transform to body for comparison)
                     panels = wing.vsm_aero.panels
+                    R = wing.R_b_c
+                    com = wing.pos_cad
                     min_dist = Inf
                     closest_panel = panels[1]
                     for panel in panels
-                        panel_center = (panel.LE_point_1 + panel.LE_point_2 +
-                                        panel.TE_point_1 + panel.TE_point_2) / 4
-                        dist = norm(center - panel_center)
+                        pc = (panel.LE_point_1 +
+                              panel.LE_point_2 +
+                              panel.TE_point_1 +
+                              panel.TE_point_2) / 4
+                        pc_b = R' * (pc - com)
+                        dist = norm(center - pc_b)
                         if dist < min_dist
                             min_dist = dist
                             closest_panel = panel
                         end
                     end
 
-                    # Use panel geometry
-                    group.le_pos .= (closest_panel.LE_point_1 + closest_panel.LE_point_2) / 2
-                    group.chord .= closest_panel.x_airf * closest_panel.chord
-                    group.y_airf .= closest_panel.y_airf
+                    # Panel geometry → body frame
+                    le_cad = (closest_panel.LE_point_1 +
+                        closest_panel.LE_point_2) / 2
+                    group.le_pos .= R' * (le_cad - com)
+                    group.chord .= R' *
+                        (closest_panel.x_airf *
+                         closest_panel.chord)
+                    group.y_airf .= R' *
+                        closest_panel.y_airf
 
                     break
                 end

@@ -657,17 +657,17 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         end
                     ))
             else  # QUATERNION
-                # QUATERNION wings don't use REFINE-specific fields
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
                     [:transform, :y_damping, :angular_damping,
                      :wing_type, :aero_mode, :aero_scale_chord,
-                     :aero_z_offset];
+                     :aero_z_offset, :pos_cad];
                     mappings=Dict(
                         :set => r -> set,
                         :aero_mode => r -> am,
-                        :groups => r -> hasfield(typeof(r), :groups) && !isnothing(r.groups) ?
+                        :groups => r -> hasfield(typeof(r), :groups) &&
+                            !isnothing(r.groups) ?
                             [to_ref(g) for g in r.groups] : [],
                         :vsm_set => r -> vsm_set,
                         :wing_type => r -> wt,
@@ -675,18 +675,27 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             if haskey(r, :name) && !isnothing(r.name)
                                 Symbol(r.name)
                             else
-                                i  # Use index as name if no name provided
+                                i
                             end
                         end,
                         :transform => r -> begin
-                            if hasfield(typeof(r), :transform_idx) && !isnothing(r.transform_idx)
+                            if hasfield(typeof(r), :transform_idx) &&
+                               !isnothing(r.transform_idx)
                                 to_ref(r.transform_idx)
                             else
-                                nothing  # Constructor handles default
+                                nothing
                             end
                         end,
+                        :pos_cad => r -> begin
+                            if !hasfield(typeof(r), :pos_cad) ||
+                               r.pos_cad === nothing
+                                return nothing
+                            end
+                            KVec3(r.pos_cad...)
+                        end,
                         :aero_scale_chord => r ->
-                            hasfield(typeof(r), :aero_scale_chord) && !isnothing(r.aero_scale_chord) ?
+                            hasfield(typeof(r), :aero_scale_chord) &&
+                            !isnothing(r.aero_scale_chord) ?
                                 float(r.aero_scale_chord) : 0.0
                     ))
             end

@@ -174,8 +174,11 @@ function validate_sys_struct(sys_struct::SystemStructure)
             end
 
             # Warn if QUATERNION wing has no groups
-            if isempty(wing.group_idxs)
-                @warn "Wing $(wing.name) (QUATERNION) has no groups"
+            # (expected for AERO_NONE which skips auto-group creation)
+            if isempty(wing.group_idxs) &&
+               wing.aero_mode != AERO_NONE
+                @warn "Wing $(wing.name) (QUATERNION)" *
+                    " has no groups"
             end
         end
 
@@ -291,7 +294,8 @@ Pulley lengths are initialized proportionally based on current segment lengths:
   For REFINE wings, also rebuilds the point_to_vsm_point mapping.
 """
 function reinit!(sys_struct::SystemStructure, set::Settings;
-                 ignore_l0::Bool=false, remake_vsm::Bool=false)
+                 ignore_l0::Bool=false, remake_vsm::Bool=false,
+                 reset_vel::Bool=true)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     for winch in winches
@@ -348,7 +352,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     wind_vec_rotated = rotate_around_z(wind_vec_elevated, -upwind_dir)
     sys_struct.wind_vec_gnd .= max(wind_scale_gnd, 1e-6) * wind_vec_rotated
 
-    reinit!(transforms, sys_struct)
+    reinit!(transforms, sys_struct;
+            update_vel=reset_vel)
 
     # Recreate VSM wing and aero if requested
     if remake_vsm

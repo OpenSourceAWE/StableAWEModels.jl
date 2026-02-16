@@ -364,7 +364,8 @@ function init!(sam::SymbolicAWEModel;
     create_control_func::Bool=false,
     lin_vsm::Bool=true,
     ignore_l0::Bool=false,
-    remake_vsm::Bool=true
+    remake_vsm::Bool=true,
+    reset_vel::Bool=true
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
     time = @elapsed begin
@@ -426,7 +427,20 @@ function init!(sam::SymbolicAWEModel;
             serialize(model_path, sam.serialized_model)
         end
 
-        reinit!(sam.sys_struct, sam.set; ignore_l0=ignore_l0, remake_vsm=remake_vsm)
+        reinit!(sam.sys_struct, sam.set;
+                ignore_l0, remake_vsm, reset_vel)
+        # When reset_vel=false, state-dependent u0 changed;
+        # force ODEProblem recreation to pick up new defaults.
+        if !reset_vel && !isnothing(sam.prob)
+            sam.prob = nothing
+            sam.simple_lin_model = nothing
+            changed = true
+            changed |= maybe_create_prob!(sam;
+                create_prob, prn)
+            changed |= maybe_create_simple_lin_model!(
+                sam, outputs;
+                create_simple_lin_model=create_prob, prn)
+        end
         create_prob && !isnothing(sam.prob) && reinit!(sam, sam.prob, solver; adaptive, reload, lin_vsm)
         create_lin_prob && !isnothing(sam.lin_prob) && reinit!(sam, sam.lin_prob)
     end

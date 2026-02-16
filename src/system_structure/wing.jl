@@ -335,17 +335,31 @@ function VSMWing(name, set::Settings,
             "REFINE wings cannot have groups"
         @assert !isnothing(origin)
             "REFINE wings require origin to define KCU position"
+        if !isnothing(pos_cad)
+            @warn "Wing '$name': pos_cad is unused for " *
+                "REFINE wings (position comes from " *
+                "origin point)"
+            pos_cad = nothing
+        end
     else
         @assert isnothing(point_to_vsm_point)
             "QUATERNION wings: no point_to_vsm_point"
         @assert isnothing(wing_segments)
             "QUATERNION wings: no wing_segments"
-        @assert isnothing(z_ref_points)
-            "QUATERNION wings: no z_ref_points"
-        @assert isnothing(y_ref_points)
-            "QUATERNION wings: no y_ref_points"
         @assert isnothing(origin)
             "QUATERNION wings don't use origin"
+        if !isnothing(z_ref_points)
+            @warn "Wing '$name': z_ref_points is unused" *
+                " for QUATERNION wings (orientation " *
+                "comes from quaternion state)"
+            z_ref_points = nothing
+        end
+        if !isnothing(y_ref_points)
+            @warn "Wing '$name': y_ref_points is unused" *
+                " for QUATERNION wings (orientation " *
+                "comes from quaternion state)"
+            y_ref_points = nothing
+        end
     end
 
     # Convert ref points to proper types
@@ -362,15 +376,12 @@ function VSMWing(name, set::Settings,
         solver_type=VortexStepMethod.NONLIN,
         atol=2e-8, rtol=2e-8)
 
-    # Set defaults from actual vsm_wing if not provided
-    if isnothing(R_b_c) || isnothing(pos_cad)
-        isnothing(R_b_c) && (R_b_c = vsm_wing.R_cad_body)
-        isnothing(pos_cad) && (pos_cad = vsm_wing.T_cad_body)
-    end
-
-    # Compute inertia
+    # Placeholders — overwritten by SystemStructure
+    # from point masses (QUATERNION) or ref points (REFINE)
+    isnothing(R_b_c) && (R_b_c = Matrix{SimFloat}(I, 3, 3))
+    isnothing(pos_cad) && (pos_cad = zeros(KVec3))
     inertia_vec = isnothing(inertia_diag) ?
-        wing_inertia_principal(vsm_wing) : inertia_diag
+        ones(MVector{3, SimFloat}) : inertia_diag
 
     base = BaseWing(name, groups, R_b_c, pos_cad,
                     inertia_vec; transform, y_damping,
@@ -427,8 +438,10 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
                  R_b_c::AbstractMatrix,
                  pos_cad::AbstractVector;
                  transform=nothing)
-    inertia_vec = wing_inertia_principal(vsm_wing)
-    base = BaseWing(name, groups, R_b_c, pos_cad, inertia_vec; transform)
+    # Placeholder inertia — overwritten by SystemStructure
+    inertia_vec = ones(MVector{3, SimFloat})
+    base = BaseWing(name, groups, R_b_c, pos_cad,
+                    inertia_vec; transform)
     # Use number of unrefined sections
     n_unrefined = vsm_wing.n_unrefined_sections
     ny = 3 + n_unrefined + 3  # va(3) + twist(n_unrefined) + ω(3)
@@ -472,20 +485,6 @@ end
 # ==================== HELPER FUNCTIONS ==================== #
 
 """
-    wing_inertia_principal(vsm_wing)
-
-Extract principal moments of inertia from a VortexStepMethod wing.
-Returns diagonal of inertia tensor if available, otherwise returns ones.
-"""
-function wing_inertia_principal(vsm_wing)
-    if hasproperty(vsm_wing, :inertia_tensor) && size(vsm_wing.inertia_tensor) == (3, 3)
-        diag_vals = diag(vsm_wing.inertia_tensor)
-        return MVector{3, SimFloat}(diag_vals)
-    end
-    return MVector{3, SimFloat}(ones(SimFloat, 3))
-end
-
-"""
     adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
 
 Adjust VSM panel positions when body frame origin changes.
@@ -511,6 +510,30 @@ function adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
     for section in vsm_wing.unrefined_sections
         section.LE_point .-= origin_offset
         section.TE_point .-= origin_offset
+    end
+end
+
+"""
+    rotate_vsm_sections!(vsm_wing, R)
+
+Rotate all VSM section LE/TE points by rotation matrix `R`.
+
+Used during initialization to transform sections from CAD
+frame to body frame. After the first step, `update_vsm!()`
+updates positions from `pos_b` (already in body frame).
+"""
+function rotate_vsm_sections!(vsm_wing, R)
+    for section in vsm_wing.refined_sections
+        section.LE_point .= R * section.LE_point
+        section.TE_point .= R * section.TE_point
+    end
+    for section in vsm_wing.non_deformed_sections
+        section.LE_point .= R * section.LE_point
+        section.TE_point .= R * section.TE_point
+    end
+    for section in vsm_wing.unrefined_sections
+        section.LE_point .= R * section.LE_point
+        section.TE_point .= R * section.TE_point
     end
 end
 

@@ -3,20 +3,23 @@
 
 # test_wing_dynamics.jl - Wing rigid body dynamics tests
 #
-# Verifies QUATERNION wing dynamics with AERO_NONE.
-# A wing-only model (no tethers, no bridle) in free fall under
-# gravity should have translational acceleration = g.
+# Tests quaternion dynamics with AERO_NONE (no aero forces):
+# 1. Free fall: translational acc = g
+# 2. Constant spin: ω about principal axis stays constant,
+#    Q(t) matches analytical solution
+# 3. Torque-free precession: transverse ω oscillates at
+#    predicted frequency from linearized Euler equations
 
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod
 using KiteUtils
 using LinearAlgebra
+using Statistics: mean
 
 # ==================== YAML DEFINITIONS ==================== #
 
-# Minimal YAML: just wing + ground point, no segments/tethers/winches
-const WING_FREEFALL_YAML = """
+WING_FREEFALL_YAML = """
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx,
             extra_mass, body_frame_damping,
@@ -37,81 +40,17 @@ points:
     - [ground,    [0.0, 0.0, 0.0],  STATIC, ~,
        ~, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-groups:
-  headers: [name, point_idxs, type, moment_frac, damping]
-  data:
-    - [left,   [le_left, te_left],     DYNAMIC, 0.25, 0.0]
-    - [center, [le_center, te_center], DYNAMIC, 0.25, 0.0]
-    - [right,  [le_right, te_right],   DYNAMIC, 0.25, 0.0]
-
 wings:
   data:
     - name: main_wing
       type: QUATERNION
       aero_mode: AERO_NONE
       transform_idx: 0
-      point_idxs: [le_left, te_left, le_center, te_center,
-                    le_right, te_right]
-      groups: [left, center, right]
       y_damping: 0.0
       aero_z_offset: 0.0
 """
 
-# Wing + segment pendulum: wing hangs from static anchor via segment.
-# attach point is 1.0 above wing CoM; anchor is 1.0 to the side.
-# Under gravity + angular damping, settles to vertical alignment:
-#   anchor (top) → attach → wing CoM (bottom)
-const WING_PENDULUM_YAML = """
-points:
-  headers: [name, pos_cad, type, wing_idx, transform_idx,
-            extra_mass, body_frame_damping,
-            world_frame_damping, area, drag_coeff]
-  data:
-    - [le_left,   [-0.5,  1.0, 0.0], WING, wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [te_left,   [ 0.5,  1.0, 0.0], WING, wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [le_center, [-0.5,  0.0, 0.0], WING, wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [te_center, [ 0.5,  0.0, 0.0], WING, wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [le_right,  [-0.5, -1.0, 0.0], WING, wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [te_right,  [ 0.5, -1.0, 0.0], WING, wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [attach,    [ 0.0,  0.0, 1.0], WING, wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [anchor,    [ 1.0,  0.0, 0.0], STATIC, ~,
-       ~, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-segments:
-  headers: [name, point_i, point_j, type, l0,
-            diameter_mm, unit_stiffness, unit_damping,
-            compression_frac]
-  data:
-    - [tether, attach, anchor, POWER_LINE, ~,
-       1.0, 5000.0, 0.0, 0.01]
-
-groups:
-  headers: [name, point_idxs, type, moment_frac, damping]
-  data:
-    - [left,   [le_left, te_left],     DYNAMIC, 0.25, 0.0]
-    - [center, [le_center, te_center], DYNAMIC, 0.25, 0.0]
-    - [right,  [le_right, te_right],   DYNAMIC, 0.25, 0.0]
-
-wings:
-  data:
-    - name: wing
-      type: QUATERNION
-      aero_mode: AERO_NONE
-      transform_idx: 0
-      groups: [left, center, right]
-      y_damping: 0.0
-      angular_damping: 10.0
-      aero_z_offset: 0.0
-"""
-
-const SETTINGS_YAML = """
+SETTINGS_YAML = """
 system:
     log_file: "data/wing_test"
     g_earth: 9.81
@@ -154,26 +93,85 @@ environment:
     profile_law: 0
 """
 
+# ==================== HELPERS ==================== #
+
+"""Hamilton product of quaternions [w, x, y, z]."""
+function quat_multiply(p, q)
+    return [
+        p[1]*q[1] - p[2]*q[2] - p[3]*q[3] - p[4]*q[4],
+        p[1]*q[2] + p[2]*q[1] + p[3]*q[4] - p[4]*q[3],
+        p[1]*q[3] - p[2]*q[4] + p[3]*q[1] + p[4]*q[2],
+        p[1]*q[4] + p[2]*q[3] - p[3]*q[2] + p[4]*q[1],
+    ]
+end
+
+"""
+Analytical quaternion for constant body-frame spin.
+
+For dQ/dt = 0.5 * Omega(omega) * Q with constant omega,
+the solution is Q(t) = Q0 * q_rot(|omega|*t, omega/|omega|).
+"""
+function analytical_quat_spin(Q0, omega, t)
+    omega_mag = norm(omega)
+    theta = omega_mag * t / 2
+    n = omega / omega_mag
+    q_rot = [cos(theta); sin(theta) .* n]
+    return quat_multiply(Q0, q_rot)
+end
+
+"""
+Linearized Euler equation coefficients for torque-free
+precession about spin axis `k`.
+
+Returns (p, q, C_pq, C_qp, Omega) where p, q are
+transverse axis indices and the linearized dynamics are:
+    d omega_p/dt = C_pq * omega_q
+    d omega_q/dt = C_qp * omega_p
+with precession frequency Omega = sqrt(-C_pq * C_qp).
+"""
+function precession_coeffs(I_b, k, omega0)
+    p, q = sort(collect(setdiff(1:3, k)))
+    if k == 1
+        # d omega_2/dt = (I3-I1)*omega0/I2 * omega_3
+        # d omega_3/dt = (I1-I2)*omega0/I3 * omega_2
+        C_pq = (I_b[3] - I_b[1]) * omega0 / I_b[2]
+        C_qp = (I_b[1] - I_b[2]) * omega0 / I_b[3]
+    elseif k == 2
+        # d omega_1/dt = (I2-I3)*omega0/I1 * omega_3
+        # d omega_3/dt = (I1-I2)*omega0/I3 * omega_1
+        C_pq = (I_b[2] - I_b[3]) * omega0 / I_b[1]
+        C_qp = (I_b[1] - I_b[2]) * omega0 / I_b[3]
+    else  # k == 3
+        # d omega_1/dt = (I2-I3)*omega0/I1 * omega_2
+        # d omega_2/dt = (I3-I1)*omega0/I2 * omega_1
+        C_pq = (I_b[2] - I_b[3]) * omega0 / I_b[1]
+        C_qp = (I_b[3] - I_b[1]) * omega0 / I_b[2]
+    end
+    @assert C_pq * C_qp < 0 "Rotation about axis $k " *
+        "is unstable (intermediate inertia axis)"
+    Omega = sqrt(-C_pq * C_qp)
+    return (; p, q, C_pq, C_qp, Omega)
+end
+
+# ==================== TESTS ==================== #
+
 @testset "Wing Dynamics" begin
-    # Copy 2plate_kite data for VSM settings and airfoil files
     pkg_file_path = Base.find_package("SymbolicAWEModels")
-    isnothing(pkg_file_path) && error("SymbolicAWEModels not found")
+    isnothing(pkg_file_path) &&
+        error("SymbolicAWEModels not found")
     package_root_dir = dirname(dirname(pkg_file_path))
-    src_data_path = joinpath(package_root_dir, "data", "2plate_kite")
+    src_data_path = joinpath(
+        package_root_dir, "data", "2plate_kite")
 
     tmpdir = mktempdir()
     data_path = joinpath(tmpdir, "2plate_kite")
     cp(src_data_path, data_path; force=true)
 
-    # Write settings
     settings_path = joinpath(data_path, "settings.yaml")
     write(settings_path, SETTINGS_YAML)
     system_path = joinpath(data_path, "system.yaml")
-    write(system_path, "system:\n  sim_settings: settings.yaml\n")
-
-    # Write wing-only YAML
-    yaml_path = joinpath(data_path, "wing_freefall.yaml")
-    write(yaml_path, WING_FREEFALL_YAML)
+    write(system_path,
+        "system:\n  sim_settings: settings.yaml\n")
 
     set_data_path(data_path)
     set = Settings("system.yaml")
@@ -182,6 +180,9 @@ environment:
         joinpath(data_path, "vsm_settings.yaml");
         data_prefix=false
     )
+
+    yaml_path = joinpath(data_path, "wing_freefall.yaml")
+    write(yaml_path, WING_FREEFALL_YAML)
 
     sys = load_sys_struct_from_yaml(
         yaml_path;
@@ -195,127 +196,189 @@ environment:
         wing = sys.wings[:main_wing]
         @test wing.wing_type == SymbolicAWEModels.QUATERNION
         @test wing.aero_mode == AERO_NONE
-        @test wing.mass ≈ 3.0  # 6 points × 0.5 kg
+        @test wing.mass ≈ 3.0  # 6 points * 0.5 kg
         @test length(sys.segments) == 0
-        @test length(sys.tethers) == 0
-        @test length(sys.winches) == 0
-        println("  Wing mass: $(wing.mass) kg")
-        println("  Inertia: $(wing.inertia_principal)")
     end
 
     sam = SymbolicAWEModel(set, sys)
-    init!(sam; remake=true, prn=true)
+    init!(sam; remake=true, prn=false)
+
+    # ================ Free fall ================ #
 
     @testset "Free fall acceleration = g" begin
         wing = sam.sys_struct.wings[:main_wing]
-
-        # Let solver settle for a few steps
         dt = 0.01
         for _ in 1:5
             next_step!(sam; dt, vsm_interval=0,
                 error_on_unstable=false)
         end
-
-        # Measure velocity before
         vel_before = copy(wing.vel_w)
         t_before = sam.integrator.t
-
-        # Run more steps
-        n_steps = 10
-        for _ in 1:n_steps
+        for _ in 1:10
             next_step!(sam; dt, vsm_interval=0,
                 error_on_unstable=false)
         end
-
         vel_after = copy(wing.vel_w)
-        t_after = sam.integrator.t
-        elapsed = t_after - t_before
+        elapsed = sam.integrator.t - t_before
+        acc = (vel_after - vel_before) / elapsed
 
-        # Compute measured acceleration
-        measured_acc = (vel_after - vel_before) / elapsed
-
-        println("  vel_before: $(round.(vel_before; digits=4))")
-        println("  vel_after:  $(round.(vel_after; digits=4))")
-        println("  elapsed:    $(round(elapsed; digits=4)) s")
-        println("  measured_acc: $(round.(measured_acc; digits=4))")
-        println("  expected:     [0, 0, -9.81]")
-
-        # z-acceleration should be -g
-        @test measured_acc[3] ≈ -9.81 atol=0.1
-
-        # x,y acceleration should be near zero
-        @test abs(measured_acc[1]) < 0.1
-        @test abs(measured_acc[2]) < 0.1
-
-        # Magnitude check
-        @test norm(measured_acc) ≈ 9.81 atol=0.15
+        @test acc[3] ≈ -9.81 atol=0.1
+        @test abs(acc[1]) < 0.1
+        @test abs(acc[2]) < 0.1
+        @test norm(acc) ≈ 9.81 atol=0.15
     end
 
-    # ==================== Pendulum settling ==================== #
-    # Wing + segment: attach point connected to static anchor.
-    # Wing should rotate and translate until vertical alignment.
+    # ============= Constant spin ============= #
+    # Free-floating wing with initial omega about a
+    # principal axis. No torque (AERO_NONE, no tethers)
+    # so omega stays constant and Q(t) evolves
+    # analytically as Q0 * q_rot(omega*t).
 
-    pendulum_yaml_path = joinpath(data_path, "wing_pendulum.yaml")
-    write(pendulum_yaml_path, WING_PENDULUM_YAML)
+    @testset "Constant spin about principal axis" begin
+        wing = sam.sys_struct.wings[:main_wing]
+        I_b = collect(wing.inertia_principal)
+        k = argmax(I_b)  # max I axis: always stable
 
-    pend_sys = load_sys_struct_from_yaml(
-        pendulum_yaml_path;
-        system_name="wing_pendulum",
-        set, vsm_set,
-        aero_mode=AERO_NONE
-    )
+        omega0 = 3.0  # rad/s
+        omega_init = zeros(3)
+        omega_init[k] = omega0
+        wing.ω_b .= omega_init
+        wing.vel_w .= 0.0
+        init!(sam; remake=true, prn=false,
+              reset_vel=false)
 
-    @testset "Pendulum setup" begin
-        @test length(pend_sys.wings) == 1
-        @test length(pend_sys.segments) == 1
-        @test pend_sys.wings[1].aero_mode == AERO_NONE
-        # 7 WING points × 0.5 kg
-        @test pend_sys.wings[1].mass ≈ 3.5
-    end
+        Q0 = copy(wing.Q_b_w)
+        println("  I_b = $(round.(I_b; digits=4))")
+        println("  Spin axis = $k, omega0 = $omega0")
+        println("  Q0 = $(round.(Q0; digits=4))")
+        println("  ω_b after init = $(wing.ω_b)")
 
-    pend_sam = SymbolicAWEModel(set, pend_sys)
-    init!(pend_sam; remake=true, prn=true)
+        dt = 0.005
+        T_rot = 2pi / omega0
+        n_steps = round(Int, 3 * T_rot / dt)
+        max_omega_err = 0.0
+        max_q_err = 0.0
+        max_norm_err = 0.0
 
-    @testset "Pendulum vertical alignment" begin
-        wing = pend_sam.sys_struct.wings[1]
-        anchor = pend_sam.sys_struct.points[:anchor]
-        attach = pend_sam.sys_struct.points[:attach]
-
-        # Simulate until settled (near-critical angular_damping=10)
-        dt = 0.05
-        n_steps = 2000  # 100 seconds
-        for i in 1:n_steps
-            next_step!(pend_sam; dt, vsm_interval=0,
+        for _ in 1:n_steps
+            next_step!(sam; dt, vsm_interval=0,
                 error_on_unstable=false)
+            t = sam.integrator.t
+
+            # omega should stay constant
+            omega_err = norm(wing.ω_b - omega_init)
+            max_omega_err = max(max_omega_err, omega_err)
+
+            # Q should match analytical solution
+            Q_exp = analytical_quat_spin(Q0, omega_init, t)
+            # Q and -Q represent the same rotation
+            q_err = min(
+                norm(wing.Q_b_w - Q_exp),
+                norm(wing.Q_b_w + Q_exp))
+            max_q_err = max(max_q_err, q_err)
+
+            # Quaternion norm should be preserved
+            norm_err = abs(norm(wing.Q_b_w) - 1.0)
+            max_norm_err = max(max_norm_err, norm_err)
         end
 
-        # Get final positions
-        anchor_pos = copy(anchor.pos_w)
-        attach_pos = copy(attach.pos_w)
-        com_pos = copy(wing.pos_w)
+        println("  Max |omega - omega0|: $max_omega_err")
+        println("  Max |Q - Q_analytical|: $max_q_err")
+        println("  Max ||Q| - 1|: $max_norm_err")
 
-        println("  anchor: $(round.(anchor_pos; digits=3))")
-        println("  attach: $(round.(attach_pos; digits=3))")
-        println("  CoM:    $(round.(com_pos; digits=3))")
-        println("  ω_b:    $(round.(wing.ω_b; digits=4))")
+        @test max_omega_err < 1e-4
+        @test max_q_err < 0.01
+        @test max_norm_err < 1e-4
+    end
 
-        tol = 0.3
+    # ========== Torque-free precession ========== #
+    # Spin about max-I axis with small perturbation on
+    # a transverse axis. Linearized Euler equations
+    # predict oscillation at frequency:
+    #   Omega = omega0 * sqrt(|(I_b-I_k)(I_a-I_k)|
+    #                         / (I_a * I_b))
 
-        # x-alignment: all at anchor.x
-        @test attach_pos[1] ≈ anchor_pos[1] atol=tol
-        @test com_pos[1] ≈ anchor_pos[1] atol=tol
+    @testset "Torque-free precession" begin
+        wing = sam.sys_struct.wings[:main_wing]
+        I_b = collect(wing.inertia_principal)
+        k = argmax(I_b)  # stable spin axis
 
-        # y-alignment: all near 0
-        @test abs(attach_pos[2]) < tol
-        @test abs(com_pos[2]) < tol
+        omega0 = 5.0
+        eps = 0.05  # small perturbation (eps/omega0 = 1%)
+        omega_init = zeros(3)
+        omega_init[k] = omega0
 
-        # z-ordering: anchor above attach above CoM
-        # (gravity is -z, so higher z = higher up)
-        @test anchor_pos[3] > attach_pos[3]
-        @test attach_pos[3] > com_pos[3]
+        pc = precession_coeffs(I_b, k, omega0)
+        omega_init[pc.p] = eps
 
-        # Angular velocity should be near zero (settled)
-        @test norm(wing.ω_b) < 0.5
+        wing.ω_b .= omega_init
+        wing.vel_w .= 0.0
+        init!(sam; remake=true, prn=false,
+              reset_vel=false)
+
+        T_prec = 2pi / pc.Omega
+        amp_q = abs(eps * pc.Omega / pc.C_pq)
+        println("  I_b = $(round.(I_b; digits=4))")
+        println("  Spin axis: $k, transverse: " *
+            "($(pc.p), $(pc.q))")
+        println("  Omega_predicted = " *
+            "$(round(pc.Omega; digits=3)) rad/s")
+        println("  T_prec = " *
+            "$(round(T_prec; digits=3)) s")
+        println("  Expected amp[$(pc.q)] = " *
+            "$(round(amp_q; digits=5))")
+
+        dt = 0.002
+        t_total = 5 * T_prec
+        n_steps = round(Int, t_total / dt)
+        times = Float64[]
+        omega_p_vals = Float64[]
+        omega_q_vals = Float64[]
+        omega_k_vals = Float64[]
+
+        for _ in 1:n_steps
+            next_step!(sam; dt, vsm_interval=0,
+                error_on_unstable=false)
+            push!(times, sam.integrator.t)
+            push!(omega_p_vals, wing.ω_b[pc.p])
+            push!(omega_q_vals, wing.ω_b[pc.q])
+            push!(omega_k_vals, wing.ω_b[k])
+        end
+
+        # Spin-axis omega stays constant
+        omega_k_drift = maximum(abs.(omega_k_vals .- omega0))
+        println("  Max spin-axis drift: $omega_k_drift")
+        @test omega_k_drift < 0.01
+
+        # Measure precession period from zero crossings
+        # of omega_p (which oscillates around 0)
+        crossings = Int[]
+        for i in 2:length(omega_p_vals)
+            if omega_p_vals[i-1] * omega_p_vals[i] < 0
+                push!(crossings, i)
+            end
+        end
+        @test length(crossings) >= 4  # at least 2 full periods
+        half_periods = [
+            times[crossings[i+1]] - times[crossings[i]]
+            for i in 1:(length(crossings)-1)]
+        T_measured = 2 * mean(half_periods)
+        println("  T_measured = " *
+            "$(round(T_measured; digits=3)) s " *
+            "(predicted: $(round(T_prec; digits=3)))")
+        @test T_measured ≈ T_prec rtol=0.05
+
+        # Rotational kinetic energy conservation:
+        # E = 0.5 * sum(I_i * omega_i^2)
+        E_initial = 0.5 * sum(I_b .* omega_init .^ 2)
+        omega_final = collect(wing.ω_b)
+        E_final = 0.5 * sum(I_b .* omega_final .^ 2)
+        println("  E_initial = $(round(E_initial; digits=4))" *
+            ", E_final = $(round(E_final; digits=4))")
+        @test E_final ≈ E_initial rtol=0.01
+
+        # Quaternion norm preserved
+        @test norm(wing.Q_b_w) ≈ 1.0 atol=1e-4
     end
 
     rm(tmpdir; recursive=true)

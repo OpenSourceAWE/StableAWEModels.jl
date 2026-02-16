@@ -47,6 +47,13 @@ get_Q_b_w(sys::SystemStructure, idx::Int64) = sys.wings[idx].Q_b_w
 end
 get_wing_mass(sys::SystemStructure, idx::Int64) = sys.wings[idx].mass
 @register_symbolic get_wing_mass(sys::SystemStructure, idx::Int64)
+get_inertia_principal(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].inertia_principal
+@register_array_symbolic get_inertia_principal(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
 get_ω_b(sys::SystemStructure, idx::Int64) = sys.wings[idx].ω_b
 @register_array_symbolic get_ω_b(sys::SystemStructure, idx::Int64) begin
     size = (3,)
