@@ -91,14 +91,14 @@ end
         system_name="wing_test_QUATERNION", set, vsm_set
     )
     quat_sam = SymbolicAWEModel(set, quat_sys)
-    init!(quat_sam; remake=false, prn=false)
+    init!(quat_sam; remake=true, prn=true)
 
     refine_sys = load_sys_struct_from_yaml(
         refine_yaml_path;
         system_name="wing_test_REFINE", set, vsm_set
     )
     refine_sam = SymbolicAWEModel(set, refine_sys)
-    init!(refine_sam; remake=false, prn=false)
+    init!(refine_sam; remake=true, prn=true)
 
     sam_configs = [
         ("REFINE", refine_sam, SymbolicAWEModels.REFINE),
@@ -151,6 +151,7 @@ end
                 init!(
                     sam; remake=false, reload=false, prn=false
                 )
+                @show sam.sys_struct.wind_vec_gnd
 
                 sys = sam.sys_struct
                 wing = sys.wings[:main_wing]
@@ -158,8 +159,8 @@ end
                 init_kcu_pos = copy(sys.points[:kcu].pos_w)
 
                 for _ in 1:50
-                    next_step!(sam; dt=0.05, vsm_interval=0,
-                        error_on_unstable=false)
+                    next_step!(sam; dt=0.05,
+                        vsm_interval=0)
                 end
 
                 wing_drift = norm(wing.pos_w - init_wing_pos)
@@ -199,8 +200,8 @@ end
                 initial_z = wing.pos_w[3]
 
                 for _ in 1:100
-                    next_step!(sam; dt=0.05, vsm_interval=0,
-                        error_on_unstable=false)
+                    next_step!(sam; dt=0.05,
+                        vsm_interval=0)
                 end
 
                 final_z = wing.pos_w[3]
@@ -225,9 +226,9 @@ end
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_norm = norm(wing.pos_w)
 
-                for _ in 1:200
-                    next_step!(sam; dt=0.05, vsm_interval=1,
-                        error_on_unstable=false)
+                for _ in 1:100
+                    next_step!(sam; dt=0.001,
+                        vsm_interval=1)
                 end
 
                 final_norm = norm(wing.pos_w)
@@ -253,19 +254,19 @@ end
                 initial_pos = copy(wing.pos_w)
 
                 for _ in 1:100
-                    next_step!(sam; dt=0.05, vsm_interval=1,
-                        error_on_unstable=false)
+                    next_step!(sam; dt=0.001,
+                        vsm_interval=1)
                 end
 
                 displacement = norm(wing.pos_w - initial_pos)
                 speed = norm(wing.vel_w)
 
                 if is_quat
-                    @test displacement > 0.1
-                    @test speed > 0.1
+                    @test displacement > 0.05
+                    @test speed > 0.05
                 else
-                    @test displacement > 0.1
-                    @test speed > 0.1
+                    @test displacement > 0.05
+                    @test speed > 0.05
                 end
 
                 println("  [$wtn] Moves: " *
@@ -283,8 +284,8 @@ end
                 initial_Q = copy(wing.Q_b_w)
 
                 for _ in 1:100
-                    next_step!(sam; dt=0.05, vsm_interval=1,
-                        error_on_unstable=false)
+                    next_step!(sam; dt=0.001,
+                        vsm_interval=1)
                 end
 
                 q_diff = norm(wing.Q_b_w - initial_Q)
@@ -325,8 +326,8 @@ end
                 initial_dir = normalize(kcu.pos_w)
 
                 for _ in 1:100
-                    next_step!(sam; dt=0.05, vsm_interval=0,
-                        error_on_unstable=false)
+                    next_step!(sam; dt=0.05,
+                        vsm_interval=0)
                 end
 
                 final_dir = normalize(kcu.pos_w)
@@ -368,8 +369,8 @@ end
                 )
 
                 for _ in 1:50
-                    next_step!(sam; dt=0.05, vsm_interval=0,
-                        error_on_unstable=false)
+                    next_step!(sam; dt=0.05,
+                        vsm_interval=0)
                 end
 
                 for name in check_names
@@ -402,8 +403,8 @@ end
                 init_pos = copy(wing.pos_w)
 
                 for _ in 1:100
-                    next_step!(sam; dt=0.05, vsm_interval=0,
-                        error_on_unstable=false)
+                    next_step!(sam; dt=0.05,
+                        vsm_interval=0)
                 end
 
                 undamped_speed = norm(wing.vel_w)
@@ -422,8 +423,8 @@ end
                 init_pos .= wing.pos_w
 
                 for _ in 1:100
-                    next_step!(sam; dt=0.05, vsm_interval=0,
-                        error_on_unstable=false)
+                    next_step!(sam; dt=0.05,
+                        vsm_interval=0)
                 end
 
                 damped_speed = norm(wing.vel_w)

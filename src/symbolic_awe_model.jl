@@ -457,30 +457,36 @@ Take a simulation step, using the provided integrator.
 
 This is a convenience method that calls the main `next_step!` function.
 """
-function next_step!(s::SymbolicAWEModel, integrator::OrdinaryDiffEqCore.ODEIntegrator;
-    set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1, error_on_unstable=true
+function next_step!(
+    s::SymbolicAWEModel,
+    integrator::OrdinaryDiffEqCore.ODEIntegrator;
+    set_values=nothing, dt=1/s.set.sample_freq,
+    vsm_interval=1
 )
-    !(s.integrator === integrator) && error("The ODEIntegrator doesn't belong to the SymbolicAWEModel")
-    next_step!(s; set_values, dt, vsm_interval, error_on_unstable)
+    !(s.integrator === integrator) && error(
+        "The ODEIntegrator doesn't belong to " *
+        "the SymbolicAWEModel")
+    next_step!(s; set_values, dt, vsm_interval)
 end
 
 """
-    next_step!(s::SymbolicAWEModel; set_values, dt, vsm_interval, error_on_unstable)
+    next_step!(s::SymbolicAWEModel; set_values, dt,
+               vsm_interval)
 
 Take a simulation step forward in time.
 
-This function advances the simulation by one time step, optionally updating control
-inputs and re-linearizing the VSM model. It then updates the `SystemStructure`
-with the new state from the ODE integrator.
-
-# Arguments
-- `s::SymbolicAWEModel`: The kite power system state object.
+Advances the simulation by one time step, optionally
+updating control inputs and re-linearizing the VSM
+model. Then updates the `SystemStructure` with the new
+state from the ODE integrator. Throws an error if the
+solver returns an unstable retcode.
 
 # Keyword Arguments
-- `set_values=nothing`: New values for the control inputs. If `nothing`, the current values are used.
+- `set_values=nothing`: Control input values.
+    If `nothing`, current values are used.
 - `dt=1/s.set.sample_freq`: Time step size [s].
-- `vsm_interval=1`: The interval (in steps) to re-linearize the VSM model. If 0, it is not re-linearized.
-- `error_on_unstable=true`: If `true`, throw an error when the solver returns an unstable retcode.
+- `vsm_interval=1`: Steps between VSM
+    re-linearization. 0 disables re-linearization.
 """
 function next_step!(sam::SymbolicAWEModel;
     set_values=nothing, dt=1/sam.set.sample_freq,
@@ -499,8 +505,9 @@ function next_step!(sam::SymbolicAWEModel;
     sam.t_step = @elapsed OrdinaryDiffEqCore.step!(
         sam.integrator, dt, true)
     if !successful_retcode(sam.integrator.sol)
-        error("Solver returned unstable retcode:" *
-            " $(sam.integrator.sol.retcode)")
+        error("Solver unstable at t=" *
+            "$(round(sam.integrator.t; digits=4))" *
+            ": $(sam.integrator.sol.retcode)")
     end
     sam.iter += 1
     update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
