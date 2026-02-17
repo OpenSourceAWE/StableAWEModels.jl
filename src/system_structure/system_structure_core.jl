@@ -570,18 +570,19 @@ function SystemStructure(name, set;
                                   r * r')
                 end
                 I_diag, Ry = calc_inertia_y_rotation(I_cad)
-                wing.R_b_c .= Ry
+                wing.R_b_c .= Ry'  # body→CAD convention
                 wing.inertia_principal .= diag(I_diag)
             end
 
             # Transform VSM sections: CAD → body
             vsm_wing.T_cad_body .= com
             adjust_vsm_panels_to_origin!(vsm_wing, com)
-            rotate_vsm_sections!(vsm_wing, wing.R_b_c)
-            VortexStepMethod.reinit!(wing.vsm_aero)
+            rotate_vsm_sections!(
+                vsm_wing, wing.R_b_c')
             vsm_wing.R_cad_body .= wing.R_b_c
             apply_aero_z_offset!(
                 vsm_wing, wing.aero_z_offset)
+            VortexStepMethod.reinit!(wing.vsm_aero)
 
             if prn
                 I_rnd = round.(wing.inertia_principal;
@@ -623,9 +624,9 @@ function SystemStructure(name, set;
                 adjust_vsm_panels_to_origin!(
                     vsm_wing, origin_pos)
                 rotate_vsm_sections!(
-                    vsm_wing, wing.R_b_c)
-                VortexStepMethod.reinit!(wing.vsm_aero)
+                    vsm_wing, wing.R_b_c')
                 vsm_wing.R_cad_body .= wing.R_b_c
+                VortexStepMethod.reinit!(wing.vsm_aero)
 
                 if prn
                     o = round.(origin_pos; digits=3)
@@ -763,11 +764,9 @@ function SystemStructure(name, set;
                     end
                     center ./= length(group.point_idxs)
 
-                    # Find closest panel (panels are in CAD
-                    # frame; transform to body for comparison)
+                    # Find closest panel (panels are in body
+                    # frame after reinit!)
                     panels = wing.vsm_aero.panels
-                    R = wing.R_b_c
-                    com = wing.pos_cad
                     min_dist = Inf
                     closest_panel = panels[1]
                     for panel in panels
@@ -775,22 +774,21 @@ function SystemStructure(name, set;
                               panel.LE_point_2 +
                               panel.TE_point_1 +
                               panel.TE_point_2) / 4
-                        pc_b = R' * (pc - com)
-                        dist = norm(center - pc_b)
+                        dist = norm(center - pc)
                         if dist < min_dist
                             min_dist = dist
                             closest_panel = panel
                         end
                     end
 
-                    # Panel geometry → body frame
-                    le_cad = (closest_panel.LE_point_1 +
-                        closest_panel.LE_point_2) / 2
-                    group.le_pos .= R' * (le_cad - com)
-                    group.chord .= R' *
-                        (closest_panel.x_airf *
-                         closest_panel.chord)
-                    group.y_airf .= R' *
+                    # Panel geometry already in body frame
+                    group.le_pos .=
+                        (closest_panel.LE_point_1 +
+                         closest_panel.LE_point_2) / 2
+                    group.chord .=
+                        closest_panel.x_airf *
+                        closest_panel.chord
+                    group.y_airf .=
                         closest_panel.y_airf
 
                     break

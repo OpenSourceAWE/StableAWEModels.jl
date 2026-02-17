@@ -483,24 +483,24 @@ with the new state from the ODE integrator.
 - `error_on_unstable=true`: If `true`, throw an error when the solver returns an unstable retcode.
 """
 function next_step!(sam::SymbolicAWEModel;
-    set_values=nothing, dt=1/sam.set.sample_freq, vsm_interval=1, error_on_unstable=true
+    set_values=nothing, dt=1/sam.set.sample_freq,
+    vsm_interval=1
 )
     prob = sam.prob
     if (isnothing(set_values))
-        set_values = [winch.set_value for winch in sam.sys_struct.winches]
+        set_values = [winch.set_value
+            for winch in sam.sys_struct.winches]
     end
     if !isnothing(prob.set_set_values)
         prob.set_set_values(sam.integrator, set_values)
     end
 
     sam.t_0 = sam.integrator.t
-    sam.t_step = @elapsed OrdinaryDiffEqCore.step!(sam.integrator, dt, true)
+    sam.t_step = @elapsed OrdinaryDiffEqCore.step!(
+        sam.integrator, dt, true)
     if !successful_retcode(sam.integrator.sol)
-        @warn "Return code for solution: $(sam.integrator.sol.retcode)"
-        if error_on_unstable
-            error("Solver returned unstable retcode: $(sam.integrator.sol.retcode)")
-        end
-        return nothing
+        error("Solver returned unstable retcode:" *
+            " $(sam.integrator.sol.retcode)")
     end
     sam.iter += 1
     update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)

@@ -14,6 +14,7 @@ using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
+using Statistics
 
 # ============================================================================
 # YAML Configuration - Minimal 2-point system with 1 segment
@@ -133,11 +134,6 @@ segments:
   data:
     - [horiz_segment, point_left, point_right, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
 """
-
-# Helper function for mean
-function mean(x)
-    return sum(x) / length(x)
-end
 
 @testset "Segment Tests" begin
     # Write YAML to temp files

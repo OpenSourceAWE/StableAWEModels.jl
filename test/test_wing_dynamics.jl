@@ -209,14 +209,12 @@ end
         wing = sam.sys_struct.wings[:main_wing]
         dt = 0.01
         for _ in 1:5
-            next_step!(sam; dt, vsm_interval=0,
-                error_on_unstable=false)
+            next_step!(sam; dt, vsm_interval=0)
         end
         vel_before = copy(wing.vel_w)
         t_before = sam.integrator.t
         for _ in 1:10
-            next_step!(sam; dt, vsm_interval=0,
-                error_on_unstable=false)
+            next_step!(sam; dt, vsm_interval=0)
         end
         vel_after = copy(wing.vel_w)
         elapsed = sam.integrator.t - t_before
@@ -261,8 +259,7 @@ end
         max_norm_err = 0.0
 
         for _ in 1:n_steps
-            next_step!(sam; dt, vsm_interval=0,
-                error_on_unstable=false)
+            next_step!(sam; dt, vsm_interval=0)
             t = sam.integrator.t
 
             # omega should stay constant
@@ -337,8 +334,7 @@ end
         omega_k_vals = Float64[]
 
         for _ in 1:n_steps
-            next_step!(sam; dt, vsm_interval=0,
-                error_on_unstable=false)
+            next_step!(sam; dt, vsm_interval=0)
             push!(times, sam.integrator.t)
             push!(omega_p_vals, wing.ω_b[pc.p])
             push!(omega_q_vals, wing.ω_b[pc.q])
