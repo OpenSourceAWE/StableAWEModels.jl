@@ -130,6 +130,9 @@ function wing_eqs!(
                 wing_acc_b[:, wing.idx] ~ zeros(3)
                 α_b_damped[:, wing.idx] ~ zeros(3)
                 ω_b_stable[:, wing.idx] ~ zeros(3)
+                # Rotational state is zero (no rigid body rotation for REFINE)
+                ω_b[:, wing.idx] ~ zeros(3)
+                α_b[:, wing.idx] ~ zeros(3)
                 # aero_force_b and aero_moment_b will be set in vsm_eqs!
             ]
             continue

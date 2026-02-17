@@ -152,6 +152,7 @@ end
                     sam; remake=false, reload=false, prn=false
                 )
                 @show sam.sys_struct.wind_vec_gnd
+                @show sam.sys_struct.wings[1].heading
 
                 sys = sam.sys_struct
                 wing = sys.wings[:main_wing]

@@ -73,6 +73,12 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
             wing.aero_mode == AERO_NONE && continue
 
             wing.vsm_y .= vsm_y[:, wing.idx]
+            if norm(wing.vsm_y[1:3]) < 1e-3
+                @warn "Apparent wind too small for VSM " *
+                    "linearization (va_b=$(wing.vsm_y[1:3]))" *
+                    ", skipping wing $(wing.idx)"
+                continue
+            end
             if any(isnan.(wing.vsm_solver.sol.force))
                 wing.vsm_solver.prob = nothing
                 @warn "Resetting vsm solver."
