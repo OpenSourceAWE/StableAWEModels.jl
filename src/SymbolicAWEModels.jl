@@ -85,6 +85,7 @@ export update_segment_forces!
 export set_world_frame_damping
 export set_body_frame_damping
 export segment_stretch_stats
+export calc_steady_torque
 
 # --- System Structure Creators ---
 export create_ram_sys_struct
@@ -110,11 +111,6 @@ export plot_body_frame
 export plot_aoa
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
-
-#======================================================================#
-#                    CUSTOM DISPLAY METHODS
-#======================================================================#
-
 
 #======================================================================#
 #                       TYPE DEFINITIONS

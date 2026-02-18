@@ -126,7 +126,6 @@ end
     if will_precompile
         try
             path = dirname(dirname(pathof(@__MODULE__)))
-            data_path = joinpath(path, "data","ram_air_kite")
             data_path = joinpath(path, "data", "ram_air_kite")
 
             # Copy .default files to expected files and make them writable

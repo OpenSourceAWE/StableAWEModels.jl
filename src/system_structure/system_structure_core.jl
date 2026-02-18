@@ -367,11 +367,13 @@ function assign_indices_and_resolve!(
     end
 
     # Transforms: resolve wing_ref, rot_point_ref, base_point_ref, base_transform_ref
+    # Use resolve_ref_spec (returns nothing for nothing inputs) since Transform
+    # fields are Union{Int64, Nothing}.
     for transform in transforms
-        transform.wing_idx = resolve_ref(transform.wing_ref, wing_names, "wing")
-        transform.rot_point_idx = resolve_ref(transform.rot_point_ref, point_names, "point")
-        transform.base_point_idx = resolve_ref(transform.base_point_ref, point_names, "point")
-        transform.base_transform_idx = resolve_ref(transform.base_transform_ref, transform_names, "transform")
+        transform.wing_idx = resolve_ref_spec(transform.wing_ref, wing_names, "wing")
+        transform.rot_point_idx = resolve_ref_spec(transform.rot_point_ref, point_names, "point")
+        transform.base_point_idx = resolve_ref_spec(transform.base_point_ref, point_names, "point")
+        transform.base_transform_idx = resolve_ref_spec(transform.base_transform_ref, transform_names, "transform")
     end
 
     # Wings: resolve group_refs, transform_ref, and REFINE-specific refs

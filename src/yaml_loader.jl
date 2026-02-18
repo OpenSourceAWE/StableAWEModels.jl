@@ -59,6 +59,9 @@ function resolve_references(row::NamedTuple, property_tables::Dict{String, Dict{
                     # Found! Merge these properties (current row takes precedence)
                     ref_props = lookup_dict[value]
                     for (k, v) in pairs(ref_props)
+                        # Skip 'name' — it identifies the referenced
+                        # item, not a property to inherit.
+                        k === :name && continue
                         if !haskey(resolved, k) || resolved[k] === nothing
                             resolved[k] = v
                         end

@@ -516,7 +516,7 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
     end
 
     # copy twist and twist_ω of groups
-    if length(sys1.groups) > 1 && length(sys1.groups) == length(sys2.groups)
+    if length(sys1.groups) > 0 && length(sys1.groups) == length(sys2.groups)
         for (group1, group2) in zip(sys1.groups, sys2.groups)
             group2.twist = group1.twist
             group2.twist_ω = group1.twist_ω
@@ -524,7 +524,7 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
     end
 
     # copy winch tether lengths and velocities
-    if length(sys1.winches) > 1 && length(sys1.winches) == length(sys2.winches)
+    if length(sys1.winches) > 0 && length(sys1.winches) == length(sys2.winches)
         for (winch2, winch1) in zip(sys2.winches, sys1.winches)
             if !simple
                 winch2.tether_len = winch1.tether_len
@@ -547,7 +547,7 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
     end
 
     # copy pulley lengths and velocities
-    if length(sys1.pulleys) > 1 && length(sys1.pulleys) == length(sys2.pulleys)
+    if length(sys1.pulleys) > 0 && length(sys1.pulleys) == length(sys2.pulleys)
         for (pulley1, pulley2) in zip(sys1.pulleys, sys2.pulleys)
             pulley2.len = pulley1.len
             pulley2.vel = pulley1.vel
@@ -555,7 +555,7 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
     end
 
     # copy wing positions and velocities
-    if length(sys1.wings) > 1 && length(sys1.wings) == length(sys2.wings)
+    if length(sys1.wings) > 0 && length(sys1.wings) == length(sys2.wings)
         for (wing1, wing2) in zip(sys1.wings, sys2.wings)
             wing2.pos_w .= wing1.pos_w
             wing2.vel_w .= wing1.vel_w
