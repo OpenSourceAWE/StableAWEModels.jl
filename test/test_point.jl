@@ -71,6 +71,22 @@ points:
     - [test_point, [0.0, 0.0, 100.0], DYNAMIC, nothing, nothing, 2.3, 0.0, 0.0, 4.2, 0.33]
 """
 
+# Heavy point YAML for drag test - large mass for slow,
+# precise acceleration measurement
+const POINT_HEAVY_DRAG_YAML = """
+##############################
+## Point Test - Heavy Drag ###
+##############################
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx,
+            extra_mass, body_frame_damping,
+            world_frame_damping, area, drag_coeff]
+  data:
+    - [test_point, [0.0, 0.0, 100.0], DYNAMIC, nothing,
+       nothing, 50.0, 0.0, 0.0, 0.5, 1.0]
+"""
+
 # High altitude YAML - point at 5000m where air is thinner
 const POINT_HIGH_ALTITUDE_YAML = """
 ##############################
@@ -89,8 +105,13 @@ points:
     yaml_path = joinpath(tmpdir, "test_point_geometry.yaml")
     write(yaml_path, POINT_TEST_YAML)
 
-    yaml_no_drag_path = joinpath(tmpdir, "test_point_no_drag_geometry.yaml")
+    yaml_no_drag_path = joinpath(
+        tmpdir, "test_point_no_drag_geometry.yaml")
     write(yaml_no_drag_path, POINT_NO_DRAG_YAML)
+
+    yaml_heavy_drag_path = joinpath(
+        tmpdir, "test_point_heavy_drag_geometry.yaml")
+    write(yaml_heavy_drag_path, POINT_HEAVY_DRAG_YAML)
 
     # Create minimal settings file
     settings_yaml = """
@@ -218,56 +239,60 @@ system:
     @testset "No gravity, with wind - drag acceleration" begin
         set.g_earth = 0.0
         set.v_wind = 15.0  # 15 m/s wind
-        set.profile_law = 0  # Use constant wind profile
+        set.profile_law = 0  # Constant wind profile
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="point_test_drag", set=set)
+        # Heavy point (50 kg) with large drag area for
+        # slow, precisely measurable acceleration
+        sys = load_sys_struct_from_yaml(
+            yaml_heavy_drag_path;
+            system_name="point_test_drag", set=set)
 
-        # Verify point has drag properties
-        @test sys.points[:test_point].area == 0.1
-        @test sys.points[:test_point].drag_coeff == 0.45
+        @test sys.points[:test_point].area == 0.5
+        @test sys.points[:test_point].drag_coeff == 1.0
+        @test sys.points[:test_point].extra_mass == 50.0
 
         sam = SymbolicAWEModel(set, sys)
         init!(sam; remake=true)
 
-        # Physics parameters for drag calculation
-        rho = 1.225  # Air density at sea level [kg/m^3]
-        Cd = 0.45    # Drag coefficient
-        A = 0.1      # Area [m^2]
-        m = 0.69     # Mass [kg]
-        v_wind = 15.0  # Wind speed [m/s]
+        # Physics: F = 0.5 * rho * Cd * A * v^2
+        rho = 1.225
+        Cd = 1.0
+        A = 0.5
+        m = 50.0
+        v_wind = 15.0
 
-        # Expected drag force: F = 0.5 * rho * Cd * A * v^2
-        F_drag_expected = 0.5 * rho * Cd * A * v_wind^2
-        # F = 0.5 * 1.225 * 0.45 * 0.1 * 225 = 6.20 N
+        F_drag = 0.5 * rho * Cd * A * v_wind^2
+        a_expected = F_drag / m
+        # a = 0.5*1.225*1.0*0.5*225 / 50 = 1.378 m/s^2
 
-        # Expected acceleration: a = F/m
-        a_expected = F_drag_expected / m
-        @test a_expected ≈ 8.99 atol=0.01
-
-        # Run one small timestep to get initial acceleration
-        # Note: Point is constrained by stiff tether, so actual movement is limited
-        # But we can check the forces involved
-
-        # For this test, we'll run simulation and verify point accelerates in wind direction
+        # Free-floating point: wind drag accelerates it.
+        # Heavy mass keeps velocity low so drag stays
+        # nearly constant over the measurement window.
         dt = 0.001
-        initial_vel = copy(sam.sys_struct.points[:test_point].vel_w)
+        n_steps = 10
+        initial_vel = copy(
+            sam.sys_struct.points[:test_point].vel_w)
 
-        for _ in 1:10
+        for _ in 1:n_steps
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
-        final_vel = sam.sys_struct.points[:test_point].vel_w
+        final_vel =
+            sam.sys_struct.points[:test_point].vel_w
+        t_elapsed = n_steps * dt
+        speed = norm(final_vel - initial_vel)
+        a_measured = speed / t_elapsed
 
-        # With stiff tether constraint, point can't move freely
-        # But the velocity change should indicate drag force direction
-        # Wind is in -x direction (upwind_dir = -90 deg means wind from +x)
-        # So drag should push in -x direction initially
+        @test a_measured ≈ a_expected rtol=0.10
 
-        # The tether keeps point at fixed distance, so we mainly see tangential motion
-        # This is a limited test due to the constraint - more detailed would need force inspection
-        @test true  # Placeholder - this test configuration needs refinement
-
-        println("\n  ====== Wind drag test: a_expected=$(round(a_expected, digits=2)) m/s² ======\n")
+        println(
+            "\n  ====== Wind drag: " *
+            "a_expected=" *
+            "$(round(a_expected, digits=2)), " *
+            "a_measured=" *
+            "$(round(a_measured, digits=2))" *
+            " m/s² ======\n"
+        )
     end
 
 

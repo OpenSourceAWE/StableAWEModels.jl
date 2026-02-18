@@ -6,9 +6,6 @@
 # Simple physics sanity checks for both REFINE and QUATERNION wings.
 # Uses 2plate_kite configuration. All tests use winch brake engaged
 # and loose tolerances to catch "crazy stuff" without being brittle.
-#
-# QUATERNION wing type is currently broken (commit 4982878), so
-# physics tests use @test for QUATERNION.
 
 using Test
 using SymbolicAWEModels
@@ -106,9 +103,6 @@ end
     ]
 
     for (wtn, sam, expected_wing_type) in sam_configs
-        is_quat = expected_wing_type ==
-            SymbolicAWEModels.QUATERNION
-
         @testset "$wtn Wing" begin
             # ========================================================
             # Test 0: YAML Loading Verification
@@ -170,15 +164,9 @@ end
                 )
                 wing_speed = norm(wing.vel_w)
 
-                if is_quat
-                    @test wing_drift < 1.0
-                    @test kcu_drift < 1.0
-                    @test wing_speed < 2.0
-                else
-                    @test wing_drift < 1.0
-                    @test kcu_drift < 1.0
-                    @test wing_speed < 2.0
-                end
+                @test wing_drift < 1.0
+                @test kcu_drift < 1.0
+                @test wing_speed < 2.0
 
                 println("  [$wtn] No forces: " *
                     "wing_drift=$(round(wing_drift; digits=3))" *
@@ -207,11 +195,7 @@ end
 
                 final_z = wing.pos_w[3]
 
-                if is_quat
-                    @test final_z < initial_z
-                else
-                    @test final_z < initial_z
-                end
+                @test final_z < initial_z
 
                 println("  [$wtn] Gravity: z: " *
                     "$(round(initial_z; digits=2)) → " *
@@ -234,11 +218,7 @@ end
 
                 final_norm = norm(wing.pos_w)
 
-                if is_quat
-                    @test final_norm < 2 * initial_norm
-                else
-                    @test final_norm < 2 * initial_norm
-                end
+                @test final_norm < 2 * initial_norm
 
                 println("  [$wtn] Stable: norm: " *
                     "$(round(initial_norm; digits=1)) → " *
@@ -262,13 +242,8 @@ end
                 displacement = norm(wing.pos_w - initial_pos)
                 speed = norm(wing.vel_w)
 
-                if is_quat
-                    @test displacement > 0.05
-                    @test speed > 0.05
-                else
-                    @test displacement > 0.05
-                    @test speed > 0.05
-                end
+                @test displacement > 0.05
+                @test speed > 0.05
 
                 println("  [$wtn] Moves: " *
                     "disp=$(round(displacement; digits=2))m," *
@@ -292,13 +267,8 @@ end
                 q_diff = norm(wing.Q_b_w - initial_Q)
                 q_norm = norm(wing.Q_b_w)
 
-                if is_quat
-                    @test q_diff > 0.001
-                    @test q_norm ≈ 1.0 atol = 0.1
-                else
-                    @test q_diff > 0.001
-                    @test q_norm ≈ 1.0 atol = 0.1
-                end
+                @test q_diff > 0.001
+                @test q_norm ≈ 1.0 atol = 0.1
 
                 println("  [$wtn] Rotates: " *
                     "q_diff=$(round(q_diff; digits=4)), " *
@@ -334,11 +304,7 @@ end
                 final_dir = normalize(kcu.pos_w)
                 dir_change = norm(final_dir - initial_dir)
 
-                if is_quat
-                    @test dir_change < 1e-6
-                else
-                    @test dir_change < 1e-6
-                end
+                @test dir_change < 1e-6
 
                 println("  [$wtn] fix_sphere: " *
                     "dir_change=" *
@@ -379,11 +345,7 @@ end
                         sam.sys_struct.points[name].pos_w -
                         initial_positions[name]
                     )
-                    if is_quat
-                        @test drift < 1e-6
-                    else
-                        @test drift < 1e-6
-                    end
+                    @test drift < 1e-6
                 end
 
                 println("  [$wtn] fix_static: frozen")
@@ -431,13 +393,8 @@ end
                 damped_speed = norm(wing.vel_w)
                 damped_drift = norm(wing.pos_w - init_pos)
 
-                if is_quat
-                    @test damped_speed < 0.5 * undamped_speed
-                    @test damped_drift < 0.5 * undamped_drift
-                else
-                    @test damped_speed < 0.5 * undamped_speed
-                    @test damped_drift < 0.5 * undamped_drift
-                end
+                @test damped_speed < 0.5 * undamped_speed
+                @test damped_drift < 0.5 * undamped_drift
 
                 println("  [$wtn] Damping: " *
                     "speed $(round(undamped_speed; digits=2))" *
