@@ -301,5 +301,49 @@ environment:
         @test weight_z ≈ expected_z rtol=0.01
     end
 
+    # ============================================================
+    # Test 6: calc_steady_torque at terminal velocity
+    # Stiff tether with heavy weight, viscous friction,
+    # small motor torque. At terminal velocity the system
+    # is in steady state so calc_steady_torque must equal
+    # the motor torque we are applying.
+    # ============================================================
+    @testset "calc_steady_torque at terminal velocity" begin
+        winch.brake = false
+        winch.f_coulomb = 0.0
+        winch.friction_epsilon = 6.0
+        winch.inertia_total = 0.01
+        winch.c_vf = 100.0
+
+        # Stiff tether to transmit gravity force
+        seg.unit_stiffness = 120000.0
+        seg.unit_damping = 500.0
+        init!(sam; remake=true, prn=false)
+
+        tau_motor = 0.5
+
+        # Time constant: I / (c_vf * (r/n)^2)
+        tau_tc = winch.inertia_total /
+            (winch.c_vf * (r / n)^2)
+        t_settle = 100 * tau_tc
+        dt = 0.1
+        n_steps = Int(ceil(t_settle / dt))
+
+        for _ in 1:n_steps
+            next_step!(sam; set_values=[tau_motor],
+                       dt=dt, vsm_interval=0)
+        end
+
+        steady = calc_steady_torque(sam)
+        @test sam.sys_struct.winches[1].tether_acc ≈ 0.0 atol=0.01
+        @test steady[1] ≈ tau_motor rtol=0.01
+
+        println(
+            "  calc_steady_torque: " *
+            "applied=$(tau_motor), " *
+            "computed=$(round(steady[1]; digits=4))"
+        )
+    end
+
     rm(tmpdir; recursive=true)
 end
