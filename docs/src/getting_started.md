@@ -2,9 +2,15 @@
 CurrentModule = SymbolicAWEModels
 ```
 
-# Getting Started
+# Getting started
 
-This guide explains how to get started with SymbolicAWEModels based on your use case:
+This guide explains how to get started with SymbolicAWEModels based on your use case.
+
+SymbolicAWEModels supports two ways to define systems:
+- **Julia constructors** — see [Building a system using Julia](tutorial_julia.md)
+- **YAML configuration files** — see [Building a system using YAML](tutorial_yaml.md)
+
+The three installation paths below apply regardless of which approach you choose:
 
 - **Registry Users**: You want to use the package in your own project
 - **Cloned Package Users**: You have cloned the repository and want to run examples
@@ -12,7 +18,7 @@ This guide explains how to get started with SymbolicAWEModels based on your use 
 
 ---
 
-## For Registry Users
+## For registry users
 
 This is the recommended approach for most users who want to use SymbolicAWEModels in their projects.
 
@@ -63,7 +69,7 @@ This is the recommended approach for most users who want to use SymbolicAWEModel
    - Copy configuration files to a `data/` directory
    - Install necessary dependencies (GLMakie, KiteUtils)
 
-### Running Examples
+### Running examples
 
 After running `init_module()`, you can run the examples:
 
@@ -89,7 +95,7 @@ pkg"test SymbolicAWEModels"
 
 ---
 
-## For Cloned Package Users
+## For cloned package users
 
 If you've cloned the repository and want to run examples **without** modifying the source code:
 
@@ -114,7 +120,7 @@ If you've cloned the repository and want to run examples **without** modifying t
 
    This tells Julia to use the local source code in the current directory instead of downloading the registered package. Verify with `]st` to see the path.
 
-### Running Examples
+### Running examples
 
 Now you can run any example file (paths are relative to your current directory, **not** the examples directory):
 
@@ -128,11 +134,11 @@ include("examples/menu.jl")
 
 ---
 
-## For Developers
+## For developers
 
 If you want to contribute to the package or modify its source code:
 
-### Initial Setup
+### Initial setup
 
 1. **Fork and clone** (see the [Developer Guide](developers.md) for detailed instructions)
    ```bash
@@ -149,7 +155,7 @@ If you want to contribute to the package or modify its source code:
 
    Configure it to [load automatically](https://timholy.github.io/Revise.jl/stable/config/#Using-Revise-by-default) in your `~/.julia/config/startup.jl`.
 
-### Running Examples During Development
+### Running examples during development
 
 1. **Start Julia with the examples project**:
    ```bash
@@ -173,7 +179,7 @@ If you want to contribute to the package or modify its source code:
 
 **Important**: `--project=examples` sets the project environment but doesn't change your working directory. You still need to include the `examples/` prefix in your paths.
 
-### Disabling Precompilation
+### Disabling precompilation
 
 When actively developing, you can disable precompilation to speed up Julia startup:
 
@@ -183,7 +189,7 @@ cp LocalPreferences.toml.default LocalPreferences.toml
 
 Remember to delete `LocalPreferences.toml` if you modify the precompilation workload.
 
-### Building Documentation Locally
+### Building documentation locally
 
 To preview documentation changes:
 
@@ -214,7 +220,7 @@ Then open `docs/build/index.html` in your browser.
 
 ---
 
-## Quick Reference
+## Quick reference
 
 | Task | Command |
 |------|---------|
@@ -226,8 +232,9 @@ Then open `docs/build/index.html` in your browser.
 
 ---
 
-## Next Steps
+## Next steps
 
-- See the [Examples](examples.md) page for detailed example walkthroughs
-- Read the [Developer Guide](developers.md) for contribution guidelines
-- Check out the [API Documentation](exported_functions.md) for available functions
+- Learn how to define systems: [Julia](tutorial_julia.md) or [YAML](tutorial_yaml.md)
+- See the [Examples](examples.md) page for example walkthroughs
+- Read the [Developer guide](developers.md) for contribution guidelines
+- Check out the [API reference](exported_functions.md) for available functions

@@ -2,7 +2,7 @@
 CurrentModule = SymbolicAWEModels
 ```
 
-# Developer Guide
+# Developer guide
 
 This guide provides instructions and best practices for developers contributing to `SymbolicAWEModels.jl`.
 
@@ -24,7 +24,7 @@ Before you begin, ensure you have the following software installed:
 
 -----
 
-## Getting Started: Development Workflow
+## Getting started: development workflow
 
 Follow these steps to set up your local development environment:
 
@@ -55,7 +55,7 @@ julia --project=.
 
 -----
 
-## Contributing Code: Branches and Pull Requests
+## Contributing code: branches and pull requests
 
 To contribute your changes, please follow this standard Git workflow:
 
@@ -109,9 +109,9 @@ Go to the GitHub page for your fork. You should see a prompt to create a pull re
 
 -----
 
-## Improving the Development Experience
+## Improving the development experience
 
-### Use Revise.jl for Faster Workflow
+### Use Revise.jl for faster workflow
 
 We strongly recommend adding **[Revise.jl](https://timholy.github.io/Revise.jl/stable/)** to your global Julia environment. It allows you to modify source code without restarting your Julia session, which is essential for efficient development.
 
@@ -150,40 +150,11 @@ julia> @which Revise
 
 Now any changes you make to package source code will be automatically reflected in your Julia session!
 
-### Disable Precompilation for Core Development
-
-When actively developing, you can temporarily disable the heavy precompilation workload to speed up restarts. There are two methods:
-
-**Method 1: Using an environment variable (recommended)**
-
-Set the `SAM_PRECOMPILE` environment variable to `false` before starting Julia:
-
-```bash
-SAM_PRECOMPILE=false julia --project=examples
-```
-
-Or add it to your shell profile for persistent use:
-
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-export SAM_PRECOMPILE=false
-```
-
-**Method 2: Using LocalPreferences.toml**
-
-Copy the provided default preferences file:
-
-```bash
-cp LocalPreferences.toml.default LocalPreferences.toml
-```
-
-**Note:** Remember to delete `LocalPreferences.toml` if you make changes to the precompilation workload itself.
-
-### Running Examples During Development
+### Running examples during development
 
 When developing the package, you'll want to test your changes with the examples. Here's how to set up the examples to use your local development version:
 
-#### Setup (first time only)
+#### Setup
 
 1. **From the package root directory**, start Julia with the examples project:
    ```bash
@@ -198,7 +169,7 @@ When developing the package, you'll want to test your changes with the examples.
 
    This command tells Julia to use the local source code in the current directory (`.`) instead of the registered package version. Use `]st` to verify the package is linked to your local path.
 
-#### Running Examples
+#### Running examples
 
 Now any changes you make to the source code will be immediately reflected when you run the examples (thanks to Revise.jl):
 
@@ -215,7 +186,7 @@ The `examples/Project.toml` file already contains the necessary dependencies:
 - `KiteUtils` - for utility functions
 - `SymbolicAWEModels` - the package itself
 
-#### Managing Package Dependencies
+#### Managing package dependencies
 
 **Understanding the Package Manager:**
 
@@ -262,11 +233,11 @@ The prompt `(ProjectName) pkg>` always tells you which project you're modifying.
 alias jl-ex='julia --project=examples'
 ```
 
-### Building Documentation Locally
+### Building documentation locally
 
 To preview documentation changes as you work:
 
-#### Using LiveServer (Recommended)
+#### Using LiveServer (recommended)
 
 1. **Start Julia with the docs project**:
    ```bash
@@ -291,7 +262,7 @@ To preview documentation changes as you work:
    - Watch for changes to documentation files
    - Automatically rebuild and refresh when you save changes
 
-#### Manual Build
+#### Manual build
 
 Alternatively, you can build the documentation once without the live server:
 
@@ -309,7 +280,7 @@ Then open `docs/build/index.html` in your browser.
 
 -----
 
-## Coding Style Guidelines
+## Coding style guidelines
 
 Please adhere to the following style guidelines to maintain code quality and readability:
 
@@ -331,11 +302,28 @@ Please adhere to the following style guidelines to maintain code quality and rea
 
 -----
 
+## Source code organization
+
+The source code is organized into modular directories:
+
+- **`src/system_structure/`** — component types and assembly
+  - `types.jl`: [`Point`](@ref), [`Segment`](@ref), [`Pulley`](@ref), [`Tether`](@ref), [`Winch`](@ref), [`Group`](@ref), [`Transform`](@ref)
+  - `wing.jl`: [`AbstractWing`](@ref) and [`VSMWing`](@ref) types, aerodynamic setup
+  - `system_structure_core.jl`: [`SystemStructure`](@ref) constructor, reference resolution
+  - `named_collection.jl`: Symbol-based indexing ([`NamedCollection`](@ref))
+  - `transforms.jl`: Spherical coordinate transforms
+  - `utilities.jl`: Validation, tether creation, state management
+- **`src/generate_system/`** — symbolic equation generation
+  - `create_sys.jl`: Top-level orchestrator
+  - `point_eqs.jl`, `segment_eqs.jl`, `wing_eqs.jl`, etc.: per-subsystem equations
+- **`src/yaml_loader.jl`** — YAML configuration file parser ([`load_sys_struct_from_yaml`](@ref))
+- **`src/linearize.jl`** — VSM linearization ([`linearize!`](@ref))
+- **`src/simulate.jl`** — high-level simulation functions ([`sim!`](@ref), [`sim_oscillate!`](@ref))
+
 ## Outlook
 
 Current development goals include:
 
-  - Adding a Leading Edge Inflatable (LEI) kite model.
-  - Implementing a swinging arm system for ground-based testing.
-  - Adding a rigid wing model as an alternative to the ram-air kite.
+  - Adding a Leading Edge Inflatable (LEI) kite model
+  - YAML-based model validation packages for ram air and V3 kites
 

@@ -1,67 +1,52 @@
-# VSM Coupling
+# VSM coupling
 
-This document explains how SymbolicAWEModels couples with the Vortex Step Method (VSM) for aerodynamic force computation. The coupling differs between the two wing types: `QUATERNION` and `REFINE`.
+This document explains how SymbolicAWEModels couples with the Vortex Step Method (VSM) for aerodynamic force computation. The coupling differs between the two wing types: [`QUATERNION` and `REFINE`](@ref WingType).
 
 ## Overview
 
-Both wing types use the concept of **unrefined segments** (or sections) as the fundamental structural element that maps to VSM geometry:
+Both wing types use **unrefined sections** as the fundamental structural element that maps to VSM geometry:
 
-- **Unrefined segment/section**: A structural element defined by two points (leading edge and trailing edge) along the wing span
-- **Refined panel**: VSM can subdivide unrefined segments into multiple panels for higher aerodynamic fidelity
-- **`refined_panel_mapping`**: Maps each refined panel back to its parent unrefined segment
+- **Unrefined section**: A structural element defined by two points (leading edge and trailing edge) along the wing span
+- **Refined panel**: VSM can subdivide unrefined sections into multiple panels for higher aerodynamic fidelity
+- **`refined_panel_mapping`**: Maps each refined panel back to its parent unrefined section
 
 The VSM solver computes aerodynamic coefficients (cl, cd, cm, alpha) at both refined and unrefined levels. SymbolicAWEModels uses the **unrefined-level coefficients** to map forces back to the structural model.
 
-## Wing Types
+## Wing types
 
-### REFINE Wing Type
+### REFINE wing type
 
 The `REFINE` wing type creates the most direct coupling between structure and aerodynamics.
 
-#### Structural Model
+#### Structural model
 
-- Wing structure consists of `WING`-type points organized in leading edge (LE) and trailing edge (TE) pairs
+- Wing structure consists of [`WING`](@ref DynamicsType)-type points organized in leading edge (LE) and trailing edge (TE) pairs
 - Each consecutive pair (point i, point i+1) forms a structural segment (strut)
 - Points can move independently - the wing can deform structurally
 - Number of structural segments = (number of WING points) / 2
 
-#### VSM Mapping
+#### VSM mapping
 
 The structural segments map 1:1 to VSM unrefined sections:
 
 ```
-Structural points:  [LE₁, TE₁, LE₂, TE₂, LE₃, TE₃, ...]
-                      ↓    ↓    ↓    ↓    ↓    ↓
-VSM sections:       [Sec₁,   Sec₂,   Sec₃,   ...]
-VSM panels:            [Panel₁,  Panel₂,  ...]
+Structural points:  [LE₁, TE₁]  [LE₂, TE₂]  [LE₃, TE₃]
+                        ↓            ↓            ↓
+Unrefined sections:   Sec₁         Sec₂         Sec₃
 ```
 
-Each VSM section is defined by its LE and TE point positions, taken directly from the structural point positions.
+Each VSM section is defined by its LE and TE point positions, taken directly from the structural point positions. VSM can subdivide these into refined panels for higher fidelity; `refined_panel_mapping` maps each refined panel back to its parent section.
 
-#### Force Distribution
+#### Force distribution
 
 Forces are computed and distributed in several steps:
 
-1. **VSM solve**: Computes aerodynamic coefficients for each unrefined segment
-   - `cl_unrefined_array`, `cd_unrefined_array`, `cm_unrefined_array`, `alpha_unrefined_array`
+1. **VSM solve**: Computes aerodynamic coefficients and per-panel forces/moments in body frame
+2. **Panel → section mapping**: Each refined panel maps to its parent unrefined section via `refined_panel_mapping`
+3. **Moment-preserving LE/TE split** (`compute_aerostruc_loads`): Each panel's force and moment are split into LE and TE contributions that preserve the total moment about a reference point
+4. **Accumulation at structural points**: LE/TE forces are accumulated at the corresponding structural points via the `point_to_vsm_point` mapping
 
-2. **Panel-level force calculation**: For each unrefined panel (connects sections i and i+1):
-   - Compute total lift and drag from cl, cd
-   - Use pitching moment (cm) to determine center of pressure
-   - Split forces between LE and TE based on moment equilibrium:
-     - `x_cp = 0.25 + cm/cl` (normalized chord position)
-     - `L_LE = L_total × (1 - x_cp)`, `L_TE = L_total × x_cp`
-     - Drag split equally: `D_LE = D_total / 2`, `D_TE = D_total / 2`
-
-3. **Distribution to structural points**: Each panel's forces distributed 50/50 to adjacent sections
-   - Panel i connects sections i and i+1
-   - Section i receives 50% of panel forces
-   - Section i+1 receives 50% of panel forces
-   - LE forces go to LE point, TE forces go to TE point
-
-This creates a smooth spanwise load distribution where internal sections receive contributions from both adjacent panels.
-
-#### Geometry Update
+#### Geometry update
 
 Each timestep, structural point positions update VSM section geometry:
 
@@ -73,25 +58,26 @@ section.LE_point = pos_b  # or section.TE_point
 
 This bidirectional coupling allows structural deformation to affect aerodynamics.
 
-### QUATERNION Wing Type
+### QUATERNION wing type
 
 The `QUATERNION` wing type uses a rigid body representation with optional deformable groups.
 
-#### Structural Model
+#### Structural model
 
 - Wing treated as a rigid body with quaternion-based orientation
 - No per-point wing structure - aerodynamic forces applied to wing center of mass
 - Optional **groups** represent deformable sections with twist degrees of freedom
 - Groups control segment twist angles but don't affect primary aerodynamic geometry
 
-#### VSM Mapping
+#### VSM mapping
 
 VSM still uses unrefined sections, but they don't correspond to individual structural points:
 
 ```
-VSM sections:       [Sec₁,   Sec₂,   Sec₃,   Sec₄,   Sec₅,   ...]
-Groups:                [────Group₁────]  [────Group₂────]
-Unrefined sections:      [───Panel₁───]  [───Panel₂───]  [...]
+Unrefined sections: [Sec₁,  Sec₂,  Sec₃,  Sec₄,  Sec₅]
+                        ╲       ╱       ╲       ╱
+Groups:              [─ Group₁ ─]    [─ Group₂ ─]
+                     twist DOF θ₁    twist DOF θ₂
 ```
 
 Multiple unrefined sections can be combined into a single group for twist control. The mapping is configured via:
@@ -100,35 +86,37 @@ Multiple unrefined sections can be combined into a single group for twist contro
 group.unrefined_section_idxs = [start_idx:end_idx]
 ```
 
-#### Force Integration
+#### Force computation
 
-Since the wing is rigid:
+VSM linearization returns integrated aerodynamic coefficients per wing:
 
-1. **VSM solve**: Computes forces per panel using unrefined coefficients
-2. **Force integration**: All panel forces integrated into:
-   - Total force vector at wing center of mass
-   - Total moment vector about wing center of mass
+1. **VSM linearize**: Computes baseline coefficients and Jacobian around the current operating point
+   - Output state `vsm_x = [C_F(3), C_M(3), section_moments(n_unrefined)]`
+   - Input state `vsm_y = [va_b(3), twist_angles(n_unrefined), ω_b(3)]`
+2. **Symbolic linearization**: The ODE uses `F = q∞ · A · (C₀ + J · Δstate)` where `Δstate = state - state₀`
+   - `C₀[1:3]` → total force coefficient, `C₀[4:6]` → total moment coefficient
+   - `C₀[7:end]` → per-section twist moment coefficients, summed per group
 3. **Rigid body dynamics**: Integrated force/moment drive quaternion dynamics
 
-Groups only affect twist deformation applied to VSM sections before the solve, not force distribution.
+Groups affect twist deformation applied to VSM sections before the solve. Each group's aerodynamic moment is the sum of its unrefined section moments, driving the twist DOF.
 
-## Refined Panel Mapping
+## Refined panel mapping
 
 Both wing types use `refined_panel_mapping` to handle VSM mesh refinement:
 
 ### Purpose
 
-VSM can subdivide panels for aerodynamic accuracy (e.g., 10 structural segments → 50 refined panels). The mapping tracks which unrefined segment each refined panel came from.
+VSM can subdivide unrefined sections into multiple refined panels for higher aerodynamic fidelity. The mapping tracks which parent unrefined section each refined panel belongs to.
 
 ### Computation
 
-After VSM refinement, `compute_refined_panel_mapping!` finds the closest unrefined panel for each refined panel by comparing panel center positions:
+After VSM refinement, `compute_refined_panel_mapping!` finds the closest unrefined section for each refined panel by comparing center positions:
 
 ```julia
 for each refined_panel in wing.refined_sections
     center = compute_center(refined_panel)
-    closest_unrefined = argmin(distance(center, unrefined_centers))
-    refined_panel_mapping[refined_panel_idx] = closest_unrefined
+    closest_section = argmin(distance(center, unrefined_section_centers))
+    refined_panel_mapping[refined_panel_idx] = closest_section
 end
 ```
 
@@ -136,26 +124,27 @@ end
 
 The mapping enables:
 
-1. **Group twist angles**: Applying the correct twist angle from unrefined groups to refined sections
-2. **Deformation**: Mapping twist/deflection from structural groups to aerodynamic panels
-3. **Linearization**: Propagating state perturbations to the correct panels
+1. **Group twist angles**: Applying the correct twist angle from groups to refined panels via their parent section
+2. **Force distribution (REFINE)**: Accumulating refined panel forces at the structural points of their parent section
+3. **Linearization (QUATERNION)**: Propagating state perturbations through the correct sections
 
-For REFINE wings, since structural segments map 1:1 to unrefined sections, the mapping is typically trivial (identity mapping) unless VSM refinement is used.
-
-## Key Differences Summary
+## Key differences summary
 
 | Aspect | REFINE | QUATERNION |
 |--------|--------|------------|
 | **Structural representation** | Individual WING points | Rigid body with quaternion |
-| **Unrefined section count** | = number of structural segments | Independent of structure |
-| **Force distribution** | Per-point via LE/TE split | Integrated force/moment |
+| **Unrefined section count** | = number of structural LE/TE pairs | Independent of structure |
+| **Force distribution** | Per-point via moment-preserving LE/TE split | Integrated force/moment coefficients |
 | **Deformation coupling** | Direct: point motion → VSM geometry | Indirect: group twists → VSM sections |
-| **Computational cost** | 2-3× higher | Lower |
+| **Computational cost** | Higher (full VSM solve per step) | Lower (linearized) |
 | **Fidelity** | Higher (aeroelastic coupling) | Lower (rigid body) |
 
-## Implementation Files
+## Implementation files
 
 - `src/vsm_refine.jl`: REFINE wing force distribution and geometry updates
-- `src/system_structure.jl`: Wing type definitions and group-to-section mapping (lines 1399-1420)
-- `src/generate_system.jl`: Symbolic equation generation for both wing types
-- VortexStepMethod.jl `src/wing_geometry.jl`: `refined_panel_mapping` computation (lines 703-756)
+- `src/system_structure/types.jl`: Component type definitions (Point, Segment, etc.)
+- `src/system_structure/wing.jl`: Wing and VSMWing type definitions, group-to-section mapping
+- `src/generate_system/vsm_eqs.jl`: Symbolic VSM equation generation
+- `src/generate_system/wing_eqs.jl`: Wing dynamics equation generation
+- `src/linearize.jl`: VSM linearization and Jacobian updates
+- VortexStepMethod.jl `src/wing_geometry.jl`: `refined_panel_mapping` computation

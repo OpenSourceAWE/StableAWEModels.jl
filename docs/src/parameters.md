@@ -1,16 +1,16 @@
-<!--
-SPDX-FileCopyrightText: 2025 Uwe Fechner
-
-SPDX-License-Identifier: MIT
--->
-
 ```@meta
 CurrentModule = SymbolicAWEModels
 ```
 ## Configuration
-To configure the parameters of the kite models, edit the file `data/settings.yaml`, or 
-create a copy under a different name and change the name of the active configuration in 
+To configure the parameters of the kite models, edit the file `data/settings.yaml`, or
+create a copy under a different name and change the name of the active configuration in
 the file `data/system.yaml`.
+
+!!! note
+    These are the simulation `Settings` parameters loaded from `system.yaml`.
+    For YAML-based models, the structural geometry (points, segments, etc.)
+    is defined separately in `struc_geometry.yaml`. See
+    [Building a system using YAML](tutorial_yaml.md) for details.
 
 ## Parameters
 The following parameters are used by this package:

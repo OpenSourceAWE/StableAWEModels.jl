@@ -1,14 +1,13 @@
-```
-@meta
+```@meta
 CurrentModule = SymbolicAWEModels
 ```
 
-# API Reference
+# API reference
 
-This page provides a detailed reference for all public functions exported by the 
-`SymbolicAWEModels.jl` package.
+This page provides a detailed reference for all public functions exported by
+`SymbolicAWEModels.jl`.
 
-## High-Level Simulation Functions
+## High-level simulation functions
 
 These functions provide convenient wrappers for running common simulation scenarios.
 
@@ -19,7 +18,7 @@ sim_turn!
 sim_reposition!
 ```
 
-## Low-Level Simulation and Analysis
+## Low-level simulation and analysis
 
 These functions provide direct control over the simulation and tools for model analysis.
 
@@ -32,9 +31,37 @@ copy_to_simple!
 simple_linearize!
 ```
 
-## System Structure Constructors
+## YAML loading
 
-These functions are used to procedurally generate predefined [`SystemStructure`](@ref) topologies.
+```@docs
+load_sys_struct_from_yaml
+```
+
+## System configuration
+
+```@docs
+set_world_frame_damping
+set_body_frame_damping
+calc_steady_torque
+```
+
+## State accessor functions
+
+Use these functions to retrieve state information and calculated values from a model
+instance.
+
+```@docs
+winch_force
+unstretched_length
+tether_length
+segment_stretch_stats
+```
+
+## Predefined system structure constructors
+
+These legacy functions create predefined [`SystemStructure`](@ref) topologies. For new
+models, prefer using the [`SystemStructure`](@ref) constructor directly or
+[`load_sys_struct_from_yaml`](@ref).
 
 ```@docs
 create_ram_sys_struct
@@ -42,29 +69,20 @@ create_tether_sys_struct
 create_simple_ram_sys_struct
 ```
 
-## State Accessor Functions (Getters)
+## Visualization functions
 
-Use these functions to retrieve state information and calculated values from a model instance.
+SymbolicAWEModels provides plotting functionality through a package extension that
+automatically loads when you import GLMakie.
 
-```@docs
-winch_force
-unstretched_length
-tether_length
-```
+### 3D system visualization
 
-## Visualization Functions
-
-SymbolicAWEModels provides plotting functionality through a package extension that automatically loads when you import GLMakie. The extension provides the following functions:
-
-### 3D System Visualization
-
-Plot the 3D structure of the kite system with interactive features:
+Plot the 3D structure of the system with interactive features:
 ```julia
 using GLMakie
 plot(sys::SystemStructure; kwargs...)
 ```
 
-**Keyword Arguments:**
+**Keyword arguments:**
 - `size::Tuple=(1200, 800)`: Figure size in pixels
 - `margin::Float64=10.0`: Margin around the system in world units
 - `segment_color=:black`: Default color for segments
@@ -73,20 +91,20 @@ plot(sys::SystemStructure; kwargs...)
 - `show_segments::Bool=true`: Show tether segments
 - `show_orient::Bool=true`: Show wing orientation axes
 
-**Interactive Features:**
+**Interactive features:**
 - Hover over segments to highlight them
 - Click on a segment to zoom in
 - Click in empty space to zoom out
 - Rotate, pan, and zoom with mouse
 
-### Time-Series Visualization
+### Time-series visualization
 
 Plot simulation results as multi-panel time-series:
 ```julia
 plot(sys::SystemStructure, log::SysLog; kwargs...)
 ```
 
-**Keyword Arguments:**
+**Keyword arguments:**
 - `plot_default::Bool=true`: Enable default plot panels
 - `plot_reelout::Bool=plot_default`: Show reel-out velocities
 - `plot_aero_force::Bool=plot_default`: Show aerodynamic forces
@@ -103,27 +121,11 @@ plot(sys::SystemStructure, log::SysLog; kwargs...)
 - `suffix::String=" - " * sys.name`: Suffix for plot labels
 - `size::Tuple=(1200, 800)`: Figure size in pixels
 
-**Example:**
-```julia
-using SymbolicAWEModels, GLMakie
-set = Settings("system.yaml")
-sam = SymbolicAWEModel(set, "ram")
-init!(sam)
-(log, _) = sim_oscillate!(sam)
+!!! note "Automatic extension loading"
+    Simply `using GLMakie` after loading SymbolicAWEModels to make
+    the `plot` functions available.
 
-# Plot only heading and angle of attack
-plot(sam.sys_struct, log;
-     plot_default=false,
-     plot_heading=true,
-     plot_aoa=true)
-```
-
-!!! note "Automatic Extension Loading"
-    You don't need to explicitly load the plotting extension. Simply `using GLMakie` after loading SymbolicAWEModels will automatically make the `plot` functions available.
-
-## Utility and Helper Functions
-
-General helper functions for package management and setup.
+## Utility and helper functions
 
 ```@docs
 init_module

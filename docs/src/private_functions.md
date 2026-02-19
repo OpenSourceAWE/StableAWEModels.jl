@@ -4,11 +4,12 @@ CurrentModule = SymbolicAWEModels
 
 # Private API
 
+
 This page documents the internal functions and types of `SymbolicAWEModels.jl`. These are not
 part of the public API and may change without notice. They are listed here for
 developers and for those interested in the model's internal workings.
 
-## Core Types and Constructors
+## Core types and constructors
 
 ```@docs
 SymbolicAWEModels.SerializedModel
@@ -20,7 +21,7 @@ SymbolicAWEModels.create_4_attach_ram_sys_struct
 SymbolicAWEModels.create_tether
 ```
 
-## State Management and Model Simplification
+## State management and model simplification
 
 ```@docs
 SymbolicAWEModels.getstate
@@ -34,7 +35,7 @@ SymbolicAWEModels.get_set_hash
 SymbolicAWEModels.get_sys_struct_hash
 ```
 
-## Physics and Geometry Helpers
+## Physics and geometry helpers
 
 ```@docs
 SymbolicAWEModels.calc_angle_of_attack
@@ -43,7 +44,6 @@ SymbolicAWEModels.calc_R_t_w
 SymbolicAWEModels.calc_R_v_w
 SymbolicAWEModels.cad_to_body_frame
 SymbolicAWEModels.calc_pos
-SymbolicAWEModels.calc_steady_torque
 SymbolicAWEModels.calc_winch_force
 SymbolicAWEModels.find_axis_point
 SymbolicAWEModels.quaternion_to_rotation_matrix
@@ -56,14 +56,15 @@ SymbolicAWEModels.get_base_pos
 SymbolicAWEModels.calc_aoa
 ```
 
-## Equations and System Management
+## Equations and system management
 
 ```@docs
 SymbolicAWEModels.create_sys!
 SymbolicAWEModels.scalar_eqs!
 SymbolicAWEModels.wing_eqs!
 SymbolicAWEModels.vsm_eqs!
-SymbolicAWEModels.force_eqs!
+SymbolicAWEModels.point_eqs!
+SymbolicAWEModels.segment_eqs!
 SymbolicAWEModels.update_vsm!
 SymbolicAWEModels.jacobian
 SymbolicAWEModels.load_serialized_model!
@@ -81,7 +82,7 @@ SymbolicAWEModels.SimpleLinModelWithAttributes
 SymbolicAWEModels.ControlFuncWithAttributes
 ```
 
-## Utility and Internal Functions
+## Utility and internal functions
 
 ```@docs
 SymbolicAWEModels.get_model_name
@@ -105,7 +106,7 @@ SymbolicAWEModels.copy_dir
 SymbolicAWEModels.get_example_packages
 ```
 
-## Base Overloads (Internal Use)
+## Base overloads (internal use)
 
 ```@docs
 Base.getindex
@@ -113,8 +114,82 @@ Base.getproperty
 Base.setproperty!
 ```
 
-## Plotting Recipes (Internal Use)
+## YAML loader internals
 
 ```@docs
-RecipesBase.apply_recipe
+SymbolicAWEModels.get_field_or_nothing
+SymbolicAWEModels.convert_to_type
+SymbolicAWEModels.resolve_references
+SymbolicAWEModels.calculate_derived_properties!
+SymbolicAWEModels.call_yaml_constructor
+SymbolicAWEModels.update_yaml_from_sys_struct!
+SymbolicAWEModels.update_aero_yaml_from_struc_yaml!
+```
+
+## SystemStructure internals
+
+```@docs
+SymbolicAWEModels.assign_indices_and_resolve!
+SymbolicAWEModels.resolve_ref
+SymbolicAWEModels.resolve_ref_spec
+SymbolicAWEModels.validate_sys_struct
+SymbolicAWEModels.build_name_dict
+SymbolicAWEModels.find_base_point_idx
+SymbolicAWEModels.identify_wing_segments
+SymbolicAWEModels.init_untransformed_components!
+SymbolicAWEModels.adjust_vsm_panels_to_origin!
+SymbolicAWEModels.apply_aero_z_offset!
+SymbolicAWEModels.calc_refine_wing_frame
+SymbolicAWEModels.calc_inertia_y_rotation
+SymbolicAWEModels.rotate_vsm_sections!
+```
+
+## NamedCollection internals
+
+```@docs
+SymbolicAWEModels.names
+SymbolicAWEModels.get_idx
+SymbolicAWEModels.get_name
+Base.keys(::NamedCollection)
+Base.values(::NamedCollection)
+Base.haskey(::NamedCollection, ::Symbol)
+Base.setindex!(::NamedCollection, ::Any, ::Integer)
+Base.setindex!(::NamedCollection, ::Any, ::Symbol)
+```
+
+## Equation builders
+
+```@docs
+SymbolicAWEModels.tether_eqs!
+SymbolicAWEModels.pulley_eqs!
+SymbolicAWEModels.winch_eqs!
+SymbolicAWEModels.group_eqs!
+```
+
+## VSM and aerodynamics internals
+
+```@docs
+SymbolicAWEModels.build_point_to_vsm_point_mapping
+SymbolicAWEModels.update_vsm_wing_from_structure!
+SymbolicAWEModels.distribute_panel_forces_to_points!
+SymbolicAWEModels.get_aero_force_override
+SymbolicAWEModels.get_aero_moment_override
+SymbolicAWEModels.get_group_moment_override
+```
+
+## Heading and geometry
+
+```@docs
+SymbolicAWEModels.get_heading_components
+SymbolicAWEModels.solve_heading_rotation
+SymbolicAWEModels.get_ref_position_from_points
+SymbolicAWEModels.sym_calc_R_t_w
+SymbolicAWEModels.wrap_to_pi
+```
+
+## Other internals
+
+```@docs
+SymbolicAWEModels.update_segment_forces!
+KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```

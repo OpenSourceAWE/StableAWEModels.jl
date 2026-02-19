@@ -2,30 +2,37 @@
 CurrentModule = SymbolicAWEModels
 ```
 
-# SymbolicAWEModels
-Documentation for the package [SymbolicAWEModels](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl).
+# SymbolicAWEModels.jl
 
-This package provides modular symbolic models of Airborne Wind Energy (AWE) systems, 
-which consist of one or more wings, tethers, winches and a bridle system with 
-or without pulleys. The kite is modeled as a deforming rigid body with orientation governed 
-by quaternion dynamics. The aerodynamic forces and moments are computed using the 
-Vortex Step Method. The tether is modeled as point masses connected by spring-damper 
-elements, with aerodynamic drag modeled realistically. The winchs are modeled as
-motors/generators that can reel in or out the tethers.
+Documentation for [SymbolicAWEModels.jl](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl).
 
-The [`SymbolicAWEModel`](@ref) has the following subcomponents implemented in separate packages:
-- AtmosphericModel from [AtmosphericModels](https://github.com/aenarete/AtmosphericModels.jl)
-- WinchModel from [WinchModels](https://github.com/aenarete/WinchModels.jl) 
-- The aerodynamic forces and moments of some of the models are calculated using the 
-  package [VortexStepMethod](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+## What is SymbolicAWEModels.jl?
 
-This package is part of the Julia Kite Power Tools, which consist of the following packages:
+SymbolicAWEModels.jl is a **compiler** for mechanical systems, built for
+**Airborne Wind Energy** (AWE) modelling. It takes a structural description
+of a system — defined in Julia code or a YAML file — and compiles it into
+an efficient ODE solver using [ModelingToolkit.jl](https://github.com/SciML/ModelingToolkit.jl).
 
-![Julia Kite Power Tools](kite_power_tools.png)
+The compilation pipeline works as follows:
 
-## Quick Start
+```
+ Define Components         Assemble             Compile            Simulate
+┌──────────────────┐   ┌──────────────┐    ┌─────────────────┐    ┌────────────┐
+│ Point, Segment,  │──▶│ System       │───▶│ SymbolicAWE     │───▶│ init!()    │
+│ Wing, Winch, ... │   │ Structure    │    │ Model           │    │ next_step! │
+│                  │   │              │    │ (symbolic eqs → │    │ sim!()     │
+│ Julia or YAML    │   │ (resolves    │    │  ODEProblem)    │    │            │
+│                  │   │  references) │    │                 │    │            │
+└──────────────────┘   └──────────────┘    └─────────────────┘    └────────────┘
+```
 
-Install Julia using [juliaup](https://github.com/JuliaLang/juliaup), if you haven't already:
+The first compilation is slow (minutes) as ModelingToolkit generates and simplifies the
+symbolic equations. The result is cached to a binary file, making subsequent runs fast
+(seconds).
+
+## Quick start
+
+Install Julia using [juliaup](https://github.com/JuliaLang/juliaup):
 
 ```bash
 curl -fsSL https://install.julialang.org | sh
@@ -33,110 +40,93 @@ juliaup add release
 juliaup default release
 ```
 
-**For most users** (installing from the registry):
+Create a project and add SymbolicAWEModels:
 
 ```bash
-mkdir my_kite_project
-cd my_kite_project
+mkdir my_project && cd my_project
 julia --project="."
 ```
-
-Then add SymbolicAWEModels and copy examples:
 
 ```julia
 using Pkg
 pkg"add SymbolicAWEModels"
-
-using SymbolicAWEModels
-SymbolicAWEModels.init_module()  # Copies examples and installs dependencies
 ```
 
-Run the examples:
+### Minimal example (Julia)
 
-```julia
-include("examples/menu.jl")  # Interactive menu
-# or
-include("examples/ram_air_kite.jl")  # Specific example
-```
-
-**Note**: The first run will be slow (several minutes) due to compilation. Run a second time for much faster performance.
-
-**For developers or cloned package users**, see the detailed [Getting Started Guide](getting_started.md) which explains the different workflows for:
-- Registry users (most common)
-- Cloned package users
-- Package developers
-
-The guide also includes instructions for building documentation locally.
-
-## Ram air kite model
-This model represents the kite as a deforming rigid body, with orientation governed by
-quaternion dynamics. Aerodynamics are computed using the Vortex Step Method. The kite is
-controlled from the ground via four tethers.
-
-Initialize:
 ```julia
 using SymbolicAWEModels
+using GLMakie
+
 set = Settings("system.yaml")
-sam = SymbolicAWEModel(set, "ram")
+set.v_wind = 0.0
+
+# Define components using symbolic names
+points = [
+    Point(:anchor, [0, 0, 0], STATIC),
+    Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0),
+]
+segments = [Segment(:spring, set, :anchor, :mass, BRIDLE)]
+transforms = [Transform(:tf, deg2rad(-80), 0.0, 0.0;
+    base_pos=[0, 0, 50], base_point=:anchor, rot_point=:mass)]
+
+# Assemble and compile
+sys = SystemStructure("pendulum", set; points, segments, transforms)
+sam = SymbolicAWEModel(set, sys)
 init!(sam)
+
+# Simulate
+for _ in 1:100
+    next_step!(sam)
+end
+
+# Visualize the result
+plot(sam.sys_struct)
 ```
 
-Simulate:
-```julia
-(log, _) = sim_oscillate!(sam)
-```
+For the full tutorial, see [Building a System using Julia](tutorial_julia.md).
+For YAML-based model definition, see [Building a System using YAML](tutorial_yaml.md).
 
-For visualization, load GLMakie to automatically enable the plotting extension:
-```julia
-using GLMakie
-plot(sam.sys_struct, log; plot_default=false, plot_heading=true)
-```
+## What can it model?
 
-See the [Examples](examples.md) page for more details on plotting options.
+SymbolicAWEModels provides building blocks for flexible mechanical systems:
 
-![Ram heading](assets/ram_heading.png)
+- [`Point`](@ref) **masses** — static, dynamic, or quasi-static nodes
+- [`Segment`](@ref) **spring-dampers** — with per-unit-length stiffness, damping, and drag
+- [`Tether`](@ref)s — collections of segments controlled by a winch
+- [`Winch`](@ref)es — torque-controlled motors with Coulomb and viscous friction
+- [`Pulley`](@ref)s — equal-tension constraints between segments
+- [`Wing`](@ref AbstractWing)s — rigid body quaternion dynamics with aerodynamic forces from the
+  [Vortex Step Method](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+- [`Group`](@ref)s — twist degrees of freedom for aeroelastic coupling
+- [`Transform`](@ref)s — spherical coordinate positioning of components
 
-The **simple_ram** model removes the bridle system, and has 1-segment tethers. 
-The tether properties and attach points can be approximated using the complex ram air kite 
-model and a helper tether model. This makes the heading response of the simple model very
-close to the heading response of the complex model.
+These components can be combined to model a wide range of systems, from simple
+hanging masses to complex kite power systems with multiple tethers, bridles,
+and wings.
 
-Initialize:
-```julia
-init!(sam)
-tether_sam = SymbolicAWEModel(set, "tether")
-init!(tether_sam)
-simple_sam = SymbolicAWEModel(set, "simple_ram")
-init!(simple_sam)
-```
+## Ecosystem
 
-Simulate:
-```julia
-SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
-(simple_log, _) = sim_oscillate!(simple_sam)
-```
+Key related packages:
+- [KiteUtils.jl](https://github.com/OpenSourceAWE/KiteUtils.jl) — shared types and utilities
+- [VortexStepMethod.jl](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl) — aerodynamic solver
+- [AtmosphericModels.jl](https://github.com/aenarete/AtmosphericModels.jl) — wind profiles
+- [KiteModels.jl](https://github.com/ufechner7/KiteModels.jl) — non-symbolic, predefined kite models
+- [KiteSimulators.jl](https://github.com/aenarete/KiteSimulators.jl) — meta-package
+- [KiteControllers.jl](https://github.com/aenarete/KiteControllers.jl) — control algorithms
 
-Visualize (requires GLMakie):
-```julia
-using GLMakie
-plot(simple_sam.sys_struct, simple_log; plot_default=false, plot_heading=true)
-```
-
-![Simple ram heading](assets/simple_ram_heading.png)
+Visualisation uses the built-in GLMakie extension
+(`ext/SymbolicAWEModelsMakieExt.jl`) — just `using GLMakie` to enable
+plotting.
 
 ## See also
-- [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) for the scientic background of the winches and tethers.
-- More kite models [KiteModels](https://github.com/ufechner7/KiteModels.jl)
-- The meta-package [KiteSimulators](https://github.com/aenarete/KiteSimulators.jl)
-- the package [KiteUtils](https://github.com/OpenSourceAWE/KiteUtils.jl)
-- the packages [WinchModels](https://github.com/aenarete/WinchModels.jl) and [KitePodModels](https://github.com/aenarete/KitePodModels.jl) and [AtmosphericModels](https://github.com/aenarete/AtmosphericModels.jl)
-- the packages [KiteControllers](https://github.com/aenarete/KiteControllers.jl) and [KiteViewers](https://github.com/aenarete/KiteViewers.jl)
-- the [VortexStepMethod](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+- [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) for the scientific background of the winches and tethers
 
 ## Questions?
-If you have any questions or problems, please submit an [issue](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/issues/new)
-or start a [discussion](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/discussions/new/choose).
-The Julia community is also very helpful: [Julia Discourse](https://discourse.julialang.org/).
-You can also send an email to Bart van de Lint (bart@vandelint.net).
+If you have questions or problems, please submit an
+[issue](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/issues/new) or start a
+[discussion](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/discussions/new/choose).
+The Julia community is also very helpful:
+[Julia Discourse](https://discourse.julialang.org/).
 
 Authors: Bart van de Lint (bart@vandelint.net), Uwe Fechner (uwe.fechner.msc@gmail.com)

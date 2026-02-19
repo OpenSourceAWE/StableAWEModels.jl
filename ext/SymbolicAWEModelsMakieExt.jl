@@ -21,7 +21,6 @@ using GeometryBasics
 const PLOT_GEOMETRY_OBS = Ref{Union{Nothing, Observable}}(nothing)  # Single trigger observable
 const PLOT_SEGMENT_COLORS_OBS = Ref{Union{Nothing, Observable}}(nothing)  # Separate for force coloring
 const PLOT_SCENE = Ref{Union{Nothing, Scene}}(nothing)
-const PLOT_MARGIN = Ref{Float64}(1000.0)
 const PLOT_RELEVANT_PLOTS = Ref{Union{Nothing, Vector}}(nothing)
 const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemStructure}}(nothing)
 const PLOT_VECTOR_SCALE = Ref{Float64}(1.0)
@@ -74,7 +73,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
                      show_points = true, show_segments = true, show_orient = true,
-                     margin = 1000.0, force_color = false,
+                     force_color = false,
                      plot_vsm = true, plot_aero = true,
                      extra_points = nothing,
                      extra_groups = nothing,
@@ -294,32 +293,31 @@ function Makie.plot!(ax, sys::SystemStructure;
         end
     end
 
-    # === Calculate system scale for axes and panes ===
-    xlims, ylims, zlims = (-10, 10), (-10, 10), (-10, 10) # Default limits
+    # === Calculate arrow scale from data bounding box ===
+    data_char_length = 20.0  # fallback for empty systems
     if !isempty(sys.points)
         all_x = [p.pos_w[1] for p in sys.points]
         all_y = [p.pos_w[2] for p in sys.points]
         all_z = [p.pos_w[3] for p in sys.points]
 
-        xlims_data = extrema(all_x)
-        ylims_data = extrema(all_y)
-        zlims_data = extrema(all_z)
-
-        xlims = (xlims_data[1] - margin, xlims_data[2] + margin)
-        ylims = (ylims_data[1] - margin, ylims_data[2] + margin)
-        zlims = (zlims_data[1] - margin, zlims_data[2] + margin)
+        xr, yr, zr = extrema(all_x), extrema(all_y), extrema(all_z)
+        data_char_length = max(
+            xr[2] - xr[1], yr[2] - yr[1], zr[2] - zr[1],
+            1.0,  # minimum to avoid zero
+        )
     end
 
-    # Calculate characteristic length for scaling arrows
-    char_length = max(xlims[2] - xlims[1], ylims[2] - ylims[1], zlims[2] - zlims[1])
-    axis_length = char_length * 0.15
+    axis_length = data_char_length * 0.2
 
     # === Plot Global Axes ===
     begin
         origins = [Point3f(0, 0, 0), Point3f(0, 0, 0), Point3f(0, 0, 0)]
-        directions = [Vec3f(axis_length, 0, 0), Vec3f(0, axis_length, 0), Vec3f(0, 0, axis_length)]
+        directions = [
+            Vec3f(axis_length, 0, 0),
+            Vec3f(0, axis_length, 0),
+            Vec3f(0, 0, axis_length),
+        ]
         axis_colors = [:red, :green, :blue]
-        # Use fixed radii so arrows don't get fatter with longer tethers
         plots[:global_axes] = arrows3d!(ax, origins, directions;
                                         shaftradius=0.02,
                                         tipradius=0.08,
@@ -2520,8 +2518,12 @@ function zoom_out!(scene, cam, plots, distance=nothing; relmargin=0.2)
                                   inv_view_matrix[2, 3],
                                   inv_view_matrix[3, 3]))
     # 2. Get the scene's bounding box and its center (the new target)
+    #    Expand to include origin so global axes arrows are always visible
     bbox = data_limits(plots)
-    center = bbox.origin .+ bbox.widths ./ 2
+    lo = min.(bbox.origin, Vec3f(0, 0, 0))
+    hi = max.(bbox.origin .+ bbox.widths, Vec3f(0, 0, 0))
+    bbox = Rect3f(lo, hi .- lo)
+    center = lo .+ (hi .- lo) ./ 2
 
     # 3. Calculate distance only if not provided
     if isnothing(distance)
@@ -2819,7 +2821,6 @@ end
 
 function _plot_with_panes(sys::SystemStructure;
                     size = (1200, 800),
-                    margin = 10.0,
                     relmargin = 0.2,
                     segment_color = :black,
                     highlight_color = :red,
@@ -2831,7 +2832,7 @@ function _plot_with_panes(sys::SystemStructure;
                     kwargs...)
     # Use LScene for advanced camera controls
     scene = Scene(; camera=cam3d!, show_axis = false, size, zoommode = :free, samples = 16)
-    plots = plot!(scene, sys; segment_color, margin, force_color,
+    plots = plot!(scene, sys; segment_color, force_color,
                   extra_points, extra_groups, mesh, kwargs...)
     
     relevant_plots = AbstractPlot[]
@@ -2866,9 +2867,7 @@ function _plot_with_panes(sys::SystemStructure;
         zoom_out!(scene, cam, relevant_plots, nothing; relmargin)
     end
 
-    # Return scene along with margin, plots dict, and relevant_plots
-    # These will be used by time-based plotting
-    return scene, margin, plots, relevant_plots
+    return scene, plots, relevant_plots
 end
 
 # Public API function - creates scene with observables for dynamic updates
@@ -2894,7 +2893,7 @@ function Makie.plot(sys::SystemStructure;
     geometry_obs = Observable(0.0)
 
     # Create scene with observables using internal function
-    scene, margin, plots, relevant_plots = _plot_with_panes(sys;
+    scene, plots, relevant_plots = _plot_with_panes(sys;
                 geometry_obs,
                 vector_scale,
                 force_color,
@@ -2917,7 +2916,6 @@ function Makie.plot(sys::SystemStructure;
     PLOT_GEOMETRY_OBS[] = geometry_obs
     PLOT_SEGMENT_COLORS_OBS[] = segment_colors_obs
     PLOT_SCENE[] = scene
-    PLOT_MARGIN[] = margin
     PLOT_RELEVANT_PLOTS[] = relevant_plots
     # SystemStructure and settings already stored above before plot creation
     PLOT_ZOOMED_IN[] = false  # Initialize zoom state (not zoomed in)
