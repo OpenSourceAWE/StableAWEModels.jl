@@ -17,7 +17,6 @@ SymbolicAWEModels.SimFloat
 SymbolicAWEModels.KVec3
 SymbolicAWEModels.SVec3
 VortexStepMethod.Wing
-SymbolicAWEModels.create_4_attach_ram_sys_struct
 SymbolicAWEModels.create_tether
 ```
 
@@ -98,7 +97,6 @@ SymbolicAWEModels.step
 SymbolicAWEModels.create_model_archive
 SymbolicAWEModels.filecmp
 SymbolicAWEModels.extract_model_archive
-SymbolicAWEModels.create_default_models
 SymbolicAWEModels.copy_bin
 SymbolicAWEModels.copy_examples
 SymbolicAWEModels.copy_data
@@ -134,7 +132,6 @@ SymbolicAWEModels.resolve_ref
 SymbolicAWEModels.resolve_ref_spec
 SymbolicAWEModels.validate_sys_struct
 SymbolicAWEModels.build_name_dict
-SymbolicAWEModels.find_base_point_idx
 SymbolicAWEModels.identify_wing_segments
 SymbolicAWEModels.init_untransformed_components!
 SymbolicAWEModels.adjust_vsm_panels_to_origin!

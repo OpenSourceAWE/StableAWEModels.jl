@@ -26,8 +26,6 @@ AeroMode
 ```@docs
 SymbolicAWEModel
 SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; kwargs...)
-SymbolicAWEModel(set::Settings; kwargs...)
-SymbolicAWEModel(set::Settings, name::String; kwargs...)
 ```
 
 ## System structure and components

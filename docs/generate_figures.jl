@@ -19,22 +19,6 @@ include(joinpath(@__DIR__, "src", "literate", "tutorial_julia.jl"))
 
 ASSETS = joinpath(@__DIR__, "src", "assets")
 
-# V3 kite from YAML (for examples.md)
-set_data_path("data/v3")
-set = Settings("system.yaml")
-set.solver = "FBDF"
-vsm_set_path = joinpath(get_data_path(),
-    "vsm_settings_reduced_for_coupling.yaml")
-vsm_set = VortexStepMethod.VSMSettings(vsm_set_path;
-    data_prefix=false)
-
-yaml_path = joinpath(get_data_path(), "struc_geometry.yaml")
-sys = load_sys_struct_from_yaml(yaml_path;
-    system_name="v3_kite", set, wing_type=QUATERNION,
-    vsm_set)
-scene = plot(sys)
-GLMakie.save(joinpath(ASSETS, "v3_kite_structure.png"), scene)
-
 # 2-plate kite from YAML (for examples.md)
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))

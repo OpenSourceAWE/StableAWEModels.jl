@@ -20,7 +20,7 @@ using GLMakie  # Automatically loads the plotting extension
 plot(sam.sys_struct)
 ```
 
-![V3 kite structure](assets/v3_kite_structure.png)
+![2-plate kite structure](assets/2plate_kite_structure.png)
 
 **Time-series data** — multi-panel plots of simulation results:
 ```julia
@@ -66,11 +66,11 @@ These examples demonstrate the building blocks without aerodynamics:
 
 | Example | Description |
 |---------|-------------|
-| `structural/hanging_mass.jl` | Simplest possible system: a mass on a spring |
-| `structural/catenary_line.jl` | Multi-segment tether hanging under gravity |
-| `structural/simple_pulley.jl` | Two segments with a pulley constraint |
-| `structural/pulley.jl` | Pulley system with winch control |
-| `structural/saddle_form.jl` | Complex mesh demonstrating 3D structures |
+| `hanging_mass.jl` | Simplest possible system: a mass on a spring |
+| `catenary_line.jl` | Multi-segment tether hanging under gravity |
+| `simple_pulley.jl` | Two segments with a pulley constraint |
+| `pulley.jl` | Pulley system with winch control |
+| `saddle_form.jl` | Complex mesh demonstrating 3D structures |
 
 ## Coupled examples
 
@@ -116,59 +116,21 @@ end
 
 ![2-plate kite structure](assets/2plate_kite_structure.png)
 
-See `coupled/2plate_kite.jl` for the full example with logging and replay.
+See `coupled_2plate_kite.jl` for the full example with logging and replay.
 
-### Ram air kite
+### External kite models
 
-The ram air kite model has been moved to
-[RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl), which
-provides a streamlined interface:
+Full kite models with bridle systems, detailed aerodynamics, and validation
+have been moved to dedicated packages:
 
-```julia
-using RamAirKite, GLMakie
-
-config = RamAirSimConfig(physical_model="ram", sim_time=10.0)
-sam = create_ram_air_model(config)
-init!(sam)
-find_steady_state!(sam)
-(log, _) = sim_oscillate!(sam)
-plot(sam.sys_struct, log)
-```
-
-See `coupled/ram_air_kite.jl` for the full example.
-
-### V3 kite (YAML-based)
-
-This example loads the TU Delft V3 kite using [`load_sys_struct_from_yaml`](@ref):
-
-```julia
-using SymbolicAWEModels, VortexStepMethod
-
-set_data_path("data/v3")
-set = Settings("system.yaml")
-vsm_set = VortexStepMethod.VSMSettings(
-    "vsm_settings_reduced_for_coupling.yaml")
-
-sys = load_sys_struct_from_yaml("struc_geometry.yaml";
-    system_name="v3_kite", set=set,
-    wing_type=QUATERNION, vsm_set=vsm_set)
-
-sam = SymbolicAWEModel(set, sys)
-init!(sam)
-(log, _) = sim_oscillate!(sam)
-```
-
-![V3 kite structure](assets/v3_kite_structure.png)
-
-See `coupled/v3_kite.jl` for the full example.
-
-For comprehensive validation studies, see the dedicated validation packages:
-- [Ram air kite validation](https://github.com/OpenSourceAWE/RamAirKiteValidation.jl) (coming soon)
-- [V3 kite validation](https://github.com/OpenSourceAWE/V3KiteValidation.jl) (coming soon)
+- **[RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl)** —
+  Ram air kite with 4-tether steering and deformable wing groups
+- **[V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl)** —
+  TU Delft V3 leading-edge-inflatable kite (YAML-based)
 
 ## Real-time visualization
 
-The `realtime_visualization.jl` example demonstrates a custom simulation loop with
+The `coupled_realtime_visualization.jl` example demonstrates a custom simulation loop with
 real-time 3D visualization using Makie observables. Key concepts:
 
 - Create `Observable` objects for dynamic data (positions, orientations)
@@ -180,4 +142,4 @@ Configuration:
 - `plot_interval`: Update plot every N steps
 - `dt`: Simulation time step
 
-See `examples/realtime_visualization.jl` for the full implementation.
+See `examples/coupled_realtime_visualization.jl` for the full implementation.

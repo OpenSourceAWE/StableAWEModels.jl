@@ -108,6 +108,8 @@ and wings.
 ## Ecosystem
 
 Key related packages:
+- [RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl) — ram air kite model
+- [V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl) — TU Delft V3 kite model
 - [KiteUtils.jl](https://github.com/OpenSourceAWE/KiteUtils.jl) — shared types and utilities
 - [VortexStepMethod.jl](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl) — aerodynamic solver
 - [AtmosphericModels.jl](https://github.com/aenarete/AtmosphericModels.jl) — wind profiles

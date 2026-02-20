@@ -237,21 +237,23 @@ The full loading workflow for a model with aerodynamics:
 ```julia
 using SymbolicAWEModels, VortexStepMethod
 
-set_data_path("data/v3")
+set_data_path("data/2plate_kite")
 set = Settings("system.yaml")
-vsm_set = VortexStepMethod.VSMSettings("vsm_settings.yaml")
+vsm_set = VortexStepMethod.VSMSettings(
+    joinpath(get_data_path(), "vsm_settings.yaml"))
 
-sys = load_sys_struct_from_yaml("struc_geometry.yaml";
-    system_name="v3_kite",
+struc_yaml = joinpath(get_data_path(),
+    "quat_struc_geometry.yaml")
+sys = load_sys_struct_from_yaml(struc_yaml;
+    system_name="2plate_kite",
     set=set,
-    wing_type=QUATERNION,
     vsm_set=vsm_set)
 
 sam = SymbolicAWEModel(set, sys)
 init!(sam)
 ```
 
-![V3 kite structure](assets/v3_kite_structure.png)
+![2-plate kite structure](assets/2plate_kite_structure.png)
 
 After compilation, a cache file (`model_*.bin`) is saved. Subsequent loads skip the
 expensive symbolic compilation and deserialize the cached model instead. Force a

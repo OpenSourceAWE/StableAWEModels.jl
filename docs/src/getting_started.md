@@ -80,7 +80,7 @@ include("examples/menu.jl")  # Interactive menu
 Or run a specific example:
 
 ```julia
-include("examples/ram_air_kite.jl")
+include("examples/coupled_2plate_kite.jl")
 ```
 
 **Important**: The first time you run an example, it will be slow due to compilation and precompilation (this can take several minutes). Run the same example a second time to see the significant speedup - subsequent runs will be much faster as the compiled code is cached.
@@ -125,8 +125,7 @@ If you've cloned the repository and want to run examples **without** modifying t
 Now you can run any example file (paths are relative to your current directory, **not** the examples directory):
 
 ```julia
-include("examples/ram_air_kite.jl")
-include("examples/simple_tuned_model.jl")
+include("examples/coupled_2plate_kite.jl")
 include("examples/menu.jl")
 ```
 
@@ -172,7 +171,7 @@ If you want to contribute to the package or modify its source code:
 
 3. **Run examples**:
    ```julia
-   include("examples/ram_air_kite.jl")
+   include("examples/coupled_2plate_kite.jl")
    ```
 
    With Revise.jl loaded, any changes you make to the source code in `src/` will be automatically reflected when you run the examples—no need to restart Julia!

@@ -16,7 +16,7 @@ the file `data/system.yaml`.
 The following parameters are used by this package:
 ```yaml
 system:
-    log_file: "data/ram_air_kite"  # filename without extension  [replay only]
+    log_file: "data/2plate_kite"   # filename without extension  [replay only]
                                    #   use / as path delimiter, even on Windows 
     time_lapse:   1.0              # relative replay speed
     sim_time:   100.0              # simulation time             [sim only]
@@ -38,9 +38,9 @@ solver:
     relaxation: 0.6        # relaxation factor of inner linear Newton solver, needed for quasi-steady solver
 
 kite:
-    model: "data/ram_air_kite_body.obj"     # 3D model of the kite
-    foil_file: "data/ram_air_kite_foil.dat" # filename for the foil shape
-    physical_model: "ram"            # name of the kite model to use (KPS3, KPS4 or SymbolicAWEModel)
+    model: ""                               # 3D model of the kite
+    foil_file: ""                           # filename for the foil shape
+    physical_model: "2plate"         # name of the kite model to use
     top_bridle_points:                      # top bridle points that are not on the kite body in CAD frame
         - [0.290199, 0.784697, -2.61305]
         - [0.392683, 0.785271, -2.61201]

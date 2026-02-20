@@ -27,7 +27,6 @@ init!
 next_step!
 find_steady_state!
 linearize!
-copy_to_simple!
 simple_linearize!
 ```
 
@@ -55,18 +54,6 @@ winch_force
 unstretched_length
 tether_length
 segment_stretch_stats
-```
-
-## Predefined system structure constructors
-
-These legacy functions create predefined [`SystemStructure`](@ref) topologies. For new
-models, prefer using the [`SystemStructure`](@ref) constructor directly or
-[`load_sys_struct_from_yaml`](@ref).
-
-```@docs
-create_ram_sys_struct
-create_tether_sys_struct
-create_simple_ram_sys_struct
 ```
 
 ## Visualization functions
