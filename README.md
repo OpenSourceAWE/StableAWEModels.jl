@@ -68,72 +68,50 @@ Run the interactive example menu:
 include("examples/menu.jl")
 ```
 
-Or run the ram-air-kite example directly:
-
-```julia
-include("examples/ram_air_kite.jl")
-```
-
 > **Note:** The first run will be slow (several minutes) due to compilation. Run a second time for a significant speedup - subsequent runs will be much faster.
 
 See the [Getting Started Guide](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/getting_started/) for detailed instructions for registry users, cloned package users, and developers.
 
 ---
 
-## Ram Air Kite Model
+## Kite Models
 
-This model represents the kite as a deforming rigid body, with orientation governed by quaternion dynamics. Aerodynamics are computed via the Vortex Step Method. The kite is controlled from the ground via four tethers.
+SymbolicAWEModels provides the building blocks for assembling kite models from
+YAML or Julia constructors. Ready-to-use kite models live in dedicated packages:
 
-**Initialize:**
+- **[RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl)** — Ram
+  air kite with bridle system, 4-tether steering, and deformable wing groups
+- **[V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl)** — TU Delft V3
+  leading-edge-inflatable kite, YAML-based configuration
+
+### 2-Plate Kite Example
+
+A minimal coupled aero-structural model included in `data/2plate_kite/`:
 
 ```julia
-using SymbolicAWEModels
+using SymbolicAWEModels, VortexStepMethod
+
+set_data_path("data/2plate_kite")
+struc_yaml = joinpath(get_data_path(), "quat_struc_geometry.yaml")
 set = Settings("system.yaml")
-sam = SymbolicAWEModel(set, "ram")
+vsm_set = VortexStepMethod.VSMSettings(
+    joinpath(get_data_path(), "vsm_settings.yaml"))
+
+sys = load_sys_struct_from_yaml(struc_yaml;
+    system_name="2plate_kite", set, vsm_set)
+sam = SymbolicAWEModel(set, sys)
 init!(sam)
-```
-
-**Simulate:**
-
-```julia
-(log, _) = sim_oscillate!(sam)
 ```
 
 For visualization with Makie, see the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/) page.
 
-![Ram heading](docs/src/assets/ram_heading.png)
-
----
-
-### Simple Ram Model
-
-The `simple_ram` model removes the bridle system and uses 1-segment tethers. You can approximate its properties using the complex ram air kite model and a helper tether model.
-
-**Initialize:**
-
-```julia
-init!(sam)
-tether_sam = SymbolicAWEModel(set, "tether")
-init!(tether_sam)
-simple_sam = SymbolicAWEModel(set, "simple_ram")
-init!(simple_sam)
-```
-
-**Simulate:**
-
-```julia
-SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
-(simple_log, _) = sim_oscillate!(simple_sam)
-```
-
-For visualization with Makie, see the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/) page.
-
-![Simple ram heading](docs/src/assets/simple_ram_heading.png)
+![2-plate kite structure](docs/src/assets/2plate_kite_structure.png)
 
 ---
 
 ## See Also
 
+- **Kite models:** [RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl), [V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl)
 - [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) – scientific background for winches and tethers
 - More kite models: [KiteModels.jl](https://github.com/ufechner7/KiteModels.jl)
 - Meta-package: [KiteSimulators.jl](https://github.com/aenarete/KiteSimulators.jl)
