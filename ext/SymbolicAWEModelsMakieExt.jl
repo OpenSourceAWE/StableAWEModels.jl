@@ -3146,15 +3146,16 @@ end
 """
     record(lg::SysLog, sys::SystemStructure, filename::String; framerate=30, kwargs...)
 
-Record a SysLog animation to an MP4 video file.
+Record a SysLog animation to a video or GIF file. The output format is
+determined by the file extension (`.mp4`, `.gif`, `.mkv`, `.webm`).
 
 # Arguments
 - `lg::SysLog`: The simulation log to record
 - `sys::SystemStructure`: The system structure matching the log's topology
-- `filename::String`: Output video filename (e.g., "simulation.mp4")
+- `filename::String`: Output filename (e.g., `"sim.mp4"`, `"sim.gif"`)
 
 # Keyword Arguments
-- `framerate::Int=30`: Video framerate (frames per second)
+- `framerate::Int=30`: Framerate (frames per second)
 - `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 - All other keyword arguments are passed through to the SystemStructure plot function
 
@@ -3163,11 +3164,9 @@ Record a SysLog animation to an MP4 video file.
 
 # Example
 ```julia
-# Record simulation to MP4
 record(log, sys_struct, "output.mp4")
-
-# Record with custom framerate and settings
-record(log, sys_struct, "simulation.mp4", framerate=60, vector_scale=0.3)
+record(log, sys_struct, "output.gif"; framerate=20)
+record(log, sys_struct, "sim.mp4"; framerate=60, vector_scale=0.3)
 ```
 """
 function SymbolicAWEModels.record(lg::SysLog, sys::SystemStructure, filename::String;
