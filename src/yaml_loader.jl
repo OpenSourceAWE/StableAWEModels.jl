@@ -822,14 +822,14 @@ Source and destination paths must be different for each pair.
 
 # Example
 ```julia
-sys = load_sys_struct_from_yaml("data/v3/struc_geometry.yaml"; ...)
+sys = load_sys_struct_from_yaml("struc_geometry.yaml"; ...)
 sam = SymbolicAWEModel(set, sys)
 # ... run simulation ...
 update_yaml_from_sys_struct!(sys,
-    "data/v3/struc_geometry.yaml",
-    "data/v3/struc_geometry_stable.yaml",
-    "data/v3/aero_geometry.yaml",
-    "data/v3/aero_geometry_stable.yaml")
+    "struc_geometry.yaml",
+    "struc_geometry_stable.yaml",
+    "aero_geometry.yaml",
+    "aero_geometry_stable.yaml")
 ```
 """
 function update_yaml_from_sys_struct!(sys_struct::SystemStructure,

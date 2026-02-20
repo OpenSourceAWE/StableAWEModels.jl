@@ -256,41 +256,6 @@ function SymbolicAWEModel(
 end
 
 """
-    SymbolicAWEModel(set::Settings; kwargs...)
-
-Constructs a default `SymbolicAWEModel` with automatically generated components.
-
-This convenience constructor automatically creates a complete AWE model:
-- It first builds a `SystemStructure` based on the wing geometry and settings.
-- Then, it assembles everything into a ready-to-use symbolic model.
-
-# Arguments
-- `set::Settings`: Configuration parameters.
-- `kwargs...`: Further keyword arguments passed to the `SystemStructure` constructor.
-
-# Returns
-- `SymbolicAWEModel`: A model ready for symbolic equation generation via [`init!`](@ref).
-"""
-function SymbolicAWEModel(set::Settings; kwargs...)
-    sys_struct = SystemStructure(set; kwargs...)
-    return SymbolicAWEModel(set, sys_struct)
-end
-
-"""
-    SymbolicAWEModel(set::Settings, name::String; kwargs...)
-
-Constructs a `SymbolicAWEModel` for a specific named physical model.
-
-This convenience constructor sets the `physical_model` field of the `Settings`
-struct and then proceeds to create the model.
-"""
-function SymbolicAWEModel(set::Settings, name::String; kwargs...)
-    set.physical_model = name
-    sys_struct = SystemStructure(set; kwargs...)
-    return SymbolicAWEModel(set, sys_struct)
-end
-
-"""
     update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
 
 Updates a `SysState` object with the current state values from the `SymbolicAWEModel`.

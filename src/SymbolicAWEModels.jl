@@ -10,7 +10,6 @@ module SymbolicAWEModels
 # --- Julia Standard Library & General Utilities ---
 using Pkg
 using TOML
-using PrecompileTools: @setup_workload, @compile_workload
 using DocStringExtensions
 using LinearAlgebra
 using Parameters
@@ -81,17 +80,11 @@ export sim!, sim_oscillate!, sim_turn!, sim_reposition!
 # --- Low-Level Simulation Functions ---
 export find_steady_state!
 export linearize!, simple_linearize!
-export copy_to_simple!
 export update_segment_forces!
 export set_world_frame_damping
 export set_body_frame_damping
 export segment_stretch_stats
 export calc_steady_torque
-
-# --- System Structure Creators ---
-export create_ram_sys_struct
-export create_tether_sys_struct
-export create_simple_ram_sys_struct
 
 # --- Getter Functions ---
 export winch_force
@@ -156,7 +149,7 @@ function plot_aoa end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")
-    if isdir(data_dir) && isfile(joinpath(data_dir, "ram_air_kite", "system.yaml"))
+    if isdir(data_dir) && isfile(joinpath(data_dir, "2plate_kite", "system.yaml"))
         set_data_path(data_dir)
     end
 end
@@ -166,7 +159,6 @@ include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
 include("yaml_loader.jl")
-include("predefined_structures.jl")
 include("tether_properties.jl")
 include("linearize.jl")
 include("generate_system/generate_system.jl")
