@@ -665,7 +665,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     [:name, :set, :groups, :vsm_set],
                     [:transform, :y_damping, :angular_damping,
                      :wing_type, :aero_mode, :aero_scale_chord,
-                     :aero_z_offset, :pos_cad];
+                     :aero_z_offset, :pos_cad,
+                     :z_ref_points, :y_ref_points, :origin];
                     mappings=Dict(
                         :set => r -> set,
                         :aero_mode => r -> am,
@@ -699,7 +700,18 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         :aero_scale_chord => r ->
                             hasfield(typeof(r), :aero_scale_chord) &&
                             !isnothing(r.aero_scale_chord) ?
-                                float(r.aero_scale_chord) : 0.0
+                                float(r.aero_scale_chord) : 0.0,
+                        :z_ref_points => r ->
+                            parse_ref_points(r, :z_ref_points),
+                        :y_ref_points => r ->
+                            parse_ref_points(r, :y_ref_points),
+                        :origin => r -> begin
+                            if !hasfield(typeof(r), :origin_idx) ||
+                               r.origin_idx === nothing
+                                return nothing
+                            end
+                            to_ref(r.origin_idx)
+                        end
                     ))
             end
             push!(wings, wing)
@@ -838,10 +850,10 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
     # Update pos_b for REFINE wing points based on current wing orientation
     for wing in sys_struct.wings
         if wing.wing_type == REFINE
-            R_w_b = wing.R_b_w'  # transpose to get world-to-body
+            R_w_to_b = wing.R_b_to_w'  # transpose to get world-to-body
             for point in sys_struct.points
                 if point.wing_idx == wing.idx
-                    point.pos_b .= R_w_b * (point.pos_w - wing.pos_w)
+                    point.pos_b .= R_w_to_b * (point.pos_w - wing.pos_w)
                 end
             end
         end
@@ -1012,8 +1024,8 @@ requiring a full SystemStructure object. This is a simpler alternative to
   for in-place updates)
 
 # Assumptions
-- WING-type points are ordered as LE, TE, LE, TE, ... pairs
-- Number of aero sections equals number of WING points / 2
+- LE/TE pairs are derived from the `groups:` section (`point_idxs` first=LE, last=TE)
+- Number of aero sections equals number of groups
 - Uses `pos_cad` coordinates from struc YAML (body-frame positions)
 
 # Example
@@ -1048,69 +1060,77 @@ function update_aero_yaml_from_struc_yaml!(source_struc_yaml::AbstractString,
         error("Source aero YAML file not found: $aero_full_path")
     end
 
-    # Parse struc YAML to extract WING-type point positions
+    # Parse struc YAML to extract WING point positions and group LE/TE pairs
     struc_lines = readlines(struc_full_path)
-    wing_points = Vector{Tuple{String, Vector{Float64}}}()  # (name, [x, y, z])
+    wing_pos_dict = Dict{String, Vector{Float64}}()  # name => [x, y, z]
+    group_le_te = Vector{Tuple{String, String}}()     # (le_name, te_name)
 
-    in_points_section = false
+    current_section = :none
     in_data = false
 
     for line in struc_lines
-        # Track which section we're in
+        # Track top-level sections
         if occursin(r"^points:", line)
-            in_points_section = true
+            current_section = :points
+            in_data = false
+            continue
+        elseif occursin(r"^groups:", line)
+            current_section = :groups
             in_data = false
             continue
         elseif occursin(r"^\w+:", line) && !startswith(strip(line), "-")
-            in_points_section = false
+            current_section = :none
             in_data = false
             continue
         end
 
-        if in_points_section
-            if occursin(r"^\s*data:", line)
-                in_data = true
-                continue
+        if occursin(r"^\s*data:", line)
+            in_data = true
+            continue
+        end
+        !in_data && continue
+
+        if current_section == :points
+            # Format: - [name, [x, y, z], TYPE, ...]
+            m = match(r"^\s*-\s*\[(\w+)\s*,\s*\[([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*\]\s*,\s*(\w+)", line)
+            if m !== nothing && m.captures[5] == "WING"
+                wing_pos_dict[m.captures[1]] = [
+                    parse(Float64, m.captures[2]),
+                    parse(Float64, m.captures[3]),
+                    parse(Float64, m.captures[4])]
             end
-
-            if in_data
-                # Match point data line with named or indexed points
-                # Format: - [name, [x, y, z], TYPE, ...]
-                m = match(r"^\s*-\s*\[(\w+)\s*,\s*\[([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*\]\s*,\s*(\w+)", line)
-                if m !== nothing
-                    name = m.captures[1]
-                    x = parse(Float64, m.captures[2])
-                    y = parse(Float64, m.captures[3])
-                    z = parse(Float64, m.captures[4])
-                    point_type = m.captures[5]
-
-                    if point_type == "WING"
-                        push!(wing_points, (name, [x, y, z]))
-                    end
+        elseif current_section == :groups
+            # Format: - [name, [pt1, pt2, ...], ...]
+            m = match(r"^\s*-\s*\[\w+\s*,\s*\[([^\]]+)\]", line)
+            if m !== nothing
+                pts = strip.(split(m.captures[1], ","))
+                if length(pts) >= 2
+                    push!(group_le_te, (pts[1], pts[end]))
                 end
             end
         end
     end
 
-    # Validate WING point count
-    n_wing_points = length(wing_points)
-    if n_wing_points == 0
-        error("No WING-type points found in $struc_full_path")
+    # Validate
+    if isempty(group_le_te)
+        error("No groups with point_idxs found in $struc_full_path")
     end
-    if n_wing_points % 2 != 0
-        error("Odd number of WING points ($n_wing_points) - expected LE/TE pairs")
+    for (le, te) in group_le_te
+        haskey(wing_pos_dict, le) || error(
+            "Group LE point '$le' not found in WING points")
+        haskey(wing_pos_dict, te) || error(
+            "Group TE point '$te' not found in WING points")
     end
 
-    # Build LE/TE pairs (assumes ordering: LE, TE, LE, TE, ...)
-    n_sections = n_wing_points ÷ 2
+    # Build LE/TE pairs from groups
+    n_sections = length(group_le_te)
     le_te_pairs = Vector{Tuple{Vector{Float64}, Vector{Float64}}}()
-    for i in 1:n_sections
-        le_pos = wing_points[2i - 1][2]
-        te_pos = wing_points[2i][2]
-        push!(le_te_pairs, (le_pos, te_pos))
+    for (le_name, te_name) in group_le_te
+        push!(le_te_pairs, (wing_pos_dict[le_name],
+                            wing_pos_dict[te_name]))
     end
 
-    @info "Parsed structural YAML" n_wing_points n_sections
+    @info "Parsed structural YAML" n_wing_points=length(wing_pos_dict) n_sections
 
     # Update aero YAML wing_sections
     aero_lines = readlines(aero_full_path)

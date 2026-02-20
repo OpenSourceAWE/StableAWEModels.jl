@@ -329,7 +329,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     if length(wings) > 0
         wing = wings[1]
         ss.acc = norm(wing.acc_w) # Use the norm of the wing's acceleration vector
-        ss.orient .= wing.Q_b_w
+        ss.orient .= wing.Q_b_to_w
         ss.turn_rates .= wing.turn_rate
         ss.elevation = wing.elevation
         ss.azimuth = wing.azimuth
@@ -355,7 +355,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.tether_induced_moment .= wing.tether_moment
         ss.vel_kite .= wing.vel_w
         # Calculate Roll, Pitch, Yaw from Quaternion
-        q = wing.Q_b_w
+        q = wing.Q_b_to_w
         sinr_cosp = 2 * (q[1] * q[2] + q[3] * q[4])
         cosr_cosp = 1 - 2 * (q[2] * q[2] + q[3] * q[3])
         ss.roll = atan(sinr_cosp, cosr_cosp)
@@ -374,13 +374,13 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     # Store VSM panel corner positions in world frame
     corner_idx = length(points)
     for wing in wings
-        R_b_w = wing.R_b_w
+        R_b_to_w = wing.R_b_to_w
         for panel in wing.vsm_aero.panels
             for j in 1:4
                 corner_idx += 1
                 # Transform from body frame to world frame
                 corner_b = panel.corner_points[:, j]
-                corner_w = wing.pos_w + R_b_w * corner_b
+                corner_w = wing.pos_w + R_b_to_w * corner_b
                 ss.X[corner_idx] = corner_w[1] * zoom
                 ss.Y[corner_idx] = corner_w[2] * zoom
                 ss.Z[corner_idx] = corner_w[3] * zoom
@@ -582,34 +582,57 @@ function update_sys_struct!(prob::ProbWithAttributes,
     end
     if length(wings) > 0
         wing_state = prob.get_wing_state(integ)
-        Q_b_w, ω_b, pos_w, vel_w, acc_w, va_b, v_wind, 
-            aero_force_b, aero_moment_b, tether_moment, tether_force,
+        Q_b_to_w, ω_b, pos_w, vel_w, acc_w,
+            va_b, v_wind,
+            aero_force_b, aero_moment_b,
+            tether_moment, tether_force,
             elevation, elevation_vel, elevation_acc,
             azimuth, azimuth_vel, azimuth_acc,
-            heading, turn_rate, turn_acc, course, aoa = wing_state
+            heading, turn_rate, turn_acc,
+            course, aoa,
+            com_w_v, com_vel_v,
+            Q_p_to_w_v, ω_p_v = wing_state
         for wing in wings
-            wing.Q_b_w .= Q_b_w[:, wing.idx]
+            # Body frame output
+            wing.Q_b_to_w .= Q_b_to_w[:, wing.idx]
             wing.ω_b .= ω_b[:, wing.idx]
             wing.pos_w .= pos_w[:, wing.idx]
             wing.vel_w .= vel_w[:, wing.idx]
             wing.acc_w .= acc_w[:, wing.idx]
             wing.va_b .= va_b[:, wing.idx]
             wing.v_wind .= v_wind[:, wing.idx]
-            wing.aero_force_b .= aero_force_b[:, wing.idx]
-            wing.aero_moment_b .= aero_moment_b[:, wing.idx]
-            wing.tether_moment .= tether_moment[:, wing.idx]
-            wing.tether_force .= tether_force[:, wing.idx]
-            wing.elevation = elevation[wing.idx]
-            wing.elevation_vel = elevation_vel[wing.idx]
-            wing.elevation_acc = elevation_acc[wing.idx]
+            wing.aero_force_b .=
+                aero_force_b[:, wing.idx]
+            wing.aero_moment_b .=
+                aero_moment_b[:, wing.idx]
+            wing.tether_moment .=
+                tether_moment[:, wing.idx]
+            wing.tether_force .=
+                tether_force[:, wing.idx]
+            wing.elevation =
+                elevation[wing.idx]
+            wing.elevation_vel =
+                elevation_vel[wing.idx]
+            wing.elevation_acc =
+                elevation_acc[wing.idx]
             wing.azimuth = azimuth[wing.idx]
-            wing.azimuth_vel = azimuth_vel[wing.idx]
-            wing.azimuth_acc = azimuth_acc[wing.idx]
+            wing.azimuth_vel =
+                azimuth_vel[wing.idx]
+            wing.azimuth_acc =
+                azimuth_acc[wing.idx]
             wing.heading = heading[wing.idx]
-            wing.turn_rate .= turn_rate[:, wing.idx]
-            wing.turn_acc .= turn_acc[:, wing.idx]
+            wing.turn_rate .=
+                turn_rate[:, wing.idx]
+            wing.turn_acc .=
+                turn_acc[:, wing.idx]
             wing.course = course[wing.idx]
             wing.aoa = aoa[wing.idx]
+            # Principal frame state
+            wing.com_w .= com_w_v[:, wing.idx]
+            wing.com_vel .=
+                com_vel_v[:, wing.idx]
+            wing.Q_p_to_w .= Q_p_to_w_v[:, wing.idx]
+            wing.ω_p .= ω_p_v[:, wing.idx]
         end
     end
     sys_struct.wind_vec_gnd .= prob.get_struct_state(integ)

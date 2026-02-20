@@ -5,7 +5,7 @@
 
 """
     group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
-               R_b_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
+               R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
                point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos)
 
 Generate equations for deformable wing group twist dynamics.
@@ -15,7 +15,7 @@ Generate equations for deformable wing group twist dynamics.
 - `groups`: Collection of Group objects (deformable wing sections).
 - `wings`: Collection of Wing objects.
 - `psys`, `pset`: Symbolic parameters representing system and settings.
-- `R_b_w`: Symbolic rotation matrix (body to world).
+- `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `fix_wing`: Symbolic boolean for fixing wing dynamics.
 - `twist_angle`, `twist_ω`: Symbolic twist state variables.
 - `group_aero_moment`: Symbolic aerodynamic moment on groups.
@@ -27,7 +27,7 @@ Generate equations for deformable wing group twist dynamics.
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
 """
 function group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
-                    R_b_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
+                    R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
                     point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos)
 
     length(groups) == 0 && return eqs, defaults, guesses
@@ -77,7 +77,7 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
         gy = collect(group_y_airf[:, group.idx])
         init_z_airf = x_airf × gy
         z_airf = sin(twist_angle[group.idx]) * x_airf + cos(twist_angle[group.idx]) * init_z_airf
-        Rbw = collect(R_b_w[:, :, wing.idx])
+        Rbw = collect(R_b_to_w[:, :, wing.idx])
         Rz = Rbw * (-1 * z_airf)  # Note: -z_airf has a bug, use -1 * z_airf instead
         gl = collect(group_le_pos[:, group.idx])
 

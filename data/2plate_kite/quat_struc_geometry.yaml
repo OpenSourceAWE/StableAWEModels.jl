@@ -34,7 +34,7 @@ points:
     - [steering_right,[0.0,-0.5, 0.5], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
 
     # Tether attachment and ground points
-    - [kcu,        [0.0, 0.0, 0.0],   DYNAMIC, main_wing, main_transform, 1.0, 0.0, 0.0, 0.1, 1.0]
+    - [kcu,        [0.0, 0.0, 0.0],   WING, main_wing, main_transform, 1.0, 0.0, 0.0, 0.1, 1.0]
     - [tether_mid, [0.0, 0.0, -10.0],  DYNAMIC, main_wing, main_transform, 0.0, 0.0, 0.0, 0.0, 0.0]
     - [ground,     [0.0, 0.0, -20.0],  STATIC,  main_wing, main_transform, 0.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -123,8 +123,11 @@ wings:
   data:
     - name: main_wing
       type: QUATERNION
-      point_idxs: [le_left, te_left, le_center, te_center, le_right, te_right]
+      point_idxs: [le_left, te_left, le_center, te_center, le_right, te_right, kcu]
       groups: [left, center, right]
+      origin_idx: kcu
+      z_ref_points: [kcu, le_center]
+      y_ref_points: [le_right, le_left]
       aero_z_offset: 0.0
 
 ###########################

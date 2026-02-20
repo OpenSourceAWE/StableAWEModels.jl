@@ -13,7 +13,7 @@ Usage:
 
 using Test
 using LinearAlgebra
-using SymbolicAWEModels: sym_normalize, sym_calc_R_t_w, calc_R_v_w, rotate_around_z, calc_heading
+using SymbolicAWEModels: sym_normalize, sym_calc_R_t_to_w, calc_R_v_to_w, rotate_around_z, calc_heading
 
 # Support selective test execution via command-line args
 const test_patterns = isempty(ARGS) ? String[] : ARGS
@@ -35,15 +35,15 @@ function should_run_test(test_name::String)
 end
 
 # Define test-specific helper functions
-function calc_heading_new(R_t_w, e_x)
+function calc_heading_new(R_t_to_w, e_x)
     """New simplified heading calculation"""
-    e_x_t = R_t_w' * e_x
+    e_x_t = R_t_to_w' * e_x
     return atan(e_x_t[2], e_x_t[1])
 end
 
-function calc_heading_old(R_t_w, R_v_w)
+function calc_heading_old(R_t_to_w, R_v_w)
     """Old heading calculation"""
-    heading_vec = R_t_w' * R_v_w[:, 1]
+    heading_vec = R_t_to_w' * R_v_w[:, 1]
     heading = atan(heading_vec[2], heading_vec[1])
     return heading
 end
@@ -73,8 +73,8 @@ if should_run_test("circular")
         # Circle normal is along y-axis (azimuthal direction)
         wing_pos = center + circle_radius * [cos(angle), 0.0, sin(angle)]
 
-        # Calculate R_t_w (tether frame)
-        R_t_w = sym_calc_R_t_w(wing_pos)
+        # Calculate R_t_to_w (tether frame)
+        R_t_to_w = sym_calc_R_t_to_w(wing_pos)
 
         # Kite's body x-axis should point tangent to the circle
         # Tangent direction in world frame
@@ -83,15 +83,15 @@ if should_run_test("circular")
 
         # Expected heading: angle from tether x-axis to body x-axis
         # in tether frame xy-plane
-        e_x_t = R_t_w' * e_x
+        e_x_t = R_t_to_w' * e_x
         expected_heading = atan(e_x_t[2], e_x_t[1])
 
         # Calculate heading using new method
-        heading_new = calc_heading_new(R_t_w, e_x)
+        heading_new = calc_heading_new(R_t_to_w, e_x)
 
         # Calculate heading using old method for comparison
-        R_v_w = calc_R_v_w(wing_pos, e_x)
-        heading_old = calc_heading_old(R_t_w, R_v_w)
+        R_v_w = calc_R_v_to_w(wing_pos, e_x)
+        heading_old = calc_heading_old(R_t_to_w, R_v_w)
 
         push!(headings_new, heading_new)
         push!(headings_old, heading_old)
@@ -185,16 +185,16 @@ if should_run_test("horizontal")
             sin(elevation)
         ]
 
-        R_t_w = sym_calc_R_t_w(wing_pos)
+        R_t_to_w = sym_calc_R_t_to_w(wing_pos)
 
         # Kite pointing tangent to azimuthal circle (in flight direction)
         tangent_azimuth = [-sin(azimuth), cos(azimuth), 0.0]
         e_x = sym_normalize(tangent_azimuth)
 
         # Calculate headings
-        heading_new = calc_heading_new(R_t_w, e_x)
-        R_v_w = calc_R_v_w(wing_pos, e_x)
-        heading_old = calc_heading_old(R_t_w, R_v_w)
+        heading_new = calc_heading_new(R_t_to_w, e_x)
+        R_v_w = calc_R_v_to_w(wing_pos, e_x)
+        heading_old = calc_heading_old(R_t_to_w, R_v_w)
 
         # New and old methods should agree
         @test heading_new ≈ heading_old atol=1e-10
@@ -211,12 +211,12 @@ if should_run_test("special")
     # Test 1: Kite pointing radially outward (heading = 0)
     println("\n=== Special Case: Radial Alignment ===")
     wing_pos = [70.0, 70.0, 70.0]
-    R_t_w = sym_calc_R_t_w(wing_pos)
-    e_x = R_t_w[:, 1]  # Aligned with tether x-axis (elevation dir)
+    R_t_to_w = sym_calc_R_t_to_w(wing_pos)
+    e_x = R_t_to_w[:, 1]  # Aligned with tether x-axis (elevation dir)
 
-    heading_new = calc_heading_new(R_t_w, e_x)
-    R_v_w = calc_R_v_w(wing_pos, e_x)
-    heading_old = calc_heading_old(R_t_w, R_v_w)
+    heading_new = calc_heading_new(R_t_to_w, e_x)
+    R_v_w = calc_R_v_to_w(wing_pos, e_x)
+    heading_old = calc_heading_old(R_t_to_w, R_v_w)
 
     println("Heading (new): $(rad2deg(heading_new))°")
     println("Heading (old): $(rad2deg(heading_old))°")
@@ -226,11 +226,11 @@ if should_run_test("special")
 
     # Test 2: Kite pointing in azimuthal direction (heading = π/2)
     println("\n=== Special Case: Azimuthal Alignment ===")
-    e_x = R_t_w[:, 2]  # Aligned with tether y-axis (azimuthal)
+    e_x = R_t_to_w[:, 2]  # Aligned with tether y-axis (azimuthal)
 
-    heading_new = calc_heading_new(R_t_w, e_x)
-    R_v_w = calc_R_v_w(wing_pos, e_x)
-    heading_old = calc_heading_old(R_t_w, R_v_w)
+    heading_new = calc_heading_new(R_t_to_w, e_x)
+    R_v_w = calc_R_v_to_w(wing_pos, e_x)
+    heading_old = calc_heading_old(R_t_to_w, R_v_w)
 
     println("Heading (new): $(rad2deg(heading_new))°")
     println("Heading (old): $(rad2deg(heading_old))°")
@@ -245,11 +245,11 @@ if should_run_test("special")
         # Create e_x in tether frame at specified heading
         e_x_tether = [cos(rot_angle), sin(rot_angle), 0.0]
         # Transform to world frame
-        e_x_world = R_t_w * e_x_tether
+        e_x_world = R_t_to_w * e_x_tether
 
-        heading_new = calc_heading_new(R_t_w, e_x_world)
-        R_v_w = calc_R_v_w(wing_pos, e_x_world)
-        heading_old = calc_heading_old(R_t_w, R_v_w)
+        heading_new = calc_heading_new(R_t_to_w, e_x_world)
+        R_v_w = calc_R_v_to_w(wing_pos, e_x_world)
+        heading_old = calc_heading_old(R_t_to_w, R_v_w)
 
         # Check heading matches expected angle (within atan2 periodicity)
         @test heading_new ≈ rot_angle atol=1e-10

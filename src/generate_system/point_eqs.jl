@@ -5,7 +5,7 @@
 
 """
     point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys, pset;
-               R_b_w, wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
+               R_b_to_w, wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
                fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
@@ -20,7 +20,7 @@ Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
 - `eqs`, `defaults`, `guesses`: Accumulating vectors for the MTK system.
 - `points`, `segments`, `groups`, `wings`: System components.
 - `psys`, `pset`: Symbolic parameters representing system and settings.
-- `R_b_w`: Symbolic rotation matrix (body to world).
+- `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `wing_pos`, `wing_vel`: Symbolic wing center of mass position/velocity.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
 - `fix_wing`: Symbolic boolean for fixing wing dynamics.
@@ -37,7 +37,8 @@ Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
   Note: `tether_wing_force` and `tether_wing_moment` are modified in-place.
 """
 function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys, pset;
-                    R_b_w, wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
+                    R_b_to_w, com_w,
+                    wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                     spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
                     fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
@@ -75,7 +76,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
         ]
 
         # Calculate apparent velocity for ALL points (needed for REFINE wings and generally useful)
-        # Get the wing's R_b_w for transforming to body frame
+        # Get the wing's R_b_to_w for transforming to body frame
         wing_idx_for_transform = if point.type == WING
             point.wing_idx
         elseif length(wings) > 0
@@ -95,7 +96,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 va_point_w[:, point.idx] ~
                     wind_at_point[:, point.idx] - vel[:, point.idx]
                 va_point_b[:, point.idx] ~
-                    R_b_w[:, :, wing_idx_for_transform]' * va_point_w[:, point.idx]
+                    R_b_to_w[:, :, wing_idx_for_transform]' * va_point_w[:, point.idx]
                 point_drag_force[:, point.idx] ~
                     0.5 * calc_rho(s.am, height[point.idx]) *
                     get_point_drag_coeff(psys, point.idx) *
@@ -133,7 +134,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 # (va already calculated above for all points)
 
                 # Add aerodynamic forces (calculated in vsm_eqs!)
-                aero_force_w = R_b_w[:, :, wing.idx] * aero_force_point_b[:, point.idx]
+                aero_force_w = R_b_to_w[:, :, wing.idx] * aero_force_point_b[:, point.idx]
 
                 eqs = [
                     eqs
@@ -143,9 +144,9 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
 
                 # Damping terms (applied in body frame, then transformed to world frame)
                 vel_diff_w = vel[:, point.idx] - wing_vel[:, point.wing_idx]
-                vel_diff_b = R_b_w[:, :, wing.idx]' * vel_diff_w
+                vel_diff_b = R_b_to_w[:, :, wing.idx]' * vel_diff_w
                 body_frame_damp_b = body_frame_damping[:, point.idx] .* vel_diff_b
-                body_frame_damp_vec = R_b_w[:, :, wing.idx] * body_frame_damp_b
+                body_frame_damp_vec = R_b_to_w[:, :, wing.idx] * body_frame_damp_b
                 world_frame_damp_vec = world_frame_damping[:, point.idx] .* vel[:, point.idx]
 
                 # DYNAMIC point equations
@@ -227,20 +228,27 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 elseif found == 0
                     eqs = [eqs; pos_b[:, point.idx] ~ get_pos_b(psys, point.idx)]
                 end
+                # Moment arm about COM (world frame)
                 eqs = [
                     eqs
-                    tether_r[:, point.idx] ~ pos[:, point.idx] -
-                                            wing_pos[:, point.wing_idx]
+                    tether_r[:, point.idx] ~
+                        pos[:, point.idx] -
+                        com_w[:, point.wing_idx]
                 ]
                 tether_wing_moment[:, point.wing_idx] .+=
-                    tether_r[:, point.idx] × point_force[:, point.idx]
-                tether_wing_force[:, point.wing_idx] .+= point_force[:, point.idx]
+                    tether_r[:, point.idx] ×
+                    point_force[:, point.idx]
+                tether_wing_force[:, point.wing_idx] .+=
+                    point_force[:, point.idx]
 
+                # Rigid body constraint: COM + R_b_to_w * pos_b
+                # (pos_b is offset from COM in body frame)
                 eqs = [
                     eqs
                     pos[:, point.idx] ~
-                        wing_pos[:, point.wing_idx] +
-                        R_b_w[:, :, point.wing_idx] * pos_b[:, point.idx]
+                        com_w[:, point.wing_idx] +
+                        R_b_to_w[:, :, point.wing_idx] *
+                        pos_b[:, point.idx]
                     vel[:, point.idx] ~ zeros(3)
                     acc[:, point.idx] ~ zeros(3)
                 ]
@@ -266,9 +274,9 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             if length(wings) > 0
                 # Damping applied in body frame, then transformed to world frame
                 vel_diff_w = vel[:, point.idx] - wing_vel[:, point.wing_idx]
-                vel_diff_b = R_b_w[:, :, point.wing_idx]' * vel_diff_w
+                vel_diff_b = R_b_to_w[:, :, point.wing_idx]' * vel_diff_w
                 body_frame_damp_b = body_frame_damping[:, point.idx] .* vel_diff_b
-                body_frame_damp_vec = R_b_w[:, :, point.wing_idx] * body_frame_damp_b
+                body_frame_damp_vec = R_b_to_w[:, :, point.wing_idx] * body_frame_damp_b
             else
                 body_frame_damp_vec = zeros(3)
             end

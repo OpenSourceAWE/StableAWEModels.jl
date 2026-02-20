@@ -19,7 +19,7 @@ using GLMakie
 
 # ============= User settings =============
 MODEL_NAME = "2plate_kite"
-SIM_TIME   = 10.0
+SIM_TIME   = 2.0
 N_STEPS    = 600
 REMAKE_CACHE = true
 RAMP_TIME = 2.0            # Time to ramp inputs from 0 to magnitude [s]

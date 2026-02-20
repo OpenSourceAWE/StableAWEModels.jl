@@ -228,16 +228,16 @@ function euler_to_quaternion(roll_deg, pitch_deg, yaw_deg)
     return q
 end
 
-function calc_R_b_w(sys_struct::SystemStructure)
+function calc_R_b_to_w(sys_struct::SystemStructure)
     @unpack points, wings, wind_vec_gnd = sys_struct
     wing = wings[1]
-    R_b_w, origin = SymbolicAWEModels.calc_refine_wing_frame(
+    R_b_to_w, origin = SymbolicAWEModels.calc_refine_wing_frame(
         points,
         wing.z_ref_points,
         wing.y_ref_points,
         wing.origin_idx
     )
-    return R_b_w
+    return R_b_to_w
 end
 
 """
@@ -317,10 +317,10 @@ end
 
 function apply_force!(sys, control)
     wing = sys.wings[1]
-    R_b_w = wing.R_b_w
+    R_b_to_w = wing.R_b_to_w
     for point in sys.points
         distance_frac = point.pos_w ⋅ normalize(wing.pos_w) / norm(wing.pos_w)
-        point.disturb .= -R_b_w[:, 1] * control * distance_frac
+        point.disturb .= -R_b_to_w[:, 1] * control * distance_frac
     end
 end
 
@@ -386,8 +386,8 @@ function update_sys_struct_from_csv!(sys, row)
     quat = euler_to_quaternion(row.roll, row.pitch, row.yaw)
     csv_heading = calc_heading(sys,
         SymbolicAWEModels.quaternion_to_rotation_matrix(quat)) + pi
-    wing.R_b_w = calc_R_b_w(sys)
-    curr_heading = calc_heading(sys, wing.R_b_w)
+    wing.R_b_to_w = calc_R_b_to_w(sys)
+    curr_heading = calc_heading(sys, wing.R_b_to_w)
 
     # calc needed transform
     csv_pos = [row.x, row.y, row.z]

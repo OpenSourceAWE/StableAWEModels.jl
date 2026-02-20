@@ -86,13 +86,14 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
                 append!(vars, point.vel_w)
             end
         end
-        # wings
+        # wings (principal frame ODE state, QUATERNION only)
         wings = getfield(sys, :wings)
         for wing in wings
-            append!(vars, wing.pos_w)
-            append!(vars, wing.vel_w)
-            append!(vars, wing.Q_b_w)
-            append!(vars, wing.ω_b)
+            wing.wing_type != QUATERNION && continue
+            append!(vars, wing.com_w)
+            append!(vars, wing.com_vel)
+            append!(vars, wing.Q_p_to_w)
+            append!(vars, wing.ω_p)
         end
         # groups
         groups = getfield(sys, :groups)
@@ -153,16 +154,17 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
                 offset += 3
             end
         end
-        # wings
+        # wings (principal frame ODE state, QUATERNION only)
         wings = getfield(sys, :wings)
         for wing in wings
-            wing.pos_w .= @view flat_value[offset:offset+2]
+            wing.wing_type != QUATERNION && continue
+            wing.com_w .= @view flat_value[offset:offset+2]
             offset += 3
-            wing.vel_w .= @view flat_value[offset:offset+2]
+            wing.com_vel .= @view flat_value[offset:offset+2]
             offset += 3
-            wing.Q_b_w .= @view flat_value[offset:offset+3]
+            wing.Q_p_to_w .= @view flat_value[offset:offset+3]
             offset += 4
-            wing.ω_b .= @view flat_value[offset:offset+2]
+            wing.ω_p .= @view flat_value[offset:offset+2]
             offset += 3
         end
         # groups
@@ -207,7 +209,7 @@ Returns a vector of heading angles, one per wing.
 """
 function calc_heading(sys::SystemStructure)
     wind_norm = normalize(getfield(sys, :wind_vec_gnd))
-    return [calc_heading(wing.R_b_w, wind_norm) for wing in getfield(sys, :wings)]
+    return [calc_heading(wing.R_b_to_w, wind_norm) for wing in getfield(sys, :wings)]
 end
 
 """
@@ -539,7 +541,7 @@ function SystemStructure(name, set;
     # transform VSM panels from CAD → body frame.
     # QUATERNION: COM from point masses, Y-axis rotation
     #   to diagonalize inertia tensor.
-    # REFINE: origin from origin_idx, R_b_c from
+    # REFINE: origin from origin_idx, R_b_to_c from
     #   z/y_ref_points (no inertia needed).
     for wing in wings
         isa(wing, VSMWing) || continue
@@ -553,7 +555,7 @@ function SystemStructure(name, set;
 
             masses = [p.extra_mass for p in wing_pts]
             total_m = sum(masses)
-            com = if total_m > 0
+            com_cad = if total_m > 0
                 sum(masses[j] .* wing_pts[j].pos_cad
                     for j in eachindex(wing_pts)) /
                     total_m
@@ -561,40 +563,74 @@ function SystemStructure(name, set;
                 mean([p.pos_cad for p in wing_pts])
             end
 
-            wing.pos_cad .= com
-
             # Inertia tensor about COM in CAD frame
             if total_m > 0
                 I_cad = zeros(3, 3)
                 for (m, p) in zip(masses, wing_pts)
-                    r = p.pos_cad - com
+                    r = p.pos_cad - com_cad
                     I_cad += m * (dot(r, r) * I(3) -
                                   r * r')
                 end
-                I_diag, Ry = calc_inertia_y_rotation(I_cad)
-                wing.R_b_c .= Ry'  # body→CAD convention
+                I_diag, Ry =
+                    calc_inertia_y_rotation(I_cad)
+                wing.R_p_to_c .= Ry'  # principal→CAD
                 wing.inertia_principal .= diag(I_diag)
             end
 
+            # Compute body frame from ref points
+            if !isnothing(wing.origin_idx) &&
+               !isnothing(wing.z_ref_points) &&
+               !isnothing(wing.y_ref_points)
+                origin_cad =
+                    points[wing.origin_idx].pos_cad
+                wing.pos_cad .= origin_cad
+
+                # Temporarily set pos_w = pos_cad
+                for p in points
+                    p.type == WING &&
+                        p.wing_idx == wing.idx &&
+                        (p.pos_w .= p.pos_cad)
+                end
+                R_b_to_c, _ = calc_refine_wing_frame(
+                    points, wing.z_ref_points,
+                    wing.y_ref_points,
+                    wing.origin_idx)
+                wing.R_b_to_c .= R_b_to_c
+
+                # COM offset from body origin in body
+                wing.com_offset_b .=
+                    R_b_to_c' * (com_cad - origin_cad)
+            else
+                # No ref points: body = principal,
+                # origin = COM
+                wing.pos_cad .= com_cad
+                wing.R_b_to_c .= wing.R_p_to_c
+                wing.com_offset_b .= 0.0
+            end
+
             # Transform VSM sections: CAD → body
-            vsm_wing.T_cad_body .= com
-            adjust_vsm_panels_to_origin!(vsm_wing, com)
+            vsm_wing.T_cad_body .= wing.pos_cad
+            adjust_vsm_panels_to_origin!(
+                vsm_wing, wing.pos_cad)
             rotate_vsm_sections!(
-                vsm_wing, wing.R_b_c')
-            vsm_wing.R_cad_body .= wing.R_b_c
+                vsm_wing, wing.R_b_to_c')
+            vsm_wing.R_cad_body .= wing.R_b_to_c
             apply_aero_z_offset!(
                 vsm_wing, wing.aero_z_offset)
             VortexStepMethod.reinit!(wing.vsm_aero)
 
+            # Body → principal (constant rotation)
+            wing.R_b_to_p .= wing.R_p_to_c' * wing.R_b_to_c
+
             if prn
                 I_rnd = round.(wing.inertia_principal;
                                digits=4)
-                θ_deg = round(rad2deg(
-                    asin(wing.R_b_c[3, 1])); digits=2)
+                off = round.(wing.com_offset_b;
+                             digits=4)
                 @info "QUATERNION wing $(wing.idx):" *
-                    " COM=[$(round.(com; digits=3))]" *
+                    " COM=[$(round.(com_cad; digits=3))]" *
                     ", I=$I_rnd" *
-                    ", R_b_c Y-rot=$(θ_deg)°"
+                    ", com_offset_b=$off"
             end
 
         elseif wing.wing_type == REFINE
@@ -615,19 +651,19 @@ function SystemStructure(name, set;
                         p.wing_idx == wing.idx &&
                         (p.pos_w .= p.pos_cad)
                 end
-                R_b_c, _ = calc_refine_wing_frame(
+                R_b_to_c, _ = calc_refine_wing_frame(
                     points, wing.z_ref_points,
                     wing.y_ref_points,
                     wing.origin_idx)
-                wing.R_b_c .= R_b_c
+                wing.R_b_to_c .= R_b_to_c
 
                 # Transform VSM sections: CAD → body
                 vsm_wing.T_cad_body .= origin_pos
                 adjust_vsm_panels_to_origin!(
                     vsm_wing, origin_pos)
                 rotate_vsm_sections!(
-                    vsm_wing, wing.R_b_c')
-                vsm_wing.R_cad_body .= wing.R_b_c
+                    vsm_wing, wing.R_b_to_c')
+                vsm_wing.R_cad_body .= wing.R_b_to_c
                 VortexStepMethod.reinit!(wing.vsm_aero)
 
                 if prn
@@ -706,7 +742,7 @@ function SystemStructure(name, set;
             group = groups[group_idx]
             center = zeros(3)
             for pt_idx in group.point_idxs
-                center += the_wing.base.R_b_c' * (points[pt_idx].pos_cad - the_wing.base.pos_cad)
+                center += the_wing.base.R_b_to_c' * (points[pt_idx].pos_cad - the_wing.base.pos_cad)
             end
             group_centers[local_idx] = center / length(group.point_idxs)
         end
@@ -762,7 +798,7 @@ function SystemStructure(name, set;
                     # Compute group center in body frame (average of all attach points)
                     center = zeros(3)
                     for pt_idx in group.point_idxs
-                        center += wing.R_b_c' * (points[pt_idx].pos_cad - wing.pos_cad)
+                        center += wing.R_b_to_c' * (points[pt_idx].pos_cad - wing.pos_cad)
                     end
                     center ./= length(group.point_idxs)
 
@@ -796,6 +832,17 @@ function SystemStructure(name, set;
                     break
                 end
             end
+        end
+    end
+
+    # Translate group le_pos from body origin to COM
+    # (body frame). chord and y_airf are direction
+    # vectors already in body frame from VSM panels.
+    for wing in wings
+        wing.wing_type != QUATERNION && continue
+        for group_idx in wing.group_idxs
+            group = groups[group_idx]
+            group.le_pos .-= wing.com_offset_b
         end
     end
 

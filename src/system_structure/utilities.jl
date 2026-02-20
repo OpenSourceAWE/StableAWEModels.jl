@@ -374,8 +374,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                 adjust_vsm_panels_to_origin!(
                     vsm_wing, wing.pos_cad)
                 rotate_vsm_sections!(
-                    vsm_wing, wing.R_b_c')
-                vsm_wing.R_cad_body .= wing.R_b_c
+                    vsm_wing, wing.R_b_to_c')
+                vsm_wing.R_cad_body .= wing.R_b_to_c
                 apply_aero_z_offset!(
                     vsm_wing, wing.aero_z_offset)
                 VortexStepMethod.reinit!(
@@ -385,8 +385,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                 adjust_vsm_panels_to_origin!(
                     vsm_wing, wing.pos_cad)
                 rotate_vsm_sections!(
-                    vsm_wing, wing.R_b_c')
-                vsm_wing.R_cad_body .= wing.R_b_c
+                    vsm_wing, wing.R_b_to_c')
+                vsm_wing.R_cad_body .= wing.R_b_to_c
                 VortexStepMethod.reinit!(
                     wing.vsm_aero)
                 if !isnothing(wing.point_to_vsm_point)
@@ -427,15 +427,15 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         if wing.wing_type == REFINE
             # Initialize apparent wind in body frame for REFINE wings
             # va_wing = wind_vel - wing_vel + wind_disturb
-            # va_b = R_b_w' * va_wing
+            # va_b = R_b_to_w' * va_wing
             # At initialization: wing_vel typically 0, wind_disturb typically 0
             va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
-            wing.va_b .= wing.R_b_w' * va_wing_w
+            wing.va_b .= wing.R_b_to_w' * va_wing_w
         else
             # Initialize vsm_y for QUATERNION wings (REFINE wings have ny=0)
             if length(wing.vsm_y) >= 3
                 wing.vsm_y .= 0.0
-                wing.vsm_y[1:3] .= wing.R_b_w' * [set.v_wind, 0., 0.]
+                wing.vsm_y[1:3] .= wing.R_b_to_w' * [set.v_wind, 0., 0.]
             end
         end
     end
@@ -560,7 +560,7 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
             wing2.pos_w .= wing1.pos_w
             wing2.vel_w .= wing1.vel_w
             wing2.ω_b .= wing1.ω_b
-            wing2.Q_b_w .= wing1.Q_b_w
+            wing2.Q_b_to_w .= wing1.Q_b_to_w
         end
     end
 end
@@ -636,7 +636,7 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         wing = wings[1]
 
         # Copy orientation quaternion
-        wing.Q_b_w .= ss.orient
+        wing.Q_b_to_w .= ss.orient
 
         # Copy spherical coordinates
         wing.elevation = Float64(ss.elevation)
@@ -696,14 +696,14 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
     # Update VSM panel corner positions from world frame back to body frame
     corner_idx = n_points
     for wing in wings
-        R_w_b = wing.R_b_w'  # Transpose to get world-to-body rotation
+        R_w_to_b = wing.R_b_to_w'  # Transpose to get world-to-body rotation
         for panel in wing.vsm_aero.panels
             for j in 1:4
                 corner_idx += 1
                 # Get corner position from SysState (world frame)
                 corner_w = [ss.X[corner_idx], ss.Y[corner_idx], ss.Z[corner_idx]]
                 # Transform from world frame to body frame
-                corner_b = R_w_b * (corner_w - wing.pos_w)
+                corner_b = R_w_to_b * (corner_w - wing.pos_w)
                 # Update panel corner
                 panel.corner_points[:, j] .= corner_b
             end

@@ -110,7 +110,7 @@ function rotate_v_around_k(v, k, θ)
 end
 
 """
-    calc_R_v_w(wing_pos, e_x)
+    calc_R_v_to_w(wing_pos, e_x)
 
 Calculate the rotation matrix from the view frame (`_v`) to the world frame (`_w`).
 
@@ -120,7 +120,7 @@ and its x-axis aligned with the wing's x-axis projected onto the view plane.
 Note: Uses explicit element access to avoid slice notation that doesn't scalarize
 properly when nested inside norm/division operations.
 """
-function calc_R_v_w(wing_pos, e_x)
+function calc_R_v_to_w(wing_pos, e_x)
     # Explicit element access to avoid slice scalarization issues
     wp1, wp2, wp3 = wing_pos[1], wing_pos[2], wing_pos[3]
     ex1, ex2, ex3 = e_x[1], e_x[2], e_x[3]
@@ -148,7 +148,7 @@ function calc_R_v_w(wing_pos, e_x)
 end
 
 """
-    calc_R_t_w(wing_pos)
+    calc_R_t_to_w(wing_pos)
 
 Calculate the rotation matrix from the local tether frame (`_t`) to the world
 frame (`_w`).
@@ -158,7 +158,7 @@ The tether frame is a local spherical coordinate system:
 - **y-axis**: Azimuthal direction, parallel to the XY plane.
 - **x-axis**: Elevation direction, tangent to the sphere (`y × z`).
 """
-function calc_R_t_w(wing_pos)
+function calc_R_t_to_w(wing_pos)
     z = sym_normalize(wing_pos)
     if wing_pos[2] ≈ 0.0 && wing_pos[1] ≈ 0.0
         y = [0, 1, 0]
@@ -171,12 +171,12 @@ function calc_R_t_w(wing_pos)
 end
 
 """
-    sym_calc_R_t_w(wing_pos)
+    sym_calc_R_t_to_w(wing_pos)
 
-Symbolic version of calc_R_t_w that uses explicit element access to avoid
+Symbolic version of calc_R_t_to_w that uses explicit element access to avoid
 slice scalarization issues when nested inside norm/division operations.
 """
-function sym_calc_R_t_w(wing_pos)
+function sym_calc_R_t_to_w(wing_pos)
     # Explicit element access to avoid slice scalarization issues
     wp1, wp2, wp3 = wing_pos[1], wing_pos[2], wing_pos[3]
 

@@ -147,7 +147,7 @@ function Makie.plot!(ax, sys::SystemStructure;
             plots[:wings] = []
             for (i, wing) in enumerate(sys.wings)
                 origin_pos = Point3f(sys.points[wing.origin_idx].pos_w)
-                R = wing.R_b_w
+                R = wing.R_b_to_w
                 scale = vector_scale
                 origins = [origin_pos, origin_pos, origin_pos]
                 directions = [Vec3f(R[:, 1]) * scale, Vec3f(R[:, 2]) * scale, Vec3f(R[:, 3]) * scale]
@@ -171,7 +171,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                     else
                         origin_pos = Point3f(sys_ref.points[wing.origin_idx].pos_w)
                     end
-                    R = wing.R_b_w
+                    R = wing.R_b_to_w
                     # Add three arrow vectors for each axis (x, y, z in body frame)
                     for i in 1:3
                         push!(origins, origin_pos)
@@ -192,7 +192,7 @@ function Makie.plot!(ax, sys::SystemStructure;
         plots[:vsm] = []
         use_obs = !isnothing(geometry_obs)  # If geometry observable exists, use it for VSM too
         for (i, wing) in enumerate(sys.wings)
-            p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w, use_observables=use_obs)
+            p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w, use_observables=use_obs)
             push!(plots[:vsm], p)
         end
     end
@@ -208,7 +208,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                 if wing.wing_type == QUATERNION
                     # For QUATERNION wings, use wing.aero_force_b
                     if !iszero(wing.aero_force_b)
-                        aero_force_w = wing.R_b_w * wing.aero_force_b
+                        aero_force_w = wing.R_b_to_w * wing.aero_force_b
                         push!(aero_origins, Point3f(wing.pos_w))
                         push!(aero_forces_raw, Vec3f(aero_force_w))
                     end
@@ -218,7 +218,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                     for point in sys.points
                         if point.type == WING && point.wing_idx == wing.idx
                             if !iszero(point.aero_force_b)
-                                aero_force_w = wing.R_b_w * point.aero_force_b
+                                aero_force_w = wing.R_b_to_w * point.aero_force_b
                                 push!(aero_origins, Point3f(point.pos_w))
                                 push!(aero_forces_raw, Vec3f(aero_force_w))
                             end
@@ -226,7 +226,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                     end
                     # Also plot total wing aero force at wing center when vector_scale > 0
                     if vector_scale > 0 && !iszero(wing.aero_force_b)
-                        aero_force_w = wing.R_b_w * wing.aero_force_b
+                        aero_force_w = wing.R_b_to_w * wing.aero_force_b
                         push!(aero_origins, Point3f(wing.pos_w))
                         push!(aero_forces_raw, Vec3f(aero_force_w))
                     end
@@ -256,7 +256,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                 for wing in sys_ref.wings
                     if wing.wing_type == QUATERNION
                         if !iszero(wing.aero_force_b)
-                            aero_force_w = wing.R_b_w * wing.aero_force_b
+                            aero_force_w = wing.R_b_to_w * wing.aero_force_b
                             push!(origins, Point3f(wing.pos_w))
                             push!(forces_raw, Vec3f(aero_force_w))
                         end
@@ -264,14 +264,14 @@ function Makie.plot!(ax, sys::SystemStructure;
                         for point in sys_ref.points
                             if point.type == WING && point.wing_idx == wing.idx
                                 if !iszero(point.aero_force_b)
-                                    aero_force_w = wing.R_b_w * point.aero_force_b
+                                    aero_force_w = wing.R_b_to_w * point.aero_force_b
                                     push!(origins, Point3f(point.pos_w))
                                     push!(forces_raw, Vec3f(aero_force_w))
                                 end
                             end
                         end
                         if scale > 0 && !iszero(wing.aero_force_b)
-                            aero_force_w = wing.R_b_w * wing.aero_force_b
+                            aero_force_w = wing.R_b_to_w * wing.aero_force_b
                             push!(origins, Point3f(wing.pos_w))
                             push!(forces_raw, Vec3f(aero_force_w))
                         end
@@ -331,7 +331,7 @@ function Makie.plot!(ax, sys::SystemStructure;
         # Transform mesh vertices to world frame using wing orientation
         if !isempty(sys.wings)
             wing = sys.wings[1]
-            R_b_w = wing.R_b_w
+            R_b_w = wing.R_b_to_w
             T_b_w = wing.pos_w
             old_vertices = GeometryBasics.coordinates(mesh)
             new_vertices = [Point3f(R_b_w * Vector(v) + T_b_w) for v in old_vertices]
@@ -404,7 +404,7 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
     # Update VSM panel meshes
     if !isnothing(PLOT_GEOMETRY_OBS[])
         for wing in sys.wings
-            plot!(wing.vsm_aero; R_b_w=wing.R_b_w, T_b_w=wing.pos_w)
+            plot!(wing.vsm_aero; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w)
         end
     end
 
@@ -1521,7 +1521,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                     ω_w = (angle / dt) .* axis
                     pos_w = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
                     e_x = SVector{3, Float64}(R1[:, 1])
-                    R_v_w = SymbolicAWEModels.calc_R_v_w(pos_w, e_x)
+                    R_v_w = SymbolicAWEModels.calc_R_v_to_w(pos_w, e_x)
                     ω_v = R_v_w' * ω_w
                     ωx[k], ωy[k], ωz[k] = ω_v
                 end
@@ -2595,7 +2595,7 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
 
     wing = sys.wings[1]
     kite_pos = wing.pos_w
-    R_b_w = wing.R_b_w
+    R_b_w = wing.R_b_to_w
 
     # Calculate distance only if not provided
     if isnothing(distance)
@@ -2965,7 +2965,7 @@ function build_geometry_observables(sys::SystemStructure, trigger::Observable)
         directions = Vec3f[]
         for wing in sys.wings
             origin = Point3f(sys.points[wing.origin_idx].pos_w)
-            R = wing.R_b_w
+            R = wing.R_b_to_w
             for i in 1:3
                 push!(origins, origin)
                 push!(directions, Vec3f(R[:, i]))
@@ -3722,7 +3722,7 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
     # Update pos_b for REFINE wing points based on current wing orientation
     for wing in wings
         if wing.wing_type == SymbolicAWEModels.REFINE
-            R_w_b = wing.R_b_w'  # transpose to get world-to-body
+            R_w_b = wing.R_b_to_w'  # transpose to get world-to-body
             for point in points
                 if point.wing_idx == wing.idx
                     point.pos_b .= R_w_b * (point.pos_w - wing.pos_w)
@@ -3851,7 +3851,7 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
     if !isnothing(extra_points)
         # Transform extra points to body frame
         wing = wings[1]
-        R_w_b = wing.R_b_w'
+        R_w_b = wing.R_b_to_w'
 
         extra_body = [R_w_b * (collect(p) - wing.pos_w) for p in extra_points]
 

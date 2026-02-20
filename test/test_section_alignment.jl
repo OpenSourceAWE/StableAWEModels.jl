@@ -53,11 +53,11 @@ for i in 1:2:length(wing_pts)
 end
 
 com = wing.pos_cad
-R = wing.R_b_c
+R = wing.R_b_to_c
 
 println("== Wing info ==")
 println("  COM = ", round.(com; digits=4))
-println("  R_b_c = ", round.(R; digits=4))
+println("  R_b_to_c = ", round.(R; digits=4))
 println("  n_unrefined = ",
     vsm_wing.n_unrefined_sections)
 println("  n_wing_pts = ", length(wing_pts))
@@ -97,12 +97,12 @@ end
 println("\n== Applying transforms ==")
 SymbolicAWEModels.reinit!(sys, set)
 
-println("  R_b_w = ", round.(wing.R_b_w; digits=4))
+println("  R_b_to_w = ", round.(wing.R_b_to_w; digits=4))
 println("  pos_w = ", round.(wing.pos_w; digits=4))
 println()
 
 @testset "World-frame panel alignment" begin
-    R_bw = wing.R_b_w
+    R_bw = wing.R_b_to_w
     T_bw = wing.pos_w
     panels = wing.vsm_aero.panels
 
@@ -187,7 +187,7 @@ end
 
 # Also check unrefined sections → world directly
 @testset "World-frame unrefined section alignment" begin
-    R_bw = wing.R_b_w
+    R_bw = wing.R_b_to_w
     T_bw = wing.pos_w
     n = vsm_wing.n_unrefined_sections
 
@@ -206,7 +206,7 @@ end
         le_err = norm(sec_le_w - le_w)
         te_err = norm(sec_te_w - te_w)
 
-        println("Section $i (world via R_b_w):")
+        println("Section $i (world via R_b_to_w):")
         println("  struct LE_w = ",
             round.(le_w; digits=4))
         println("  sec    LE_w = ",

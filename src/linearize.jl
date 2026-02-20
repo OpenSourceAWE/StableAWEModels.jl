@@ -284,8 +284,11 @@ function getstate(sys_struct::SystemStructure)
     wing = wings[1]
     tether_len = [winch.tether_len for winch in winches]
     tether_vel = [winch.tether_vel for winch in winches]
-    return (c(wing.pos_w), c(wing.vel_w), c(wing.wind_disturb), c(wing.R_b_w), c(wing.ω_b),
-            tether_len, tether_vel)
+    return (c(wing.pos_w), c(wing.vel_w),
+            c(wing.wind_disturb), c(wing.R_b_to_w),
+            c(wing.ω_b), tether_len, tether_vel,
+            c(wing.com_w), c(wing.com_vel),
+            c(wing.Q_p_to_w), c(wing.ω_p))
 end
 
 """
@@ -296,12 +299,18 @@ Set the key dynamic states of the system from a snapshot tuple.
 function setstate!(sys_struct::SystemStructure, state)
     @unpack wings, winches = sys_struct
     wing = wings[1]
-    pos_w, vel_w, wind_disturb, R_b_w, ω_b, tether_len, tether_vel = state
+    (pos_w, vel_w, wind_disturb, R_b_to_w, ω_b,
+     tether_len, tether_vel,
+     com_w, com_vel, Q_p_to_w, ω_p) = state
     wing.pos_w .= pos_w
     wing.vel_w .= vel_w
     wing.wind_disturb .= wind_disturb
-    wing.R_b_w .= R_b_w
+    wing.R_b_to_w .= R_b_to_w
     wing.ω_b .= ω_b
+    wing.com_w .= com_w
+    wing.com_vel .= com_vel
+    wing.Q_p_to_w .= Q_p_to_w
+    wing.ω_p .= ω_p
     for winch in winches
         winch.tether_len = tether_len[winch.idx]
         winch.tether_vel = tether_vel[winch.idx]
@@ -327,28 +336,38 @@ function set_measured!(sys_struct::SystemStructure,
 
     # get variables from integrator
     distance = norm(wing.pos_w)
-    R_t_w = calc_R_t_w(wing.pos_w) # rotation of tether to world
-    R_v_w = calc_R_v_w(wing.pos_w, wing.R_b_w[:,1])
+    R_t_to_w = calc_R_t_to_w(wing.pos_w) # rotation of tether to world
+    R_v_to_w = calc_R_v_to_w(wing.pos_w, wing.R_b_to_w[:,1])
     
     # get wing_pos, rotate it by elevation and azimuth around the x and z axis
-    wing.pos_w .= R_t_w * [0, 0, distance + tether_len[1] - winches[1].tether_len]
-    wing.vel_w .= R_t_w * [-wing.elevation_vel, wing.azimuth_vel, 0.0]
-    wing.wind_disturb .= R_t_w * [0.0, 0.0, -tether_vel[1]]
-    # find quaternion orientation from heading, R_b_w and R_t_w
-    R_b_w = zeros(3,3)
-    cur_heading = calc_heading(R_t_w, R_v_w)
+    wing.pos_w .= R_t_to_w * [0, 0, distance + tether_len[1] - winches[1].tether_len]
+    wing.vel_w .= R_t_to_w * [-wing.elevation_vel, wing.azimuth_vel, 0.0]
+    wing.wind_disturb .= R_t_to_w * [0.0, 0.0, -tether_vel[1]]
+    # find quaternion orientation from heading, R_b_to_w and R_t_to_w
+    R_b_to_w = zeros(3,3)
+    cur_heading = calc_heading(R_t_to_w, R_v_to_w)
     d_heading = heading - cur_heading
     for i in 1:3
-        R_b_w[:,i] .= R_t_w * rotate_around_z(R_t_w' * wing.R_b_w[:,i], d_heading)
+        R_b_to_w[:,i] .= R_t_to_w * rotate_around_z(R_t_to_w' * wing.R_b_to_w[:,i], d_heading)
     end
-    wing.R_b_w = R_b_w
+    wing.R_b_to_w = R_b_to_w
     # adjust the turn rates for observed turn rate
-    wing.ω_b .= wing.R_b_w' * R_t_w * [wing.turn_rate[1], wing.turn_rate[2], turn_rate]
+    wing.ω_b .= wing.R_b_to_w' * R_t_to_w * [wing.turn_rate[1], wing.turn_rate[2], turn_rate]
     # directly set tether length
     for winch in winches
         winch.tether_len = tether_len[winch.idx]
         winch.tether_vel = tether_vel[winch.idx]
     end
+    # Derive principal frame from body frame
+    R_b_to_w_mat = wing.R_b_to_w
+    wing.com_w .= wing.pos_w .+
+        R_b_to_w_mat * wing.com_offset_b
+    R_p_to_w = R_b_to_w_mat * wing.R_b_to_c' * wing.R_p_to_c
+    wing.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
+    ω_w = R_b_to_w_mat * wing.ω_b
+    r_com_w = R_b_to_w_mat * wing.com_offset_b
+    wing.com_vel .= wing.vel_w .+ cross(ω_w, r_com_w)
+    wing.ω_p .= R_p_to_w' * ω_w
     return nothing
 end
 

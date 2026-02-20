@@ -57,16 +57,24 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     @variables begin
         # Control inputs
         set_values(t)[eachindex(winches)] = zeros(length(winches))
-        # Wing rigid body states (column-major: [1:3, wing_idx])
+        # Wing body frame output
         wing_pos(t)[1:3, eachindex(wings)]
         wing_vel(t)[1:3, eachindex(wings)]
         wing_acc(t)[1:3, eachindex(wings)]
         ω_b(t)[1:3, eachindex(wings)]
         α_b(t)[1:3, eachindex(wings)]
-        # Wing rotation matrices (column-major: [1:3, 1:3, wing_idx])
-        R_b_w(t)[1:3, 1:3, eachindex(wings)]
-        R_v_w(t)[1:3, 1:3, eachindex(wings)]
-        # Aerodynamic forces and moments (column-major: [1:3, wing_idx])
+        # Wing principal frame ODE state
+        com_w(t)[1:3, eachindex(wings)]
+        com_vel(t)[1:3, eachindex(wings)]
+        com_acc(t)[1:3, eachindex(wings)]
+        Q_p_to_w(t)[1:4, eachindex(wings)]
+        ω_p(t)[1:3, eachindex(wings)]
+        α_p(t)[1:3, eachindex(wings)]
+        # Rotation matrices
+        R_b_to_w(t)[1:3, 1:3, eachindex(wings)]
+        R_p_to_w(t)[1:3, 1:3, eachindex(wings)]
+        R_v_to_w(t)[1:3, 1:3, eachindex(wings)]
+        # Aerodynamic forces and moments
         aero_force_b(t)[1:3, eachindex(wings)]
         aero_moment_b(t)[1:3, eachindex(wings)]
         group_aero_moment(t)[eachindex(groups)]
@@ -77,8 +85,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
         wind_vec_gnd(t)[1:3]
         va_wing_b(t)[1:3, eachindex(wings)]
     end
-    R_b_w = collect(R_b_w)
-    R_v_w = collect(R_v_w)
+    R_b_to_w = collect(R_b_to_w)
+    R_p_to_w = collect(R_p_to_w)
+    R_v_to_w = collect(R_v_to_w)
 
     # ==================== INLINED FORCE_EQS! CONTENT ==================== #
     # The following variables and component calls were previously in force_eqs!
@@ -160,7 +169,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     # 1. Point equations (generates point dynamics, modifies tether_wing_force/moment in-place)
     eqs, defaults, guesses = point_eqs!(
         s, eqs, defaults, guesses, points, segments, groups, wings, psys, pset;
-        R_b_w, wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
+        R_b_to_w, com_w,
+        wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
         spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
         fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
@@ -172,7 +182,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     # 2. Group equations (deformable wing sections with twist dynamics)
     eqs, defaults, guesses = group_eqs!(
         eqs, defaults, guesses, groups, wings, psys, pset;
-        R_b_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
+        R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
         point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos
     )
 
@@ -204,7 +214,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     if has_refine_wings
         eqs, guesses = vsm_eqs!(
             s, eqs, guesses, psys;
-            aero_force_b, R_v_w, aero_moment_b, group_aero_moment,
+            aero_force_b, R_v_to_w, aero_moment_b, group_aero_moment,
             twist_angle, va_wing_b, wing_pos, ω_b,
             aero_force_point_b=aero_force_point_b,
             va_point_b=va_point_b
@@ -212,7 +222,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     else
         eqs, guesses = vsm_eqs!(
             s, eqs, guesses, psys;
-            aero_force_b, R_v_w, aero_moment_b, group_aero_moment,
+            aero_force_b, R_v_to_w, aero_moment_b, group_aero_moment,
             twist_angle, va_wing_b, wing_pos, ω_b
         )
     end
@@ -220,16 +230,19 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
     # Build wing rigid body dynamics equations
     eqs, defaults = wing_eqs!(
         s, eqs, psys, pset, defaults;
-        tether_wing_force, tether_wing_moment, aero_force_b, aero_moment_b,
-        ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, fix_wing,
-        pos, vel, acc
+        tether_wing_force, tether_wing_moment,
+        aero_force_b, aero_moment_b,
+        ω_b, α_b, R_b_to_w, R_p_to_w,
+        wing_pos, wing_vel, wing_acc,
+        com_w, com_vel, com_acc, Q_p_to_w, ω_p, α_p,
+        fix_wing, pos, vel, acc
     )
 
     # Build scalar kinematic and apparent wind equations
     eqs = scalar_eqs!(
         s, eqs, psys, pset;
-        R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc,
-        twist_angle, ω_b, α_b, R_v_w
+        R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc,
+        twist_angle, ω_b, α_b, R_v_to_w
     )
 
     # Debug: Find which equation fails to scalarize

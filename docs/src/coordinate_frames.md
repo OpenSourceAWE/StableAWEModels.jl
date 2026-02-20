@@ -12,20 +12,20 @@ and dynamics:
 The transformation chain is:
 
 ```
-               R_b_c, pos_cad            R_b_w, wing.pos_w
+             R_b_to_c, pos_cad          R_b_to_w, wing.pos_w
 CAD frame ──────────────────▶ Body frame ─────────────────▶ World frame
 (geometry)                    (wing-attached)               (simulation)
 ```
 
 Each step involves both a **rotation** and a **translation**:
-- **CAD to Body**: rotation `R_b_c` and origin shift to
+- **CAD to Body**: rotation `R_b_to_c` and origin shift to
   `pos_cad` (COM for QUATERNION, origin point for REFINE)
-- **Body to World**: rotation `R_b_w` (from quaternion state or
+- **Body to World**: rotation `R_b_to_w` (from quaternion state or
   structural points) and translation to `wing.pos_w`
 
-`R_b_c` is a constant rotation computed once during
+`R_b_to_c` is a constant rotation computed once during
 [`SystemStructure`](@ref) construction.
-`R_b_w` evolves during simulation — from the quaternion state
+`R_b_to_w` evolves during simulation — from the quaternion state
 (QUATERNION) or from deformed point positions (REFINE).
 
 ## CAD Frame
@@ -189,5 +189,5 @@ the body frame during [`SystemStructure`](@ref) construction:
    (`apply_aero_z_offset!`)
 
 After this transformation, all VSM geometry is expressed in the body
-frame. During simulation, `R_b_w` maps panel positions to the world
+frame. During simulation, `R_b_to_w` maps panel positions to the world
 frame for aerodynamic calculations.

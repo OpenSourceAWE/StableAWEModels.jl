@@ -181,9 +181,9 @@ for step in 1:NUM_STEPS
 
     # Heading control
     wing = sys.wings[1]
-    wing.R_b_w = SymbolicAWEModels.calc_refine_wing_frame(
+    wing.R_b_to_w = SymbolicAWEModels.calc_refine_wing_frame(
         sys.points, wing.z_ref_points, wing.y_ref_points, wing.origin_idx)[1]
-    curr_heading = calc_heading(sys, wing.R_b_w)
+    curr_heading = calc_heading(sys, wing.R_b_to_w)
     delta_heading = -wrap_to_pi(HEADING_SETPOINT - curr_heading)
     steering_control = DiscretePIDs.calculate_control!(
         heading_pid, 0.0, delta_heading, 0.0)

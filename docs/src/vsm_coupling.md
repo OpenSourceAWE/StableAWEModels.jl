@@ -52,7 +52,7 @@ Each timestep, structural point positions update VSM section geometry:
 
 ```julia
 # For each structural point mapped to a VSM section point:
-pos_b = R_b_w' * (point.pos_w - wing.origin)
+pos_b = R_b_to_w' * (point.pos_w - wing.origin)
 section.LE_point = pos_b  # or section.TE_point
 ```
 

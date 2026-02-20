@@ -245,7 +245,7 @@ end
         init!(sam; remake=true, prn=false,
               reset_vel=false)
 
-        Q0 = copy(wing.Q_b_w)
+        Q0 = copy(wing.Q_b_to_w)
         println("  I_b = $(round.(I_b; digits=4))")
         println("  Spin axis = $k, omega0 = $omega0")
         println("  Q0 = $(round.(Q0; digits=4))")
@@ -270,12 +270,12 @@ end
             Q_exp = analytical_quat_spin(Q0, omega_init, t)
             # Q and -Q represent the same rotation
             q_err = min(
-                norm(wing.Q_b_w - Q_exp),
-                norm(wing.Q_b_w + Q_exp))
+                norm(wing.Q_b_to_w - Q_exp),
+                norm(wing.Q_b_to_w + Q_exp))
             max_q_err = max(max_q_err, q_err)
 
             # Quaternion norm should be preserved
-            norm_err = abs(norm(wing.Q_b_w) - 1.0)
+            norm_err = abs(norm(wing.Q_b_to_w) - 1.0)
             max_norm_err = max(max_norm_err, norm_err)
         end
 
@@ -374,7 +374,7 @@ end
         @test E_final ≈ E_initial rtol=0.01
 
         # Quaternion norm preserved
-        @test norm(wing.Q_b_w) ≈ 1.0 atol=1e-4
+        @test norm(wing.Q_b_to_w) ≈ 1.0 atol=1e-4
     end
 
     rm(tmpdir; recursive=true)

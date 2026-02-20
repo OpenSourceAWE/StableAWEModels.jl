@@ -40,9 +40,52 @@ get_wing_vel_w(sys::SystemStructure, idx::Int64) = sys.wings[idx].vel_w
     size = (3,)
     eltype = SimFloat
 end
-get_Q_b_w(sys::SystemStructure, idx::Int64) = sys.wings[idx].Q_b_w
-@register_array_symbolic get_Q_b_w(sys::SystemStructure, idx::Int64) begin
+get_Q_b_to_w(sys::SystemStructure, idx::Int64) = sys.wings[idx].Q_b_to_w
+@register_array_symbolic get_Q_b_to_w(sys::SystemStructure, idx::Int64) begin
     size = (4,)
+    eltype = SimFloat
+end
+# Principal frame accessors
+get_com_w(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].com_w
+@register_array_symbolic get_com_w(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_com_vel(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].com_vel
+@register_array_symbolic get_com_vel(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_Q_p_to_w(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].Q_p_to_w
+@register_array_symbolic get_Q_p_to_w(
+    sys::SystemStructure, idx::Int64) begin
+    size = (4,)
+    eltype = SimFloat
+end
+get_ω_p(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].ω_p
+@register_array_symbolic get_ω_p(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_com_offset_b(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].com_offset_b
+@register_array_symbolic get_com_offset_b(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_R_b_to_p(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].R_b_to_p
+@register_array_symbolic get_R_b_to_p(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3, 3)
     eltype = SimFloat
 end
 get_wing_mass(sys::SystemStructure, idx::Int64) = sys.wings[idx].mass

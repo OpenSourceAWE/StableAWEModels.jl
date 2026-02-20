@@ -289,14 +289,14 @@ This creates two-way coupling: structural deformation → VSM sections → aero 
 # Algorithm
 Uses direct 1:1 correspondence between structural points and VSM section points:
 1. For each structural WING point:
-   - Calculate current position in body frame: pos_b = R_b_w' * (pos_w - origin)
+   - Calculate current position in body frame: pos_b = R_b_to_w' * (pos_w - origin)
    - Find corresponding VSM section point (LE or TE) via wing.point_to_vsm_point
    - Set VSM section point directly: section.LE_point = pos_b (or TE_point)
 
 # Notes
 - Section points are stored in body frame coordinates
-- `wing.R_b_w` and `wing.pos_w` are updated each timestep from structural geometry (symbolic equations)
-- To get world coordinates: `world_pos = wing.R_b_w * section.LE_point + wing.pos_w`
+- `wing.R_b_to_w` and `wing.pos_w` are updated each timestep from structural geometry (symbolic equations)
+- To get world coordinates: `world_pos = wing.R_b_to_w * section.LE_point + wing.pos_w`
 
 # Arguments
 - `wing::VSMWing`: Wing with REFINE type
@@ -305,9 +305,9 @@ Uses direct 1:1 correspondence between structural points and VSM section points:
 function update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{Point})
     @assert wing.wing_type == REFINE "Can only update wing geometry for REFINE wings"
 
-    # Get current R_b_w and origin from wing state
+    # Get current R_b_to_w and origin from wing state
     # (These are updated during simulation from structural geometry)
-    R_b_w = wing.R_b_w
+    R_b_to_w = wing.R_b_to_w
     origin = wing.pos_w
 
     # Update each VSM section point directly from its corresponding structural point
@@ -315,7 +315,7 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{P
         point = points[point_idx]
 
         # Calculate current position in body frame
-        pos_b = R_b_w' * (point.pos_w - origin)
+        pos_b = R_b_to_w' * (point.pos_w - origin)
 
         # Get the section
         section = wing.vsm_wing.unrefined_sections[section_idx]

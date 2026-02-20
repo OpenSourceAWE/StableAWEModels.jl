@@ -335,7 +335,7 @@ function run_v3_kite(wing_type::WingType;
 
             # Apply outward tube bending resistance forces in body-frame ±y directions
             if tube_bending_resistance != 0
-                R_b_w = sam.sys_struct.wings[1].R_b_w
+                R_b_w = sam.sys_struct.wings[1].R_b_to_w
                 force_pos_y = R_b_w * [0.0, tube_bending_resistance, 0.0]
                 force_neg_y = R_b_w * [0.0, -tube_bending_resistance, 0.0]
                 sam.sys_struct.points[2].disturb .= force_pos_y

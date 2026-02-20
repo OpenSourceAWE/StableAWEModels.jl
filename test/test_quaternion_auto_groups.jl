@@ -43,7 +43,9 @@ using LinearAlgebra
         ),
         vsm_aero, vsm_wing, vsm_solver,
         Float64[], Float64[], zeros(0, 0),
-        nothing, nothing, nothing, nothing, nothing
+        nothing, nothing,
+        nothing, nothing, nothing, nothing,
+        nothing, nothing, 0.0, 0.0
     )
 
     # Create SystemStructure (should auto-create groups)

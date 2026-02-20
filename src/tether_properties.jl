@@ -77,10 +77,10 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
     swing.pos_w .= wing.pos_w
     swing.vel_w .= wing.vel_w
     swing.ω_b .= wing.ω_b
-    swing.Q_b_w .= wing.Q_b_w
+    swing.Q_b_to_w .= wing.Q_b_to_w
     # update non-group pos
-    ssys.points[1].pos_w .= wing.pos_w + wing.R_b_w * ssys.points[1].pos_b
-    ssys.points[2].pos_w .= wing.pos_w + wing.R_b_w * ssys.points[2].pos_b
+    ssys.points[1].pos_w .= wing.pos_w + wing.R_b_to_w * ssys.points[1].pos_b
+    ssys.points[2].pos_w .= wing.pos_w + wing.R_b_to_w * ssys.points[2].pos_b
     # TODO: add x such that torque around y is the same
 
     # copy twist
@@ -101,7 +101,7 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
         x_airf = normalize(sgroup.chord)
         init_z_airf = x_airf × sgroup.y_airf
         z_airf = x_airf * sin(sgroup.twist) + init_z_airf * cos(sgroup.twist)
-        force = steering_force[sgroup.idx] * normalize(swing.pos_w) ⋅ (swing.R_b_w * z_airf)
+        force = steering_force[sgroup.idx] * normalize(swing.pos_w) ⋅ (swing.R_b_to_w * z_airf)
         r = moment[sgroup.idx] / force
         spoint = ssys.points[sgroup.point_idxs[1]]
         spoint.pos_b .= sgroup.le_pos + sgroup.chord * (r / norm(sgroup.chord) + moment_frac)
@@ -111,7 +111,7 @@ function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
         normal = chord_b × sgroup.y_airf
         pos_b = sgroup.le_pos + cos(sgroup.twist) * chord_b - 
                 sin(sgroup.twist) * normal
-        spoint.pos_w .= swing.pos_w + swing.R_b_w * pos_b
+        spoint.pos_w .= swing.pos_w + swing.R_b_to_w * pos_b
     end
 
     # match winch force by changing tether length

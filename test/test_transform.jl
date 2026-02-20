@@ -257,15 +257,15 @@ using LinearAlgebra
                 wing = sam.sys_struct.wings[:main_wing]
 
                 # Wing should have a rotation matrix
-                @test !isnothing(wing.base.R_b_w)
-                @test size(wing.base.R_b_w) == (3, 3)
+                @test !isnothing(wing.base.R_b_to_w)
+                @test size(wing.base.R_b_to_w) == (3, 3)
 
-                # R_b_w should be a valid rotation matrix (orthonormal)
-                @test det(wing.base.R_b_w) ≈ 1.0 atol=1e-10
-                @test wing.base.R_b_w * wing.base.R_b_w' ≈ I(3) atol=1e-10
+                # R_b_to_w should be a valid rotation matrix (orthonormal)
+                @test det(wing.base.R_b_to_w) ≈ 1.0 atol=1e-10
+                @test wing.base.R_b_to_w * wing.base.R_b_to_w' ≈ I(3) atol=1e-10
 
                 println("\n  ====== [$wing_type_name] Heading affects rotation: " *
-                    "det(R_b_w)=$(round(det(wing.base.R_b_w), digits=4)) ======\n")
+                    "det(R_b_to_w)=$(round(det(wing.base.R_b_to_w), digits=4)) ======\n")
             end
 
             # ================================================================

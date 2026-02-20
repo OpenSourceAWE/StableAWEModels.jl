@@ -22,8 +22,8 @@ derivatives, as well as apparent wind calculations.
 """
 function scalar_eqs!(
     s, eqs, psys, pset;
-    R_b_w, wind_vec_gnd, va_wing_b, wing_pos,
-    wing_vel, wing_acc, twist_angle, ω_b, α_b, R_v_w
+    R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos,
+    wing_vel, wing_acc, twist_angle, ω_b, α_b, R_v_to_w
 )
     @unpack wings = s.sys_struct
     @variables begin
@@ -51,9 +51,9 @@ function scalar_eqs!(
     for wing in wings
         eqs = [
             eqs
-            e_x[:, wing.idx] ~ R_b_w[:, 1, wing.idx]
-            e_y[:, wing.idx] ~ R_b_w[:, 2, wing.idx]
-            e_z[:, wing.idx] ~ R_b_w[:, 3, wing.idx]
+            e_x[:, wing.idx] ~ R_b_to_w[:, 1, wing.idx]
+            e_y[:, wing.idx] ~ R_b_to_w[:, 2, wing.idx]
+            e_z[:, wing.idx] ~ R_b_to_w[:, 3, wing.idx]
             wind_vel_wing[:, wing.idx] ~
                 calc_wind_factor(s.am, wing_pos[1, wing.idx], wing_pos[2, wing.idx],
                                  wing_pos[3, wing.idx], pset) * wind_vec_gnd
@@ -61,7 +61,7 @@ function scalar_eqs!(
             va_wing[:, wing.idx] ~
                 wind_vel_wing[:, wing.idx] - wing_vel[:, wing.idx] +
                 wind_disturb[:, wing.idx]
-            va_wing_b[:, wing.idx] ~ R_b_w[:, :, wing.idx]' * va_wing[:, wing.idx]
+            va_wing_b[:, wing.idx] ~ R_b_to_w[:, :, wing.idx]' * va_wing[:, wing.idx]
         ]
     end
     @variables begin
@@ -77,7 +77,7 @@ function scalar_eqs!(
         elevation_acc(t)[eachindex(wings)]
         course(t)[eachindex(wings)]
         angle_of_attack(t)[eachindex(wings)]
-        R_t_w(t)[1:3, 1:3, eachindex(wings)]
+        R_t_to_w(t)[1:3, 1:3, eachindex(wings)]
         distance(t)[eachindex(wings)]
         distance_vel(t)[eachindex(wings)]
         distance_acc(t)[eachindex(wings)]
@@ -112,37 +112,37 @@ function scalar_eqs!(
         # naturally evaluate to zero.
         eqs = [
             eqs
-            vec(R_v_w[:, :, wing.idx]) ~
-                vec(calc_R_v_w(wing_pos[:, wing.idx], e_x[:, wing.idx]))
-            vec(R_t_w[:, :, wing.idx]) ~
-                vec(sym_calc_R_t_w(wing_pos[:, wing.idx]))
+            vec(R_v_to_w[:, :, wing.idx]) ~
+                vec(calc_R_v_to_w(wing_pos[:, wing.idx], e_x[:, wing.idx]))
+            vec(R_t_to_w[:, :, wing.idx]) ~
+                vec(sym_calc_R_t_to_w(wing_pos[:, wing.idx]))
             heading[wing.idx] ~ atan(heading_x, heading_z)
             turn_rate[:, wing.idx] ~
-                R_v_w[:, :, wing.idx]' *
-                (R_b_w[:, :, wing.idx] * ω_b[:, wing.idx])
+                R_v_to_w[:, :, wing.idx]' *
+                (R_b_to_w[:, :, wing.idx] * ω_b[:, wing.idx])
             turn_acc[:, wing.idx] ~
-                R_v_w[:, :, wing.idx]' *
-                (R_b_w[:, :, wing.idx] * α_b[:, wing.idx])
+                R_v_to_w[:, :, wing.idx]' *
+                (R_b_to_w[:, :, wing.idx] * α_b[:, wing.idx])
             distance[wing.idx] ~ norm(wing_pos[:, wing.idx])
             distance_vel[wing.idx] ~
-                wing_vel[:, wing.idx] ⋅ R_t_w[:, 3, wing.idx]
+                wing_vel[:, wing.idx] ⋅ R_t_to_w[:, 3, wing.idx]
             distance_acc[wing.idx] ~
-                wing_acc[:, wing.idx] ⋅ R_t_w[:, 3, wing.idx]
+                wing_acc[:, wing.idx] ⋅ R_t_to_w[:, 3, wing.idx]
             elevation[wing.idx] ~
                 KiteUtils.calc_elevation(wing_pos[:, wing.idx])
             elevation_vel[wing.idx] ~
-                dot(wing_vel[:, wing.idx], -R_t_w[:, 1, wing.idx]) /
+                dot(wing_vel[:, wing.idx], -R_t_to_w[:, 1, wing.idx]) /
                 distance[wing.idx]
             elevation_acc[wing.idx] ~
-                dot(wing_acc[:, wing.idx], -R_t_w[:, 1, wing.idx]) /
+                dot(wing_acc[:, wing.idx], -R_t_to_w[:, 1, wing.idx]) /
                 distance[wing.idx]
             azimuth[wing.idx] ~
                 KiteUtils.azimuth_east(wing_pos[:, wing.idx])
             azimuth_vel[wing.idx] ~
-                dot(wing_vel[:, wing.idx], -R_t_w[:, 2, wing.idx]) /
+                dot(wing_vel[:, wing.idx], -R_t_to_w[:, 2, wing.idx]) /
                 norm([x, y])
             azimuth_acc[wing.idx] ~
-                dot(wing_acc[:, wing.idx], -R_t_w[:, 2, wing.idx]) /
+                dot(wing_acc[:, wing.idx], -R_t_to_w[:, 2, wing.idx]) /
                 norm([x, y])
             course[wing.idx] ~ atan(course_x, course_z)
             angle_of_attack[wing.idx] ~

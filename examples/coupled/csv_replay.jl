@@ -295,16 +295,16 @@ function interpolate_csv_data(data, n_substeps)
     return NamedTuple{col_names}(Tuple(interp_data[k] for k in col_names))
 end
 
-function calc_R_b_w(sys_struct::SystemStructure)
+function calc_R_b_to_w(sys_struct::SystemStructure)
     @unpack points, wings, wind_vec_gnd = sys_struct
     wing = wings[1]
-    R_b_w, origin = SymbolicAWEModels.calc_refine_wing_frame(
+    R_b_to_w, origin = SymbolicAWEModels.calc_refine_wing_frame(
         points,
         wing.z_ref_points,
         wing.y_ref_points,
         wing.origin_idx
     )
-    return R_b_w
+    return R_b_to_w
 end
 
 """
@@ -343,10 +343,10 @@ end
 
 function apply_force!(sys, control)
     wing = sys.wings[1]
-    R_b_w = wing.R_b_w
+    R_b_to_w = wing.R_b_to_w
     for point in sys.points
         distance_frac = point.pos_w ⋅ normalize(wing.pos_w) / norm(wing.pos_w)
-        point.disturb .= -R_b_w[:, 1] * control * distance_frac
+        point.disturb .= -R_b_to_w[:, 1] * control * distance_frac
     end
 end
 
@@ -406,8 +406,8 @@ function update_vel_from_csv!(sys, row, brake, heading_pid)
     # Calc delta heading (with spike filter on CSV heading)
     raw_csv_heading = calc_csv_heading(row.roll, row.pitch, row.yaw, sys)
     csv_heading = filter_csv_heading(raw_csv_heading)
-    wing.R_b_w = calc_R_b_w(sys)
-    curr_heading = calc_heading(sys, wing.R_b_w)
+    wing.R_b_to_w = calc_R_b_to_w(sys)
+    curr_heading = calc_heading(sys, wing.R_b_to_w)
     delta_heading = -wrap_to_pi(csv_heading - curr_heading)
 
     sim_cumulative_dist = update_sim_distance!(wing.pos_w)
@@ -463,8 +463,8 @@ function update_sys_struct_from_csv!(sys, row; extra_vel_body_x=0.0)
     quat = euler_to_quaternion(row.roll, row.pitch, row.yaw)
     csv_heading = calc_heading(sys,
         SymbolicAWEModels.quaternion_to_rotation_matrix(quat)) + pi
-    wing.R_b_w = calc_R_b_w(sys)
-    curr_heading = calc_heading(sys, wing.R_b_w)
+    wing.R_b_to_w = calc_R_b_to_w(sys)
+    curr_heading = calc_heading(sys, wing.R_b_to_w)
 
     # calc needed transform
     csv_pos = [row.x, row.y, row.z]
@@ -478,7 +478,7 @@ function update_sys_struct_from_csv!(sys, row; extra_vel_body_x=0.0)
 
     # apply vel with optional extra velocity in body -z direction (upward)
     csv_vel = [row.vx, row.vy, row.vz]
-    extra_vel_w = extra_vel_body_x * wing.R_b_w[:, 1]
+    extra_vel_w = extra_vel_body_x * wing.R_b_to_w[:, 1]
     wing.vel_w .= csv_vel + extra_vel_w
     for point in points
         transform_frac = point.pos_w ⋅ normalize(wing.pos_w) / norm(wing.pos_w)

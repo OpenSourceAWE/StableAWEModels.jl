@@ -257,15 +257,15 @@ end
                 reset_state!(sam, set)
 
                 wing = sam.sys_struct.wings[:main_wing]
-                initial_Q = copy(wing.Q_b_w)
+                initial_Q = copy(wing.Q_b_to_w)
 
                 for _ in 1:100
                     next_step!(sam; dt=0.001,
                         vsm_interval=1)
                 end
 
-                q_diff = norm(wing.Q_b_w - initial_Q)
-                q_norm = norm(wing.Q_b_w)
+                q_diff = norm(wing.Q_b_to_w - initial_Q)
+                q_norm = norm(wing.Q_b_to_w)
 
                 @test q_diff > 0.001
                 @test q_norm ≈ 1.0 atol = 0.1

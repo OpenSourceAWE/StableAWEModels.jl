@@ -40,8 +40,8 @@ SymbolicAWEModels.get_sys_struct_hash
 ```@docs
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
-SymbolicAWEModels.calc_R_t_w
-SymbolicAWEModels.calc_R_v_w
+SymbolicAWEModels.calc_R_t_to_w
+SymbolicAWEModels.calc_R_v_to_w
 SymbolicAWEModels.cad_to_body_frame
 SymbolicAWEModels.calc_pos
 SymbolicAWEModels.calc_winch_force
@@ -183,13 +183,14 @@ SymbolicAWEModels.get_group_moment_override
 SymbolicAWEModels.get_heading_components
 SymbolicAWEModels.solve_heading_rotation
 SymbolicAWEModels.get_ref_position_from_points
-SymbolicAWEModels.sym_calc_R_t_w
+SymbolicAWEModels.sym_calc_R_t_to_w
 SymbolicAWEModels.wrap_to_pi
 ```
 
 ## Other internals
 
 ```@docs
+SymbolicAWEModels.init_principal_frame!
 SymbolicAWEModels.update_segment_forces!
 KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```
