@@ -353,7 +353,7 @@ sam.outputs).
 function SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
     # Calculate total points: regular points + 4 corners per panel
     n_points = length(sam.sys_struct.points)
-    n_panel_corners = sum(
+    n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
         length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings
     )
     P = n_points + n_panel_corners

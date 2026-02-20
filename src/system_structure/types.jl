@@ -345,7 +345,7 @@ function Segment(name, set, point_i, point_j, type;
                 set.unit_damping != 0.0
             unit_damping = (set.unit_damping / set.unit_stiffness) * unit_stiffness
         else
-            @warn "Axial damping is zero!"
+            @warn "damping is zero!"
             unit_damping = 0.0  # fallback if no damping info available
         end
     end

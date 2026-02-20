@@ -410,7 +410,7 @@ with the current state of the provided model.
 function SysState(s::SymbolicAWEModel, zoom=1.0)
     # Calculate total points: regular points + 4 corners per panel
     n_points = length(s.sys_struct.points)
-    n_panel_corners = sum(
+    n_panel_corners = isempty(s.sys_struct.wings) ? 0 : sum(
         length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings
     )
     total_points = n_points + n_panel_corners
@@ -443,7 +443,7 @@ logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
     # Calculate total points: regular points + 4 corners per panel
     n_points = length(sam.sys_struct.points)
-    n_panel_corners = sum(
+    n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
         length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings
     )
     total_points = n_points + n_panel_corners

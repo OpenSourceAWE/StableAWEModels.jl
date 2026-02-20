@@ -8,7 +8,7 @@
 Simplify a detailed AWE model into a 1-segment tether model.
 
 This high-level function orchestrates the simplification process:
-1.  Calculates the equivalent axial stiffness and damping of the detailed model (`tether_sam`)
+1.  Calculates the equivalent stiffness and damping of the detailed model (`tether_sam`)
     by analyzing its step response.
 2.  Assigns these calculated properties to the single-segment tethers of the simple model (`simple_sam`).
 3.  Copies the dynamic state (wing position, orientation, tether attachment points, etc.)
@@ -148,7 +148,7 @@ end
 """
     calc_spring_props(sam, tether_sam; prn=false) -> (Vector, Vector, Matrix, Float64)
 
-Calculate the equivalent axial stiffness and damping, and return the step response data.
+Calculate the equivalent stiffness and damping, and return the step response data.
 
 This function orchestrates the process by performing a step response test on the
 `tether_sam` model and then analyzing the resulting tether length data.

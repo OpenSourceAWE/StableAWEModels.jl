@@ -58,7 +58,8 @@ import ModelingToolkit.SciMLBase: successful_retcode
 
 # --- KiteUtils ---
 export init!, next_step!, update_sys_state!, update_from_sysstate!, get_data_path, set_data_path, se
-export SysState, Settings, AbstractKiteModel
+export SysState, SysLog, Settings, AbstractKiteModel
+export Logger, log!, save_log, load_log
 export load_settings
 
 # --- Types ---

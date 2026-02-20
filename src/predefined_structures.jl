@@ -332,8 +332,8 @@ themselves.
 - `set::Settings`: Configuration parameters.
 
 # Keywords
-- `unit_stiffness::Vector{Float64}`: Predefined axial stiffness [N] for each tether.
-- `unit_damping::Vector{Float64}`: Predefined axial damping [Ns] for each tether.
+- `unit_stiffness::Vector{Float64}`: Predefined stiffness [N] for each tether.
+- `unit_damping::Vector{Float64}`: Predefined damping [Ns] for each tether.
 
 # Returns
 - `SystemStructure`: A new `SystemStructure` representing the 4-tether test system.
@@ -390,8 +390,8 @@ omitting the complex pulley system. Each tether is modeled as a single segment.
 - `set::Settings`: Configuration parameters.
 
 # Keywords
-- `unit_stiffness::Vector{Float64}`: Predefined axial stiffness [N] for each tether.
-- `unit_damping::Vector{Float64}`: Predefined axial damping [Ns] for each tether.
+- `unit_stiffness::Vector{Float64}`: Predefined stiffness [N] for each tether.
+- `unit_damping::Vector{Float64}`: Predefined damping [Ns] for each tether.
 
 # Returns
 - `SystemStructure`: A new `SystemStructure` representing the simplified model.

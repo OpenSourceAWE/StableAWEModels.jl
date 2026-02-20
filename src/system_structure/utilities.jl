@@ -106,8 +106,8 @@ configurations and throws assertions for definite errors.
 ## Segment Validations
 - Unusual diameter outside (0, 1) m range (warning)
 - Non-positive rest length l0 (error)
-- Zero or negative axial stiffness (warning)
-- Negative axial damping (warning)
+- Zero or negative stiffness (warning)
+- Negative damping (warning)
 
 ## Pulley Validations
 - Zero total length constraint (error)
@@ -237,14 +237,14 @@ function validate_sys_struct(sys_struct::SystemStructure)
 
         # Warn about zero or negative stiffness/damping
         if segment.unit_stiffness ≈ 0.0
-            @warn "Segment $(segment.name) has zero axial stiffness"
+            @warn "Segment $(segment.name) has zero stiffness"
         elseif segment.unit_stiffness < 0
-            @warn "Segment $(segment.name) has negative axial stiffness " *
+            @warn "Segment $(segment.name) has negative stiffness " *
                   "$(segment.unit_stiffness) N"
         end
 
         if segment.unit_damping < 0
-            @warn "Segment $(segment.name) has negative axial damping " *
+            @warn "Segment $(segment.name) has negative damping " *
                   "$(segment.unit_damping) N⋅s"
         end
     end
@@ -610,7 +610,9 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
 
     # Calculate expected total points (regular points + panel corners)
     n_points = length(points)
-    n_panel_corners = sum(length(wing.vsm_aero.panels) * 4 for wing in wings)
+    n_panel_corners = isempty(wings) ? 0 : sum(
+        length(wing.vsm_aero.panels) * 4 for wing in wings
+    )
     expected_total = n_points + n_panel_corners
 
     # Verify compatibility
