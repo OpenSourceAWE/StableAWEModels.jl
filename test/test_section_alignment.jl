@@ -34,8 +34,10 @@ vsm_wing = wing.vsm_wing
 points = sys.points
 
 # Collect WING-type points for this wing, sorted by y
+# Exclude origin point (e.g. KCU) which is not an LE/TE
 wing_pts = filter(
-    p -> p.type == WING && p.wing_idx == wing.idx,
+    p -> p.type == WING && p.wing_idx == wing.idx &&
+         p.idx != wing.origin_idx,
     points)
 sort!(wing_pts; by=p -> p.pos_cad[2], rev=true)
 

@@ -20,25 +20,16 @@ else
     set_data_path(data_path)
 end
 
-@testset verbose = true "Testing SymbolicAWEModels..." begin
-    # Component tests
-    println("--> Point dynamics")
-    include("test_point.jl")
-    println("--> Segment dynamics")
-    include("test_segment.jl")
-    println("--> Pulley constraints")
-    include("test_pulley.jl")
-    println("--> Tether and winch")
-    include("test_tether_winch.jl")
-    println("--> Transform coordinates")
-    include("test_transform.jl")
-    println("--> Wing aerodynamics")
-    include("test_wing.jl")
+exclude = ["test_for_precompile.jl"]
+test_files = filter(readdir(@__DIR__)) do f
+    startswith(f, "test_") && endswith(f, ".jl") &&
+        f ∉ exclude
+end
+sort!(test_files)
 
-    println("--> Quaternion conversions")
-    include("test_quaternion_conversions.jl")
-    println("--> Helpers")
-    include("test_helpers.jl")
-    println("--> Code quality")
-    include("aqua.jl")
+@testset verbose = true "Testing SymbolicAWEModels..." begin
+    for f in test_files
+        println("--> $f")
+        include(f)
+    end
 end

@@ -11,7 +11,6 @@
 #   1 = EXP (delegated to AtmosphericModels)
 #   2 = LOG (delegated to AtmosphericModels)
 #   3 = EXPLOG (delegated to AtmosphericModels)
-#   4 = FAST_EXP (delegated to AtmosphericModels)
 
 using Test
 using SymbolicAWEModels
@@ -24,7 +23,7 @@ using SymbolicIndexingInterface: getu
 # YAML Configuration - Static probes at different heights
 # Need at least one DYNAMIC point with a segment for valid ODE system
 # ============================================================================
-const PROFILE_LAW_TEST_YAML = """
+PROFILE_LAW_TEST_YAML = """
 ##############################
 ## Wind Profile Probe System #
 ##############################
@@ -99,6 +98,9 @@ environment:
     v_wind: 10.0           # Reference wind speed [m/s]
     upwind_dir: -90.0      # Wind blows in +x direction
     profile_law: 0         # Will be overridden per test
+    h_ref: 6.0             # Reference height for wind profile [m]
+    alpha: 0.08163         # Exponent of wind profile law
+    z0: 0.0002             # Surface roughness [m]
 """
     settings_path = joinpath(tmpdir, "settings.yaml")
     write(settings_path, settings_yaml)
@@ -227,31 +229,8 @@ system:
         println("    Wind speeds: $(round.(wind_speeds, digits=2)) m/s ======\n")
     end
 
-    # ========================================================================
-    # Test 4: Profile law 4 (FAST_EXP) - wind increases with height
-    # Delegated to AtmosphericModels - verify general behavior
-    # ========================================================================
-    @testset "Profile law 4 (FAST_EXP) - wind increases with height" begin
-        set.profile_law = 4
-        set.v_wind = 10.0
-
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_fast_exp", set=set)
-        sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
-
-        # Wind should increase with height
-        probes_ordered = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
-        wind_speeds = [get_wind_speed_at_point(sam, p) for p in probes_ordered]
-
-        # Verify monotonic increase
-        for i in 1:(length(wind_speeds)-1)
-            @test wind_speeds[i+1] > wind_speeds[i]
-        end
-
-        println("\n  ====== Profile law 4 (FAST_EXP): Wind increases with height")
-        println("    Heights: 10m, 50m, 100m, 200m, 500m")
-        println("    Wind speeds: $(round.(wind_speeds, digits=2)) m/s ======\n")
-    end
+    # NOTE: Profile law 4 (FAST_EXP) is not supported by
+    # AtmosphericModels (only 1=EXP, 2=LOG, 3=EXPLOG).
 
     # ========================================================================
     # Test 5: Wind direction consistency - all probes same direction

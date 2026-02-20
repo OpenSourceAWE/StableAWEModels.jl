@@ -126,8 +126,6 @@ end
                 @test haskey(sys.points, :steering_right)
                 @test haskey(sys.points, :tether_mid)
 
-                @test sys.points[:kcu].type ==
-                    SymbolicAWEModels.DYNAMIC
                 @test sys.points[:le_left].type ==
                     SymbolicAWEModels.WING
 
@@ -293,15 +291,32 @@ end
                     sam; remake=false, reload=false, prn=false
                 )
 
-                kcu = sam.sys_struct.points[:kcu]
-                initial_dir = normalize(kcu.pos_w)
+                # QUATERNION: fix_sphere constrains com_w
+                # (not kcu, which shifts with rotation).
+                # REFINE: no separate COM, check kcu directly.
+                wing = sam.sys_struct.wings[:main_wing]
+                if expected_wing_type ==
+                        SymbolicAWEModels.QUATERNION
+                    initial_dir = normalize(wing.com_w)
+                else
+                    initial_dir = normalize(
+                        sam.sys_struct.points[:kcu].pos_w
+                    )
+                end
 
                 for _ in 1:100
                     next_step!(sam; dt=0.05,
                         vsm_interval=0)
                 end
 
-                final_dir = normalize(kcu.pos_w)
+                if expected_wing_type ==
+                        SymbolicAWEModels.QUATERNION
+                    final_dir = normalize(wing.com_w)
+                else
+                    final_dir = normalize(
+                        sam.sys_struct.points[:kcu].pos_w
+                    )
+                end
                 dir_change = norm(final_dir - initial_dir)
 
                 @test dir_change < 1e-6
@@ -326,10 +341,17 @@ end
                     sam; remake=false, reload=false, prn=false
                 )
 
-                check_names = [
-                    :kcu, :steering_left,
-                    :steering_right, :tether_mid,
-                ]
+                # QUATERNION: kcu is a WING point (derived
+                # from com_w + R * pos_b), not a DYNAMIC
+                # point, so fix_static has no effect on it.
+                check_names = if expected_wing_type ==
+                        SymbolicAWEModels.QUATERNION
+                    [:steering_left, :steering_right,
+                        :tether_mid]
+                else
+                    [:kcu, :steering_left,
+                        :steering_right, :tether_mid]
+                end
                 initial_positions = Dict(
                     n => copy(sam.sys_struct.points[n].pos_w)
                     for n in check_names
