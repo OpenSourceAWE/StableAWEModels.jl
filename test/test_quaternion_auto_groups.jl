@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Bart van de Lint, Jelle Poland
+# SPDX-License-Identifier: MPL-2.0
+
 # Test auto-creation of groups for QUATERNION wings
 using SymbolicAWEModels
 using Test

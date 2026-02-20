@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Bart van de Lint, Jelle Poland
+# SPDX-License-Identifier: MPL-2.0
+
 # run_2plate_kite_model.jl
 #
 # Purpose:

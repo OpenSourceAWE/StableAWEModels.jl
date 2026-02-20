@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Bart van de Lint, Jelle Poland
+# SPDX-License-Identifier: MPL-2.0
+
 """
 Plot the V3 kite OBJ mesh file.
 

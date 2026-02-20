@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Bart van de Lint, Jelle Poland
+# SPDX-License-Identifier: MPL-2.0
+
 """
 Custom Makie-based polar plotting functions for VortexStepMethod results.
 This provides a temporary replacement for PyPlot-based plot_polars during the Makie migration.

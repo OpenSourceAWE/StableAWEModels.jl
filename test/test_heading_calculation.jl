@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Bart van de Lint, Jelle Poland
+# SPDX-License-Identifier: MPL-2.0
+
 #!/usr/bin/env julia
 """
 Test heading calculation for a kite flying in a circular downwind path.

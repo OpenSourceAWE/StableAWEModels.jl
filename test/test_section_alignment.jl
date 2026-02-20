@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Bart van de Lint, Jelle Poland
+# SPDX-License-Identifier: MPL-2.0
+
 # test_section_alignment.jl
 # Check that VSM unrefined section LE/TE points align with
 # structural WING-type points in both body and world frames.
