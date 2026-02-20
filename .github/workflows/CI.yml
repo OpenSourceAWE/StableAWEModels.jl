@@ -85,6 +85,24 @@ jobs:
 
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
+
+      - name: Install display dependencies for GLMakie
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgl1-mesa-dri
+
+      - name: Instantiate docs project
+        run: |
+          julia --project=docs -e '
+            using Pkg
+            Pkg.develop(PackageSpec(path=pwd()))
+            Pkg.instantiate()'
+
+      - name: Generate figures
+        run: >
+          xvfb-run -a
+          julia --project=docs docs/generate_figures.jl
+
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
