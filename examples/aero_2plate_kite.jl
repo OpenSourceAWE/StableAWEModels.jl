@@ -6,7 +6,7 @@ using VortexStepMethod
 using GLMakie
 
 # Load custom Makie polar plotting functions
-include(joinpath(@__DIR__, "..", "makie_polar_plots.jl"))
+include(joinpath(@__DIR__, "makie_polar_plots.jl"))
 
 project_dir = dirname(dirname(pathof(VortexStepMethod)))  # Go up one level from src to project root
 
