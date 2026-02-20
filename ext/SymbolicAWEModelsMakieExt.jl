@@ -2861,13 +2861,13 @@ function _plot_with_panes(sys::SystemStructure;
     # Set initial camera position
     cam = scene.camera
     if body_frame
-        zoom_body_frame!(scene, cam, sys)
+        initial_distance = zoom_body_frame!(scene, cam, sys)
     else
         update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
-        zoom_out!(scene, cam, relevant_plots, nothing; relmargin)
+        initial_distance = zoom_out!(scene, cam, relevant_plots, nothing; relmargin)
     end
 
-    return scene, plots, relevant_plots
+    return scene, plots, relevant_plots, initial_distance
 end
 
 # Public API function - creates scene with observables for dynamic updates
@@ -2893,7 +2893,7 @@ function Makie.plot(sys::SystemStructure;
     geometry_obs = Observable(0.0)
 
     # Create scene with observables using internal function
-    scene, plots, relevant_plots = _plot_with_panes(sys;
+    scene, plots, relevant_plots, initial_distance = _plot_with_panes(sys;
                 geometry_obs,
                 vector_scale,
                 force_color,
@@ -2921,6 +2921,7 @@ function Makie.plot(sys::SystemStructure;
     PLOT_ZOOMED_IN[] = false  # Initialize zoom state (not zoomed in)
     PLOT_ZOOM_RELMARGIN[] = relmargin  # Store relmargin for auto-updates
     PLOT_ZOOM_SEGMENT_IDX[] = -1  # No segment zoomed initially
+    PLOT_CAMERA_DISTANCE[] = initial_distance  # Preserve initial zoom during replay
 
     return scene
 end
