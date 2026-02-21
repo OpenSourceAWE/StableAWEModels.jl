@@ -608,6 +608,13 @@ function VortexStepMethod.Wing(set::Settings, vsm_set::VortexStepMethod.VSMSetti
 
     # Fallback: load from aero_geometry.yaml using provided vsm_set
     prn && @info "Using provided VSMSettings for wing creation"
+    # Resolve relative geometry_file paths against data dir
+    for ws in vsm_set.wings
+        gf = ws.geometry_file
+        if !isempty(gf) && !isabspath(gf)
+            ws.geometry_file = joinpath(model_dir, basename(gf))
+        end
+    end
     return VortexStepMethod.Wing(vsm_set; kwargs...)
 end
 
