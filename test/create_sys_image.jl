@@ -5,7 +5,7 @@ using PackageCompiler, BenchmarkTools, Documenter
 
 @info "Creating sysimage ..."
 PackageCompiler.create_sysimage(
-    [:SymbolicAWEModels, :ControlPlots];
+    [:SymbolicAWEModels, :GLMakie];
     sysimage_path="kps-image_tmp.so",
     precompile_execution_file=joinpath("test", "test_for_precompile.jl")
 )

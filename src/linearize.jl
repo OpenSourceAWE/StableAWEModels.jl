@@ -36,42 +36,204 @@ function find_steady_state!(sam::SymbolicAWEModel;
 end
 
 """
-    linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
+    update_vsm!(s::SymbolicAWEModel, integ=s.integrator)
 
-Update the linearized aerodynamic model from the Vortex Step Method (VSM).
+Update the aerodynamic model from the Vortex Step Method (VSM).
 
-This function takes the current kinematic state of the wing (apparent wind, angular
-velocity, twist angles), linearizes the VSM aerodynamics around this operating point,
-and updates the Jacobian (`vsm_jac`) and the steady-state forces (`vsm_x`) in the
-`SystemStructure`. This is typically called periodically during a simulation.
+This function updates the VSM aerodynamics for all wings, with wing-type-specific behavior:
+
+**For QUATERNION wings:**
+- Takes the current kinematic state (apparent wind, angular velocity, twist angles)
+- Linearizes the VSM aerodynamics around this operating point
+- Updates the Jacobian (`vsm_jac`) and steady-state forces (`vsm_x`)
+
+**For REFINE wings:**
+- Updates VSM panel positions from current structural deformation
+- Solves the full nonlinear VSM system
+- Distributes panel forces to structural points via `point.aero_force_b`
+
+This is typically called periodically during simulation based on the `vsm_interval` parameter.
 """
-function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.integrator)
+function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
+                     integ=sam.integrator)
     wings = sam.sys_struct.wings
-    if length(wings) > 0
+    groups = sam.sys_struct.groups
+    points = sam.sys_struct.points
+
+    length(wings) == 0 && return nothing
+
+    # Handle QUATERNION wings
+    has_quaternion_wings = any(
+        w.wing_type == QUATERNION for w in wings)
+    if has_quaternion_wings && !isnothing(prob.get_vsm_y)
         vsm_y = prob.get_vsm_y(integ)
+
         for wing in wings
-            wing.vsm_y .= vsm_y[wing.idx,:]
+            wing.wing_type != QUATERNION && continue
+            wing.aero_mode == AERO_NONE && continue
+
+            wing.vsm_y .= vsm_y[:, wing.idx]
+            if norm(wing.vsm_y[1:3]) < 1e-3
+                @warn "Apparent wind too small for VSM " *
+                    "linearization (va_b=$(wing.vsm_y[1:3]))" *
+                    ", skipping wing $(wing.idx)"
+                continue
+            end
             if any(isnan.(wing.vsm_solver.sol.force))
                 wing.vsm_solver.prob = nothing
                 @warn "Resetting vsm solver."
             end
+
+            n_unrefined =
+                wing.vsm_wing.n_unrefined_sections
+            group_idxs = wing.group_idxs
+
+            moment_frac = if isempty(group_idxs)
+                0.25
+            elseif length(groups) >= maximum(group_idxs)
+                groups[first(group_idxs)].moment_frac
+            else
+                0.25
+            end
+
+            theta_idxs = isempty(group_idxs) ?
+                nothing : (4:(3 + n_unrefined))
+
+            # Both modes call linearize to get the VSM
+            # solution at the current operating point.
+            # AERO_LINEARIZED also stores the Jacobian.
             res = VortexStepMethod.linearize(
-                wing.vsm_solver, 
-                wing.vsm_aero, 
+                wing.vsm_solver,
+                wing.vsm_aero,
                 wing.vsm_y;
-                va_idxs=1:3, 
-                omega_idxs=4:6,
-                theta_idxs=7:6+length(sam.sys_struct.groups),
-                moment_frac=sam.sys_struct.groups[1].moment_frac,
+                va_idxs=1:3,
+                theta_idxs=theta_idxs,
+                omega_idxs=(4 + n_unrefined):(6 + n_unrefined),
+                moment_frac=moment_frac,
                 aero_coeffs=true
             )
-            wing.vsm_jac .= res[1]
-            wing.vsm_x .= res[2]
+
+            if wing.aero_mode == AERO_LINEARIZED
+                # Store Jacobian and coefficients for
+                # the symbolic linearization equations
+                wing.vsm_jac .= res[1]
+                wing.vsm_x .= res[2]
+
+            elseif wing.aero_mode == AERO_DIRECT
+                # Compute physical forces from baseline
+                # coefficients: F = q∞·A·C₀
+                va_sq = wing.va_b[1]^2 +
+                    wing.va_b[2]^2 + wing.va_b[3]^2
+                rho = calc_rho(
+                    sam.am, wing.pos_w[3])
+                q_inf = 0.5 * rho * va_sq
+                area = wing.vsm_aero.projected_area
+                coeffs = res[2]
+                wing.aero_force_b .=
+                    q_inf * area .* coeffs[1:3]
+                wing.aero_moment_b .=
+                    q_inf * area .* coeffs[4:6]
+            end
+
+            # Map unrefined moments back to groups
+            # (same for both LINEARIZED and DIRECT)
+            if !isempty(group_idxs)
+                unrefined_moments = res[2][7:end]
+                for gidx in group_idxs
+                    g = groups[gidx]
+                    g.aero_moment = sum(
+                        unrefined_moments[
+                            g.unrefined_section_idxs])
+                end
+            end
         end
-        prob.set_sys(integ, sam.sys_struct)
     end
+
+    # Handle REFINE wings (full nonlinear solve)
+    has_refine_wings = any(
+        w.wing_type == REFINE for w in wings)
+    if has_refine_wings
+        point_state = prob.get_point_state(integ)
+        va_point_b_vals = point_state[4]
+
+        for wing in wings
+            wing.wing_type != REFINE && continue
+            wing.aero_mode == AERO_NONE && continue
+
+            if wing.aero_mode == AERO_LINEARIZED
+                error(
+                    "REFINE + AERO_LINEARIZED " *
+                    "not yet implemented")
+            end
+
+            update_vsm_wing_from_structure!(
+                wing, points)
+
+            if !isnothing(wing.point_to_vsm_point)
+                n_sections = length(
+                    wing.vsm_wing.unrefined_sections)
+                section_va =
+                    Vector{Vector{Float64}}(
+                        undef, n_sections)
+
+                vsm_point_to_struct =
+                    Dict{Tuple{Int64, Symbol}, Int64}()
+                for (point_idx, (section_idx, le_or_te)) in
+                        wing.point_to_vsm_point
+                    vsm_point_to_struct[
+                        (section_idx, le_or_te)] =
+                        point_idx
+                end
+
+                for section_idx in 1:n_sections
+                    le_pi = get(vsm_point_to_struct,
+                        (Int64(section_idx), :LE),
+                        nothing)
+                    te_pi = get(vsm_point_to_struct,
+                        (Int64(section_idx), :TE),
+                        nothing)
+
+                    if !isnothing(le_pi) &&
+                            !isnothing(te_pi)
+                        va_le =
+                            va_point_b_vals[:, le_pi]
+                        va_te =
+                            va_point_b_vals[:, te_pi]
+                        section_va[section_idx] =
+                            0.5 * (va_le + va_te)
+                    else
+                        section_va[section_idx] =
+                            wing.va_b
+                    end
+                end
+
+                n_panels =
+                    length(wing.vsm_aero.panels)
+                va_dist = zeros(n_panels, 3)
+
+                mapping = wing.vsm_wing.refined_panel_mapping
+                for rpi in 1:n_panels
+                    va_dist[rpi, :] .=
+                        section_va[mapping[rpi]]
+                end
+
+                set_va!(wing.vsm_aero, va_dist,
+                    zeros(MVec3))
+            else
+                set_va!(wing.vsm_aero, wing.va_b)
+            end
+
+            VortexStepMethod.solve!(
+                wing.vsm_solver, wing.vsm_aero;
+                log=false)
+            distribute_panel_forces_to_points!(
+                wing, points)
+        end
+    end
+
     nothing
 end
+
 
 """
     linearize!(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator)) -> LinType
@@ -122,8 +284,11 @@ function getstate(sys_struct::SystemStructure)
     wing = wings[1]
     tether_len = [winch.tether_len for winch in winches]
     tether_vel = [winch.tether_vel for winch in winches]
-    return (c(wing.pos_w), c(wing.vel_w), c(wing.wind_disturb), c(wing.R_b_w), c(wing.ω_b),
-            tether_len, tether_vel)
+    return (c(wing.pos_w), c(wing.vel_w),
+            c(wing.wind_disturb), c(wing.R_b_to_w),
+            c(wing.ω_b), tether_len, tether_vel,
+            c(wing.com_w), c(wing.com_vel),
+            c(wing.Q_p_to_w), c(wing.ω_p))
 end
 
 """
@@ -134,12 +299,18 @@ Set the key dynamic states of the system from a snapshot tuple.
 function setstate!(sys_struct::SystemStructure, state)
     @unpack wings, winches = sys_struct
     wing = wings[1]
-    pos_w, vel_w, wind_disturb, R_b_w, ω_b, tether_len, tether_vel = state
+    (pos_w, vel_w, wind_disturb, R_b_to_w, ω_b,
+     tether_len, tether_vel,
+     com_w, com_vel, Q_p_to_w, ω_p) = state
     wing.pos_w .= pos_w
     wing.vel_w .= vel_w
     wing.wind_disturb .= wind_disturb
-    wing.R_b_w .= R_b_w
+    wing.R_b_to_w .= R_b_to_w
     wing.ω_b .= ω_b
+    wing.com_w .= com_w
+    wing.com_vel .= com_vel
+    wing.Q_p_to_w .= Q_p_to_w
+    wing.ω_p .= ω_p
     for winch in winches
         winch.tether_len = tether_len[winch.idx]
         winch.tether_vel = tether_vel[winch.idx]
@@ -165,28 +336,38 @@ function set_measured!(sys_struct::SystemStructure,
 
     # get variables from integrator
     distance = norm(wing.pos_w)
-    R_t_w = calc_R_t_w(wing.pos_w) # rotation of tether to world
-    R_v_w = calc_R_v_w(wing.pos_w, wing.R_b_w[:,1])
+    R_t_to_w = calc_R_t_to_w(wing.pos_w) # rotation of tether to world
+    R_v_to_w = calc_R_v_to_w(wing.pos_w, wing.R_b_to_w[:,1])
     
     # get wing_pos, rotate it by elevation and azimuth around the x and z axis
-    wing.pos_w .= R_t_w * [0, 0, distance + tether_len[1] - winches[1].tether_len]
-    wing.vel_w .= R_t_w * [-wing.elevation_vel, wing.azimuth_vel, 0.0]
-    wing.wind_disturb .= R_t_w * [0.0, 0.0, -tether_vel[1]]
-    # find quaternion orientation from heading, R_b_w and R_t_w
-    R_b_w = zeros(3,3)
-    cur_heading = calc_heading(R_t_w, R_v_w)
+    wing.pos_w .= R_t_to_w * [0, 0, distance + tether_len[1] - winches[1].tether_len]
+    wing.vel_w .= R_t_to_w * [-wing.elevation_vel, wing.azimuth_vel, 0.0]
+    wing.wind_disturb .= R_t_to_w * [0.0, 0.0, -tether_vel[1]]
+    # find quaternion orientation from heading, R_b_to_w and R_t_to_w
+    R_b_to_w = zeros(3,3)
+    cur_heading = calc_heading(R_t_to_w, R_v_to_w)
     d_heading = heading - cur_heading
     for i in 1:3
-        R_b_w[:,i] .= R_t_w * rotate_around_z(R_t_w' * wing.R_b_w[:,i], d_heading)
+        R_b_to_w[:,i] .= R_t_to_w * rotate_around_z(R_t_to_w' * wing.R_b_to_w[:,i], d_heading)
     end
-    wing.R_b_w = R_b_w
+    wing.R_b_to_w = R_b_to_w
     # adjust the turn rates for observed turn rate
-    wing.ω_b .= wing.R_b_w' * R_t_w * [wing.turn_rate[1], wing.turn_rate[2], turn_rate]
+    wing.ω_b .= wing.R_b_to_w' * R_t_to_w * [wing.turn_rate[1], wing.turn_rate[2], turn_rate]
     # directly set tether length
     for winch in winches
         winch.tether_len = tether_len[winch.idx]
         winch.tether_vel = tether_vel[winch.idx]
     end
+    # Derive principal frame from body frame
+    R_b_to_w_mat = wing.R_b_to_w
+    wing.com_w .= wing.pos_w .+
+        R_b_to_w_mat * wing.com_offset_b
+    R_p_to_w = R_b_to_w_mat * wing.R_b_to_c' * wing.R_p_to_c
+    wing.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
+    ω_w = R_b_to_w_mat * wing.ω_b
+    r_com_w = R_b_to_w_mat * wing.com_offset_b
+    wing.com_vel .= wing.vel_w .+ cross(ω_w, r_com_w)
+    wing.ω_p .= R_p_to_w' * ω_w
     return nothing
 end
 

@@ -3,135 +3,6 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-    copy_to_simple!(sam, tether_sam, simple_sam; prn=true)
-
-Simplify a detailed AWE model into a 1-segment tether model.
-
-This high-level function orchestrates the simplification process:
-1.  Calculates the equivalent axial stiffness and damping of the detailed model (`tether_sam`)
-    by analyzing its step response.
-2.  Assigns these calculated properties to the single-segment tethers of the simple model (`simple_sam`).
-3.  Copies the dynamic state (wing position, orientation, tether attachment points, etc.)
-    from the detailed model (`sam`) to the simple model (`simple_sam`).
-4.  Reinitializes the simple model's integrator to apply the new state.
-
-# Arguments
-- `sam::SymbolicAWEModel`: The detailed source model, used as a reference for state.
-- `tether_sam::SymbolicAWEModel`: A copy of the detailed model, used to perform the step response test.
-- `simple_sam::SymbolicAWEModel`: The destination simple model to be updated.
-
-# Keywords
-- `prn::Bool=true`: If true, enables printing during the process.
-
-# Returns
-- `SymbolicAWEModel`: The updated simple model `simple_sam`.
-"""
-function copy_to_simple!(sam::SymbolicAWEModel, tether_sam::SymbolicAWEModel, 
-                         simple_sam::SymbolicAWEModel; prn=true)
-    axial_stiffness, axial_damping, _, _ = calc_spring_props(sam, tether_sam; prn)
-    
-    for tether in simple_sam.sys_struct.tethers
-        segment = simple_sam.sys_struct.segments[tether.segment_idxs[1]]
-        segment.axial_stiffness = axial_stiffness[segment.idx]
-        segment.axial_damping = axial_damping[segment.idx]
-    end
-    copy_to_simple!(sam.sys_struct, simple_sam.sys_struct)
-    OrdinaryDiffEqCore.reinit!(simple_sam.integrator; reinit_dae=true)
-    update_sys_struct!(simple_sam.prob, simple_sam.integrator, simple_sam.sys_struct)
-    return simple_sam
-end
-
-"""
-    copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
-
-Copy the dynamic state from a detailed `SystemStructure` to a simplified one.
-
-This is a low-level utility that maps the state of a complex model (e.g., "ram" with
-4 groups and bridle pulleys) to a simpler model (e.g., "simple_ram" with 2 groups
-and direct connections). It ensures the simplified model matches the key dynamic
-properties of the detailed one.
-
-# Arguments
-- `sys::SystemStructure`: The source `ram` model structure.
-- `ssys::SystemStructure`: The destination `simple_ram` model structure.
-"""
-function copy_to_simple!(sys::SystemStructure, ssys::SystemStructure)
-    (sys.name != "ram") && @warn "provide a ram sys as the first argument"
-    (ssys.name != "simple_ram") && @warn "provide a simple ram sys as the second argument"
-
-    # copy point pos and vel
-    for (tether, stether) in zip(sys.tethers, ssys.tethers)
-        (length(stether.segment_idxs) != 1) && 
-            error("Provide a simple system structure with 1-segment tethers.")
-        # copy ground point of the tether
-        point_idx = sys.segments[tether.segment_idxs[end]].point_idxs[2]
-        spoint_idx = ssys.segments[stether.segment_idxs[1]].point_idxs[2]
-        ssys.points[spoint_idx].pos_w .= sys.points[point_idx].pos_w
-        ssys.points[spoint_idx].vel_w .= sys.points[point_idx].vel_w
-        ssys.points[spoint_idx].disturb .= sys.points[point_idx].disturb
-    end
-
-    # copy wing state
-    swing = ssys.wings[1]
-    wing = sys.wings[1]
-    swing.pos_w .= wing.pos_w
-    swing.vel_w .= wing.vel_w
-    swing.ω_b .= wing.ω_b
-    swing.Q_b_w .= wing.Q_b_w
-    # update non-group pos
-    ssys.points[1].pos_w .= wing.pos_w + wing.R_b_w * ssys.points[1].pos_b
-    ssys.points[2].pos_w .= wing.pos_w + wing.R_b_w * ssys.points[2].pos_b
-    # TODO: add x such that torque around y is the same
-
-    # copy twist
-    (length(sys.groups) != 4) && error("Sys should have 4 groups.")
-    (length(ssys.groups) != 2) && error("Simple sys should have 2 groups.")
-    ssys.groups[1].twist = (sys.groups[1].twist + sys.groups[2].twist) / 2
-    ssys.groups[2].twist = (sys.groups[3].twist + sys.groups[4].twist) / 2
-    ssys.groups[1].twist_ω = (sys.groups[1].twist_ω + sys.groups[2].twist_ω) / 2
-    ssys.groups[2].twist_ω = (sys.groups[3].twist_ω + sys.groups[4].twist_ω) / 2
-
-    # match moment by changing moment frac
-    # TODO: add aero force
-    moment = [group.tether_moment for group in sys.groups]
-    moment_frac = sys.groups[1].moment_frac
-    moment = [mean(moment[1:2]), mean(moment[3:4])]
-    steering_force = [norm(sys.winches[2].force), norm(sys.winches[3].force)]
-    for sgroup in ssys.groups
-        x_airf = normalize(sgroup.chord)
-        init_z_airf = x_airf × sgroup.y_airf
-        z_airf = x_airf * sin(sgroup.twist) + init_z_airf * cos(sgroup.twist)
-        force = steering_force[sgroup.idx] * normalize(swing.pos_w) ⋅ (swing.R_b_w * z_airf)
-        r = moment[sgroup.idx] / force
-        spoint = ssys.points[sgroup.point_idxs[1]]
-        spoint.pos_b .= sgroup.le_pos + sgroup.chord * (r / norm(sgroup.chord) + moment_frac)
-
-        # update pos_w for correct tether len
-        chord_b = spoint.pos_b .- sgroup.le_pos
-        normal = chord_b × sgroup.y_airf
-        pos_b = sgroup.le_pos + cos(sgroup.twist) * chord_b - 
-                sin(sgroup.twist) * normal
-        spoint.pos_w .= swing.pos_w + swing.R_b_w * pos_b
-    end
-
-    # match winch force by changing tether length
-    for (swinch, winch) in zip(ssys.winches, sys.winches)
-        swinch.tether_len = 0.0
-        for tether_idx in winch.tether_idxs
-            stether = ssys.tethers[tether_idx]
-            ssegment = ssys.segments[stether.segment_idxs[1]]
-            spoint_idxs = ssegment.point_idxs
-            slen = norm(ssys.points[spoint_idxs[1]].pos_w .-
-                        ssys.points[spoint_idxs[2]].pos_w)
-            stiffness = ssegment.axial_stiffness / slen
-            nt = length(winch.tether_idxs)
-            swinch.tether_len += (slen - norm(winch.force)/stiffness/nt) / nt
-        end
-        swinch.tether_vel = winch.tether_vel
-    end
-end
-
-"""
     in_percent_band(x, steady, delta_x, i, p) -> Bool
 
 Helper function to check if a time series has settled within a percentage band.
@@ -148,7 +19,7 @@ end
 """
     calc_spring_props(sam, tether_sam; prn=false) -> (Vector, Vector, Matrix, Float64)
 
-Calculate the equivalent axial stiffness and damping, and return the step response data.
+Calculate the equivalent stiffness and damping, and return the step response data.
 
 This function orchestrates the process by performing a step response test on the
 `tether_sam` model and then analyzing the resulting tether length data.
@@ -162,8 +33,8 @@ This function orchestrates the process by performing a step response test on the
 
 # Returns
 - `Tuple{Vector{Float64}, Vector{Float64}, Matrix{Float64}, Float64}`: A tuple containing:
-    1.  `axial_stiffness` [N]
-    2.  `axial_damping` [Ns]
+    1.  `unit_stiffness` [N]
+    2.  `unit_damping` [Ns]
     3.  `tether_lens` (the step response data)
     4.  `dt` (the simulation time step)
 """
@@ -340,4 +211,76 @@ function step(sam::SymbolicAWEModel, steps, F_step, F_0;
         @warn "Stepping simulation did not settle within the given steps."
     end
     return tether_lens
+end
+
+"""
+    update_segment_forces!(sys_struct::SystemStructure)
+
+Calculate and update spring forces for all segments in-place.
+
+This function computes the spring-damper forces for each segment using
+the same formulas as in `generate_system.jl`. It updates the `len` and
+`force` fields of each segment in the SystemStructure.
+
+The spring-damper force follows Hooke's law with damping:
+
+```math
+F = k(l - l_0) - c\\dot{l}
+```
+
+where:
+- `k = unit_stiffness / l` (tension) or
+  `k = compression_frac * unit_stiffness / l` (compression)
+- `l` is current length, `l_0` is unstretched length
+- `c = unit_damping / l` is damping coefficient
+- `\\dot{l} = (v₁ - v₂) ⋅ û` is extension rate
+
+# Arguments
+- `sys_struct::SystemStructure`: The system structure containing points
+  and segments.
+
+# Returns
+- `nothing`: Modifies segment.len and segment.force in-place.
+
+# Example
+```julia
+update_segment_forces!(sam.sys_struct)
+for segment in sam.sys_struct.segments
+    println("Segment \$(segment.idx): force = \$(segment.force) N")
+end
+```
+"""
+function update_segment_forces!(sys_struct::SystemStructure)
+    @unpack points, segments = sys_struct
+
+    for segment in segments
+        p1, p2 = segment.point_idxs
+
+        # Segment vector and length
+        segment_vec = points[p2].pos_w - points[p1].pos_w
+        len = norm(segment_vec)
+        unit_vec = segment_vec / len
+
+        # Relative velocity along segment
+        rel_vel = points[p1].vel_w - points[p2].vel_w
+        spring_vel = rel_vel ⋅ unit_vec
+
+        # Stiffness (handles compression)
+        if len > segment.l0
+            stiffness = segment.unit_stiffness / len
+        else
+            stiffness = segment.compression_frac *
+                        segment.unit_stiffness / len
+        end
+
+        # Damping
+        damping = segment.unit_damping / len
+
+        # Update segment fields in-place
+        segment.len = len
+        segment.force = stiffness * (len - segment.l0) -
+                        damping * spring_vel
+    end
+
+    return nothing
 end

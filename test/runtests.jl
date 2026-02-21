@@ -3,33 +3,28 @@
 
 ENV["MPLBACKEND"] = "Agg"
 using KiteUtils
-pkg_file_path = Base.find_package("SymbolicAWEModels")
-if isnothing(pkg_file_path)
-    error("SymbolicAWEModels not found in the current project environment.")
-else
-    package_root_dir = dirname(dirname(pkg_file_path))
-    data_path = joinpath(package_root_dir, "data")
-    @show data_path
-    set_data_path(data_path)
-end
 using Test
 using SymbolicAWEModels
 
+# Set up data path for 2plate_kite tests
+pkg_root = dirname(@__DIR__)
+src_data_path = joinpath(pkg_root, "data", "2plate_kite")
+tmpdir = mktempdir()
+data_path = joinpath(tmpdir, "2plate_kite")
+cp(src_data_path, data_path; force=true)
+@show data_path
+set_data_path(data_path)
+
+exclude = ["test_for_precompile.jl"]
+test_files = filter(readdir(@__DIR__)) do f
+    startswith(f, "test_") && endswith(f, ".jl") &&
+        f ∉ exclude
+end
+sort!(test_files)
+
 @testset verbose = true "Testing SymbolicAWEModels..." begin
-    println("--> Initialization")
-    include("test_initialization.jl")
-    println("--> Simulation")
-    include("test_simulation.jl")
-    println("--> Tether properties")
-    include("test_tether_properties.jl")
-    println("--> Linearization")
-    include("test_linearization.jl")
-    println("--> Serialization")
-    include("test_serialization.jl")
-    println("--> State conversion")
-    include("test_state_conversion.jl")
-    println("--> Helpers")
-    include("test_helpers.jl")
-    println("--> Code quality")
-    include("aqua.jl")
+    for f in test_files
+        println("--> $f")
+        include(f)
+    end
 end

@@ -44,7 +44,7 @@ function sim!(
         lin_model = ss(lin_model...)
     end
 
-    logger = Logger(length(sys_struct.points), steps+1)
+    logger = Logger(sam, steps+1)
     sys_state = SysState(sam)
     sys_state.time = 0.0
     # log!(logger, sys_state)
@@ -103,8 +103,7 @@ function sim!(
         lin_y_full = ΔY .+ y_op
         
         # Log the complete linear simulation result
-        n_points = length(sys_struct.points)
-        lin_logger = Logger(n_points, steps)
+        lin_logger = Logger(sam, steps)
         lin_sys_state = SysState(y_op, sam, t_vec[1])
         for step in 1:steps
             y_k = lin_y_full[:, step]
@@ -274,7 +273,7 @@ function sim_reposition!(
     set_values = zeros(Float64, steps, length(sys_struct.winches))
     vsm_interval = 1 ÷ dt
     
-    logger = Logger(length(sys_struct.points), steps+1)
+    logger = Logger(sam, steps+1)
     sys_state = SysState(sam)
     sys_state.time = 0.0
     log!(logger, sys_state)
@@ -352,7 +351,12 @@ Construct a SysState for logging linear state-space simulation output y (ordered
 sam.outputs).
 """
 function SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
-    P = length(sam.sys_struct.points)
+    # Calculate total points: regular points + 4 corners per panel
+    n_points = length(sam.sys_struct.points)
+    n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
+        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings
+    )
+    P = n_points + n_panel_corners
     ss = SysState{P}()
     update_sys_state!(ss, y, sam, t; zoom)
     return ss
@@ -371,7 +375,7 @@ function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEMode
     for (i, sym) in enumerate(outputs)
         if isequal(sym, sys.heading[1])
             ss.heading = y[i]
-        elseif isequal(sym, sys.turn_rate[1,3])
+        elseif isequal(sym, sys.turn_rate[3, 1])
             ss.turn_rates[1,3] = y[i]
         elseif isequal(sym, sys.tether_len[1])
             ss.l_tether[1] = y[i]
@@ -392,7 +396,7 @@ function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEMode
         elseif isequal(sym, sys.winch_force[3])
             ss.winch_force[3] = y[i]
         elseif isequal(sym, sys.angle_of_attack[1])
-            ss.AoA = y[i]
+            ss.AoA = mod(y[i] + π, 2π) - π  # Wrap to [-π, π]
         elseif isequal(sym, sys.elevation[1])
             ss.elevation = y[i]
         elseif isequal(sym, sys.azimuth[1])

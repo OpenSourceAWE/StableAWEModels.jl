@@ -24,15 +24,35 @@ function generate_prob_getters(sys_struct, sys)
 
     if length(wings) > 0
         wing_vars = c.([
-            sys.Q_b_w, sys.ω_b, sys.wing_pos, sys.wing_vel, sys.wing_acc, sys.va_wing_b,
-            sys.wind_vel_wing, sys.aero_force_b, sys.aero_moment_b,
-            sys.moment_tether_wing, sys.force_tether_wing, sys.elevation,
-            sys.elevation_vel, sys.elevation_acc, sys.azimuth, sys.azimuth_vel,
-            sys.azimuth_acc, sys.heading, sys.turn_rate, sys.turn_acc, sys.course,
-            sys.angle_of_attack
+            sys.Q_b_to_w, sys.ω_b, sys.wing_pos,
+            sys.wing_vel, sys.wing_acc,
+            sys.va_wing_b, sys.wind_vel_wing,
+            sys.aero_force_b, sys.aero_moment_b,
+            sys.moment_tether_wing,
+            sys.force_tether_wing,
+            sys.elevation, sys.elevation_vel,
+            sys.elevation_acc,
+            sys.azimuth, sys.azimuth_vel,
+            sys.azimuth_acc,
+            sys.heading, sys.turn_rate,
+            sys.turn_acc, sys.course,
+            sys.angle_of_attack,
+            # Principal frame state
+            sys.com_w, sys.com_vel,
+            sys.Q_p_to_w, sys.ω_p,
         ])
         get_wing_state = getu(sys, wing_vars)
-        get_vsm_y = getu(sys, sys.y)
+
+        # vsm_input_state only exists for QUATERNION + AERO_LINEARIZED wings
+        has_linearized = any(
+            w.wing_type == QUATERNION &&
+            w.aero_mode == AERO_LINEARIZED
+            for w in sys_struct.wings)
+        if has_linearized
+            get_vsm_y = getu(sys, sys.vsm_input_state)
+        else
+            get_vsm_y = nothing
+        end
     end
     if length(segments) > 0; get_segment_state = getu(sys, c.([sys.spring_force, sys.len])); end
     if length(groups) > 0; get_group_state = getu(sys, c.([sys.twist_angle, sys.twist_ω, sys.group_tether_force, sys.group_tether_moment, sys.group_aero_moment])); end
@@ -47,7 +67,10 @@ function generate_prob_getters(sys_struct, sys)
     set_sys = setp(sys, sys.psys)
     set_set = setp(sys, sys.pset)
     get_struct_state = getu(sys, sys.wind_vec_gnd)
-    get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force]))
+
+    # Always include va_point_b and point_mass in point_state (calculated for all points now)
+    get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass]))
+
     return (; get_wing_state, get_vsm_y, get_segment_state, get_group_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
             get_set_values, set_sys, set_set, get_struct_state, get_point_state)
@@ -73,14 +96,18 @@ heading, turn rate, and tether dynamics.
 """
 function generate_simple_lin_model(sys_struct, sys, y_vec)
     @unpack wings, winches = sys_struct
-    if length(wings) == 1
+    if length(wings) == 1 && hasproperty(sys, :tether_len) && hasproperty(sys, :tether_vel) && hasproperty(sys, :tether_acc)
+        n_tethers = length(sys_struct.tethers)
+        if n_tethers < 3 || length(sys.tether_len) < 3
+            return (model=nothing, get_x=nothing, get_dx=nothing, get_y=nothing)
+        end
         x_vec = [
-            sys.heading[1], sys.turn_rate[1,3],
+            sys.heading[1], sys.turn_rate[3, 1],
             sys.tether_len[1], sys.tether_len[2], sys.tether_len[3],
             sys.tether_vel[1], sys.tether_vel[2], sys.tether_vel[3]
         ]
         dx_vec = [
-            sys.turn_rate[1,3], sys.turn_acc[1,3],
+            sys.turn_rate[3, 1], sys.turn_acc[3, 1],
             sys.tether_vel[1], sys.tether_vel[2], sys.tether_vel[3],
             sys.tether_acc[1], sys.tether_acc[2], sys.tether_acc[3]
         ]
@@ -332,6 +359,8 @@ This is the main entry point for setting up the model. It handles:
 - `create_control_func::Bool`: Whether to generate the control functions.
 - `lin_vsm::Bool`: Whether to linearize the aerodynamics using the
                    Vortex Step Method (VSM) after initialization.
+- `remake_vsm::Bool`: Recreate VSM wing and aerodynamics from settings (useful after
+                      modifying aero_geometry.yaml or other VSM settings).
 
 # Returns
 - The initialized `ODEIntegrator`.
@@ -341,9 +370,13 @@ function init!(sam::SymbolicAWEModel;
     remake=false, reload=false,
     outputs=nothing,
     create_prob::Bool=true,
-    create_lin_prob::Bool=true,
+    create_lin_prob::Bool=false,
     create_control_func::Bool=false,
-    lin_vsm::Bool=true
+    lin_vsm::Bool=true,
+    ignore_l0::Bool=false,
+    remake_vsm::Bool=true,
+    reset_vel::Bool=true,
+    tunable_params::Bool=false
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
     time = @elapsed begin
@@ -360,8 +393,8 @@ function init!(sam::SymbolicAWEModel;
 
         if isnothing(outputs)
             @variables begin
-                heading(t)[1]
-                angle_of_attack(t)[1]
+                heading(t)[1:1]
+                angle_of_attack(t)[1:1]
                 tether_len(t)[1:3]
                 winch_force(t)[1:3]
             end
@@ -374,11 +407,13 @@ function init!(sam::SymbolicAWEModel;
             end
         end
 
-        model_path = joinpath(KiteUtils.get_data_path(), get_model_name(sam.set))
+        model_name = get_model_name(sam.set, sam.sys_struct)
+        model_path = joinpath(KiteUtils.get_data_path(), model_name)
+        prn && @info "Model bin name: $model_name"
         loaded = load_serialized_model!(sam, model_path; remake, reload)
         changed = false
         if !loaded
-            sam.inputs = create_sys!(sam, sam.sys_struct; prn)
+            sam.inputs = create_sys!(sam, sam.sys_struct; prn, tunable_params)
             changed = true
         end
         outputs_changed = isnothing(sam.outputs) ||
@@ -403,7 +438,20 @@ function init!(sam::SymbolicAWEModel;
             serialize(model_path, sam.serialized_model)
         end
 
-        reinit!(sam.sys_struct, sam.set)
+        reinit!(sam.sys_struct, sam.set;
+                ignore_l0, remake_vsm, reset_vel)
+        # When reset_vel=false, state-dependent u0 changed;
+        # force ODEProblem recreation to pick up new defaults.
+        if !reset_vel && !isnothing(sam.prob)
+            sam.prob = nothing
+            sam.simple_lin_model = nothing
+            changed = true
+            changed |= maybe_create_prob!(sam;
+                create_prob, prn)
+            changed |= maybe_create_simple_lin_model!(
+                sam, outputs;
+                create_simple_lin_model=create_prob, prn)
+        end
         create_prob && !isnothing(sam.prob) && reinit!(sam, sam.prob, solver; adaptive, reload, lin_vsm)
         create_lin_prob && !isnothing(sam.lin_prob) && reinit!(sam, sam.lin_prob)
     end
@@ -464,18 +512,32 @@ function reinit!(
     prob.set_sys(sam.integrator, sam.sys_struct)
     prob.set_set(sam.integrator, sam.set)
     OrdinaryDiffEqCore.reinit!(sam.integrator; reinit_dae=true)
-    lin_vsm && linearize_vsm!(sam, sam.prob)
+    lin_vsm && update_vsm!(sam, sam.prob)
     update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues
     return sam.integrator, true
 end
 
 """
     get_set_hash(set::Settings; fields)
 
-Calculates a SHA1 hash for a subset of fields in the `Settings` object.
-This is used to check if a cached model is still valid.
+Calculates a SHA1 hash for structural fields in the `Settings` object.
+This is used to check if a cached compiled model is still valid.
+
+# Structural Fields (affect symbolic equations):
+- `:segments`: Number of tether segments (affects state vector size)
+- `:model`: Kite model name (affects geometry)
+- `:foil_file`: Airfoil data file (affects VSM setup)
+- `:physical_model`: Model type (ram, simple_ram, 4_attach_ram)
+- `:quasi_static`: Whether points are quasi-static (affects equations)
+- `:winch_model`: Winch dynamics model (affects winch equations)
+
+# Runtime Fields (don't affect compilation, excluded from hash):
+- `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
+- `:v_wind`, `:elevation`: Initial conditions
+- Other runtime parameters
 """
-function get_set_hash(set::Settings; 
+function get_set_hash(set::Settings;
         fields=[:segments, :model, :foil_file, :physical_model, :quasi_static, :winch_model]
     )
     h = zeros(UInt8, 1)
@@ -489,8 +551,20 @@ end
 """
     get_sys_struct_hash(sys_struct::SystemStructure)
 
-Calculates a SHA1 hash for the topology of a `SystemStructure`.
-This is used to check if a cached model is still valid.
+Calculates a SHA1 hash for the topology and structure of a `SystemStructure`.
+This is used to check if a cached compiled model is still valid.
+
+Includes all structural properties that affect the symbolic equations:
+- Point connectivity and types (STATIC, DYNAMIC, QUASI_STATIC, WING)
+- Segment connectivity
+- Group structure and types (FIXED, TWIST)
+- Pulley constraints and types
+- Tether topology
+- Winch configuration
+- Wing topology, connectivity, aerodynamic model type (QUATERNION vs REFINE), and aero mode
+- Transform hierarchy
+
+Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
@@ -514,10 +588,20 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("winch", winch.idx, winch.tether_idxs))
     end
     for wing in wings
-        push!(data_parts, ("wing", wing.idx, wing.group_idxs))
+        wing_data = ("wing", wing.idx, wing.group_idxs,
+                     Int(wing.base.wing_type),
+                     Int(wing.base.aero_mode))
+
+        # Include REFINE wing reference points in hash
+        if wing isa VSMWing
+            wing_data = (wing_data...,
+                wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
+        end
+
+        push!(data_parts, wing_data)
     end
     for transform in transforms
-        push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx, 
+        push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx,
                         transform.base_point_idx, transform.base_transform_idx))
     end
     content = string(data_parts)

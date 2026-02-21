@@ -181,8 +181,6 @@ $(TYPEDFIELDS)
     sys_struct::SystemStructure
     "Container for the compiled and serialized model components"
     serialized_model::SerializedModel # Now strongly typed
-    "Reference to the atmospheric model as implemented in the package AtmosphericModels"
-    am::AtmosphericModel = AtmosphericModel(set)
     "The ODE integrator for the full nonlinear model"
     integrator::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
     "Relative start time of the current time interval"
@@ -205,7 +203,9 @@ This provides a convenient way to access compiled functions and other model
 components without explicitly referencing `sam.serialized_model`.
 """
 function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
-    if hasfield(SymbolicAWEModel, sym)
+    if sym === :am
+        getfield(sam, :sys_struct).am
+    elseif hasfield(SymbolicAWEModel, sym)
         getfield(sam, sym)
     else
         getproperty(getfield(sam, :serialized_model), sym)
@@ -256,41 +256,6 @@ function SymbolicAWEModel(
 end
 
 """
-    SymbolicAWEModel(set::Settings; kwargs...)
-
-Constructs a default `SymbolicAWEModel` with automatically generated components.
-
-This convenience constructor automatically creates a complete AWE model:
-- It first builds a `SystemStructure` based on the wing geometry and settings.
-- Then, it assembles everything into a ready-to-use symbolic model.
-
-# Arguments
-- `set::Settings`: Configuration parameters.
-- `kwargs...`: Further keyword arguments passed to the `SystemStructure` constructor.
-
-# Returns
-- `SymbolicAWEModel`: A model ready for symbolic equation generation via [`init!`](@ref).
-"""
-function SymbolicAWEModel(set::Settings; kwargs...)
-    sys_struct = SystemStructure(set; kwargs...)
-    return SymbolicAWEModel(set, sys_struct)
-end
-
-"""
-    SymbolicAWEModel(set::Settings, name::String; kwargs...)
-
-Constructs a `SymbolicAWEModel` for a specific named physical model.
-
-This convenience constructor sets the `physical_model` field of the `Settings`
-struct and then proceeds to create the model.
-"""
-function SymbolicAWEModel(set::Settings, name::String; kwargs...)
-    set.physical_model = name
-    sys_struct = SystemStructure(set; kwargs...)
-    return SymbolicAWEModel(set, sys_struct)
-end
-
-"""
     update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
 
 Updates a `SysState` object with the current state values from the `SymbolicAWEModel`.
@@ -318,16 +283,18 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
     end
     if length(groups) > 0
-        for group in groups
+        # Only fill up to the size of ss.twist_angles (typically 4)
+        max_groups = min(length(groups), length(ss.twist_angles))
+        for group in groups[1:max_groups]
             ss.twist_angles[group.idx] = group.twist
         end
-        ss.depower = rad2deg(mean(ss.twist_angles)) # Average twist for depower
-        ss.steering = rad2deg(ss.twist_angles[length(groups)] - ss.twist_angles[1])
+        ss.depower = rad2deg(mean(ss.twist_angles[1:max_groups])) # Average twist for depower
+        ss.steering = rad2deg(ss.twist_angles[max_groups] - ss.twist_angles[1])
     end
     if length(wings) > 0
         wing = wings[1]
         ss.acc = norm(wing.acc_w) # Use the norm of the wing's acceleration vector
-        ss.orient .= wing.Q_b_w
+        ss.orient .= wing.Q_b_to_w
         ss.turn_rates .= wing.turn_rate
         ss.elevation = wing.elevation
         ss.azimuth = wing.azimuth
@@ -338,7 +305,10 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.v_wind_kite .= wing.v_wind
         # Calculate AoA and Side Slip from apparent wind in body frame
         if ss.v_app > 1e-6 # Avoid division by zero
-            ss.AoA = atan(wing.va_b[3], wing.va_b[1])
+            # ss.AoA = atan(wing.va_b[3], wing.va_b[1]) # version-1
+            aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
+            # ss.AoA = mean(wing.vsm_solver.sol.alpha_geometric_dist)
+            ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
             ss.side_slip = asin(wing.va_b[2] / norm(wing.va_b))
         else
             ss.AoA = 0.0
@@ -346,10 +316,11 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
         ss.aero_force_b .= wing.aero_force_b
         ss.aero_moment_b .= wing.aero_moment_b
+        ss.tether_induced_force .= wing.tether_force
         ss.tether_induced_moment .= wing.tether_moment
         ss.vel_kite .= wing.vel_w
         # Calculate Roll, Pitch, Yaw from Quaternion
-        q = wing.Q_b_w
+        q = wing.Q_b_to_w
         sinr_cosp = 2 * (q[1] * q[2] + q[3] * q[4])
         cosr_cosp = 1 - 2 * (q[2] * q[2] + q[3] * q[3])
         ss.roll = atan(sinr_cosp, cosr_cosp)
@@ -364,6 +335,24 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.Y[point.idx] = point.pos_w[2] * zoom
         ss.Z[point.idx] = point.pos_w[3] * zoom
     end
+
+    # Store VSM panel corner positions in world frame
+    corner_idx = length(points)
+    for wing in wings
+        R_b_to_w = wing.R_b_to_w
+        for panel in wing.vsm_aero.panels
+            for j in 1:4
+                corner_idx += 1
+                # Transform from body frame to world frame
+                corner_b = panel.corner_points[:, j]
+                corner_w = wing.pos_w + R_b_to_w * corner_b
+                ss.X[corner_idx] = corner_w[1] * zoom
+                ss.Y[corner_idx] = corner_w[2] * zoom
+                ss.Z[corner_idx] = corner_w[3] * zoom
+            end
+        end
+    end
+
     ss.v_wind_gnd .= sam.sys_struct.wind_vec_gnd
     nothing
 end
@@ -384,9 +373,46 @@ with the current state of the provided model.
 - `SysState`: A new state struct representing the current model state.
 """
 function SysState(s::SymbolicAWEModel, zoom=1.0)
-    ss = SysState{length(s.sys_struct.points)}()
+    # Calculate total points: regular points + 4 corners per panel
+    n_points = length(s.sys_struct.points)
+    n_panel_corners = isempty(s.sys_struct.wings) ? 0 : sum(
+        length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings
+    )
+    total_points = n_points + n_panel_corners
+    ss = SysState{total_points}()
     update_sys_state!(ss, s, zoom)
     ss
+end
+
+"""
+    KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
+
+Constructs a `Logger` from a `SymbolicAWEModel` with the correct number of points.
+
+This convenience constructor automatically calculates the total number of points
+including VSM panel corners (4 corners per panel) and creates a Logger with the
+appropriate size.
+
+# Arguments
+- `sam::SymbolicAWEModel`: The AWE model to create a logger for.
+- `steps::Int`: The number of time steps to allocate for logging.
+
+# Returns
+- `Logger`: A new logger with size for all points including panel corners.
+
+# Example
+```julia
+logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1000)
+```
+"""
+function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
+    # Calculate total points: regular points + 4 corners per panel
+    n_points = length(sam.sys_struct.points)
+    n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
+        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings
+    )
+    total_points = n_points + n_panel_corners
+    return Logger(total_points, steps)
 end
 
 """
@@ -396,45 +422,63 @@ Take a simulation step, using the provided integrator.
 
 This is a convenience method that calls the main `next_step!` function.
 """
-function next_step!(s::SymbolicAWEModel, integrator::OrdinaryDiffEqCore.ODEIntegrator; set_values=nothing, dt=1/s.set.sample_freq, vsm_interval=1)
-    !(s.integrator === integrator) && error("The ODEIntegrator doesn't belong to the SymbolicAWEModel")
-    next_step!(s; set_values=set_values, dt=dt, vsm_interval=vsm_interval)
+function next_step!(
+    s::SymbolicAWEModel,
+    integrator::OrdinaryDiffEqCore.ODEIntegrator;
+    set_values=nothing, dt=1/s.set.sample_freq,
+    vsm_interval=1
+)
+    !(s.integrator === integrator) && error(
+        "The ODEIntegrator doesn't belong to " *
+        "the SymbolicAWEModel")
+    next_step!(s; set_values, dt, vsm_interval)
 end
 
 """
-    next_step!(s::SymbolicAWEModel; set_values, dt, vsm_interval)
+    next_step!(s::SymbolicAWEModel; set_values, dt,
+               vsm_interval)
 
 Take a simulation step forward in time.
 
-This function advances the simulation by one time step, optionally updating control
-inputs and re-linearizing the VSM model. It then updates the `SystemStructure`
-with the new state from the ODE integrator.
-
-# Arguments
-- `s::SymbolicAWEModel`: The kite power system state object.
+Advances the simulation by one time step, optionally
+updating control inputs and re-linearizing the VSM
+model. Then updates the `SystemStructure` with the new
+state from the ODE integrator. Throws an error if the
+solver returns an unstable retcode.
 
 # Keyword Arguments
-- `set_values=nothing`: New values for the control inputs. If `nothing`, the current values are used.
+- `set_values=nothing`: Control input values.
+    If `nothing`, current values are used.
 - `dt=1/s.set.sample_freq`: Time step size [s].
-- `vsm_interval=1`: The interval (in steps) to re-linearize the VSM model. If 0, it is not re-linearized.
+- `vsm_interval=1`: Steps between VSM
+    re-linearization. 0 disables re-linearization.
 """
-function next_step!(sam::SymbolicAWEModel; set_values=nothing, dt=1/sam.set.sample_freq, vsm_interval=1)
+function next_step!(sam::SymbolicAWEModel;
+    set_values=nothing, dt=1/sam.set.sample_freq,
+    vsm_interval=1
+)
     prob = sam.prob
-    if (!isnothing(set_values)) 
+    if (isnothing(set_values))
+        set_values = [winch.set_value
+            for winch in sam.sys_struct.winches]
+    end
+    if !isnothing(prob.set_set_values)
         prob.set_set_values(sam.integrator, set_values)
     end
-    if vsm_interval != 0 && sam.iter % vsm_interval == 0
-        sam.t_vsm = @elapsed linearize_vsm!(sam, sam.prob)
-    end
-    
+
     sam.t_0 = sam.integrator.t
-    sam.t_step = @elapsed OrdinaryDiffEqCore.step!(sam.integrator, dt, true)
+    sam.t_step = @elapsed OrdinaryDiffEqCore.step!(
+        sam.integrator, dt, true)
     if !successful_retcode(sam.integrator.sol)
-        @warn "Return code for solution: $(sam.integrator.sol.retcode)"
+        error("Solver unstable at t=" *
+            "$(round(sam.integrator.t; digits=4))" *
+            ": $(sam.integrator.sol.retcode)")
     end
-    @assert successful_retcode(sam.integrator.sol)
     sam.iter += 1
     update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    if vsm_interval != 0 && sam.iter % vsm_interval == 0
+        sam.t_vsm = @elapsed update_vsm!(sam, sam.prob)
+    end
     return nothing
 end
 
@@ -451,11 +495,13 @@ function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,
                             sys_struct::SystemStructure)
     @unpack points, groups, segments, pulleys, winches, tethers, wings = sys_struct
-    pos, vel, force = prob.get_point_state(integ)
+    pos, vel, force, va_b, total_mass = prob.get_point_state(integ)
     for point in points
         point.pos_w .= pos[:, point.idx]
         point.vel_w .= vel[:, point.idx]
         point.force .= force[:, point.idx]
+        point.va_b .= va_b[:, point.idx]
+        point.total_mass = total_mass[point.idx]
     end
     if length(pulleys) > 0
         len, vel = prob.get_pulley_state(integ)
@@ -501,34 +547,57 @@ function update_sys_struct!(prob::ProbWithAttributes,
     end
     if length(wings) > 0
         wing_state = prob.get_wing_state(integ)
-        Q_b_w, ω_b, pos_w, vel_w, acc_w, va_b, v_wind, 
-            aero_force_b, aero_moment_b, tether_moment, tether_force,
+        Q_b_to_w, ω_b, pos_w, vel_w, acc_w,
+            va_b, v_wind,
+            aero_force_b, aero_moment_b,
+            tether_moment, tether_force,
             elevation, elevation_vel, elevation_acc,
             azimuth, azimuth_vel, azimuth_acc,
-            heading, turn_rate, turn_acc, course, aoa = wing_state
+            heading, turn_rate, turn_acc,
+            course, aoa,
+            com_w_v, com_vel_v,
+            Q_p_to_w_v, ω_p_v = wing_state
         for wing in wings
-            wing.Q_b_w .= Q_b_w[wing.idx, :]
-            wing.ω_b .= ω_b[wing.idx, :]
-            wing.pos_w .= pos_w[wing.idx, :]
-            wing.vel_w .= vel_w[wing.idx, :]
-            wing.acc_w .= acc_w[wing.idx, :]
-            wing.va_b .= va_b[wing.idx, :]
-            wing.v_wind .= v_wind[wing.idx, :]
-            wing.aero_force_b .= aero_force_b[wing.idx, :]
-            wing.aero_moment_b .= aero_moment_b[wing.idx, :]
-            wing.tether_moment .= tether_moment[wing.idx, :]
-            wing.tether_force .= tether_force[wing.idx, :]
-            wing.elevation = elevation[wing.idx]
-            wing.elevation_vel = elevation_vel[wing.idx]
-            wing.elevation_acc = elevation_acc[wing.idx]
+            # Body frame output
+            wing.Q_b_to_w .= Q_b_to_w[:, wing.idx]
+            wing.ω_b .= ω_b[:, wing.idx]
+            wing.pos_w .= pos_w[:, wing.idx]
+            wing.vel_w .= vel_w[:, wing.idx]
+            wing.acc_w .= acc_w[:, wing.idx]
+            wing.va_b .= va_b[:, wing.idx]
+            wing.v_wind .= v_wind[:, wing.idx]
+            wing.aero_force_b .=
+                aero_force_b[:, wing.idx]
+            wing.aero_moment_b .=
+                aero_moment_b[:, wing.idx]
+            wing.tether_moment .=
+                tether_moment[:, wing.idx]
+            wing.tether_force .=
+                tether_force[:, wing.idx]
+            wing.elevation =
+                elevation[wing.idx]
+            wing.elevation_vel =
+                elevation_vel[wing.idx]
+            wing.elevation_acc =
+                elevation_acc[wing.idx]
             wing.azimuth = azimuth[wing.idx]
-            wing.azimuth_vel = azimuth_vel[wing.idx]
-            wing.azimuth_acc = azimuth_acc[wing.idx]
+            wing.azimuth_vel =
+                azimuth_vel[wing.idx]
+            wing.azimuth_acc =
+                azimuth_acc[wing.idx]
             wing.heading = heading[wing.idx]
-            wing.turn_rate .= turn_rate[wing.idx, :]
-            wing.turn_acc .= turn_acc[wing.idx, :]
+            wing.turn_rate .=
+                turn_rate[:, wing.idx]
+            wing.turn_acc .=
+                turn_acc[:, wing.idx]
             wing.course = course[wing.idx]
             wing.aoa = aoa[wing.idx]
+            # Principal frame state
+            wing.com_w .= com_w_v[:, wing.idx]
+            wing.com_vel .=
+                com_vel_v[:, wing.idx]
+            wing.Q_p_to_w .= Q_p_to_w_v[:, wing.idx]
+            wing.ω_p .= ω_p_v[:, wing.idx]
         end
     end
     sys_struct.wind_vec_gnd .= prob.get_struct_state(integ)
@@ -536,20 +605,54 @@ function update_sys_struct!(prob::ProbWithAttributes,
 end
 
 """
-    get_model_name(set::Settings; precompile=false)
+    get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false)
 
 Constructs a unique filename for the serialized model based on its configuration.
-The filename includes the Julia version, physical model, dynamics type, and number of
-segments to ensure that the correct cached model is loaded.
+The filename includes the Julia version, physical model, wing type, dynamics type,
+and component counts to ensure that the correct cached model is loaded.
 """
-function get_model_name(set::Settings; precompile=false)
+function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false)
     suffix = ""
     ver = "$(VERSION.major).$(VERSION.minor)"
     if precompile
         suffix = ".default"
     end
+
+    # Determine wing type and aero mode
+    wing_types = [wing.wing_type for wing in sys_struct.wings]
+    wing_type_str = if isempty(wing_types)
+        "nowng"
+    elseif all(wt -> wt == QUATERNION, wing_types)
+        "quat"
+    elseif all(wt -> wt == REFINE, wing_types)
+        "refine"
+    else
+        "mixed"
+    end
+
+    aero_modes = [wing.aero_mode for wing in sys_struct.wings]
+    aero_mode_str = if isempty(aero_modes)
+        ""
+    elseif all(m -> m == AERO_LINEARIZED, aero_modes)
+        "lin"
+    elseif all(m -> m == AERO_DIRECT, aero_modes)
+        "dir"
+    elseif all(m -> m == AERO_NONE, aero_modes)
+        "none"
+    else
+        "mixaero"
+    end
+
     dynamics_type = ifelse(set.quasi_static, "static", "dynamic")
-    return "model_$(ver)_$(set.physical_model)_$(dynamics_type)_$(set.segments)_seg.bin$suffix"
+
+    # Count components
+    n_points = length(sys_struct.points)
+    n_segments = length(sys_struct.segments)
+    n_groups = length(sys_struct.groups)
+    n_wings = length(sys_struct.wings)
+    n_winches = length(sys_struct.winches)
+
+    return "model_$(ver)_$(set.physical_model)_$(wing_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_groups)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
 end
 
 """
@@ -558,9 +661,11 @@ end
 Calculates the torque for each winch that results in zero acceleration (steady state).
 """
 function calc_steady_torque(sam::SymbolicAWEModel)
-    sys_struct = sam.sys_struct
-    torques = -[winch.drum_radius / winch.gear_ratio * norm(winch.force) +
-                winch.friction for winch in sys_struct.winches]
+    return calc_steady_torque(sam.sys_struct)
+end
+function calc_steady_torque(sys_struct::SystemStructure)
+    torques = [-winch.drum_radius / winch.gear_ratio * norm(winch.force) +
+               winch.friction for winch in sys_struct.winches]
     return torques
 end
 
@@ -580,19 +685,21 @@ This function uses a settings object to define the physical parameters of the wi
 # Returns
 - The calculated force on the winch tether [N].
 """
-function calc_winch_force(sys::SystemStructure, tether_vel, tether_acc, set_values)
+function calc_winch_force(sys::SystemStructure,
+        tether_vel, tether_acc, set_values)
     winches = sys.winches
-    function smooth_sign(x)
-        EPSILON = 6
-        x / sqrt(x * x + EPSILON * EPSILON)
-    end
+    smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
     winch_force = zeros(length(winches))
     for i in eachindex(winches)
-        @unpack gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total = winches[i]
+        @unpack gear_ratio, drum_radius, f_coulomb,
+            c_vf, inertia_total,
+            friction_epsilon = winches[i]
         ω_motor = gear_ratio / drum_radius * tether_vel[i]
-        tau_friction = smooth_sign(ω_motor) *
-                                  f_coulomb * drum_radius / gear_ratio +
-                                  c_vf * ω_motor * drum_radius^2 / gear_ratio^2
+        tau_friction =
+            smooth_sign(ω_motor, friction_epsilon) *
+            f_coulomb * drum_radius / gear_ratio +
+            c_vf * ω_motor *
+            drum_radius^2 / gear_ratio^2
         tau_motor = set_values[i] # set_value is the motor torque
         α_motor = tether_acc[i] / drum_radius * gear_ratio
         tau_total = α_motor * inertia_total
@@ -663,9 +770,16 @@ function min_chord_len(sam::SymbolicAWEModel)
     min_len = Inf
     for wing in sam.sys_struct.wings
         vsm_wing = wing.vsm_wing
-        le_pos = [vsm_wing.le_interp[i](vsm_wing.gamma_tip) for i in 1:3]
-        te_pos = [vsm_wing.te_interp[i](vsm_wing.gamma_tip) for i in 1:3]
-        min_len = min(norm(le_pos - te_pos), min_len)
+        if hasproperty(vsm_wing, :le_interp) && hasproperty(vsm_wing, :te_interp) && hasproperty(vsm_wing, :gamma_tip)
+            le_pos = [vsm_wing.le_interp[i](vsm_wing.gamma_tip) for i in 1:3]
+            te_pos = [vsm_wing.te_interp[i](vsm_wing.gamma_tip) for i in 1:3]
+            min_len = min(norm(le_pos - te_pos), min_len)
+        elseif hasproperty(vsm_wing, :unrefined_sections) && !isempty(vsm_wing.unrefined_sections)
+            for section in vsm_wing.unrefined_sections
+                chord = section.TE_point - section.LE_point
+                min_len = min(norm(chord), min_len)
+            end
+        end
     end
     return min_len
 end

@@ -1,94 +1,108 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 #
 # SPDX-License-Identifier: MPL-2.0
-using GLMakie
-using VortexStepMethod, LinearAlgebra
-using SymbolicAWEModels
+
+"""
+Progressive tutorial: builds up from a simple tether to a full kite
+model, adding a winch, pulley, and wing step by step.
+"""
+
+using SymbolicAWEModels, VortexStepMethod, LinearAlgebra
 using SymbolicAWEModels: Point
 
-set_data_path("data")
+set_data_path("data/2plate_kite")
 set = Settings("system.yaml")
 set.segments = 20
 set.l_tether = 50.0
-dynamics_type = DYNAMIC
 
-points = Point[]
+# Segment properties (Dyneema, 4mm diameter)
+seg_stiffness = 614_600.0  # EA [N]
+seg_damping   = 473.0      # [N·s]
+seg_diameter  = 0.004      # [m]
+
+# --- STEP 1: Tether ---
+
+points = [Point(1, zeros(3), STATIC)]
 segments = Segment[]
-
-points = push!(points, Point(1, zeros(3), STATIC; wing_idx=0))
-
-segment_idxs = Int[]
+l_seg = set.l_tether / set.segments
 for i in 1:set.segments
-    global points, segments
-    point_idx = i+1
-    pos = [0.0, 0.0, i * set.l_tether / set.segments]
-    if i < set.segments
-        push!(points, Point(point_idx, pos, dynamics_type; wing_idx=0))
-    else
-        push!(points, Point(point_idx, pos, dynamics_type; mass=1.0, wing_idx=0))
-    end
-    segment_idx = i
-    push!(segments, Segment(segment_idx, set, (point_idx-1, point_idx), BRIDLE))
-    push!(segment_idxs, segment_idx)
+    pos = [0.0, 0.0, i * l_seg]
+    kw = i == set.segments ? (; extra_mass=1.0) : (;)
+    push!(points, Point(i + 1, pos, DYNAMIC; kw...))
+    push!(segments, Segment(i, i, i + 1,
+        seg_stiffness, seg_damping, seg_diameter;
+        l0=l_seg))
 end
 
-transforms = [Transform(1, deg2rad(-80), 0.0, 0.0; 
-              base_pos = [0.0, 0.0, 50.0], base_point_idx=points[1].idx,
-              rot_point_idx=points[end].idx)]
+transforms = [
+    Transform(1, deg2rad(-80), 0, 0;
+              base_pos=[0, 0, 0],
+              base_point=1, rot_point=length(points)),
+]
 
-sys_struct = SystemStructure("tether", set; points, segments, transforms)
-
-sam = SymbolicAWEModel(set, sys_struct)
-
+sys = SystemStructure("tether", set;
+                      points, segments, transforms)
+sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
+
 for i in 1:80
     next_step!(sam)
 end
 @info "Tether simulation completed" steps=80
 
-# ADDING A WINCH
-set.v_wind = 0.0
-tethers = [Tether(1, [segment.idx for segment in segments], 1)]
-winches = [Winch(1, set, [1])]
+# --- STEP 2: Add a winch ---
 
-sys_struct = SystemStructure("winch", set; points, segments, tethers, winches, transforms)
-sam = SymbolicAWEModel(set, sys_struct)
+set.v_wind = 0.0
+n_seg = length(segments)
+tethers = [Tether(:main, collect(1:n_seg); winch_point=1)]
+winches = [Winch(:winch, set, [:main])]
+
+sys = SystemStructure("winch", set;
+    points, segments, tethers, winches, transforms)
+sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
-ss = SysState(sam)
 
 for i in 1:80
     next_step!(sam; set_values=[-20.0])
-    update_sys_state!(ss, sam)
 end
 @info "Winch simulation completed" steps=80
 
-# ADDING A PULLEY
-push!(points, Point(22, [0, 0, set.l_tether+5], DYNAMIC))
-push!(points, Point(23, [1, 0, set.l_tether+5], STATIC))
-push!(segments, Segment(21, set, (21,22), BRIDLE))
-push!(segments, Segment(22, set, (21,23), BRIDLE))
-pulleys = [Pulley(1, (21,22), DYNAMIC)]
-transforms[1].elevation = deg2rad(-85.0)
-sys_struct = SystemStructure("pulley", set; points, segments, tethers, winches, pulleys, transforms)
+# --- STEP 3: Add a pulley ---
 
-sam = SymbolicAWEModel(set, sys_struct)
+push!(points, Point(22, [0, 0, set.l_tether + 5], DYNAMIC))
+push!(points, Point(23, [1, 0, set.l_tether + 5], STATIC))
+push!(segments, Segment(21, 21, 22,
+    seg_stiffness, seg_damping, seg_diameter))
+push!(segments, Segment(22, 21, 23,
+    seg_stiffness, seg_damping, seg_diameter))
+pulleys = [Pulley(1, 21, 22, DYNAMIC)]
+transforms = [
+    Transform(1, deg2rad(-85), 0, 0;
+              base_pos=[0, 0, 0], base_point=1,
+              rot_point=21),
+]
 
+sys = SystemStructure("pulley", set;
+    points, segments, tethers, winches, pulleys, transforms)
+sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
+
 for i in 1:80
     next_step!(sam; set_values=[-10.0])
 end
 @info "Pulley simulation completed" steps=80
 
-# ADDING A KITE
-vsm_wing = RamAirWing(set; prn=false)
+# --- STEP 4: Add a kite ---
+
+vsm_wing = VortexStepMethod.Wing(set; prn=false)
 vsm_aero = BodyAerodynamics([vsm_wing])
-vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
-wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing, vsm_solver, [], I(3), [0.5, 0, set.l_tether+6])]
+vsm_solver = Solver(vsm_aero;
+    solver_type=NONLIN, atol=2e-8, rtol=2e-8)
+wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing,
+    vsm_solver, [], I(3), [0.5, 0, set.l_tether + 6])]
 
-sys_struct = SystemStructure("wing", set; points, segments, tethers, winches, pulleys, wings, transforms)
-
-sam = SymbolicAWEModel(set, sys_struct)
+sys = SystemStructure("wing", set;
+    points, segments, tethers, winches, pulleys,
+    wings, transforms)
+sam = SymbolicAWEModel(set, sys)
 @info "Wing model created successfully"
-
-
-

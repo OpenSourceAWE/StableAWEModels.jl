@@ -1,24 +1,10 @@
-# SPDX-FileCopyrightText: 2025 Uwe Fechner
-# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Bart van de Lint, Jelle Poland
+# SPDX-License-Identifier: MPL-2.0
 
 # build and display the html documentation locally
-# you must have installed the package LiveServer in your global environment
+# run with: julia --project=docs scripts/build_docu.jl
 
 using Pkg
-
-function globaldependencies()
-    projectpath = Pkg.project().path
-    basepath, _ = splitdir(projectpath)
-    Pkg.activate()
-    globaldependencies = keys(Pkg.project().dependencies)
-    Pkg.activate(basepath)
-    globaldependencies
-end
-
-if !("LiveServer" in globaldependencies())
-    println("Installing LiveServer globally!")
-    run(`julia -e 'using Pkg; Pkg.add("LiveServer")'`)
-end
-
-ENV["SAM_PRECOMPILE"] = "false"
+Pkg.develop(path=dirname(@__DIR__))
+Pkg.instantiate()
 using LiveServer; servedocs(launch_browser=true)

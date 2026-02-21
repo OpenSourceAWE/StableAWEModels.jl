@@ -10,7 +10,6 @@ module SymbolicAWEModels
 # --- Julia Standard Library & General Utilities ---
 using Pkg
 using TOML
-using PrecompileTools: @setup_workload, @compile_workload
 using DocStringExtensions
 using LinearAlgebra
 using Parameters
@@ -58,16 +57,22 @@ import ModelingToolkit.SciMLBase: successful_retcode
 
 # --- KiteUtils ---
 export init!, next_step!, update_sys_state!, update_from_sysstate!, get_data_path, set_data_path, se
-export SysState, Settings, AbstractKiteModel
+export SysState, SysLog, Settings, AbstractKiteModel
+export Logger, log!, save_log, load_log
+export load_settings
 
 # --- Types ---
 # Core Model
 export SymbolicAWEModel
 # System Structure Components
 export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
+export AbstractWing, BaseWing, VSMWing
+export NameRef, NamedCollection
 # Enums
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
+export WingType, QUATERNION, REFINE
+export AeroMode, AERO_NONE, AERO_DIRECT, AERO_LINEARIZED
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_oscillate!, sim_turn!, sim_reposition!
@@ -75,12 +80,11 @@ export sim!, sim_oscillate!, sim_turn!, sim_reposition!
 # --- Low-Level Simulation Functions ---
 export find_steady_state!
 export linearize!, simple_linearize!
-export copy_to_simple!
-
-# --- System Structure Creators ---
-export create_ram_sys_struct
-export create_tether_sys_struct
-export create_simple_ram_sys_struct
+export update_segment_forces!
+export set_world_frame_damping
+export set_body_frame_damping
+export segment_stretch_stats
+export calc_steady_torque
 
 # --- Getter Functions ---
 export winch_force
@@ -90,9 +94,21 @@ export tether_length
 # --- Helper Functions ---
 export init_module
 export update_plot_observables!
+export animate
+export load_sys_struct_from_yaml
+export update_yaml_from_sys_struct!
+export update_aero_yaml_from_struc_yaml!
 export replay
+export record
+export plot_sphere_trajectory
+export plot_body_frame
+export plot_aoa
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
+
+#======================================================================#
+#                       TYPE DEFINITIONS
+#======================================================================#
 
 # Type definitions
 """
@@ -110,6 +126,7 @@ Basic 3-dimensional vector, stack allocated, mutable.
 """
 const KVec3    = MVector{3, SimFloat}
 const KVec4    = MVector{4, SimFloat}
+const MVec3    = MVector{3, Float64}  # Used by VortexStepMethod functions
 
 """
    const SVec3    = SVector{3, SimFloat}
@@ -118,27 +135,33 @@ Basic 3-dimensional vector, stack allocated, immutable.
 """
 const SVec3    = SVector{3, SimFloat}  
 
-# Defined in ext/SymbolicAWEModelsControlPlotsExt.jl
+# Defined in ext/SymbolicAWEModelsMakieExt.jl
 function plot end
 # Defined in ext/SymbolicAWEModelsMakieExt.jl
 function plot! end
 function update_plot_observables! end
+function animate end
 function replay end
+function record end
+function plot_sphere_trajectory end
+function plot_body_frame end
+function plot_aoa end
 
 function __init__()
-    if isdir(joinpath(pwd(), "data")) && isfile(joinpath(pwd(), "data", "system.yaml"))
-        set_data_path(joinpath(pwd(), "data"))
+    data_dir = joinpath(pwd(), "data")
+    if isdir(data_dir) && isfile(joinpath(data_dir, "2plate_kite", "system.yaml"))
+        set_data_path(data_dir)
     end
 end
 
-include("system_structure.jl")
+include("system_structure/system_structure.jl")
+include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
-include("predefined_structures.jl")
+include("yaml_loader.jl")
 include("tether_properties.jl")
 include("linearize.jl")
-include("generate_system.jl")
-include("plot_recipe.jl")
+include("generate_system/generate_system.jl")
 include("simulate.jl")
 
 function upwind_dir(v_wind_gnd)

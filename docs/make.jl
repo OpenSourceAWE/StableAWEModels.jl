@@ -4,6 +4,35 @@
 using Makie, VortexStepMethod
 using SymbolicAWEModels
 using Documenter
+using Literate
+
+# --- Convert Literate .jl sources to .md ---
+# Write to a temp dir first, then copy only if content changed.
+# This avoids retriggering LiveServer's file watcher on every build.
+literate_dir = joinpath(@__DIR__, "src", "literate")
+output_dir = joinpath(@__DIR__, "src")
+tmp_dir = mktempdir()
+
+for file in readdir(literate_dir)
+    endswith(file, ".jl") || continue
+    edit_url = joinpath("literate", file)
+    Literate.markdown(joinpath(literate_dir, file), tmp_dir;
+        execute=false, documenter=true,
+        codefence="```julia" => "```",
+        postprocess=content -> begin
+            content = replace(content,
+                r"^[^\n]*#hide *\n"m => "")
+            replace(content,
+                r"^EditURL = \"[^\"]*\"$"m =>
+                "EditURL = \"$edit_url\"")
+        end)
+    md_name = replace(file, ".jl" => ".md")
+    src = joinpath(tmp_dir, md_name)
+    dst = joinpath(output_dir, md_name)
+    if !isfile(dst) || read(src) != read(dst)
+        cp(src, dst; force=true)
+    end
+end
 
 DocMeta.setdocmeta!(SymbolicAWEModels, :DocTestSetup, :(using SymbolicAWEModels); recursive=true)
 
@@ -20,14 +49,18 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
-        "Getting Started" => "getting_started.md",
+        "Getting started" => "getting_started.md",
+        "Building a system using Julia" => "tutorial_julia.md",
+        "Building a system using YAML" => "tutorial_yaml.md",
+        "Compilation pipeline" => "pipeline.md",
         "Examples" => "examples.md",
-        "Custom Model" => "tutorial_system_structure.md",
-        "Exported Types" => "exported_types.md",
-        "Exported Functions" => "exported_functions.md",
+        "VSM coupling" => "vsm_coupling.md",
+        "Coordinate frames" => "coordinate_frames.md",
+        "Types" => "exported_types.md",
+        "Functions" => "exported_functions.md",
         "Parameters" => "parameters.md",
-        "Private functions" => "private_functions.md",
-        "Developers" => "developers.md",
+        "Developer guide" => "developers.md",
+        "Private API" => "private_functions.md",
     ],
 )
 
