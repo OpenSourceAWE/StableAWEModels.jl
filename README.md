@@ -132,6 +132,7 @@ For visualization with Makie, see the [Examples](https://OpenSourceAWE.github.io
 **Authors:**  
 Bart van de Lint (bart@vandelint.net)  
 Uwe Fechner (uwe.fechner.msc@gmail.com)
+Jelle Poland
 
 ---
 
