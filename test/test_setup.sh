@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Bart van de Lint
+#
+# SPDX-License-Identifier: MPL-2.0
+
 # Integration test for end-user setup.
 # Run from the repo root: bash test/test_setup.sh
 set -euo pipefail
