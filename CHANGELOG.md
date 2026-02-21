@@ -3,6 +3,106 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.6.0 21-02-2026
+
+## Changed
+- Component constructors (`Point`, `Segment`, `Wing`, `Winch`,
+  `Transform`) now accept a symbolic `name` (Symbol) as the first
+  argument in addition to numeric indices. Numeric `idx` values still
+  work. Use e.g. `Point(:kcu, pos, DYNAMIC)`.
+- BREAKING: `Segment` constructor takes separate `point_i`, `point_j`
+  arguments instead of a `point_idxs` vector.
+- BREAKING: Rotation matrix fields renamed from `R_a_b` to `R_a_to_b`
+  throughout (e.g. `wing.R_b_w` → `wing.R_b_to_w`).
+- BREAKING: `ControlPlotsExt` package extension removed. Visualization is
+  now handled entirely by `SymbolicAWEModelsMakieExt`.
+- BREAKING: Predefined model factory functions removed
+  (`create_ram_sys_struct`, `create_simple_ram_sys_struct`). Build models
+  using component constructors or YAML instead.
+- BREAKING: Ram air kite and V3 kite models moved to dedicated packages
+  ([RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl),
+  [V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl)).
+  Their data directories are removed from this package.
+- `src/system_structure.jl` split into modular files under
+  `src/system_structure/` (types, core, utilities, transforms, wing,
+  named_collection).
+- `src/generate_system.jl` split into 13 focused modules under
+  `src/generate_system/` (point_eqs, segment_eqs, wing_eqs, group_eqs,
+  winch_eqs, pulley_eqs, tether_eqs, scalar_eqs, vsm_eqs, accessors,
+  helpers, create_sys).
+- Makie extension significantly overhauled with new plotting functions.
+- Test suite completely rewritten. The old tests (`test_simulation`,
+  `test_linearization`, `test_initialization`, `test_sam`, etc.) tested
+  the full assembled kite model as a black box, making failures hard to
+  diagnose. The new tests isolate each component with minimal models
+  built from constructors, verifying physics against analytical
+  solutions:
+  - `test_point` — gravity free-fall, damping, quasi-static equilibrium
+  - `test_segment` — spring-damper forces, stiffness, drag
+  - `test_wing` — QUATERNION and REFINE wing construction, VSM coupling
+  - `test_wing_dynamics` — rigid body torque response, precession,
+    angular momentum conservation
+  - `test_tether_winch` — reel-out dynamics, Coulomb and viscous
+    friction, terminal velocity
+  - `test_pulley` — equal-tension constraints, multi-segment pulleys
+  - `test_transform` — spherical coordinate positioning
+  - `test_quaternion_conversions` — quaternion ↔ rotation matrix
+  - `test_quaternion_auto_groups` — auto-generated twist DOFs
+  - `test_principal_body_frame` — principal vs body frame separation
+  - `test_heading_calculation` — kite heading from tether geometry
+  - `test_section_alignment` — VSM section ↔ structural point mapping
+  - `test_profile_law` — atmospheric wind profile verification
+  - `test_bench` — performance regression tracking
+- Complete documentation overhaul with new pages: coordinate_frames,
+  vsm_coupling, pipeline, tutorial_julia, tutorial_yaml.
+- Data files reorganised: base settings moved to `data/base/`, new
+  `data/2plate_kite/` and `data/saddle_form/` model directories added.
+
+## Added
+- `NamedCollection` indexing — components support symbolic names
+  (e.g. `sys.points[:kcu]`, `sys.segments[:bridle_1]`).
+  `SystemStructure` resolves all symbolic references to numeric indices
+  automatically via `assign_indices_and_resolve!()`.
+- `WingType` enum (`QUATERNION`, `REFINE`) for explicit wing type
+  selection. `REFINE` applies per-panel forces directly to structural
+  points for higher fidelity aeroelastic coupling.
+- `AeroMode` enum (`AERO_NONE`, `AERO_DIRECT`, `AERO_LINEARIZED`) for
+  build-time control over aerodynamic computation strategy.
+- YAML-based model definition via `load_sys_struct_from_yaml()`,
+  `update_yaml_from_sys_struct!()`, and
+  `update_aero_yaml_from_struc_yaml!()`.
+- REFINE wing support (`src/vsm_refine.jl`) — structural deformation
+  coupled directly to VSM panel geometry with moment-preserving force
+  distribution.
+- Principal vs body frame separation for QUATERNION wings. Principal
+  frame (diagonal inertia) used for Euler equations, body frame (from
+  reference points) used for output and VSM coupling.
+- Auto-group generation for QUATERNION wings when groups are not
+  explicitly provided.
+- `record()` for saving simulation replays to MP4.
+- `plot_sphere_trajectory`, `plot_body_frame`, `plot_aoa` plotting
+  functions.
+- `update_segment_forces!`, `set_world_frame_damping`,
+  `set_body_frame_damping`, `segment_stretch_stats` utility functions.
+- New examples: `hanging_mass`, `catenary_line`, `saddle_form`,
+  `coupled_2plate_kite`, `coupled_realtime_visualization`,
+  `coupled_linearize`, `coupled_simple_lin_model`,
+  `coupled_tether_deflection`, `heading_gate`,
+  `cosine_steering_trajectory`, `makie_polar_plots`,
+  `static_load_2plate_kite`.
+- Benchmark test (`test_bench.jl`) for performance tracking.
+
+## Removed
+- `predefined_structures.jl` and factory functions
+  (`create_ram_sys_struct`, `create_simple_ram_sys_struct`,
+  `create_tether_sys_struct`, `copy_to_simple!`).
+- Ram air kite data files, LEI kite directory, `data/kite.obj`.
+- Old examples: `ram_air_kite`, `lin_ram_model`, `simple_lin_model`,
+  `lin_simple_tuned_model`, `simple_tuned_model`,
+  `realtime_visualization`, `reposition`, `tether_props`.
+- `SymbolicAWEModelsControlPlotsExt` package extension.
+- `src/precompile.jl`.
+
 # v0.5.0 25-08-2024
 ## Removed
 - BREAKING: the Winch struct doesn't have a model field anymore. Instead, all equations are symbolic, and the WinchModels dependency is removed.

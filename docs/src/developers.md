@@ -313,6 +313,62 @@ be reflected in the built documentation.
 
 ---
 
+## Testing
+
+The test suite is designed around **component isolation**: each test file
+builds a minimal model from constructors (no YAML, no full kite) and
+verifies the physics of a single component against analytical solutions.
+This proves that the underlying dynamics are physically correct — for
+example, that angular momentum is conserved, that terminal velocity
+matches the analytical prediction, and that spring-damper forces follow
+the expected constitutive law.
+
+### Running tests
+
+```bash
+# Run the full test suite
+julia --project=. -e 'using Pkg; Pkg.test()'
+
+# Run a single test file
+julia --project=test test/test_point.jl
+julia --project=test test/test_segment.jl
+```
+
+### Test files
+
+| Test file | Component | What it verifies |
+|-----------|-----------|------------------|
+| `test_point` | [`Point`](@ref) | Gravity free-fall, damping, quasi-static equilibrium |
+| `test_segment` | [`Segment`](@ref) | Spring-damper forces, stiffness, drag |
+| `test_wing` | [`Wing`](@ref AbstractWing) | QUATERNION and REFINE construction, VSM coupling |
+| `test_wing_dynamics` | [`Wing`](@ref AbstractWing) | Torque response, precession, angular momentum conservation |
+| `test_tether_winch` | [`Tether`](@ref), [`Winch`](@ref) | Reel-out, Coulomb/viscous friction, terminal velocity |
+| `test_pulley` | [`Pulley`](@ref) | Equal-tension constraints, multi-segment pulleys |
+| `test_transform` | [`Transform`](@ref) | Spherical coordinate positioning |
+| `test_quaternion_conversions` | — | Quaternion ↔ rotation matrix round-trips |
+| `test_quaternion_auto_groups` | [`Group`](@ref) | Auto-generated twist DOFs |
+| `test_principal_body_frame` | [`Wing`](@ref AbstractWing) | Principal vs body frame separation |
+| `test_heading_calculation` | — | Kite heading from tether geometry |
+| `test_section_alignment` | [`Wing`](@ref AbstractWing) | VSM section ↔ structural point mapping |
+| `test_profile_law` | — | Atmospheric wind profile verification |
+| `test_bench` | — | Performance regression tracking |
+
+### Writing new tests
+
+When adding a new component or equation, follow this pattern:
+
+1. **Build a minimal model** using constructors — only include the
+   components needed to test the behaviour in question.
+2. **Derive the expected result analytically** — free-fall distance,
+   terminal velocity, oscillation frequency, etc.
+3. **Simulate and compare** — run `next_step!` in a loop and check the
+   result against the analytical solution with a tight tolerance.
+4. **Keep tests independent** — each test file should build its own
+   `SymbolicAWEModel` from scratch. Use `vsm_interval=0` and
+   `AERO_NONE` when aerodynamics are not relevant.
+
+---
+
 ## Coding style guidelines
 
 Please adhere to the following style guidelines to maintain code quality and

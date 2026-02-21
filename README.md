@@ -185,6 +185,42 @@ page for details.
 
 ---
 
+## Testing
+
+Each component is tested in isolation using minimal models built from
+constructors, with results verified against analytical solutions. This
+proves that the underlying dynamics are physically correct — for
+example, that angular momentum is conserved, that terminal velocity
+matches the analytical prediction, and that spring-damper forces follow
+the expected constitutive law.
+
+```bash
+# Run all tests
+julia --project=. -e 'using Pkg; Pkg.test()'
+
+# Run a specific test file
+julia --project=test test/test_point.jl
+```
+
+| Test file | What it verifies |
+|-----------|------------------|
+| `test_point` | Gravity free-fall, damping, quasi-static equilibrium |
+| `test_segment` | Spring-damper forces, stiffness, drag |
+| `test_wing` | QUATERNION and REFINE wing construction, VSM coupling |
+| `test_wing_dynamics` | Rigid body torque response, precession, angular momentum |
+| `test_tether_winch` | Reel-out, Coulomb/viscous friction, terminal velocity |
+| `test_pulley` | Equal-tension constraints, multi-segment pulleys |
+| `test_transform` | Spherical coordinate positioning |
+| `test_quaternion_conversions` | Quaternion ↔ rotation matrix |
+| `test_quaternion_auto_groups` | Auto-generated twist DOFs |
+| `test_principal_body_frame` | Principal vs body frame separation |
+| `test_heading_calculation` | Kite heading from tether geometry |
+| `test_section_alignment` | VSM section ↔ structural point mapping |
+| `test_profile_law` | Atmospheric wind profile verification |
+| `test_bench` | Performance regression tracking |
+
+---
+
 ## Ecosystem
 
 Key related packages:
