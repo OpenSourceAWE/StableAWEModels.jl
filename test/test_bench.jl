@@ -117,6 +117,30 @@ function bench_registered_functions(sys::SystemStructure)
     a = @allocations SymbolicAWEModels.get_inertia_principal(
         sys, idx)
     @printf("  %-20s %6d\n", "get_inertia_princ", a)
+
+    # VSM accessors
+    println("\n  VSM accessors:")
+    println(sep)
+    print(header)
+    println(sep)
+
+    a = @allocations SymbolicAWEModels.get_vsm_y(sys, idx, 1)
+    @printf("  %-20s %6d\n", "get_vsm_y", a)
+
+    a = @allocations SymbolicAWEModels.get_vsm_x(sys, idx, 1)
+    @printf("  %-20s %6d\n", "get_vsm_x", a)
+
+    a = @allocations SymbolicAWEModels.get_vsm_jac(
+        sys, idx, 1, 1)
+    @printf("  %-20s %6d\n", "get_vsm_jac", a)
+
+    a = @allocations SymbolicAWEModels.get_aero_force_override(
+        sys, idx, 1)
+    @printf("  %-20s %6d\n", "get_aero_f_override", a)
+
+    a = @allocations SymbolicAWEModels.get_aero_moment_override(
+        sys, idx, 1)
+    @printf("  %-20s %6d\n", "get_aero_m_override", a)
 end
 
 # --- 3. Allocation profile ---

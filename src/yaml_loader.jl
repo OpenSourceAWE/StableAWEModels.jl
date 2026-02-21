@@ -585,7 +585,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     end
 
     # Load wings (optional)
-    wings = AbstractWing[]
+    wings = VSMWing[]
     if haskey(data, "wings") &&
        haskey(data["wings"], "data") &&
        data["wings"]["data"] !== nothing &&

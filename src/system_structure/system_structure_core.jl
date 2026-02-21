@@ -30,7 +30,7 @@ winches, and wings, forming a complete description of the kite system's structur
 - [`Wing`](@ref): Rigid wing bodies.
 - [`Transform`](@ref): Spatial transformations for initial positioning.
 """
-mutable struct SystemStructure
+mutable struct SystemStructure{W<:AbstractWing}
     const name::String
     const set::Settings
     const points::NamedCollection{Point}
@@ -39,7 +39,7 @@ mutable struct SystemStructure
     const pulleys::NamedCollection{Pulley}
     const tethers::NamedCollection{Tether}
     const winches::NamedCollection{Winch}
-    const wings::NamedCollection{AbstractWing}
+    const wings::NamedCollection{W}
     const transforms::NamedCollection{Transform}
 
     const y::Array{Float64, 2}
@@ -427,7 +427,7 @@ function SystemStructure(name, set;
         pulleys=Pulley[],
         tethers=Tether[],
         winches=Winch[],
-        wings=AbstractWing[],
+        wings=VSMWing[],
         transforms=Transform[],
         ignore_l0::Bool=false,
         vsm_set=nothing,
@@ -439,6 +439,17 @@ function SystemStructure(name, set;
         vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
         if isfile(vsm_set_path)
             vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+        end
+    end
+
+    # Validate all wings are the same concrete type
+    if length(wings) > 1
+        W = typeof(wings[1])
+        for i in 2:length(wings)
+            @assert typeof(wings[i]) === W (
+                "All wings must be the same concrete " *
+                "type, got $(typeof(wings[i])) at " *
+                "index $i, expected $W")
         end
     end
 
@@ -967,7 +978,7 @@ function SystemStructure(name, set;
         NamedCollection{Pulley}(pulleys, pulley_names_dict),
         NamedCollection{Tether}(tethers, tether_names_dict),
         NamedCollection{Winch}(winches, winch_names_dict),
-        NamedCollection{AbstractWing}(wings, wing_names_dict),
+        NamedCollection{eltype(wings)}(wings, wing_names_dict),
         NamedCollection{Transform}(transforms, transform_names_dict),
         y, x, jac, zeros(KVec3), AtmosphericModel(set), 0.0, false, false, vsm_set)
     reinit!(sys_struct, set)
