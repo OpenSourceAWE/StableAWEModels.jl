@@ -20,10 +20,7 @@ using SymbolicAWEModels: KVec3, QUATERNION, WING,
 using LinearAlgebra
 
 @testset "Principal-Body Frame Separation" begin
-    pkg_path = Base.find_package("SymbolicAWEModels")
-    isnothing(pkg_path) &&
-        error("SymbolicAWEModels not found")
-    pkg_root = dirname(dirname(pkg_path))
+    pkg_root = dirname(@__DIR__)
     src_data = joinpath(
         pkg_root, "data", "2plate_kite")
 

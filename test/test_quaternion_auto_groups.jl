@@ -8,13 +8,9 @@ using LinearAlgebra
 
 @testset "QUATERNION wing auto-group creation" begin
     # Copy 2plate_kite data to temp directory
-    pkg_file_path = Base.find_package("SymbolicAWEModels")
-    if isnothing(pkg_file_path)
-        error("SymbolicAWEModels not found")
-    end
-    package_root_dir = dirname(dirname(pkg_file_path))
+    pkg_root = dirname(@__DIR__)
     src_data_path = joinpath(
-        package_root_dir, "data", "2plate_kite"
+        pkg_root, "data", "2plate_kite"
     )
     tmpdir = mktempdir()
     data_path = joinpath(tmpdir, "2plate_kite")

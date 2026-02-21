@@ -156,12 +156,9 @@ end
 # ==================== TESTS ==================== #
 
 @testset "Wing Dynamics" begin
-    pkg_file_path = Base.find_package("SymbolicAWEModels")
-    isnothing(pkg_file_path) &&
-        error("SymbolicAWEModels not found")
-    package_root_dir = dirname(dirname(pkg_file_path))
+    pkg_root = dirname(@__DIR__)
     src_data_path = joinpath(
-        package_root_dir, "data", "2plate_kite")
+        pkg_root, "data", "2plate_kite")
 
     tmpdir = mktempdir()
     data_path = joinpath(tmpdir, "2plate_kite")

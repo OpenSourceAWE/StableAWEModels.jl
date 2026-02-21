@@ -20,13 +20,8 @@ using LinearAlgebra
 
 @testset "Transform Tests" begin
     # Setup - copy data directory
-    pkg_file_path = Base.find_package("SymbolicAWEModels")
-    if isnothing(pkg_file_path)
-        error("SymbolicAWEModels not found in the current project environment.")
-    end
-
-    package_root_dir = dirname(dirname(pkg_file_path))
-    src_data_path = joinpath(package_root_dir, "data", "2plate_kite")
+    pkg_root = dirname(@__DIR__)
+    src_data_path = joinpath(pkg_root, "data", "2plate_kite")
 
     tmpdir = mktempdir()
     data_path = joinpath(tmpdir, "2plate_kite")
