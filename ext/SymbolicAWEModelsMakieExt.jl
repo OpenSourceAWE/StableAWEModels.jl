@@ -36,7 +36,7 @@ const PLOT_PREV_ZOOMED_IN = Ref{Bool}(false)  # Previous zoomed state
 const PLOT_PREV_SEGMENT_IDX = Ref{Int}(-1)  # Previous segment index
 
 # Multi-system plotting support
-const PLOT_MULTI_SYSTEMS = Ref{Union{Nothing, Vector{SystemStructure}}}(nothing)
+const PLOT_MULTI_SYSTEMS = Ref{Union{Nothing, Vector{<:SystemStructure}}}(nothing)
 const PLOT_MULTI_GEOMETRY_OBS = Ref{Union{Nothing, Vector{Observable}}}(nothing)
 
 """
@@ -1083,7 +1083,7 @@ function Makie.plot(sys::SystemStructure, logs::Vector{<:SysLog}; kwargs...)
     return Makie.plot(syss, logs; kwargs...)
 end
 
-function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
+function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                    plot_default=true,
                    plot_reelout=plot_default,
                    plot_aero_force=plot_default,
@@ -2633,7 +2633,7 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
 end
 
 """
-    setup_segment_hover_events!(scene, systems::Vector{SystemStructure},
+    setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                                  segment_plots::Vector, all_plots;
                                  segment_colors, highlight_color=:yellow,
                                  force_color=false, relmargin=0.2)
@@ -2643,7 +2643,7 @@ Add hover labels and click-to-zoom for segments across multiple systems.
 For multi-system, labels show "sys_idx:seg_idx" and "sys_idx:pt_idx" format.
 For single system, labels show just "seg_idx" and "pt_idx".
 """
-function setup_segment_hover_events!(scene, systems::Vector{SystemStructure},
+function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                                       segment_plots::Vector, all_plots;
                                       segment_colors::Vector,
                                       highlight_color=:yellow,
@@ -2979,12 +2979,12 @@ function build_geometry_observables(sys::SystemStructure, trigger::Observable)
 end
 
 """
-    Makie.plot(syss::Vector{SystemStructure}; colors=Makie.wong_colors(), ...)
+    Makie.plot(syss::Vector{<:SystemStructure}; colors=Makie.wong_colors(), ...)
 
 Plot multiple SystemStructures in a single scene with different colors.
 
 # Arguments
-- `syss::Vector{SystemStructure}`: Vector of system structures to plot
+- `syss::Vector{<:SystemStructure}`: Vector of system structures to plot
 
 # Keyword Arguments
 - `colors`: Color palette for systems (default: wong_colors())
@@ -3001,7 +3001,7 @@ Plot multiple SystemStructures in a single scene with different colors.
 scene = plot([sys1, sys2])  # Plot two systems with different colors
 ```
 """
-function Makie.plot(syss::Vector{SystemStructure};
+function Makie.plot(syss::Vector{<:SystemStructure};
                     colors=Makie.wong_colors(),
                     vector_scale=1.0,
                     relmargin=0.2,
@@ -3533,13 +3533,13 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
 end
 
 """
-    replay(logs::Vector{<:SysLog}, syss::Vector{SystemStructure}; colors=Makie.wong_colors(), ...)
+    replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure}; colors=Makie.wong_colors(), ...)
 
 Replay multiple SysLogs with their corresponding SystemStructures simultaneously.
 
 # Arguments
 - `logs::Vector{<:SysLog}`: Vector of simulation logs to replay
-- `syss::Vector{SystemStructure}`: Vector of system structures (must match logs length)
+- `syss::Vector{<:SystemStructure}`: Vector of system structures (must match logs length)
 
 # Keyword Arguments
 - `colors`: Color palette for distinguishing systems (default: wong_colors())
@@ -3560,7 +3560,7 @@ scene = replay([log1, log2], [sys1, sys2])
 scene = replay([log1, log2], [sys1, sys2], colors=[:red, :blue])
 ```
 """
-function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{SystemStructure};
+function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure};
                       colors=Makie.wong_colors(),
                       replay_speed=1.0,
                       autoplay=false,
