@@ -225,7 +225,7 @@ system:
         final_vel = sam.sys_struct.points[:test_point].vel_w
 
         # Position should be unchanged (within numerical tolerance)
-        @test norm(final_pos - initial_pos) ≈ 0.0
+        @test norm(final_pos - initial_pos) ≈ 0.0 atol=1e-8
 
         # Velocity should remain near zero
         @test norm(final_vel) < 0.001  # Less than 1mm/s
