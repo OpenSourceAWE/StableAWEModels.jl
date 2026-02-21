@@ -21,13 +21,13 @@ an efficient ODE solver using
 
 ```
  Define Components         Assemble             Compile            Simulate
-┌──────────────────┐   ┌──────────────┐    ┌─────────────────┐    ┌────────────┐
+┌──────────────────┐    ┌──────────────┐     ┌─────────────────┐     ┌────────────┐
 │ Point, Segment,  │──▶│ System       │───▶│ SymbolicAWE     │───▶│ init!()    │
-│ Wing, Winch, ... │   │ Structure    │    │ Model           │    │ next_step! │
-│                  │   │              │    │ (symbolic eqs → │    │ sim!()     │
-│ Julia or YAML    │   │ (resolves    │    │  ODEProblem)    │    │            │
-│                  │   │  references) │    │                 │    │            │
-└──────────────────┘   └──────────────┘    └─────────────────┘    └────────────┘
+│ Wing, Winch, ... │    │ Structure    │     │ Model           │     │ next_step! │
+│                  │    │              │     │ (symbolic eqs → │     │ sim!()     │
+│ Julia or YAML    │    │ (resolves    │     │  ODEProblem)    │     │            │
+│                  │    │  references) │     │                 │     │            │
+└──────────────────┘    └──────────────┘     └─────────────────┘     └────────────┘
 ```
 
 The first compilation is slow (minutes) as ModelingToolkit generates and
