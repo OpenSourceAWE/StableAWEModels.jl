@@ -21,7 +21,8 @@ kinematics, linearized aerodynamics) and assembles them into a single `System`.
 # Returns
 - `set_values`: The symbolic variable representing the control inputs (winch torques).
 """
-function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
+function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
+                     prn=true, tunable_params::Bool=false)
     eqs = Equation[]
     defaults = Pair{Num,Any}[]
     guesses = Pair{Num,Any}[]
@@ -49,10 +50,18 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn = true)
         end
     end
 
-    @parameters begin
-        psys::SystemStructure = system
-        pset::Settings = s.set
-        fix_wing = false
+    if tunable_params
+        @parameters begin
+            psys::SystemStructure = system
+            pset::Settings = s.set
+            fix_wing = false
+        end
+    else
+        @parameters begin
+            (psys::SystemStructure = system), [tunable = false]
+            (pset::Settings = s.set), [tunable = false]
+            (fix_wing = false), [tunable = false]
+        end
     end
     @variables begin
         # Control inputs

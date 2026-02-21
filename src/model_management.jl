@@ -375,7 +375,8 @@ function init!(sam::SymbolicAWEModel;
     lin_vsm::Bool=true,
     ignore_l0::Bool=false,
     remake_vsm::Bool=true,
-    reset_vel::Bool=true
+    reset_vel::Bool=true,
+    tunable_params::Bool=false
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
     time = @elapsed begin
@@ -412,7 +413,7 @@ function init!(sam::SymbolicAWEModel;
         loaded = load_serialized_model!(sam, model_path; remake, reload)
         changed = false
         if !loaded
-            sam.inputs = create_sys!(sam, sam.sys_struct; prn)
+            sam.inputs = create_sys!(sam, sam.sys_struct; prn, tunable_params)
             changed = true
         end
         outputs_changed = isnothing(sam.outputs) ||

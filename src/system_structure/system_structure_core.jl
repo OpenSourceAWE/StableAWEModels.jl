@@ -33,24 +33,14 @@ winches, and wings, forming a complete description of the kite system's structur
 mutable struct SystemStructure
     const name::String
     const set::Settings
-    const points::Vector{Point}
-    const groups::Vector{Group}
-    const segments::Vector{Segment}
-    const pulleys::Vector{Pulley}
-    const tethers::Vector{Tether}
-    const winches::Vector{Winch}
-    const wings::Vector{AbstractWing}
-    const transforms::Vector{Transform}
-
-    # Name lookup dictionaries (built from component name fields)
-    const point_names::Dict{Symbol, Int64}
-    const group_names::Dict{Symbol, Int64}
-    const segment_names::Dict{Symbol, Int64}
-    const pulley_names::Dict{Symbol, Int64}
-    const tether_names::Dict{Symbol, Int64}
-    const winch_names::Dict{Symbol, Int64}
-    const wing_names::Dict{Symbol, Int64}
-    const transform_names::Dict{Symbol, Int64}
+    const points::NamedCollection{Point}
+    const groups::NamedCollection{Group}
+    const segments::NamedCollection{Segment}
+    const pulleys::NamedCollection{Pulley}
+    const tethers::NamedCollection{Tether}
+    const winches::NamedCollection{Winch}
+    const wings::NamedCollection{AbstractWing}
+    const transforms::NamedCollection{Transform}
 
     const y::Array{Float64, 2}
     const x::Array{Float64, 2}
@@ -118,23 +108,6 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
             push!(vars, winch.tether_vel)
         end
         return reshape(vars, :, 1) # Return as a column vector (2D array)
-    # Return NamedCollection wrappers for component vectors
-    elseif sym == :points
-        return NamedCollection(getfield(sys, :points))
-    elseif sym == :groups
-        return NamedCollection(getfield(sys, :groups))
-    elseif sym == :segments
-        return NamedCollection(getfield(sys, :segments))
-    elseif sym == :pulleys
-        return NamedCollection(getfield(sys, :pulleys))
-    elseif sym == :tethers
-        return NamedCollection(getfield(sys, :tethers))
-    elseif sym == :winches
-        return NamedCollection(getfield(sys, :winches))
-    elseif sym == :wings
-        return NamedCollection(getfield(sys, :wings))
-    elseif sym == :transforms
-        return NamedCollection(getfield(sys, :transforms))
     else
         return getfield(sys, sym)
     end
@@ -987,10 +960,15 @@ function SystemStructure(name, set;
     set.physical_model = name
 
     # Name dictionaries were already built by assign_indices_and_resolve!
-    sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
-        winches, wings, transforms,
-        point_names_dict, group_names_dict, segment_names_dict, pulley_names_dict,
-        tether_names_dict, winch_names_dict, wing_names_dict, transform_names_dict,
+    sys_struct = SystemStructure(name, set,
+        NamedCollection{Point}(points, point_names_dict),
+        NamedCollection{Group}(groups, group_names_dict),
+        NamedCollection{Segment}(segments, segment_names_dict),
+        NamedCollection{Pulley}(pulleys, pulley_names_dict),
+        NamedCollection{Tether}(tethers, tether_names_dict),
+        NamedCollection{Winch}(winches, winch_names_dict),
+        NamedCollection{AbstractWing}(wings, wing_names_dict),
+        NamedCollection{Transform}(transforms, transform_names_dict),
         y, x, jac, zeros(KVec3), AtmosphericModel(set), 0.0, false, false, vsm_set)
     reinit!(sys_struct, set)
 

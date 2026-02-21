@@ -33,7 +33,7 @@ struc_yaml = joinpath(get_data_path(),
 set = Settings("system.yaml")
 
 sys = load_sys_struct_from_yaml(struc_yaml;
-    system_name=MODEL_NAME, set)
+    system_name=MODEL_NAME, set, aero_mode=AERO_NONE)
 
 function apply_loads!(points, F)
     for (i, point) in enumerate(points)
