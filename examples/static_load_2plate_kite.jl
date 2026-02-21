@@ -9,6 +9,7 @@ kite structure and simulate a few steps under those loads.
 using GLMakie
 using SymbolicAWEModels, KiteUtils
 using LinearAlgebra
+using SymbolicAWEModels: Point
 
 MODEL_NAME = "2plate_kite"
 n_steps = 3

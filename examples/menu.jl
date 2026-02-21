@@ -10,7 +10,6 @@ options = [
     "catenary_line = include(\"catenary_line.jl\")",
     "pulley = include(\"pulley.jl\")",
     "saddle_form = include(\"saddle_form.jl\")",
-    "aero_2plate_kite = include(\"aero_2plate_kite.jl\")",
     "coupled_2plate_kite = include(\"coupled_2plate_kite.jl\")",
     "coupled_2plate_kite_linear_vsm = include(\"coupled_2plate_kite_linear_vsm.jl\")",
     "coupled_tether_deflection = include(\"coupled_tether_deflection.jl\")",

@@ -8,6 +8,7 @@ model, adding a winch, pulley, and wing step by step.
 """
 
 using SymbolicAWEModels, VortexStepMethod, LinearAlgebra
+using SymbolicAWEModels: Point
 
 set_data_path("data/2plate_kite")
 set = Settings("system.yaml")
@@ -35,7 +36,7 @@ end
 
 transforms = [
     Transform(1, deg2rad(-80), 0, 0;
-              base_pos=[0, 0, 50],
+              base_pos=[0, 0, 0],
               base_point=1, rot_point=length(points)),
 ]
 
@@ -77,7 +78,7 @@ push!(segments, Segment(22, 21, 23,
 pulleys = [Pulley(1, 21, 22, DYNAMIC)]
 transforms = [
     Transform(1, deg2rad(-85), 0, 0;
-              base_pos=[0, 0, 50], base_point=1,
+              base_pos=[0, 0, 0], base_point=1,
               rot_point=21),
 ]
 
