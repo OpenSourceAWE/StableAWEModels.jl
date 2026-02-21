@@ -42,6 +42,8 @@ import GLMakie                                                    #hide
 GLMakie.activate!(; visible=false)                                #hide
 using Makie: plot                                                 #hide
 ASSETS = joinpath(@__DIR__, "..", "assets")                        #hide
+pkg_root = joinpath(@__DIR__, "..", "..", "..")                    #hide
+set_data_path(joinpath(pkg_root, "data", "base"))                 #hide
 
 set = Settings("system.yaml")
 set.solver = "FBDF"
