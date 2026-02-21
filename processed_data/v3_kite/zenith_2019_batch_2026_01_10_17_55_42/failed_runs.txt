@@ -1,2 +1,0 @@
-Run 4: elevation=60.0, g_earth=0.0, us=0.0, up=0.18, vw=19.75, lt=268
-  Error: AssertionError("successful_retcode(sam.integrator.sol)")
