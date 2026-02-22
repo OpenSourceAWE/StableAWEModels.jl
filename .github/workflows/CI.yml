@@ -31,18 +31,23 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1'      # Latest stable release
-          - 'lts'    # Long-term support release
-          - 'pre'
+          - '1.12'
         os:
           - ubuntu-latest
           - windows-latest
+          - macOS-latest
         arch:
           - x64
-        include:
+        exclude:
           - os: macOS-latest
+            arch: x64
+        include:
+          - os: ubuntu-latest
+            version: '1.11'
+            arch: x64
+          - os: macOS-latest
+            version: '1.12'
             arch: aarch64
-            version: '1'
     steps:
       - uses: actions/checkout@v5
 
