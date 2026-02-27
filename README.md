@@ -16,7 +16,7 @@ SPDX-License-Identifier: MPL-2.0
 **SymbolicAWEModels.jl** is a **compiler** for mechanical systems, built for
 **Airborne Wind Energy** (AWE) modelling. It takes a structural description
 of a system — defined in Julia code or a YAML file — and compiles it into
-an efficient ODE solver using
+an efficient ODE problem using
 [ModelingToolkit.jl](https://github.com/SciML/ModelingToolkit.jl).
 
 ```
