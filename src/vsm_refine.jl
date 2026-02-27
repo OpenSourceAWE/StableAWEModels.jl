@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-Helper functions for REFINE wing type that applies VSM panel forces directly to
-structural points.
+Helper functions for VSM wing types.
+
+REFINE-specific functions (panel force distribution, structural geometry
+updates) are at the bottom of this file.  The shared
+`match_aero_sections_to_structure!` works for all VSMWing types.
 """
 
 # Baseline chord-based aero scaling for REFINE wings.
@@ -11,37 +14,81 @@ structural points.
 const AERO_SCALE_CHORD = 0.0
 
 """
-    identify_wing_segments(wing_points::AbstractVector{Point})
+    identify_wing_segments(wing_points; groups=nothing, wing_group_idxs=nothing)
 
 Identify wing segments (LE/TE pairs) from WING-type points.
 
-Assumes points are organized in pairs along the span, with even-numbered points
-being leading edge and odd-numbered being trailing edge (or vice versa).
+When `groups` and `wing_group_idxs` are provided, uses group `point_idxs`
+to determine LE (`point_idxs[1]`) and TE (`point_idxs[end]`) for each
+section. Falls back to a consecutive-pair heuristic (sorted by point index)
+when groups are unavailable.
+
+In both paths an x-coordinate check swaps LE/TE if needed (LE has
+smaller `pos_cad[1]`).
 
 # Arguments
-- `wing_points::AbstractVector{Point}`: All WING-type points for a wing (sorted by index)
+- `wing_points::AbstractVector{Point}`: WING-type points for a wing.
+
+# Keyword Arguments
+- `groups::Union{Nothing, AbstractVector{Group}}`: All groups in the
+  system (indexed by `wing_group_idxs`).
+- `wing_group_idxs::Union{Nothing, AbstractVector{<:Integer}}`:
+  Indices into `groups` belonging to this wing.
 
 # Returns
-- `Vector{Tuple{Int64, Int64}}`: Vector of (le_point_idx, te_point_idx) pairs defining segments
+- `Vector{Tuple{Int64, Int64}}`: (le_point_idx, te_point_idx) pairs.
 """
-function identify_wing_segments(wing_points::AbstractVector{Point})
-    # Sort points by index to ensure consistent ordering
+function identify_wing_segments(
+    wing_points::AbstractVector{Point};
+    groups::Union{Nothing, AbstractVector{Group}}=nothing,
+    wing_group_idxs::Union{Nothing,
+        AbstractVector{<:Integer}}=nothing
+)
+    use_groups = !isnothing(groups) &&
+        !isnothing(wing_group_idxs) &&
+        !isempty(wing_group_idxs)
+
+    if use_groups
+        segments = Tuple{Int64, Int64}[]
+        for g_idx in wing_group_idxs
+            group = groups[g_idx]
+            length(group.point_idxs) >= 2 || error(
+                "Group $(group.name): need at least " *
+                "2 point_idxs (LE/TE), got " *
+                "$(length(group.point_idxs))")
+            le_idx = group.point_idxs[1]
+            te_idx = group.point_idxs[end]
+            le_point = wing_points[findfirst(
+                p -> p.idx == le_idx, wing_points)]
+            te_point = wing_points[findfirst(
+                p -> p.idx == te_idx, wing_points)]
+            # Safety: swap if LE actually has larger x
+            if le_point.pos_cad[1] < te_point.pos_cad[1]
+                push!(segments, (le_idx, te_idx))
+            else
+                push!(segments, (te_idx, le_idx))
+            end
+        end
+        return segments
+    end
+
+    # Fallback: consecutive-pair heuristic
     sorted_points = sort(wing_points, by=p->p.idx)
 
     n_points = length(sorted_points)
-    @assert n_points % 2 == 0 "Wing must have even number of points (LE/TE pairs)"
+    @assert n_points % 2 == 0 (
+        "Wing must have even number of points " *
+        "(LE/TE pairs)")
 
     n_segments = n_points ÷ 2
     segments = Tuple{Int64, Int64}[]
 
-    # Group consecutive pairs: (point[1], point[2]), (point[3], point[4]), ...
     for i in 1:n_segments
         le_idx = 2*i - 1
         te_idx = 2*i
         le_point = sorted_points[le_idx]
         te_point = sorted_points[te_idx]
 
-        # Determine which is LE and which is TE by x-coordinate (LE has smaller x)
         if le_point.pos_cad[1] < te_point.pos_cad[1]
             push!(segments, (le_point.idx, te_point.idx))
         else
@@ -50,6 +97,164 @@ function identify_wing_segments(wing_points::AbstractVector{Point})
     end
 
     return segments
+end
+
+"""
+    match_aero_sections_to_structure!(wing, points; groups)
+
+Rebuild unrefined sections to match structural LE/TE positions,
+preserving refined panel polars via `use_prior_polar`.
+
+Works for **all** VSMWing types (QUATERNION and REFINE).  When the
+structural and aerodynamic section counts match the rebuild is a 1:1
+copy (`source_idx == i`) that ensures positions exactly match
+structural points.  When they differ, `use_prior_polar` and non-empty
+`refined_sections` are required.
+
+For non-REFINE wings whose section count changed, the linearization
+vectors (`vsm_y`, `vsm_x`, `vsm_jac`) are resized to match the new
+`n_unrefined_sections`.
+
+# Keyword Arguments
+- `groups::AbstractVector{Group}`: Groups in the system (used for
+  group-based LE/TE identification via [`identify_wing_segments`](@ref)).
+"""
+function match_aero_sections_to_structure!(
+    wing::VSMWing,
+    points::AbstractVector{Point};
+    groups::AbstractVector{Group}=Group[]
+)
+    wing_points = [
+        p for p in points if
+        p.type == WING && p.wing_idx == wing.idx
+    ]
+
+    wing_group_idxs = isempty(groups) ? nothing :
+        wing.group_idxs
+    grps = isempty(groups) ? nothing : groups
+    has_groups = !isnothing(grps) &&
+        !isnothing(wing_group_idxs) &&
+        !isempty(wing_group_idxs)
+
+    if has_groups
+        n_struct_sections = length(wing_group_idxs)
+        # REFINE: each group is a 2-point strut (LE/TE)
+        if wing.wing_type == REFINE
+            for g_idx in wing_group_idxs
+                g = grps[g_idx]
+                length(g.point_idxs) == 2 || error(
+                    "REFINE wing $(wing.idx): group " *
+                    "$(g.name) must have exactly 2 " *
+                    "points (LE/TE pair), got " *
+                    "$(length(g.point_idxs))")
+            end
+        end
+    else
+        n_points = length(wing_points)
+        n_points % 2 == 0 || error(
+            "Wing $(wing.idx): no groups and odd " *
+            "number of WING points " *
+            "($(n_points)). Define groups to " *
+            "specify LE/TE pairs.")
+        n_struct_sections = n_points ÷ 2
+    end
+
+    n_aero_sections =
+        length(wing.vsm_wing.unrefined_sections)
+    counts_differ = n_struct_sections != n_aero_sections
+
+    if counts_differ
+        wing.vsm_wing.use_prior_polar || error(
+            "Wing $(wing.idx): structural sections " *
+            "($(n_struct_sections)) do not match " *
+            "aerodynamic sections " *
+            "($(n_aero_sections)). Set " *
+            "use_prior_polar=true to rebuild " *
+            "unrefined sections from structural " *
+            "geometry."
+        )
+
+        isempty(wing.vsm_wing.refined_sections) &&
+            error(
+                "Wing $(wing.idx): cannot rebuild " *
+                "unrefined sections because no " *
+                "refined sections exist to " *
+                "preserve polars from."
+            )
+    end
+
+    wing_segments = identify_wing_segments(
+        wing_points; groups=grps,
+        wing_group_idxs=wing_group_idxs)
+    wing.wing_segments = wing_segments
+    length(wing_segments) == n_struct_sections || error(
+        "Wing $(wing.idx): failed to identify " *
+        "structural LE/TE pairs."
+    )
+
+    original_sections = wing.vsm_wing.unrefined_sections
+    n_original = length(original_sections)
+    n_original > 0 || error(
+        "Wing $(wing.idx): aerodynamic geometry " *
+        "has zero unrefined sections."
+    )
+    R_b_to_c = wing.R_b_to_c
+    origin_cad = wing.pos_cad
+    new_sections = Vector{VortexStepMethod.Section}(
+        undef, n_struct_sections)
+
+    for (i, (le_idx, te_idx)) in enumerate(wing_segments)
+        source_idx = if counts_differ
+            n_struct_sections == 1 ? 1 :
+                round(Int,
+                    1 + (i - 1) * (n_original - 1) /
+                    (n_struct_sections - 1))
+        else
+            i  # 1:1 copy when counts match
+        end
+        source_section = original_sections[source_idx]
+
+        le_body = R_b_to_c' *
+            (points[le_idx].pos_cad - origin_cad)
+        te_body = R_b_to_c' *
+            (points[te_idx].pos_cad - origin_cad)
+
+        section = VortexStepMethod.Section()
+        if isnothing(source_section.aero_data)
+            VortexStepMethod.reinit!(
+                section, le_body, te_body,
+                source_section.aero_model
+            )
+        else
+            VortexStepMethod.reinit!(
+                section, le_body, te_body,
+                source_section.aero_model,
+                source_section.aero_data
+            )
+        end
+        new_sections[i] = section
+    end
+
+    wing.vsm_wing.unrefined_sections = new_sections
+    wing.vsm_wing.n_unrefined_sections =
+        Int16(n_struct_sections)
+
+    refine!(wing.vsm_wing;
+        recompute_mapping=true, sort_sections=false)
+    VortexStepMethod.reinit!(wing.vsm_aero)
+
+    # Resize linearization vectors for non-REFINE wings
+    # when section count changed.
+    if counts_differ && wing.wing_type != REFINE
+        n_un = Int(n_struct_sections)
+        ny = 3 + n_un + 3
+        nx = 3 + 3 + n_un
+        wing.vsm_y = zeros(SimFloat, ny)
+        wing.vsm_x = zeros(SimFloat, nx)
+        wing.vsm_jac = zeros(SimFloat, nx, ny)
+    end
+
+    return nothing
 end
 
 """
