@@ -1013,6 +1013,87 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
 end
 
 """
+    update_sys_struct_from_yaml!(sys_struct::SystemStructure,
+                                  struc_yaml::AbstractString)
+
+Update an existing `SystemStructure` in-place from a (possibly modified)
+structural geometry YAML file. Inverse of `update_yaml_from_sys_struct!`.
+
+Updates `pos_cad` for points and `l0` for segments, matched by symbolic
+name. When `l0` is `nothing` in the YAML, it is auto-calculated from the
+endpoint `pos_cad` positions.
+
+Only raw geometry is updated. Call `reinit!(sys_struct, set)` afterward
+to recompute derived quantities (`pos_b`, `pos_w`, wing frames, etc.).
+
+Unmatched names are silently skipped (the YAML may contain a subset of
+components).
+
+# Arguments
+- `sys_struct`: The SystemStructure to update in-place.
+- `struc_yaml`: Path to the structural geometry YAML file.
+
+# Example
+```julia
+sys = load_sys_struct_from_yaml("struc_geometry.yaml"; ...)
+# ... edit YAML externally ...
+update_sys_struct_from_yaml!(sys, "struc_geometry.yaml")
+```
+"""
+function update_sys_struct_from_yaml!(
+        sys_struct::SystemStructure,
+        struc_yaml::AbstractString)
+    yaml_path = isabspath(struc_yaml) ? struc_yaml :
+                joinpath(pwd(), struc_yaml)
+    isfile(yaml_path) ||
+        error("YAML file not found: $yaml_path")
+
+    data = YAML.load_file(yaml_path)
+
+    # --- Update points ---
+    n_points = 0
+    if haskey(data, "points")
+        point_rows = parse_table(data["points"])
+        for row in point_rows
+            haskey(row, :name) || continue
+            name = Symbol(row.name)
+            haskey(sys_struct.points, name) || continue
+
+            point = sys_struct.points[name]
+            point.pos_cad .= KVec3(row.pos_cad...)
+            n_points += 1
+        end
+    end
+
+    # --- Update segment l0 ---
+    n_segments = 0
+    if haskey(data, "segments")
+        segment_rows = parse_table(data["segments"])
+        for row in segment_rows
+            haskey(row, :name) || continue
+            name = Symbol(row.name)
+            haskey(sys_struct.segments, name) || continue
+
+            seg = sys_struct.segments[name]
+
+            # l0: use YAML value, or auto-calc from pos_cad
+            l0_val = haskey(row, :l0) ? row.l0 : nothing
+            if !isnothing(l0_val) && l0_val != "nothing"
+                seg.l0 = Float64(l0_val)
+            else
+                seg.l0 = segment_cad_length(
+                    seg, sys_struct.points)
+            end
+
+            n_segments += 1
+        end
+    end
+
+    @info "update_sys_struct_from_yaml!" n_points n_segments
+    return nothing
+end
+
+"""
     update_aero_yaml_from_struc_yaml!(source_struc_yaml, source_aero_yaml,
                                        dest_aero_yaml=source_aero_yaml)
 

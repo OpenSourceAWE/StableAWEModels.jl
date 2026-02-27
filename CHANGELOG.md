@@ -3,6 +3,18 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.7.1 27-02-2026
+
+## Added
+- `update_sys_struct_from_yaml!()` — update a `SystemStructure` in-place
+  from a modified YAML file (point `pos_cad` and segment `l0`).
+- `segment_cad_length()` and `autocalc_tether_len()` shared helpers,
+  replacing duplicated code in the constructor, `reinit!`, and YAML loader.
+
+## Fixed
+- `SystemStructure` constructor auto-calculates `winch.tether_len` from
+  all connected tethers (was only using the first).
+
 # v0.7.0 DD-02-2026
 
 ## Changed
