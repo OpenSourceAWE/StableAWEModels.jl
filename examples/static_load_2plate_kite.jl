@@ -8,6 +8,7 @@ kite structure and simulate a few steps under those loads.
 
 using GLMakie
 using SymbolicAWEModels, VortexStepMethod, KiteUtils
+using SymbolicAWEModels: init!, next_step!, update_sys_state!
 using LinearAlgebra
 using SymbolicAWEModels: Point
 

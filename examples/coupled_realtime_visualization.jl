@@ -10,6 +10,7 @@ Controls:
 
 using GLMakie
 using SymbolicAWEModels, VortexStepMethod, KiteUtils
+using SymbolicAWEModels: init!, next_step!, update_sys_state!, log!, calc_steady_torque, save_log, Logger
 using Printf
 
 # Parameters
@@ -82,13 +83,13 @@ on(events(scene).keyboardbutton) do event
 end
 
 function run_realtime!(sam, sys_struct, scene)
-    logger = SymbolicAWEModels.Logger(sam, steps + 1)
+    logger = Logger(sam, steps + 1)
     sys_state = SysState(sam)
     sys_state.time = 0.0
-    SymbolicAWEModels.log!(logger, sys_state)
+    log!(logger, sys_state)
 
     steady_torque =
-        SymbolicAWEModels.calc_steady_torque(sam)
+        calc_steady_torque(sam)
     torque_damp = 0.9
     start_time = time()
     sim_time = 0.0
@@ -102,7 +103,7 @@ function run_realtime!(sam, sys_struct, scene)
 
         steady_torque = torque_damp * steady_torque +
             (1 - torque_damp) *
-            SymbolicAWEModels.calc_steady_torque(sam)
+            calc_steady_torque(sam)
         control = steady_torque .+ current_steering[]
 
         t0 = time()
@@ -110,10 +111,10 @@ function run_realtime!(sam, sys_struct, scene)
                    dt, vsm_interval)
         sim_time += time() - t0
 
-        SymbolicAWEModels.update_sys_state!(
+        update_sys_state!(
             sys_state, sam)
         sys_state.time = t
-        SymbolicAWEModels.log!(logger, sys_state)
+        log!(logger, sys_state)
 
         if step % plot_interval == 0
             plot!(sys_struct; vector_scale)
@@ -136,9 +137,11 @@ function run_realtime!(sam, sys_struct, scene)
     record_video && save(output_filename, io)
 
     elapsed = time() - start_time
-    @info "Done" runtime=round(elapsed; digits=2) sim_speedup=round(total_time / sim_time; digits=2)
+    runtime = round(elapsed; digits=2)
+    sim_speedup = round(total_time / sim_time; digits=2)
+    @info "Done. Runtime: " runtime "Simulation speedup: " sim_speedup
 
-    SymbolicAWEModels.save_log(logger,
+    save_log(logger,
                                "tmp_realtime_run")
     lg = load_log("tmp_realtime_run")
     display(plot(sam.sys_struct, lg))

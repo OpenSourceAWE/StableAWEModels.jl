@@ -233,16 +233,16 @@ end
     init_principal_frame!(wings, points)
 
 Compute principal frame ODE state from body frame.
-Must be called after body frame (pos_w, R_b_to_w,
-vel_w, ω_b) is fully initialized.
+Must be called after body frame (`pos_w`, `R_b_to_w`,
+`vel_w`, `ω_b`) is fully initialized.
 
-Sets: com_w, Q_p_to_w, com_vel, ω_p (derived from body
-frame), and pos_b for QUATERNION wing points (body
+Sets: `com_w`, `Q_p_to_w`, `com_vel`, `ω_p` (derived from body
+frame), and `pos_b` for QUATERNION wing points (body
 frame, relative to COM).
 """
 function init_principal_frame!(wings, points)
     for wing in wings
-        R_b_to_w = wing.R_b_to_w
+        R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
         # COM position in world frame
         wing.com_w .= wing.pos_w .+
             R_b_to_w * wing.com_offset_b
@@ -332,9 +332,8 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
             error("Transform #$(transform.idx): Wing/rot position and base position " *
                   "overlap at $(base_pos). Cannot define elevation/azimuth rotation. " *
                   "Use transform_idx: 0 to skip transforms, or adjust positions.")
-        else
-            curr_R_t_to_w = calc_R_t_to_w(rel_pos)
         end
+        curr_R_t_to_w = calc_R_t_to_w(rel_pos)
 
         transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation),
                                         -transform.azimuth)
@@ -426,7 +425,7 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
     # Calculate pos_b for REFINE wing points after all
     # transforms are complete
     for wing in wings
-        if wing.wing_type == REFINE
+        if wing isa VSMWing && wing.wing_type == REFINE
             R_b_to_w, origin = calc_refine_wing_frame(
                 points, wing.z_ref_points,
                 wing.y_ref_points, wing.origin_idx)
@@ -483,9 +482,8 @@ function reposition!(
                 "Wing/rot position and base position " *
                 "overlap at $(base_pos). " *
                 "Cannot define rotation.")
-        else
-            curr_R_t_to_w = calc_R_t_to_w(curr_rel_pos)
         end
+        curr_R_t_to_w = calc_R_t_to_w(curr_rel_pos)
 
         transform_pos = rotate_around_z(
             rotate_around_y(
@@ -515,7 +513,7 @@ function reposition!(
         for wing in wings
             if wing.transform_idx == transform.idx
                 # R_b_to_w after azim/elev rotation
-                if !isnothing(wing.z_ref_points)
+                if wing isa VSMWing && !isnothing(wing.z_ref_points)
                     R_b_to_w, _ = calc_refine_wing_frame(
                         points, wing.z_ref_points,
                         wing.y_ref_points,
@@ -564,7 +562,7 @@ function reposition!(
     # REFINE wings: recalculate R_b_to_w and pos_b
     # from structural points
     for wing in wings
-        if wing.wing_type == REFINE
+        if wing isa VSMWing && wing.wing_type == REFINE
             R_b_to_w, origin = calc_refine_wing_frame(
                 points, wing.z_ref_points,
                 wing.y_ref_points, wing.origin_idx)
