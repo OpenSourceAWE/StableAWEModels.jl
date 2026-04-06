@@ -467,7 +467,7 @@ function next_step!(sam::SymbolicAWEModel;
     end
 
     sam.t_0 = integrator.t
-    sam.t_step = @elapsed step!(integrator, dt, true)
+    sam.t_step = @elapsed OrdinaryDiffEqCore.step!(integrator, dt, true)
     if !successful_retcode(integrator.sol)
         error("Solver unstable at t=" *
             "$(round(integrator.t; digits=4))" *
