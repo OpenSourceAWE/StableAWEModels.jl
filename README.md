@@ -180,7 +180,7 @@ for step in 1:600
 end
 ```
 
-![2-plate kite structure](docs/build/assets/2plate_kite_structure.png)
+![2-plate kite structure](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/stable/assets/2plate_kite_structure.png)
 
 ### Running examples
 
