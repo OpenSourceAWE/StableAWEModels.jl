@@ -20,7 +20,7 @@ of a system — defined in Julia code or a YAML file — and compiles it into
 an efficient ODE problem using
 [ModelingToolkit.jl](https://github.com/SciML/ModelingToolkit.jl).
 
-```
+```text
  Define Components         Assemble             Compile            Simulate
 ┌──────────────────┐    ┌──────────────┐     ┌─────────────────┐     ┌────────────┐
 │ Point, Segment,  │───▶│ System       │────▶│ SymbolicAWE     │────▶│ init!()    │
@@ -180,7 +180,7 @@ for step in 1:600
 end
 ```
 
-![2-plate kite structure](docs/src/assets/2plate_kite_structure.png)
+![2-plate kite structure](docs/build/assets/2plate_kite_structure.png)
 
 ### Running examples
 
@@ -218,7 +218,7 @@ julia --project=test test/test_point.jl
 ```
 
 | Test file | What it verifies |
-|-----------|------------------|
+| ----------- | ------------------ |
 | `test_point` | Gravity free-fall, damping, quasi-static equilibrium |
 | `test_segment` | Spring-damper forces, stiffness, drag |
 | `test_wing` | QUATERNION and REFINE wing construction, VSM coupling |
@@ -274,11 +274,11 @@ plotting.
 - Submit an [issue](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/issues/new)
 - Start a [discussion](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/discussions/new/choose)
 - Ask on [Julia Discourse](https://discourse.julialang.org/)
-- Email Bart van de Lint: bart@vandelint.net
+- Email Bart van de Lint: [bart@vandelint.net](mailto:bart@vandelint.net)
 
 **Authors:**
-Bart van de Lint (bart@vandelint.net)
-Uwe Fechner (uwe.fechner.msc@gmail.com)
+Bart van de Lint ([bart@vandelint.net](mailto:bart@vandelint.net))
+Uwe Fechner ([uwe.fechner.msc@gmail.com](mailto:uwe.fechner.msc@gmail.com))
 Jelle Poland
 
 ---
