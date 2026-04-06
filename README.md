@@ -180,7 +180,8 @@ for step in 1:600
 end
 ```
 
-![2-plate kite structure](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/stable/assets/2plate_kite_structure.png)
+<!-- markdownlint-disable-next-line MD033 -->
+<p align="center"><img src="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/stable/assets/2plate_kite_structure.png" alt="2-plate kite structure" width="70%" /></p>
 
 ### Running examples
 
