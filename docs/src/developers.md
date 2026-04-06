@@ -400,6 +400,21 @@ readability:
 
 ---
 
+## Known issues and troubleshooting
+
+### Segmentation fault when loading a cached `.bin` model
+
+Cached `.bin` files contain serialized function pointers that are only valid for the
+Julia and package version used to create them. Loading a stale `.bin` causes a segfault.
+
+**Solution:** Remove the corrupt `.bin` file in the data directory:
+
+```bash
+rm data/2plate_kite/*.bin
+```
+
+---
+
 ## Source code organization
 
 The source code is organized into modular directories:
