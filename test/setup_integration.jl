@@ -32,8 +32,8 @@ using SymbolicAWEModels
 
 Extract the first Julia code block following a heading that
 matches `heading_pattern` in README.md. Lines containing
-GLMakie, `plot(`, `Pkg`, or `pkg"` are filtered out since
-they are not relevant for headless testing.
+`Pkg` and `pkg"` lines are filtered out since the project
+is already activated by the test harness.
 """
 function extract_readme_code(heading_pattern)
     readme = read(joinpath(REPO_ROOT, "README.md"), String)
@@ -41,8 +41,7 @@ function extract_readme_code(heading_pattern)
     found_heading = false
     in_block = false
     code_lines = String[]
-    skip_patterns = [r"using GLMakie", r"using Pkg",
-        r"^pkg\"", r"^plot\("]
+    skip_patterns = [r"using Pkg", r"^pkg\""]
     for line in lines
         if !found_heading
             if occursin(heading_pattern, line)
