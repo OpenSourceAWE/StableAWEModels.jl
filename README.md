@@ -153,30 +153,37 @@ SymbolicAWEModels.copy_data()
 
 set_data_path("data/2plate_kite")
 
-struc_yaml = joinpath(get_data_path(), "quat_struc_geometry.yaml")
+struc_yaml = joinpath(get_data_path(),
+    "refine_struc_geometry.yaml")
 
 # Load settings and VSM configuration
 set = Settings("system.yaml")
+set.g_earth = 0.0
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
+    joinpath(get_data_path(), "vsm_settings.yaml");
+    data_prefix=false)
 
 # Build system structure from YAML
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set, vsm_set)
+sys.winches[:main_winch].brake = true
 
 sam = SymbolicAWEModel(set, sys)
-init!(sam)
+init!(sam; remake=false, lin_vsm=false)
 
 l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
 l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
 
-# Run with a steering ramp
+# Run with a steering ramp (2 seconds, 600 steps)
+dt = 2.0 / 600
 for step in 1:600
-    t = step * (10.0 / 600)
+    t = step * dt
     ramp = clamp(t / 2.0, 0.0, 1.0)
-    sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left - 0.1 * ramp
-    sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right + 0.1 * ramp
-    next_step!(sam; dt=10.0/600, vsm_interval=1)
+    sam.sys_struct.segments[:kcu_steering_left].l0 =
+        l0_left - 0.1 * ramp
+    sam.sys_struct.segments[:kcu_steering_right].l0 =
+        l0_right + 0.1 * ramp
+    next_step!(sam; dt, vsm_interval=1)
 end
 ```
 
