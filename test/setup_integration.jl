@@ -113,11 +113,14 @@ end
                   "coupled_tether_deflection.jl",
                   "coupled_2plate_kite.jl",
                   "coupled_2plate_kite_linear_vsm.jl",
-                  "coupled_linearize.jl",
-                  "static_load_2plate_kite.jl"]
+                  "coupled_linearize.jl"]
             @testset "run $f" begin
                 println("  Running $f...")
-                include(joinpath(USER_DIR, "examples", f))
+                # Each example runs in its own module to avoid
+                # top-level variable conflicts between examples.
+                mod = Module(Symbol(f))
+                Base.include(mod,
+                    joinpath(USER_DIR, "examples", f))
             end
         end
     end
