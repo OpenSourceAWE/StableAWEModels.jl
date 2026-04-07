@@ -45,4 +45,5 @@ find_steady_state!(sam)
 @info "Linearized" A=size(A) B=size(B) C=size(C) D=size(D)
 
 lin_sys = ss(A, B, C, D)
-@info "State-space model" lin_sys
+@info "State-space model: $(size(A, 1)) states, " *
+    "$(size(B, 2)) inputs, $(size(C, 1)) outputs"
