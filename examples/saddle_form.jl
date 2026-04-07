@@ -7,7 +7,9 @@ and saddle z-profile, relaxed to equilibrium via dynamic simulation.
 """
 
 using Pkg
-Pkg.activate(@__DIR__)
+if Base.active_project() != joinpath(@__DIR__, "Project.toml")
+    Pkg.activate(@__DIR__)
+end
 
 using GLMakie
 using KiteUtils: azimuth_east, calc_elevation, init!, next_step!, update_sys_state!

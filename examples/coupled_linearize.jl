@@ -7,7 +7,9 @@ and build a state-space representation.
 """
 
 using Pkg
-Pkg.activate(@__DIR__)
+if Base.active_project() != joinpath(@__DIR__, "Project.toml")
+    Pkg.activate(@__DIR__)
+end
 
 using KiteUtils: init!
 using SymbolicAWEModels, VortexStepMethod

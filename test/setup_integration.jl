@@ -102,6 +102,9 @@ end
 
     @testset "Run examples" begin
         Pkg.activate(joinpath(USER_DIR, "examples"))
+        # The examples Project.toml has [sources] path=".."
+        # which works in the repo but not in this temp dir,
+        # so we need to explicitly dev SymbolicAWEModels here.
         Pkg.develop(path=REPO_ROOT)
         Pkg.instantiate()
         for f in ["hanging_mass.jl", "catenary_line.jl",

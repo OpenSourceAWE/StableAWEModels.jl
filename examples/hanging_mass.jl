@@ -7,7 +7,9 @@ anchor by an elastic segment, relaxing under gravity.
 """
 
 using Pkg
-Pkg.activate(@__DIR__)
+if Base.active_project() != joinpath(@__DIR__, "Project.toml")
+    Pkg.activate(@__DIR__)
+end
 
 using Timers; tic()
 

@@ -16,7 +16,9 @@ Reference: Thedens, P. Dissertation (2022), p.45
 """
 
 using Pkg
-Pkg.activate(@__DIR__)
+if Base.active_project() != joinpath(@__DIR__, "Project.toml")
+    Pkg.activate(@__DIR__)
+end
 
 using GLMakie
 using KiteUtils: init!, next_step!, update_sys_state!
