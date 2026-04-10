@@ -101,11 +101,15 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
                 push!(vars, pulley.vel)
             end
         end
+        # tethers
+        tethers = getfield(sys, :tethers)
+        for tether in tethers
+            push!(vars, tether.len)
+        end
         # winches
         winches = getfield(sys, :winches)
         for winch in winches
-            push!(vars, winch.tether_len)
-            push!(vars, winch.tether_vel)
+            push!(vars, winch.vel)
         end
         return reshape(vars, :, 1) # Return as a column vector (2D array)
     else
@@ -160,12 +164,16 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
                 offset += 1
             end
         end
+        # tethers
+        tethers = getfield(sys, :tethers)
+        for tether in tethers
+            tether.len = flat_value[offset]
+            offset += 1
+        end
         # winches
         winches = getfield(sys, :winches)
         for winch in winches
-            winch.tether_len = flat_value[offset]
-            offset += 1
-            winch.tether_vel = flat_value[offset]
+            winch.vel = flat_value[offset]
             offset += 1
         end
         return value
@@ -365,11 +373,11 @@ function expand_auto_tethers!(
             end
         end
 
-        # Total length from point positions
-        total_len = norm(end_pos - start_pos)
-        seg_l0 = total_len / n
+        seg_l0 = tether.init_unstretched_len / n
+        tether.len = tether.init_unstretched_len
 
         # Generate n-1 intermediate DYNAMIC points
+        # (placed along the straight line at geometric spacing)
         dir = end_pos - start_pos
         for i in 1:(n - 1)
             frac = i / n
@@ -769,13 +777,6 @@ function SystemStructure(name, set;
                 seg_first.point_idxs[1]
             tether.end_point_idx =
                 seg_last.point_idxs[2]
-        end
-    end
-    for (i, winch) in enumerate(winches)
-        @assert winch.idx == i
-        if iszero(winch.tether_len)
-            winch.tether_len = autocalc_tether_len(
-                winch, tethers, segments)
         end
     end
     # Compute body frame (COM + principal axes) and

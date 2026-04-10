@@ -42,9 +42,8 @@ function extract_readme_code(heading_pattern)
     found_heading = false
     in_block = false
     code_lines = String[]
-    skip_patterns = [r"using Pkg", r"^pkg\"",
-        r"using GLMakie", r"^plot[!\(]", r"^\s+plot[!\(]",
-        r"sleep\("]
+    skip_patterns = [
+        r"using Pkg", r"^pkg\"", r"plot[!]?\(", r"sleep\("]
     for line in lines
         if !found_heading
             if occursin(heading_pattern, line)

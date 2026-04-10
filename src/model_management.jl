@@ -54,16 +54,22 @@ function generate_prob_getters(sys_struct, sys)
             get_vsm_y = nothing
         end
     end
-    if length(segments) > 0; get_segment_state = getu(sys, c.([sys.spring_force, sys.len])); end
+    if length(segments) > 0; get_segment_state = getu(sys, c.([sys.spring_force, sys.len, sys.l0])); end
     if length(groups) > 0; get_group_state = getu(sys, c.([sys.twist_angle, sys.twist_ω, sys.group_tether_force, sys.group_tether_moment, sys.group_aero_moment])); end
     if length(pulleys) > 0; get_pulley_state = getu(sys, c.([sys.pulley_len, sys.pulley_vel])); end
     if length(winches) > 0
-        get_winch_state = getu(sys, c.([sys.tether_len, sys.tether_vel, sys.tether_acc,
-                                       sys.set_values, sys.winch_force_vec, sys.tau_friction]))
+        get_winch_state = getu(sys, c.([
+            sys.winch_acc, sys.winch_vel,
+            sys.set_values, sys.winch_force_vec,
+            sys.tau_friction]))
         set_set_values = setp(sys, sys.set_values)
         get_set_values = getp(sys, sys.set_values)
     end
-    if length(tethers) > 0; get_tether_state = getu(sys, c(sys.stretched_len)); end
+    if length(tethers) > 0
+        get_tether_state = getu(sys, c.([
+            sys.tether_len,
+            sys.stretched_len]))
+    end
     set_sys = setp(sys, sys.psys)
     set_set = setp(sys, sys.pset)
     get_struct_state = getu(sys, sys.wind_vec_gnd)
@@ -288,6 +294,12 @@ This is the main entry point for setting up the model. It handles:
                    Vortex Step Method (VSM) after initialization.
 - `remake_vsm::Bool`: Recreate VSM wing and aerodynamics from settings (useful after
                       modifying aero_geometry.yaml or other VSM settings).
+- `apply_transforms::Bool`: Whether to apply spatial transforms
+                           (translate, rotate, heading) during initialization.
+                           Set to `false` to skip transform application.
+- `apply_tether_lengths::Bool`: Whether to scale point positions to match
+                             `tether.init_stretched_len`. Set to `false`
+                             to keep point positions from CAD geometry.
 
 # Returns
 - The initialized `ODEIntegrator`.
@@ -303,6 +315,8 @@ function init!(sam::SymbolicAWEModel;
     ignore_l0::Bool=false,
     remake_vsm::Bool=true,
     reset_vel::Bool=true,
+    apply_transforms::Bool=true,
+    apply_tether_lengths::Bool=true,
     tunable_params::Bool=false
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
@@ -367,7 +381,8 @@ function init!(sam::SymbolicAWEModel;
         end
 
         reinit!(sam.sys_struct, sam.set;
-                ignore_l0, remake_vsm, reset_vel)
+                ignore_l0, remake_vsm, reset_vel,
+                apply_transforms, apply_tether_lengths)
         # When reset_vel=false, state-dependent u0 changed;
         # force ODEProblem recreation to pick up new defaults.
         if !reset_vel && !isnothing(sam.prob)

@@ -5,7 +5,6 @@
 Utility functions for SystemStructure.
 
 This file contains:
-- Tether creation helpers
 - Validation functions
 - reinit! for SystemStructure
 - State copy and update functions
@@ -37,87 +36,8 @@ function segment_world_length(segment::Segment, points)
     return norm(p1.pos_w - p2.pos_w)
 end
 
-"""
-    autocalc_tether_len(winch::Winch, tethers, segments)
 
-Average unstretched tether length across all tethers connected
-to this winch (sum of segment `l0` per tether, then average).
-"""
-function autocalc_tether_len(winch::Winch, tethers, segments)
-    n = length(winch.tether_idxs)
-    return sum(segments[seg_idx].l0
-               for tether_idx in winch.tether_idxs
-               for seg_idx in tethers[tether_idx].segment_idxs) / n
-end
 
-# ==================== TETHER CREATION ==================== #
-
-"""
-    create_tether(tether_idx, set, points, segments,
-                  tethers, attach_point, dynamics_type;
-                  z, unit_stiffness, unit_damping)
-
-Procedurally create a multi-segment tether.
-
-This function builds a tether from a specified number of
-segments, connecting a given `attach_point` on the kite to
-a new anchor point on the ground.
-"""
-function create_tether(tether_idx, set, points, segments,
-                       tethers, attach_point,
-                       dynamics_type; z=[0,0,1],
-                       unit_stiffness=NaN,
-                       unit_damping=NaN, d_pos=zeros(3))
-    winch_pos = find_axis_point(
-        attach_point.pos_cad, set.l_tether, z) .+ d_pos
-    dir = winch_pos - attach_point.pos_cad
-    segment_idxs = Int64[]
-    ground_point_idx = 0
-    for i in 1:set.segments
-        frac = i / set.segments
-        pos = attach_point.pos_cad + frac * dir
-        point_idx = length(points) + 1
-        segment_idx = length(segments) + 1
-        if i == 1
-            last_idx = attach_point.idx
-        else
-            last_idx = point_idx - 1
-        end
-        if i == set.segments
-            points = [points;
-                Point(point_idx, pos, STATIC)]
-            ground_point_idx = points[end].idx
-        else
-            points = [points;
-                Point(point_idx, pos, dynamics_type)]
-        end
-        segments = [segments;
-            Segment(segment_idx, set, last_idx,
-                    point_idx;
-                    unit_stiffness, unit_damping)]
-        push!(segment_idxs, segment_idx)
-    end
-    tethers = [tethers;
-        Tether(tether_idx, segment_idxs)]
-    return (points, segments, tethers,
-            tethers[end].idx, ground_point_idx)
-end
-
-"""
-    find_axis_point(P, l, v=[0,0,1])
-
-Calculate the coordinates of a point `Q` that lies on a line defined by vector `v`
-and is at a distance `l` from a given point `P`.
-"""
-function find_axis_point(P, l, v=[0,0,1])
-    # Compute discriminant
-    D = (v ⋅ P)^2 - norm(v)^2 * (norm(P)^2 - l^2)
-    D < 0 && error("No real solution: l is too small or parameters invalid")
-    # Solve quadratic for t, choose solution for negative direction
-    t = (v ⋅ P - √D) / norm(v)^2
-    # Compute point Q = t * v
-    return [t * v[1], t * v[2], t * v[3]]
-end
 
 # ==================== VALIDATION ==================== #
 
@@ -325,65 +245,66 @@ end
 # ==================== TETHER INIT LEN ==================== #
 
 """
-    apply_tether_init_lens!(sys_struct::SystemStructure)
+    apply_tether_init_stretched_lens!(sys_struct::SystemStructure)
 
-Scale tether point positions in `pos_w` to match each tether's `init_len`.
-Must be called after `copy_cad_to_world!` (so `pos_w == pos_cad` at entry).
+Scale tether point positions in `pos_w` to match each tether's
+`init_stretched_len`. Must be called after `copy_cad_to_world!`
+(so `pos_w == pos_cad` at entry).
 
-For each tether with a non-nothing `init_len`:
-1. Scales all tether points (except start) radially from the start point.
-2. Updates `segment.l0` for the tether's segments.
-3. Sets `winch.tether_len = init_len` for any connected winch.
-4. Propagates the end-point displacement via BFS through non-tether segments,
-   translating downstream `pos_w` by the same delta.
+For each tether with a non-nothing `init_stretched_len`:
+1. Scales all tether points (except start) radially from the
+   start point.
+2. Propagates the end-point displacement via BFS through
+   non-tether segments, translating downstream `pos_w` by the
+   same delta.
 
-Raises an error if a downstream non-tether segment connects back to the
-tether's start point (would create an unsolvable constraint).
+Note: segment `l0` values are NOT updated here — they are set
+from `tether.len` by the ODE equations.
+
+Raises an error if a downstream non-tether segment connects back
+to the tether's start point (would create an unsolvable
+constraint).
 """
-function apply_tether_init_lens!(sys_struct::SystemStructure)
-    @unpack points, segments, tethers, winches = sys_struct
+function apply_tether_init_stretched_lens!(
+    sys_struct::SystemStructure
+)
+    @unpack points, segments, tethers = sys_struct
 
     for tether in tethers
-        isnothing(tether.init_len) && continue
+        isnothing(tether.init_stretched_len) && continue
 
         # Ordered point list: start → intermediates → end
         tether_point_idxs = Int64[tether.start_point_idx]
         for seg_idx in tether.segment_idxs
-            push!(tether_point_idxs, segments[seg_idx].point_idxs[2])
-        end
-
-        # Always set winch tether_len when init_len is specified,
-        # even if no geometric scaling is needed
-        for winch in winches
-            tether.idx in winch.tether_idxs || continue
-            winch.tether_len = tether.init_len
+            push!(tether_point_idxs,
+                segments[seg_idx].point_idxs[2])
         end
 
         current_len = sum(
             segment_world_length(segments[si], points)
             for si in tether.segment_idxs)
-        current_len ≈ tether.init_len && continue
+        target = tether.init_stretched_len
+        current_len ≈ target && continue
         current_len > 0 || error(
             "Tether $(tether.name): current length " *
-            "is zero, cannot scale to init_len")
+            "is zero, cannot scale to " *
+            "init_stretched_len")
 
-        scale = tether.init_len / current_len
-        start_pos = copy(points[tether.start_point_idx].pos_w)
-        old_end_pos = copy(points[tether.end_point_idx].pos_w)
+        scale = target / current_len
+        start_pos = copy(
+            points[tether.start_point_idx].pos_w)
+        old_end_pos = copy(
+            points[tether.end_point_idx].pos_w)
 
         # Scale non-start tether points in pos_w
         for point_idx in tether_point_idxs[2:end]
             pt = points[point_idx]
-            pt.pos_w .= start_pos .+ scale .* (pt.pos_w .- start_pos)
+            pt.pos_w .= start_pos .+
+                scale .* (pt.pos_w .- start_pos)
         end
 
-        # Update segment l0 to match new positions
-        for seg_idx in tether.segment_idxs
-            seg = segments[seg_idx]
-            seg.l0 = segment_world_length(seg, points)
-        end
-
-        delta = points[tether.end_point_idx].pos_w .- old_end_pos
+        delta = points[tether.end_point_idx].pos_w .-
+            old_end_pos
 
         # BFS from end point through non-tether segments;
         # translate downstream pos_w by delta
@@ -403,12 +324,12 @@ function apply_tether_init_lens!(sys_struct::SystemStructure)
                 else
                     continue
                 end
-                # Check start point before visited: start is in visited
-                # but we still want to detect loops back to it
                 if neighbor_idx == tether.start_point_idx
-                    error("Tether $(tether.name): downstream structure " *
-                          "connects back to tether start point. " *
-                          "Cannot apply init_len scaling.")
+                    error("Tether $(tether.name): " *
+                          "downstream structure " *
+                          "connects back to tether " *
+                          "start point. Cannot apply " *
+                          "init_stretched_len scaling.")
                 end
                 neighbor_idx in visited && continue
                 points[neighbor_idx].pos_w .+= delta
@@ -438,14 +359,24 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 - `remake_vsm::Bool=false`: If true, recreate VSM wing, aerodynamics, and solver from settings.
   This is useful after modifying `aero_geometry.yaml` or other VSM-related configuration files.
   For REFINE wings, also rebuilds the `point_to_vsm_point` mapping.
+- `apply_transforms::Bool=true`: If false, skip applying spatial transforms
+  (translate, rotate, heading) during reinitialization.
+- `apply_tether_lengths::Bool=true`: If false, skip scaling point positions
+  to match `tether.init_stretched_len`.
 """
 function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
-                 reset_vel::Bool=true)
+                 reset_vel::Bool=true, apply_transforms::Bool=true,
+                 apply_tether_lengths::Bool=true)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
+    # Reset tether len to initial values
+    for tether in tethers
+        tether.len = tether.init_unstretched_len
+    end
+    # Reset winch velocity to initial value
     for winch in winches
-        winch.tether_vel = winch.init_vel
+        winch.vel = winch.init_vel
     end
 
     for group in groups
@@ -453,13 +384,16 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         group.twist_ω = 0.0
     end
 
-    # Transforms are not updated from Settings - YAML structure geometry has priority
+    # Transforms are not updated from Settings -
+    # YAML structure geometry has priority
 
-    # Step 1: copy CAD geometry to world frame (all points and wings)
+    # Step 1: copy CAD geometry to world frame
     copy_cad_to_world!(points, wings; update_vel=reset_vel)
 
-    # Step 2: apply tether initial lengths (scales pos_w; pos_cad unchanged)
-    apply_tether_init_lens!(sys_struct)
+    # Step 2: apply stretched lengths (scales pos_w)
+    if apply_tether_lengths
+        apply_tether_init_stretched_lens!(sys_struct)
+    end
 
     # Step 3: compute segment lengths from pos_w
     for segment in segments
@@ -468,13 +402,15 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         segment.len = len
     end
 
-    # Step 4: set winch tether_len from segment l0s
-    # (skip if init_len already set it in apply_tether_init_lens!)
-    for winch in winches
-        any(!isnothing(tethers[ti].init_len)
-            for ti in winch.tether_idxs) && continue
-        winch.tether_len = autocalc_tether_len(
-            winch, tethers, segments)
+    # Step 3b: sync tether segment l0 from tether.len
+    # (matches ODE equation: l0 = tether_len / n_segments)
+    for tether in tethers
+        n = length(tether.segment_idxs)
+        n == 0 && continue
+        l0 = tether.len / n
+        for si in tether.segment_idxs
+            segments[si].l0 = l0
+        end
     end
 
     for pulley in pulleys
@@ -502,8 +438,11 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     sys_struct.wind_vec_gnd .= max(wind_scale_gnd, 1e-6) * wind_vec_rotated
 
     # Step 5: apply transforms (translate/rotate/heading);
-    # pos_w already initialized by copy_cad_to_world! + apply_tether_init_lens!
-    reinit!(transforms, sys_struct; update_vel=reset_vel)
+    # pos_w already initialized by copy_cad_to_world! +
+    # apply_tether_init_stretched_lens!
+    if apply_transforms
+        reinit!(transforms, sys_struct; update_vel=reset_vel)
+    end
 
     # Recreate VSM wing and aero if requested
     if remake_vsm
@@ -631,7 +570,6 @@ The function handles several cases:
 - It also copies the state of wings, groups, winches, and pulleys where applicable.
 """
 function copy!(sys1::SystemStructure, sys2::SystemStructure)
-    simple = false
 
     # copy point pos and vel
     if length(sys1.points) > 0
@@ -666,7 +604,6 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
                     sys2.points[point_idxs2[2]].vel_w .= sys1.points[point_idxs1[2]].vel_w
                     sys2.points[point_idxs2[1]].disturb .= sys1.points[point_idxs1[1]].disturb
                     sys2.points[point_idxs2[2]].disturb .= sys1.points[point_idxs1[2]].disturb
-                    simple = true
                 end
             end
         end
@@ -680,27 +617,21 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
         end
     end
 
-    # copy winch tether lengths and velocities
-    if length(sys1.winches) > 0 && length(sys1.winches) == length(sys2.winches)
-        for (winch2, winch1) in zip(sys2.winches, sys1.winches)
-            if !simple
-                winch2.tether_len = winch1.tether_len
-                winch2.tether_vel = winch1.tether_vel
-            else
-                tether_len_acc = 0.0
-                for tether_idx in winch1.tether_idxs
-                    tether2 = sys2.tethers[tether_idx]
-                    segment2 = sys2.segments[tether2.segment_idxs[1]]
-                    point_idxs2 = segment2.point_idxs
-                    slen = norm(sys2.points[point_idxs2[1]].pos_w .-
-                                        sys2.points[point_idxs2[2]].pos_w)
-                    stiffness = segment2.unit_stiffness / slen
-                    nt = length(winch1.tether_idxs)
-                    tether_len_acc += (slen - norm(winch1.force)/stiffness/nt) / nt
-                end
-                winch2.tether_len = tether_len_acc
-                winch2.tether_vel = winch1.tether_vel
-            end
+    # copy tether lengths
+    if length(sys1.tethers) > 0 &&
+       length(sys1.tethers) == length(sys2.tethers)
+        for (tether2, tether1) in
+                zip(sys2.tethers, sys1.tethers)
+            tether2.len = tether1.len
+        end
+    end
+
+    # copy winch velocities
+    if length(sys1.winches) > 0 &&
+       length(sys1.winches) == length(sys2.winches)
+        for (winch2, winch1) in
+                zip(sys2.winches, sys1.winches)
+            winch2.vel = winch1.vel
         end
     end
 
@@ -764,7 +695,7 @@ plot(sys)
 - The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
 """
 function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
-    @unpack points, groups, winches, wings = sys
+    @unpack points, groups, tethers, winches, wings = sys
 
     # Calculate expected total points (regular points + panel corners)
     n_points = length(points)
@@ -841,17 +772,20 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         end
     end
 
-    # Update winch state
-    n_winches = min(length(winches), 4)  # SysState stores up to 4 winches
+    # Update tether lengths from SysState (per-tether)
+    for (ti, tether) in enumerate(tethers)
+        ti > 4 && break
+        tether.len = Float64(ss.l_tether[ti])
+    end
+
+    # Update winch state from SysState (per-winch)
+    n_winches = min(length(winches), 4)
     for i in 1:n_winches
-        if i <= length(winches)
-            winches[i].tether_len = Float64(ss.l_tether[i])
-            winches[i].tether_vel = Float64(ss.v_reelout[i])
-            winches[i].force .= NaN  # Force not directly available
-            winches[i].friction = NaN
-            winches[i].tether_acc = 0.0
-            winches[i].set_value = Float64(ss.set_torque[i])
-        end
+        winches[i].force .= NaN
+        winches[i].friction = NaN
+        winches[i].acc = 0.0
+        winches[i].vel = Float64(ss.v_reelout[i])
+        winches[i].set_value = Float64(ss.set_torque[i])
     end
 
     # Update VSM panel corner positions from world frame back to body frame

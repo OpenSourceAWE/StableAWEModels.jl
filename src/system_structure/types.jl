@@ -513,30 +513,47 @@ mutable struct Tether
     const diameter::SimFloat
     "Current stretched length [m] (updated during simulation)."
     stretched_len::SimFloat
-    "Initial tether length [m]. Applied to `pos_w` before transforms. `nothing` = use CAD length."
-    init_len::Union{SimFloat, Nothing}
+    """Unstretched tether length [m] (sum of segment l0).
+    ODE state variable. Segment l0 = len / n_segments."""
+    len::SimFloat
+    """Initial unstretched length [m]. Used by `reinit!`
+    to reset `len`. Segment l0 = init_unstretched_len /
+    n_segments."""
+    init_unstretched_len::SimFloat
+    """Initial stretched length [m]. Point positions scaled
+    to this value by `apply_tether_init_stretched_lens!`.
+    `nothing` = use CAD length."""
+    init_stretched_len::Union{SimFloat, Nothing}
 end
 
 """
-    Tether(name, segments; start_point=nothing, end_point=nothing)
+    Tether(name, segments, unstretched_length;
+           start_point=nothing, end_point=nothing,
+           stretched_length=nothing)
 
 Route 1: Construct a `Tether` from explicit segment references.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the tether.
 - `segments::Vector`: References to segments (names or indices).
+- `unstretched_length`: Rope length [m]. Sets
+  segment l0 = unstretched_length / n_segments.
 
 # Keyword Arguments
-- `start_point=nothing`: Optional start point ref (for validation).
-- `end_point=nothing`: Optional end point ref (for validation).
+- `start_point=nothing`: Optional start point ref.
+- `end_point=nothing`: Optional end point ref.
+- `stretched_length=nothing`: Point positioning target
+  [m]. `nothing` = skip position scaling.
 """
-function Tether(name, segments;
+function Tether(name, segments, unstretched_length;
                 start_point=nothing, end_point=nothing,
-                winch_point=nothing, initial_tether_length=nothing)
+                winch_point=nothing,
+                stretched_length=nothing)
     if !isnothing(winch_point)
-        error("`winch_point` moved from Tether to Winch. " *
-              "Use Tether(name, segments) and pass " *
-              "winch_point to the Winch constructor.")
+        error("`winch_point` moved from Tether to " *
+              "Winch. Use Tether(name, segments, " *
+              "len) and pass winch_point to the " *
+              "Winch constructor.")
     end
     segment_refs = Vector{NameRef}(
         [s isa Integer ? Int(s) : Symbol(s) for s in segments])
@@ -546,23 +563,29 @@ function Tether(name, segments;
     ep = isnothing(end_point) ? nothing :
         (end_point isa Integer ? Int(end_point) :
          Symbol(end_point))
-    il = isnothing(initial_tether_length) ? nothing :
-        SimFloat(initial_tether_length)
+    isl = isnothing(stretched_length) ? nothing :
+        SimFloat(stretched_length)
+    il = SimFloat(unstretched_length)
     return Tether(0, name, Int64[], segment_refs,
                   0, sp, 0, ep,
                   length(segments),
-                  NaN, NaN, NaN, 0.0, il)
+                  NaN, NaN, NaN, 0.0,
+                  il, il, isl)
 end
 
 """
-    Tether(name; start_point, end_point, n_segments,
-           unit_stiffness=NaN, unit_damping=NaN, diameter=NaN)
+    Tether(name, unstretched_length;
+           start_point, end_point, n_segments,
+           unit_stiffness=NaN, unit_damping=NaN,
+           diameter=NaN, stretched_length=nothing)
 
 Route 2: Construct a `Tether` for auto-generation of intermediate
 points and segments by `expand_auto_tethers!`.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the tether.
+- `unstretched_length`: Rope length [m]. Sets
+  segment l0 = unstretched_length / n_segments.
 
 # Keyword Arguments
 - `start_point`: Reference to the start point (required).
@@ -574,24 +597,29 @@ points and segments by `expand_auto_tethers!`.
   NaN = derive from Settings during auto-expansion.
 - `diameter::Float64=NaN`: Tether diameter [m].
   NaN = derive from Settings during auto-expansion.
+- `stretched_length=nothing`: Point positioning target
+  [m]. `nothing` = skip position scaling.
 """
-function Tether(name; start_point, end_point, n_segments,
+function Tether(name, unstretched_length;
+                start_point, end_point, n_segments,
                 unit_stiffness=NaN, unit_damping=NaN,
-                diameter=NaN, initial_tether_length=nothing)
+                diameter=NaN, stretched_length=nothing)
     sp = start_point isa Integer ? Int(start_point) :
          Symbol(start_point)
     ep = end_point isa Integer ? Int(end_point) :
          Symbol(end_point)
     seg_refs = Vector{NameRef}(
         [Symbol("$(name)_seg_$i") for i in 1:n_segments])
-    il = isnothing(initial_tether_length) ? nothing :
-        SimFloat(initial_tether_length)
+    isl = isnothing(stretched_length) ? nothing :
+        SimFloat(stretched_length)
+    il = SimFloat(unstretched_length)
     return Tether(0, name, Int64[], seg_refs,
                   0, sp, 0, ep,
                   Int64(n_segments),
                   Float64(unit_stiffness),
                   Float64(unit_damping),
-                  Float64(diameter), 0.0, il)
+                  Float64(diameter), 0.0,
+                  il, il, isl)
 end
 
 # ==================== WINCH ==================== #
@@ -616,14 +644,12 @@ mutable struct Winch
     winch_point_idx::Int64
     "Raw winch point reference (name or index)."
     const winch_point_ref::NameRef
-    "Current tether length [m] (updated during simulation)."
-    tether_len::Union{SimFloat, Nothing}
-    "Current reel-out velocity [m/s]."
-    tether_vel::SimFloat
     "Initial reel-out velocity [m/s]. Applied on reinit!."
     init_vel::SimFloat
-    "Current reel-out acceleration [m/s²]."
-    tether_acc::SimFloat
+    "Current reel-out velocity [m/s]. ODE state variable."
+    vel::SimFloat
+    "Current winch acceleration [m/s²] from motor dynamics."
+    acc::SimFloat
     "Control input value (torque [N·m] or speed [m/s])."
     set_value::SimFloat
     "If true, brake is engaged."
@@ -663,8 +689,7 @@ torque or speed regulation.
 # Keyword Arguments
 - `winch_point`: Reference to the ground attachment point
   (name or index). Required.
-- `tether_len::SimFloat=0.0`: Initial tether length [m].
-- `tether_vel::SimFloat=0.0`: Initial reel-out rate [m/s].
+- `init_vel::SimFloat=0.0`: Initial reel-out rate [m/s].
 - `brake::Bool=false`: If true, brake is engaged.
 - `speed_controlled::Bool=false`: If true, velocity is
   prescribed (not integrated).
@@ -673,14 +698,14 @@ torque or speed regulation.
 """
 function Winch(name, set::Settings, tethers;
                winch_point,
-               tether_len=0.0, tether_vel=0.0, brake=false,
+               init_vel=0.0, brake=false,
                speed_controlled=false, friction_epsilon=6.0)
     tether_refs = Vector{NameRef}(
         [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     wp = winch_point isa Integer ? Int(winch_point) :
          Symbol(winch_point)
     return Winch(0, name, Int64[], tether_refs, 0, wp,
-                 tether_len, tether_vel, tether_vel,
+                 init_vel, 0.0,
                  0.0, 0.0,
                  brake, speed_controlled, zeros(KVec3),
                  set.gear_ratio, set.drum_radius,
@@ -703,18 +728,19 @@ Constructs a `Winch` by directly providing physical parameters.
 
 # Keyword Arguments
 - `winch_point`: Reference to ground attachment point. Required.
+- `init_vel::SimFloat=0.0`: Initial reel-out rate [m/s].
 """
 function Winch(name, tethers, gear_ratio, drum_radius,
                f_coulomb, c_vf, inertia_total;
                winch_point,
-               tether_len=0.0, tether_vel=0.0, brake=false,
+               init_vel=0.0, brake=false,
                speed_controlled=false, friction_epsilon=6.0)
     tether_refs = Vector{NameRef}(
         [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     wp = winch_point isa Integer ? Int(winch_point) :
          Symbol(winch_point)
     return Winch(0, name, Int64[], tether_refs, 0, wp,
-                 tether_len, tether_vel, tether_vel,
+                 init_vel, 0.0,
                  0.0, 0.0,
                  brake, speed_controlled, zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb,

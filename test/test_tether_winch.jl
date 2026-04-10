@@ -45,9 +45,9 @@ segments:
        0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, segment_idxs]
+  headers: [name, segment_idxs, init_unstretched_length]
   data:
-    - [main_tether, [tether_seg]]
+    - [main_tether, [tether_seg], 50.0]
 
 winches:
   headers: [name, tether_idxs, winch_point]
@@ -123,6 +123,7 @@ environment:
     init!(sam; remake=true, prn=false)
 
     winch = sam.sys_struct.winches[:main_winch]
+    tether = sam.sys_struct.tethers[:main_tether]
     seg = sam.sys_struct.segments[:tether_seg]
     r = winch.drum_radius   # 0.1 m
     n = winch.gear_ratio     # 1.0
@@ -144,7 +145,7 @@ environment:
             next_step!(sam; set_values=[tau_motor],
                        dt=0.001, vsm_interval=0)
         end
-        @test abs(winch.tether_vel) < 1e-10
+        @test abs(winch.vel) < 1e-10
     end
 
     # ============================================================
@@ -172,7 +173,7 @@ environment:
             end
 
             # v(t) = a*t, so a = v / t
-            a_measured = winch.tether_vel / (n_steps * dt)
+            a_measured = winch.vel / (n_steps * dt)
             a_expected = (r / n) * tau_motor / I_test
 
             @test a_measured ≈ a_expected rtol=0.05
@@ -205,7 +206,7 @@ environment:
                 next_step!(sam; set_values=[tau_motor],
                            dt=dt, vsm_interval=0)
             end
-            v0 = winch.tether_vel
+            v0 = winch.vel
 
             # Measure acceleration over next steps
             n_meas = 20
@@ -213,7 +214,7 @@ environment:
                 next_step!(sam; set_values=[tau_motor],
                            dt=dt, vsm_interval=0)
             end
-            v1 = winch.tether_vel
+            v1 = winch.vel
 
             a_measured = (v1 - v0) / (n_meas * dt)
             a_expected = (r / n) / I *
@@ -255,7 +256,7 @@ environment:
             end
 
             v_expected = tau_motor * n / (c_vf_test * r)
-            @test winch.tether_vel ≈ v_expected rtol=0.05
+            @test winch.vel ≈ v_expected rtol=0.05
         end
     end
 
@@ -336,7 +337,7 @@ environment:
         end
 
         steady = calc_steady_torque(sam)
-        @test sam.sys_struct.winches[1].tether_acc ≈ 0.0 atol=0.01
+        @test sam.sys_struct.winches[1].acc ≈ 0.0 atol=0.01
         @test steady[1] ≈ tau_motor rtol=0.01
 
         println(
@@ -371,7 +372,7 @@ environment:
 
         # Route 2: auto-generate 4 segments between mass
         # and anchor
-        tethers = [Tether(:line;
+        tethers = [Tether(:line, 100.0;
             start_point=:mass, end_point=:anchor,
             n_segments=4)]
         winches = [Winch(:winch, set, [:line];
@@ -475,7 +476,7 @@ environment:
             Segment(:seg, :top, :bot, 50000.0, 500.0,
                     0.001; l0=50.0)
         ]
-        tethers = [Tether(:free_tether, [:seg])]
+        tethers = [Tether(:free_tether, [:seg], 50.0)]
         transforms = [
             Transform(:tf, deg2rad(-80.0), 0.0, 0.0;
                 base_pos=[0, 0, 0], base_point=:bot,

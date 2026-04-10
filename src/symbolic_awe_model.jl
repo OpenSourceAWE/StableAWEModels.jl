@@ -262,13 +262,16 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     @unpack points, groups, segments, pulleys, winches, wings = sam.sys_struct
 
     # Get the state vectors from the integrator
-    if length(winches) > 0
-        for winch in winches
-            ss.l_tether[winch.idx] = winch.tether_len
-            ss.v_reelout[winch.idx] = winch.tether_vel
-            ss.winch_force[winch.idx] = norm(winch.force)
-            ss.set_torque[winch.idx] = winch.set_value
-        end
+    @unpack tethers = sam.sys_struct
+    for (ti, tether) in enumerate(tethers)
+        ti > 4 && break
+        ss.l_tether[ti] = tether.len
+    end
+    for winch in winches
+        isempty(winch.tether_idxs) && continue
+        ss.v_reelout[winch.idx] = winch.vel
+        ss.winch_force[winch.idx] = norm(winch.force)
+        ss.set_torque[winch.idx] = winch.set_value
     end
     if length(groups) > 0
         # Only fill up to the size of ss.twist_angles (typically 4)
@@ -512,10 +515,12 @@ function update_sys_struct!(prob::ProbWithAttributes,
         end
     end
     if length(segments) > 0
-        spring_force, len = prob.get_segment_state(integ)
+        spring_force, len, l0_arr =
+            prob.get_segment_state(integ)
         for segment in segments
             segment.force = spring_force[segment.idx]
             segment.len = len[segment.idx]
+            segment.l0 = l0_arr[segment.idx]
         end
     end
     if length(groups) > 0
@@ -529,21 +534,24 @@ function update_sys_struct!(prob::ProbWithAttributes,
         end
     end
     if length(winches) > 0
-        tether_len, tether_vel, tether_acc, set_value, winch_force_vec, friction =
+        winch_acc, winch_vel_arr, set_value,
+            winch_force_vec, friction =
             prob.get_winch_state(integ)
         for winch in winches
-            winch.tether_len = tether_len[winch.idx]
-            winch.tether_vel = tether_vel[winch.idx]
-            winch.tether_acc = tether_acc[winch.idx]
+            winch.acc = winch_acc[winch.idx]
+            winch.vel = winch_vel_arr[winch.idx]
             winch.set_value = set_value[winch.idx]
             winch.force .= winch_force_vec[:, winch.idx]
             winch.friction = friction[winch.idx]
         end
     end
     if length(tethers) > 0
-        stretched_len = prob.get_tether_state(integ)
+        tether_len, stretched_len =
+            prob.get_tether_state(integ)
         for tether in tethers
-            tether.stretched_len = stretched_len[tether.idx]
+            tether.len = tether_len[tether.idx]
+            tether.stretched_len =
+                stretched_len[tether.idx]
         end
     end
     if length(wings) > 0
@@ -673,23 +681,22 @@ function calc_steady_torque(sys_struct::SystemStructure)
 end
 
 """
-    calc_winch_force(tether_vel, tether_acc, motor_torque, set)
+    calc_winch_force(sys, winch_vel, winch_acc, set_values)
 
-Calculate the tensile force on the winch tether based on its motion and motor torque.
-
-This function uses a settings object to define the physical parameters of the winch.
+Calculate the tensile force on each winch tether from its
+motion and motor torque.
 
 # Arguments
-- `tether_vel`: The velocity of the tether [m/s].
-- `tether_acc`: The acceleration of the tether [m/s²].
-- `motor_torque`: The torque applied by the motor [Nm].
-- `set`: A settings struct.
+- `sys::SystemStructure`: System structure with winch params.
+- `winch_vel`: Winch velocities [m/s] per winch.
+- `winch_acc`: Winch accelerations [m/s²] per winch.
+- `set_values`: Motor torque inputs [Nm] per winch.
 
 # Returns
-- The calculated force on the winch tether [N].
+- Vector of winch forces [N].
 """
 function calc_winch_force(sys::SystemStructure,
-        tether_vel, tether_acc, set_values)
+        winch_vel, winch_acc, set_values)
     winches = sys.winches
     smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
     winch_force = zeros(length(winches))
@@ -697,16 +704,18 @@ function calc_winch_force(sys::SystemStructure,
         @unpack gear_ratio, drum_radius, f_coulomb,
             c_vf, inertia_total,
             friction_epsilon = winches[i]
-        ω_motor = gear_ratio / drum_radius * tether_vel[i]
+        ω_motor = gear_ratio / drum_radius *
+            winch_vel[i]
         tau_friction =
             smooth_sign(ω_motor, friction_epsilon) *
             f_coulomb * drum_radius / gear_ratio +
             c_vf * ω_motor *
             drum_radius^2 / gear_ratio^2
-        tau_motor = set_values[i] # set_value is the motor torque
-        α_motor = tether_acc[i] / drum_radius * gear_ratio
+        tau_motor = set_values[i]
+        α_motor = winch_acc[i] / drum_radius * gear_ratio
         tau_total = α_motor * inertia_total
-        winch_force[i] = (-tau_motor + tau_total + tau_friction) / drum_radius * gear_ratio
+        winch_force[i] = (-tau_motor + tau_total +
+            tau_friction) / drum_radius * gear_ratio
     end
     return winch_force
 end
@@ -727,9 +736,9 @@ end
 """
     unstretched_length(s::SymbolicAWEModel)
 
-Returns the unstretched tether length [m] for each winch.
+Returns the unstretched tether length [m] for each tether.
 """
-unstretched_length(sam::SymbolicAWEModel) = [winch.tether_len for winch in sam.sys_struct.winches]
+unstretched_length(sam::SymbolicAWEModel) = [tether.len for tether in sam.sys_struct.tethers]
 
 """
     tether_length(s::SymbolicAWEModel)
@@ -797,7 +806,7 @@ Sets the kite's depower and steering by adjusting the tether length set-points.
 """
 function set_depower_steering!(sam::SymbolicAWEModel, depower, steering)
     len = sam.set_tether_len
-    len .= [winch.tether_len for winch in sam.sys_struct.winches]
+    len .= [tether.len for tether in sam.sys_struct.tethers]
     depower *= min_chord_len(sam)
     steering *= min_chord_len(sam)
     len[2] = 0.5 * (2*depower + 2*len[1] + steering)
