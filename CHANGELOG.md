@@ -30,6 +30,7 @@ SPDX-License-Identifier: MPL-2.0
   stiffness ratio (0-1). 0 = no compression stiffness."
 - `init!`, `next_step!`, `update_sys_state!` are no longer exported and must be imported from `KiteUtils`
 - fixed most `JETLS` warnings for improved robustness and performance
+- the script `bin/run_julia` was updated to work also with Julia 1.12.6
 
 ## Added
 - Route 2 tether auto-generation: `Tether(name; start_point,
