@@ -10,9 +10,9 @@ const GetSetNothing = Union{AbstractIndexer, Nothing}
 A container for the main Ordinary Differential Equation (ODE) problem and its
 associated getter and setter functions for the full, nonlinear physical state.
 """
-@with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues, SetSet,
+@with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues,
                                   GetSetValues, GetWingState, GetVsmY, GetSegmentState,
-                                  GetWinchState, GetTetherState, GetStructState, GetPointState,
+                                  GetWinchState, GetTetherState, GetPointState,
                                   GetPulleyState, GetGroupState}
     "The ODE problem for the full nonlinear model."
     prob::Prob
@@ -22,8 +22,6 @@ associated getter and setter functions for the full, nonlinear physical state.
     set_sys::SetSys
     "Setter for the control input values."
     set_set_values::SetSetValues
-    "Setter for general settings."
-    set_set::SetSet
 
     # Getters for the ODE state
     get_set_values::GetSetValues
@@ -32,7 +30,6 @@ associated getter and setter functions for the full, nonlinear physical state.
     get_segment_state::GetSegmentState
     get_winch_state::GetWinchState
     get_tether_state::GetTetherState
-    get_struct_state::GetStructState
     get_point_state::GetPointState
     get_pulley_state::GetPulleyState
     get_group_state::GetGroupState
@@ -61,14 +58,13 @@ linearized model (A,B,C,D matrices).
 
 $(TYPEDFIELDS)
 """
-@with_kw struct LinProbWithAttributes{Prob, SetSetValues, SetSys, SetSet}
+@with_kw struct LinProbWithAttributes{Prob, SetSetValues, SetSys}
     "Linearization problem of the mtk model."
     prob::Prob
 
     # Setters for the linearization
     set_set_values::SetSetValues
     set_sys::SetSys
-    set_set::SetSet
 end
 
 """
@@ -153,8 +149,6 @@ Users typically interact with this model through high-level functions like
 $(TYPEDFIELDS)
 """
 @with_kw mutable struct SymbolicAWEModel{SS<:SystemStructure, SM<:SerializedModel} <: AbstractKiteModel
-    "Reference to the settings struct"
-    set::Settings
     "Reference to the point mass system with points, segments, pulleys and tethers"
     sys_struct::SS
     "Container for the compiled and serialized model components"
@@ -180,7 +174,7 @@ Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to
 delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
 to dispatch field access correctly.
 """
-const _SAM_FIELDS = (:set, :sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
+const _SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
 
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
@@ -191,7 +185,9 @@ components without explicitly referencing `sam.serialized_model`.
 """
 
 function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
-    if sym === :am
+    if sym === :set
+        getfield(sam, :sys_struct).set
+    elseif sym === :am
         getfield(sam, :sys_struct).am
     elseif sym in _SAM_FIELDS
         getfield(sam, sym)
@@ -208,7 +204,11 @@ This allows you to change properties of the compiled model as if they were
 fields of the `SymbolicAWEModel` itself.
 """
 function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
-    if sym in _SAM_FIELDS
+    if sym === :set
+        error("Cannot replace `set`: it is owned by `sys_struct` " *
+              "(const field). Mutate fields directly, " *
+              "e.g. `sam.set.wind_vec = ...`.")
+    elseif sym in _SAM_FIELDS
         setfield!(sam, sym, val)
     else
         setproperty!(getfield(sam, :serialized_model), sym, val)
@@ -232,15 +232,17 @@ physical layout of the kite system and prepares it for symbolic model generation
 - `SymbolicAWEModel`: A model ready for symbolic equation generation via [`init!`](@ref).
 """
 function SymbolicAWEModel(
-    set::Settings, 
+    set::Settings,
     sys_struct::SystemStructure;
     kwargs...
 )
+    @assert set === sys_struct.set "The `set` argument must be the" *
+        " same object as `sys_struct.set`"
     set_hash = get_set_hash(set)
     sys_struct_hash = get_sys_struct_hash(sys_struct)
     # Initialize with an empty, but now fully typed, SerializedModel.
     serialized_model = SerializedModel(; set_hash, sys_struct_hash)
-    return SymbolicAWEModel(; set, sys_struct, serialized_model, kwargs...)
+    return SymbolicAWEModel(; sys_struct, serialized_model, kwargs...)
 end
 
 """
@@ -350,7 +352,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
     end
 
-    ss.v_wind_gnd .= sam.sys_struct.wind_vec_gnd
+    ss.v_wind_gnd .= sam.set.wind_vec
     nothing
 end
 
@@ -609,7 +611,6 @@ function update_sys_struct!(prob::ProbWithAttributes,
             wing.ω_p .= ω_p_v[:, wing.idx]
         end
     end
-    sys_struct.wind_vec_gnd .= prob.get_struct_state(integ)
     return nothing
 end
 
@@ -633,9 +634,9 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     wing_types = [wing.wing_type for wing in sys_struct.wings]
     wing_type_str = if isempty(wing_types)
         "no_wing"
-    elseif all(wt -> wt == QUATERNION, wing_types)
+    elseif all(wt -> wt === QUATERNION, wing_types)
         "quat"
-    elseif all(wt -> wt == REFINE, wing_types)
+    elseif all(wt -> wt === REFINE, wing_types)
         "refine"
     else
         "mixed"
@@ -644,11 +645,11 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     aero_modes = [wing.aero_mode for wing in sys_struct.wings]
     aero_mode_str = if isempty(aero_modes)
         ""
-    elseif all(m -> m == AERO_LINEARIZED, aero_modes)
+    elseif all(m -> m === AERO_LINEARIZED, aero_modes)
         "lin"
-    elseif all(m -> m == AERO_DIRECT, aero_modes)
+    elseif all(m -> m === AERO_DIRECT, aero_modes)
         "dir"
-    elseif all(m -> m == AERO_NONE, aero_modes)
+    elseif all(m -> m === AERO_NONE, aero_modes)
         "none"
     else
         "mixed_aero_modes"
@@ -814,17 +815,3 @@ function set_depower_steering!(sam::SymbolicAWEModel, depower, steering)
     return nothing
 end
 
-"""
-    set_v_wind_ground!(s::SymbolicAWEModel, v_wind_gnd=s.set.v_wind, upwind_dir=-π/2)
-
-Sets the ground wind speed [m/s] and upwind direction [rad] in the model.
-"""
-function set_v_wind_ground!(sam::SymbolicAWEModel, v_wind_gnd=sam.set.v_wind, upwind_dir=-pi/2)
-    sam.set.v_wind = v_wind_gnd
-    sam.set.upwind_dir = rad2deg(upwind_dir)
-    local_prob = sam.prob
-    if local_prob isa ProbWithAttributes
-        local_prob.set_set(sam.integrator, sam.set)
-    end
-    return nothing
-end

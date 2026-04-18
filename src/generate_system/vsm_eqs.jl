@@ -84,7 +84,7 @@ function vsm_eqs!(
     end
 
     for wing in wings
-        if wing.wing_type == REFINE
+        if wing isa VSMWing && wing.wing_type == REFINE
             # ========== REFINE WING ==========
             afpb = aero_force_point_b::AbstractArray
             wing_points = [
@@ -178,7 +178,7 @@ function vsm_eqs!(
             nx_quat = 3 + 3 + n_un
 
             force_b = no_scale_aero_force_b[:, wing.idx]
-            wind_dir_b = sym_normalize(
+            wind_dir_b = smooth_normalize(
                 va_wing_b[:, wing.idx])
             drag_force_b =
                 (force_b ⋅ wind_dir_b) * wind_dir_b
@@ -225,8 +225,7 @@ function vsm_eqs!(
                     0.5 *
                     calc_rho(s.am,
                         wing_pos[3, wing.idx]) *
-                    norm(collect(
-                        va_wing_b[:, wing.idx]))^2
+                    smooth_norm(va_wing_b[:, wing.idx])^2
 
                 # Load linearization data from struct
                 prev_state_eqs

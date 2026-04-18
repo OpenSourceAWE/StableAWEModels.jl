@@ -45,8 +45,8 @@ function generate_prob_getters(sys_struct, sys)
 
         # vsm_input_state only exists for QUATERNION + AERO_LINEARIZED wings
         has_linearized = any(
-            w.wing_type == QUATERNION &&
-            w.aero_mode == AERO_LINEARIZED
+            w.wing_type === QUATERNION &&
+            w.aero_mode === AERO_LINEARIZED
             for w in sys_struct.wings)
         if has_linearized
             get_vsm_y = getu(sys, sys.vsm_input_state)
@@ -71,15 +71,13 @@ function generate_prob_getters(sys_struct, sys)
             sys.stretched_len]))
     end
     set_sys = setp(sys, sys.psys)
-    set_set = setp(sys, sys.pset)
-    get_struct_state = getu(sys, sys.wind_vec_gnd)
 
     # Always include va_point_b and point_mass in point_state (calculated for all points now)
     get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass]))
 
     return (; get_wing_state, get_vsm_y, get_segment_state, get_group_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
-            get_set_values, set_sys, set_set, get_struct_state, get_point_state)
+            get_set_values, set_sys, get_point_state)
 end
 
 """
@@ -92,7 +90,7 @@ Generate setter functions for the parameters of a linearized system.
 
 # Returns
 - A `NamedTuple` containing setter functions for the winch set-points (`set_set_values`),
-  the system structure parameters (`set_sys`), and the settings parameters (`set_set`).
+  and the system structure parameters (`set_sys`).
 """
 function generate_lin_getters(sys)
     set_set_values = nothing
@@ -100,8 +98,7 @@ function generate_lin_getters(sys)
         set_set_values = setp(sys, sys.set_values)
     end
     set_sys = setp(sys, sys.psys)
-    set_set = setp(sys, sys.pset)
-    return (; set_set_values, set_sys, set_set)
+    return (; set_set_values, set_sys)
 end
 
 """
@@ -195,8 +192,10 @@ the necessary getter/setter functions.
 """
 function maybe_create_prob!(sam; create_prob=true, prn=true)
     if create_prob && isnothing(sam.prob)
+        isnothing(sam.full_sys) && return false
+        full_sys = something(sam.full_sys)
         local sys
-        time = @elapsed @suppress_err sys = mtkcompile(sam.full_sys; inputs=sam.inputs)
+        time = @elapsed @suppress_err sys = mtkcompile(full_sys; inputs=sam.inputs)
         prn && println("\tSimplified the System for ODEProblem in $time seconds.")
 
         dt = SimFloat(1/sam.set.sample_freq)
@@ -229,8 +228,11 @@ Create and cache the `LinearizationProblem` if it does not exist or if the outpu
 """
 function maybe_create_lin_prob!(sam, outputs; create_lin_prob=true, prn=true)
     if create_lin_prob && isnothing(sam.lin_prob)
+        isnothing(sam.full_sys) && return false
+        isnothing(outputs) && return false
+        full_sys = something(sam.full_sys)
         time = @elapsed @suppress_err begin
-            lin_fun, lin_sys = linearization_function(sam.full_sys, [sam.inputs...], outputs;
+            lin_fun, lin_sys = linearization_function(full_sys, [sam.inputs...], outputs;
                                                     op=sam.defaults, guesses=sam.guesses)
             prob = LinearizationProblem(lin_fun, 0.0)
             getters = generate_lin_getters(lin_sys)
@@ -260,8 +262,11 @@ Create and cache the control functions if they do not exist or if the outputs ha
 """
 function maybe_create_control_functions!(sam, outputs; create_control_func=false, prn=true)
     if create_control_func && isnothing(sam.control_functions)
+        isnothing(sam.full_sys) && return false
+        isnothing(outputs) && return false
+        full_sys = something(sam.full_sys)
         inputs = [sam.inputs...]
-        time = @elapsed result = generate_control_funcs(sam.full_sys, inputs, outputs)
+        time = @elapsed result = generate_control_funcs(full_sys, inputs, outputs)
         sam.control_functions = ControlFuncWithAttributes(; result...)
         prn && println("\tCreated the control functions in $time seconds.")
         return true
@@ -317,7 +322,8 @@ function init!(sam::SymbolicAWEModel;
     reset_vel::Bool=true,
     apply_transforms::Bool=true,
     apply_tether_lengths::Bool=true,
-    tunable_params::Bool=false
+    tunable_params::Bool=false,
+    reinit_sys::Bool=true
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
     sam.sys_struct isa SystemStructure{VSMWing} || error(
@@ -373,16 +379,28 @@ function init!(sam::SymbolicAWEModel;
         changed |= outputs_changed
         changed |= maybe_create_prob!(sam; create_prob, prn)
         changed |= maybe_create_lin_prob!(sam, outputs; create_lin_prob, prn)
-        changed |= maybe_create_control_functions!(sam, outputs; create_control_func, prn)
+        changed |= maybe_create_control_functions!(sam, outputs;
+            create_control_func, prn)
+
+        # Update deserialized prob parameters to current sys_struct
+        # (sys_struct contains set, so set_sys covers both)
+        if !isnothing(sam.prob)
+            sam.prob.set_sys(sam.prob.prob, sam.sys_struct)
+        end
+        if !isnothing(sam.lin_prob)
+            sam.lin_prob.set_sys(sam.lin_prob.prob, sam.sys_struct)
+        end
 
         if changed
             prn && @info "Serializing model to: \n\t$model_path"
             serialize(model_path, sam.serialized_model)
         end
 
-        reinit!(sam.sys_struct, sam.set;
-                ignore_l0, remake_vsm, reset_vel,
-                apply_transforms, apply_tether_lengths)
+        if reinit_sys
+            reinit!(sam.sys_struct, sam.set;
+                    ignore_l0, remake_vsm, reset_vel,
+                    apply_transforms, apply_tether_lengths)
+        end
         # When reset_vel=false, state-dependent u0 changed;
         # force ODEProblem recreation to pick up new defaults.
         if !reset_vel && !isnothing(sam.prob)
@@ -391,26 +409,15 @@ function init!(sam::SymbolicAWEModel;
             changed |= maybe_create_prob!(sam;
                 create_prob, prn)
         end
-        create_prob && !isnothing(sam.prob) && reinit!(sam, sam.prob, solver; adaptive, reload, lin_vsm)
-        create_lin_prob && !isnothing(sam.lin_prob) && reinit!(sam, sam.lin_prob)
+        if create_prob && !isnothing(sam.prob)
+            prob = something(sam.prob)
+            reinit!(sam, prob, solver; adaptive, reload, lin_vsm)
+        end
     end
     prn && @info "$(sam.sys_struct.name) model initialized in $time seconds."
     return sam.integrator
 end
 
-"""
-    reinit!(sam::SymbolicAWEModel, lin_prob::ModelingToolkit.LinearizationProblem)
-
-Reinitializes a `LinearizationProblem` with the current system and settings parameters.
-
-This function updates the internal parameter vectors of the linearization problem
-with the latest values from the `SymbolicAWEModel`'s `sys_struct` and `set` fields.
-"""
-function reinit!(sam::SymbolicAWEModel, prob::LinProbWithAttributes)
-    prob.set_sys(prob.prob, sam.sys_struct)
-    prob.set_set(prob.prob, sam.set)
-    nothing
-end
 
 """
     reinit!(s::SymbolicAWEModel, prob::ODEProblem, solver; prn, precompile, reload, outputs) -> (ODEIntegrator, Bool)
@@ -452,8 +459,6 @@ function reinit!(
         something(existing)
     end
     sam.integrator = integrator
-    prob.set_sys(integrator, sam.sys_struct)
-    prob.set_set(integrator, sam.set)
     OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     lin_vsm && update_vsm!(sam, prob)
     update_sys_struct!(prob, integrator, sam.sys_struct)
@@ -477,7 +482,7 @@ This is used to check if a cached compiled model is still valid.
 
 # Runtime Fields (don't affect compilation, excluded from hash):
 - `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
-- `:v_wind`, `:elevation`: Initial conditions
+- `:wind_vec`, `:elevation`: Initial conditions
 - Other runtime parameters
 """
 function get_set_hash(set::Settings;

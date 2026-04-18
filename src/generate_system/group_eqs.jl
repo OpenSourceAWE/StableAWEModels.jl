@@ -4,7 +4,7 @@
 # Group twist dynamics equation generation
 
 """
-    group_eqs!(eqs, defaults, guesses, groups, wings, psys, _pset;
+    group_eqs!(eqs, defaults, guesses, groups, wings, psys;
                R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
                point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos)
 
@@ -14,7 +14,7 @@ Generate equations for deformable wing group twist dynamics.
 - `eqs`, `defaults`, `guesses`: Accumulating vectors for the MTK system.
 - `groups`: Collection of Group objects (deformable wing sections).
 - `wings`: Collection of Wing objects.
-- `psys`, `pset`: Symbolic parameters representing system and settings.
+- `psys`: Symbolic parameter representing the system structure.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `fix_wing`: Symbolic boolean for fixing wing dynamics.
 - `twist_angle`, `twist_ω`: Symbolic twist state variables.
@@ -26,7 +26,7 @@ Generate equations for deformable wing group twist dynamics.
 # Returns
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
 """
-function group_eqs!(eqs, defaults, guesses, groups, wings, psys, _pset=nothing;
+function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
                     R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
                     point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos)
 
@@ -73,7 +73,7 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys, _pset=nothing;
         ]
 
         gc = collect(group_chord[:, group.idx])
-        x_airf = sym_normalize(gc)
+        x_airf = smooth_normalize(gc)
         gy = collect(group_y_airf[:, group.idx])
         init_z_airf = x_airf × gy
         z_airf = sin(twist_angle[group.idx]) * x_airf + cos(twist_angle[group.idx]) * init_z_airf
@@ -84,10 +84,15 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys, _pset=nothing;
         for (i, point_idx) in enumerate(group.point_idxs)
             pf = collect(point_force[:, point_idx])
             rv = collect(r_vec[:, i, group.idx])
+            pos_offset = collect(
+                get_pos_b(psys, point_idx) .-
+                (gl + get_moment_frac(psys, group.idx) * gc)
+            )
             eqs = [
                 eqs
-                r_vec[:, i, group.idx] ~ get_pos_b(psys, point_idx) .- (gl + get_moment_frac(psys, group.idx) * gc)
-                r_group[i, group.idx] ~ rv ⋅ sym_normalize(gc)
+                [r_vec[j, i, group.idx] ~ pos_offset[j]
+                 for j in 1:3]
+                r_group[i, group.idx] ~ rv ⋅ smooth_normalize(gc)
                 tether_force[i, group.idx] ~ pf ⋅ Rz
                 tether_moment[i, group.idx] ~ r_group[i, group.idx] * tether_force[i, group.idx]
             ]
@@ -97,8 +102,8 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys, _pset=nothing;
         # I = 1/3 × m × L² where m is total mass of group points
         group_chord = collect(group_chord)
         group_mass = sum(get_extra_mass(psys, point_idx) for point_idx in group.point_idxs)
-        inertia = 1 / 3 * group_mass * norm(group_chord[:, group.idx])^2
-        @parameters max_twist = deg2rad(90)
+        inertia = 1 / 3 * group_mass * smooth_norm(group_chord[:, group.idx])^2
+        max_twist = deg2rad(90)
 
         eqs = [
             eqs

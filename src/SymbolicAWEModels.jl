@@ -48,7 +48,7 @@ using VortexStepMethod
 
 import KiteUtils: init!, next_step!, update_sys_state!, SysState
 import ModelingToolkit: t_nounits as t, D_nounits as D
-import ModelingToolkit.SciMLBase: successful_retcode, step!, init
+import ModelingToolkit.SciMLBase: successful_retcode, init
 
 #======================================================================#
 #                          EXPORTS
@@ -146,6 +146,10 @@ function record end
 function plot_sphere_trajectory end
 function plot_body_frame end
 function plot_aoa end
+function find_steady_state! end
+function update_yaml_from_sys_struct! end
+function make_lin_sys_state end
+function create_model_archive end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")
@@ -163,14 +167,6 @@ include("tether_properties.jl")
 include("linearize.jl")
 include("generate_system/generate_system.jl")
 include("simulate.jl")
-
-function upwind_dir(v_wind_gnd)
-    if v_wind_gnd[1] == 0.0 && v_wind_gnd[2] == 0.0
-        return NaN
-    end
-    wind_dir = atan(v_wind_gnd[2], v_wind_gnd[1])
-    -(wind_dir + π/2)
-end
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule
 function rotate_around_x(vec, angle::T) where T

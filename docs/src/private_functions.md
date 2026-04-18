@@ -44,7 +44,8 @@ SymbolicAWEModels.calc_winch_force
 SymbolicAWEModels.quaternion_to_rotation_matrix
 SymbolicAWEModels.rotation_matrix_to_quaternion
 SymbolicAWEModels.rotate_v_around_k
-SymbolicAWEModels.sym_normalize
+SymbolicAWEModels.smooth_norm
+SymbolicAWEModels.smooth_normalize
 SymbolicAWEModels.apply_heading
 SymbolicAWEModels.get_rot_pos
 SymbolicAWEModels.get_base_pos
@@ -84,7 +85,6 @@ SymbolicAWEModels.min_chord_len
 SymbolicAWEModels.pos
 SymbolicAWEModels.spring_forces
 SymbolicAWEModels.calc_spring_props
-SymbolicAWEModels.set_v_wind_ground!
 SymbolicAWEModels.in_percent_band
 SymbolicAWEModels.step
 SymbolicAWEModels.create_model_archive

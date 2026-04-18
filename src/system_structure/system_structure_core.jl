@@ -45,9 +45,7 @@ mutable struct SystemStructure{W<:AbstractWing}
     const y::Array{Float64, 2}
     const x::Array{Float64, 2}
     const jac::Array{Float64, 3}
-    const wind_vec_gnd::KVec3
     const am::AtmosphericModel
-    wind_elevation::SimFloat
     stabilize::Bool
     fix_wing::Bool
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
@@ -542,15 +540,15 @@ function assign_indices_and_resolve!(
                     "point")
             end
             if !isnothing(wing.z_ref_points)
-                resolve!(wing.z_ref_points[1],
+                resolve!(something(wing.z_ref_points)[1],
                     point_names, "point")
-                resolve!(wing.z_ref_points[2],
+                resolve!(something(wing.z_ref_points)[2],
                     point_names, "point")
             end
             if !isnothing(wing.y_ref_points)
-                resolve!(wing.y_ref_points[1],
+                resolve!(something(wing.y_ref_points)[1],
                     point_names, "point")
-                resolve!(wing.y_ref_points[2],
+                resolve!(something(wing.y_ref_points)[2],
                     point_names, "point")
             end
         end
@@ -920,7 +918,8 @@ function SystemStructure(name, set;
     # Auto-create groups for QUATERNION wings if needed (before geometry initialization)
     # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
     for wing in wings
-        if wing.wing_type == QUATERNION &&
+        if wing isa VSMWing &&
+           wing.wing_type == QUATERNION &&
            isempty(wing.group_idxs) &&
            wing.aero_mode != AERO_NONE
             # Get WING-type points for this wing
@@ -1171,7 +1170,7 @@ function SystemStructure(name, set;
         NamedCollection{Winch}(winches, winch_names_dict),
         NamedCollection{eltype(wings)}(wings, wing_names_dict),
         NamedCollection{Transform}(transforms, transform_names_dict),
-        y, x, jac, zeros(KVec3), AtmosphericModel(set), 0.0, false, false, vsm_set)
+        y, x, jac, AtmosphericModel(set), false, false, vsm_set)
     reinit!(sys_struct, set)
 
     # Recalculate segment rest lengths from current positions if requested

@@ -5,7 +5,7 @@
 
 """
     winch_eqs!(eqs, defaults, winches, tethers, points,
-               psys, _pset;
+               psys;
                point_force, set_values,
                tether_len, winch_vel)
 
@@ -25,7 +25,7 @@ Each winch gets a differential equation for `winch_vel`:
 - Tuple `(eqs, defaults)` with updated equation vectors.
 """
 function winch_eqs!(eqs, defaults, winches, tethers,
-                    points, psys, _pset;
+                    points, psys;
                     point_force, set_values,
                     tether_len, winch_vel)
     @variables begin
@@ -146,7 +146,7 @@ function winch_eqs!(eqs, defaults, winches, tethers,
 
             winch_force_vec[:, winch.idx] ~ F
             winch_force[winch.idx] ~
-                norm(winch_force_vec[:, winch.idx])
+                smooth_norm(winch_force_vec[:, winch.idx])
         ]
         defaults = [
             defaults

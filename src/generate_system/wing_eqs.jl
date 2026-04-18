@@ -4,7 +4,7 @@
 # Wing rigid body dynamics equation generation
 
 """
-    wing_eqs!(s, eqs, psys, _pset, defaults; kwargs...)
+    wing_eqs!(s, eqs, psys, defaults; kwargs...)
 
 Generate the differential equations for the wing's
 rigid body dynamics.
@@ -22,7 +22,7 @@ For REFINE wings:
 - Principal frame variables set to zero/aliases
 """
 function wing_eqs!(
-    s, eqs, psys, _pset, defaults;
+    s, eqs, psys, defaults;
     tether_wing_force, tether_wing_moment,
     aero_force_b, aero_moment_b,
     ω_b, α_b, R_b_to_w, R_p_to_w,
@@ -71,7 +71,7 @@ function wing_eqs!(
 
     for wing in wings
         # ============= REFINE WINGS ============= #
-        if wing.wing_type == REFINE
+        if wing isa VSMWing && wing.wing_type == REFINE
             z_p1, z_p2 = wing.z_ref_points
             y_p1, y_p2 = wing.y_ref_points
             pos_z1 = get_ref_position(pos, z_p1)
@@ -84,9 +84,9 @@ function wing_eqs!(
                 eqs
                 # R_b_to_w from structural ref points
                 R_b_to_w[:, 3, wing.idx] ~
-                    sym_normalize(pos_z2 - pos_z1)
-                R_b_to_w[:, 1, wing.idx] ~ sym_normalize(
-                    sym_normalize(pos_y2 - pos_y1) ×
+                    smooth_normalize(pos_z2 - pos_z1)
+                R_b_to_w[:, 1, wing.idx] ~ smooth_normalize(
+                    smooth_normalize(pos_y2 - pos_y1) ×
                     R_b_to_w[:, 3, wing.idx])
                 R_b_to_w[:, 2, wing.idx] ~
                     R_b_to_w[:, 3, wing.idx] ×
@@ -152,7 +152,7 @@ function wing_eqs!(
 
         I_p = get_inertia_principal(psys, wing.idx)
         com_axis = collect(
-            sym_normalize(com_w[:, wing.idx]))
+            smooth_normalize(com_w[:, wing.idx]))
         com_axis_p = collect(
             R_p_to_w[:, :, wing.idx]' * com_axis)
 

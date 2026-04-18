@@ -4,7 +4,7 @@
 # Point dynamics equation generation
 
 """
-    point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys, _pset;
+    point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
@@ -19,7 +19,7 @@ Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
 - `eqs`, `defaults`, `guesses`: Accumulating vectors for the MTK system.
 - `points`, `segments`, `groups`, `wings`: System components.
-- `psys`, `pset`: Symbolic parameters representing system and settings.
+- `psys`: Symbolic parameter representing the system structure.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `wing_vel`: Symbolic wing center of mass velocity.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
@@ -35,7 +35,7 @@ Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
   Note: `tether_wing_force` and `tether_wing_moment` are modified in-place.
 """
-function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys, pset;
+function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys;
                     R_b_to_w, com_w,
                     wing_vel, wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -51,7 +51,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
         for segment in segments
             if point.idx in segment.point_idxs
                 mass_per_meter =
-                    get_rho_tether(pset) * π *
+                    get_rho_tether(psys) * π *
                     (get_diameter(psys, segment.idx) / 2)^2
                 inverted = segment.point_idxs[2] == point.idx
                 if inverted
@@ -91,7 +91,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 height[point.idx] ~ max(0.0, pos[3, point.idx])
                 wind_at_point[:, point.idx] ~
                     calc_wind_factor(s.am, pos[1, point.idx], pos[2, point.idx],
-                                     pos[3, point.idx], pset) * wind_vec_gnd
+                                     pos[3, point.idx], psys) * wind_vec_gnd
                 va_point_w[:, point.idx] ~
                     wind_at_point[:, point.idx] - vel[:, point.idx]
                 va_point_b[:, point.idx] ~
@@ -99,7 +99,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 point_drag_force[:, point.idx] ~
                     0.5 * calc_rho(s.am, height[point.idx]) *
                     get_point_drag_coeff(psys, point.idx) *
-                    norm(va_point_w[:, point.idx]) *
+                    smooth_norm(va_point_w[:, point.idx]) *
                     get_point_area(psys, point.idx) *
                     va_point_w[:, point.idx]
             ]
@@ -110,14 +110,14 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 height[point.idx] ~ max(0.0, pos[3, point.idx])
                 wind_at_point[:, point.idx] ~
                     calc_wind_factor(s.am, pos[1, point.idx], pos[2, point.idx],
-                                     pos[3, point.idx], pset) * wind_vec_gnd
+                                     pos[3, point.idx], psys) * wind_vec_gnd
                 va_point_w[:, point.idx] ~
                     wind_at_point[:, point.idx] - vel[:, point.idx]
                 va_point_b[:, point.idx] ~ zeros(3)  # No body frame without wing
                 point_drag_force[:, point.idx] ~
                     0.5 * calc_rho(s.am, height[point.idx]) *
                     get_point_drag_coeff(psys, point.idx) *
-                    norm(va_point_w[:, point.idx]) *
+                    smooth_norm(va_point_w[:, point.idx]) *
                     get_point_area(psys, point.idx) *
                     va_point_w[:, point.idx]
             ]
@@ -127,7 +127,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             # Find the wing for this point
             wing = wings[point.wing_idx]
 
-            if wing.wing_type == REFINE
+            if wing isa VSMWing && wing.wing_type == REFINE
                 # REFINE wing: Points are DYNAMIC and receive lumped panel forces
                 # Similar to DYNAMIC points but with aero forces included
                 # (va already calculated above for all points)
@@ -138,7 +138,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 eqs = [
                     eqs
                     point_force[:, point.idx] ~
-                        spring_sum_force[:, point.idx] + aero_force_w + Num[0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
+                        spring_sum_force[:, point.idx] + aero_force_w + Num[0, 0, -get_g_earth(psys) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 ]
 
                 # Damping terms (applied in body frame, then transformed to world frame)
@@ -149,7 +149,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 world_frame_damp_vec = world_frame_damping[:, point.idx] .* vel[:, point.idx]
 
                 # DYNAMIC point equations
-                axis = sym_normalize(pos[:, point.idx])
+                axis = smooth_normalize(pos[:, point.idx])
                 eqs = [
                     eqs
                     fix_point_sphere[point.idx] ~ get_fix_point_sphere(psys, point.idx)
@@ -183,7 +183,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 eqs = [
                     eqs
                     point_force[:, point.idx] ~
-                        spring_sum_force[:, point.idx] + Num[0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
+                        spring_sum_force[:, point.idx] + Num[0, 0, -get_g_earth(psys) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 ]
 
                 found = 0
@@ -255,7 +255,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             eqs = [
                 eqs
                 point_force[:, point.idx] ~
-                    spring_sum_force[:, point.idx] + Num[0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
+                    spring_sum_force[:, point.idx] + Num[0, 0, -get_g_earth(psys) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 pos[:, point.idx] ~ get_pos_w(psys, point.idx)
                 vel[:, point.idx] ~ zeros(3)
                 acc[:, point.idx] ~ zeros(3)
@@ -265,7 +265,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             eqs = [
                 eqs
                 point_force[:, point.idx] ~
-                    spring_sum_force[:, point.idx] + Num[0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
+                    spring_sum_force[:, point.idx] + Num[0, 0, -get_g_earth(psys) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
             ]
 
             if length(wings) > 0
@@ -279,7 +279,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             end
             world_frame_damp_vec = world_frame_damping[:, point.idx] .* vel[:, point.idx]
 
-            axis = sym_normalize(pos[:, point.idx])
+            axis = smooth_normalize(pos[:, point.idx])
             eqs = [
                 eqs
                 fix_point_sphere[point.idx] ~ get_fix_point_sphere(psys, point.idx)
@@ -312,7 +312,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             eqs = [
                 eqs
                 point_force[:, point.idx] ~
-                    spring_sum_force[:, point.idx] + Num[0, 0, -get_g_earth(pset) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
+                    spring_sum_force[:, point.idx] + Num[0, 0, -get_g_earth(psys) * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 fix_static[point.idx] ~ get_fix_static(psys, point.idx)
                 vel[:, point.idx] ~ zeros(3)
                 acc[:, point.idx] ~ zeros(3)

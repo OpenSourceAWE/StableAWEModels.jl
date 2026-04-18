@@ -4,7 +4,7 @@
 # Scalar kinematic equation generation
 
 """
-    scalar_eqs!(s, eqs, psys, pset; kwargs...)
+    scalar_eqs!(s, eqs, psys; kwargs...)
 
 Generate equations for derived scalar kinematic quantities useful for control and
 analysis.
@@ -14,14 +14,14 @@ derivatives, as well as apparent wind calculations.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object.
-- `eqs`, `psys`, `pset`: Accumulating vectors and symbolic parameters.
+- `eqs`, `psys`: Accumulating vectors and symbolic parameter.
 - `kwargs...`: Symbolic variables for the system's state.
 
 # Returns
 - `eqs`: The updated list of system equations.
 """
 function scalar_eqs!(
-    s, eqs, psys, pset;
+    s, eqs, psys;
     R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos,
     wing_vel, wing_acc, twist_angle, ω_b, α_b,
     R_v_to_w, pos
@@ -35,19 +35,10 @@ function scalar_eqs!(
         wind_vel_wing(t)[1:3, eachindex(wings)]
         wind_disturb(t)[1:3, eachindex(wings)]
         va_wing(t)[1:3, eachindex(wings)]
-        # Ground wind properties
-        upwind_dir(t)
-        wind_elevation(t)
-        wind_scale_gnd(t)
     end
     eqs = [
         eqs
-        upwind_dir ~ deg2rad(get_upwind_dir(pset))
-        wind_elevation ~ deg2rad(get_wind_elevation(psys))
-        wind_scale_gnd ~ get_v_wind(pset)
-        wind_vec_gnd ~
-            max(wind_scale_gnd, 1e-6) *
-            rotate_around_z(rotate_around_x([0, -1, 0], wind_elevation), -upwind_dir)
+        wind_vec_gnd ~ get_wind_vec(psys)
     ]
     for wing in wings
         eqs = [
@@ -57,7 +48,7 @@ function scalar_eqs!(
             e_z[:, wing.idx] ~ R_b_to_w[:, 3, wing.idx]
             wind_vel_wing[:, wing.idx] ~
                 calc_wind_factor(s.am, wing_pos[1, wing.idx], wing_pos[2, wing.idx],
-                                 wing_pos[3, wing.idx], pset) * wind_vec_gnd
+                                 wing_pos[3, wing.idx], psys) * wind_vec_gnd
             wind_disturb[:, wing.idx] ~ get_wind_disturb(psys, wing.idx)
             va_wing[:, wing.idx] ~
                 wind_vel_wing[:, wing.idx] - wing_vel[:, wing.idx] +
@@ -145,7 +136,7 @@ function scalar_eqs!(
                 R_v_to_w[:, :, wing.idx]' *
                 (R_b_to_w[:, :, wing.idx] *
                     α_b[:, wing.idx])
-            distance[wing.idx] ~ norm(rel_pos)
+            distance[wing.idx] ~ smooth_norm(rel_pos)
             distance_vel[wing.idx] ~
                 wing_vel[:, wing.idx] ⋅
                     R_t_to_w[:, 3, wing.idx]
@@ -167,11 +158,11 @@ function scalar_eqs!(
             azimuth_vel[wing.idx] ~
                 dot(wing_vel[:, wing.idx],
                     -R_t_to_w[:, 2, wing.idx]) /
-                norm([x, y])
+                smooth_norm([x, y])
             azimuth_acc[wing.idx] ~
                 dot(wing_acc[:, wing.idx],
                     -R_t_to_w[:, 2, wing.idx]) /
-                norm([x, y])
+                smooth_norm([x, y])
             course[wing.idx] ~
                 atan(course_t_2, course_t_1)
             angle_of_attack[wing.idx] ~

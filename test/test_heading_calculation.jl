@@ -23,7 +23,7 @@ end
 
 using Test
 using LinearAlgebra
-using SymbolicAWEModels: sym_normalize, sym_calc_R_t_to_w,
+using SymbolicAWEModels: smooth_normalize, sym_calc_R_t_to_w,
     calc_heading, calc_R_t_to_w
 
 # Support selective test execution via command-line args
@@ -58,7 +58,7 @@ function test_circular_path(base_pos, label)
             R_t_to_w = sym_calc_R_t_to_w(rel_pos)
 
             tangent = [-sin(angle), 0.0, cos(angle)]
-            e_x = sym_normalize(tangent)
+            e_x = smooth_normalize(tangent)
 
             e_x_t = R_t_to_w' * e_x
             expected = atan(e_x_t[2], e_x_t[1])
@@ -86,7 +86,7 @@ function test_horizontal_circle(base_pos, label)
             rel_pos = wing_pos - base_pos
 
             tangent = [-sin(azimuth), cos(azimuth), 0.0]
-            e_x = sym_normalize(tangent)
+            e_x = smooth_normalize(tangent)
 
             R_b_to_w = hcat(e_x, zeros(3), zeros(3))
             heading_val = calc_heading(R_b_to_w, rel_pos)
