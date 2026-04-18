@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
-# v0.8.0 DD-MM-2026
+# v0.8.0 18-04-2026
 
 ## Changed
 - BREAKING: `SegmentType` positional argument removed from `Segment`
