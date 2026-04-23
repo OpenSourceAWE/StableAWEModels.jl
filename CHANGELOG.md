@@ -2,6 +2,13 @@
 SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
+# unreleased
+
+## Changed
+- updated the default manifest files
+
+## Fixed
+- crash with Julia 1.11; `setup_env` updated to fix that.
 
 # v0.8.1 23-04-2026
 
