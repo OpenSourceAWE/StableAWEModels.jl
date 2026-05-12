@@ -1,7 +1,3 @@
-<!--
-SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
-SPDX-License-Identifier: MPL-2.0
--->
 
 # v0.8.3 03-05-2026
 
