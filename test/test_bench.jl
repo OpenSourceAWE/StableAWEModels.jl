@@ -12,6 +12,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
+@isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, SystemStructure, KVec3
@@ -37,7 +39,7 @@ function setup_bench_sam()
         system_name="bench", set, vsm_set)
     sys.winches[:main_winch].brake = true
     sam = SymbolicAWEModel(set, sys)
-    init!(sam; remake=false, prn=false)
+    test_init!(sam; remake=false, prn=false)
     return sam
 end
 
@@ -80,9 +82,9 @@ end
     SymbolicAWEModels.get_com_w(sys, idx)
     SymbolicAWEModels.get_R_b_to_p(sys, idx)
     SymbolicAWEModels.get_inertia_principal(sys, idx)
-    SymbolicAWEModels.get_vsm_y(sys, idx, 1)
-    SymbolicAWEModels.get_vsm_x(sys, idx, 1)
-    SymbolicAWEModels.get_vsm_jac(sys, idx, 1, 1)
+    SymbolicAWEModels.get_aero_y(sys, idx, 1)
+    SymbolicAWEModels.get_aero_x(sys, idx, 1)
+    SymbolicAWEModels.get_aero_jac(sys, idx, 1, 1)
     SymbolicAWEModels.get_aero_force_override(sys, idx, 1)
     SymbolicAWEModels.get_aero_moment_override(sys, idx, 1)
 
@@ -114,13 +116,13 @@ end
     end
 
     @testset "VSM accessors" begin
-        a = @allocations SymbolicAWEModels.get_vsm_y(
+        a = @allocations SymbolicAWEModels.get_aero_y(
             sys, idx, 1)
         @test a <= (v11 ? 2 : 0)
-        a = @allocations SymbolicAWEModels.get_vsm_x(
+        a = @allocations SymbolicAWEModels.get_aero_x(
             sys, idx, 1)
         @test a <= (v11 ? 2 : 0)
-        a = @allocations SymbolicAWEModels.get_vsm_jac(
+        a = @allocations SymbolicAWEModels.get_aero_jac(
             sys, idx, 1, 1)
         @test a <= 2
         a = @allocations SymbolicAWEModels.get_aero_force_override(

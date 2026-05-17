@@ -45,7 +45,7 @@ wings:
     - name: V3_Kite                    # Wing identifier for output labeling
       geometry_file: data/2plate_kite/aero_geometry.yaml
       n_panels: 10                     # Total number of panels along wingspan
-      spanwise_panel_distribution: LINEAR    # Panel spacing algorithm
+      spanwise_panel_distribution: SPLIT_PROVIDED    # Panel spacing algorithm
       spanwise_direction: [0.0, 1.0, 0.0]   # Unit vector defining wingspan direction
       remove_nan: true                 # Remove NaN values from polar data
 
@@ -73,7 +73,7 @@ solver_settings:
 
     # --- Initial Conditions ---
     type_initial_gamma_distribution: ELLIPTIC  # Starting circulation distribution
-    use_gamma_prev: false            # Reuse previous gamma as initial guess between solves
+    use_gamma_prev: true             # Reuse previous gamma as initial guess between solves
     
     # --- Output Control ---
     calc_only_f_and_gamma: false     # true=compute only forces & circulation
