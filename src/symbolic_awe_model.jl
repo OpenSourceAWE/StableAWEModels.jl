@@ -302,7 +302,8 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
                 aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + 
                           (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
                 ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
-                ss.side_slip = asin(wing.va_b[2] / norm(wing.va_b))
+                ss.side_slip = atan(wing.va_b[2],
+                    hypot(wing.va_b[1], wing.va_b[3]))
             else
                 ss.AoA = NaN # AoA not defined for non-VSM wings
                 ss.side_slip = NaN # Side slip not defined for non-VSM wings
