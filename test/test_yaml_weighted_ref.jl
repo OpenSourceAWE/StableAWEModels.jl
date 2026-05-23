@@ -61,6 +61,7 @@ wings:
   data:
     - idx: 1
       type: REFINE
+      aero_mode: AERO_NONE
       point_idxs: [1, 2, 3, 4, 5, 6]
       origin_idx: 7
       z_ref_points: [7, [[3, 0.7], [5, 0.3]]]
@@ -116,5 +117,11 @@ transforms:
     y_p1, y_p2 = wing.y_ref_points
     @test y_p1.ids == [1]
     @test y_p2.ids == [5]
+
+    # Compile and init — weighted refs must survive
+    # symbolic equation generation and scalarization
+    sam = SymbolicAWEModel(set, sys)
+    integ = init!(sam; prn=false)
+    @test integ !== nothing
 end
 nothing

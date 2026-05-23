@@ -69,11 +69,13 @@ Orthogonal to WingType — determines the aero computation strategy at runtime.
 - `AERO_NONE`: No aerodynamic forces (returns zeros). For debugging rigid body dynamics.
 - `AERO_DIRECT`: Stored forces from nonlinear VSM solve, piecewise-constant between updates.
 - `AERO_LINEARIZED`: First-order Taylor expansion using Jacobian from VSM linearization.
+- `AERO_PLATE`: Flat-plate CL/CD lookup aerodynamics (PlateWing only).
 """
 @enum AeroMode begin
     AERO_NONE
     AERO_DIRECT
     AERO_LINEARIZED
+    AERO_PLATE
 end
 
 """
@@ -843,7 +845,7 @@ end
 """
     get_rot_pos(transform::Transform, wings, points)
 
-Get the position of the rotating object (wing or point) for a given transform.
+Get the world position of the rotating object (wing or point).
 """
 function get_rot_pos(transform::Transform, wings, points)
     wing_idx = transform.wing_idx
@@ -854,24 +856,60 @@ function get_rot_pos(transform::Transform, wings, points)
     if !isnothing(rot_point_idx)
         return points[something(rot_point_idx)].pos_w
     end
-    error("Transform #$(transform.idx): neither wing_idx nor rot_point_idx is set")
+    error("Transform #$(transform.idx): " *
+        "neither wing_idx nor rot_point_idx is set")
 end
 
 """
-    get_base_pos(transform::Transform, transforms, wings, points)
+    get_rot_pos_cad(transform::Transform, wings, points)
 
-Get the base position for a given transform, resolving chained transforms if necessary.
+Get the CAD-frame position of the rotating object (wing or point).
+Used by `get_base_pos` to compute the translation offset for
+chained transforms.
 """
-function get_base_pos(transform::Transform, transforms, wings, points)
-    curr_base_pos = points[something(transform.base_point_idx)].pos_w
+function get_rot_pos_cad(transform::Transform, wings, points)
+    wing_idx = transform.wing_idx
+    if !isnothing(wing_idx)
+        return wings[something(wing_idx)].pos_cad
+    end
+    rot_point_idx = transform.rot_point_idx
+    if !isnothing(rot_point_idx)
+        return points[something(rot_point_idx)].pos_cad
+    end
+    error("Transform #$(transform.idx): " *
+        "neither wing_idx nor rot_point_idx is set")
+end
+
+"""
+    get_base_pos(transform, transforms, wings, points)
+
+Get `(base_pos, curr_base_pos)` for a transform.
+
+For chained transforms (`base_transform`): returns the parent's
+current world position and CAD position, so
+`T = base_pos - curr_base_pos` shifts child points by the same
+displacement the parent transform applied.
+
+For direct transforms (`base_pos` + `base_point`): returns the
+user-specified position and the base point's current position.
+"""
+function get_base_pos(transform::Transform,
+        transforms, wings, points)
+    base_transform_idx = transform.base_transform_idx
+    if !isnothing(base_transform_idx)
+        base_tf = transforms[something(
+            base_transform_idx)]
+        rot_pos = get_rot_pos(base_tf, wings, points)
+        rot_pos_cad = get_rot_pos_cad(
+            base_tf, wings, points)
+        return rot_pos, rot_pos_cad
+    end
+    curr_base_pos = points[something(
+        transform.base_point_idx)].pos_w
     base_pos = transform.base_pos
     if !isnothing(base_pos)
         return something(base_pos), curr_base_pos
     end
-    base_transform_idx = transform.base_transform_idx
-    if !isnothing(base_transform_idx)
-        base_transform = transforms[something(base_transform_idx)]
-        return get_rot_pos(base_transform, wings, points), curr_base_pos
-    end
-    error("Transform #$(transform.idx): neither base_pos nor base_transform_idx is set")
+    error("Transform #$(transform.idx): neither " *
+        "base_pos nor base_transform_idx is set")
 end

@@ -270,9 +270,9 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_len_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Get initial total length of pulley segments
         pulley = sam.sys_struct.pulleys[:main_pulley]
@@ -325,9 +325,9 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_eq_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Initial x position is off-center at 0.5
         initial_x = sam.sys_struct.points[:pulley_point].pos_w[1]
@@ -361,7 +361,7 @@ system:
         set.v_wind = 0.0
 
         # Load symmetric configuration (starting at equilibrium)
-        sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_analytic", set=set)
+        sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_symmetric", set=set)
 
         # Get positions from YAML
         attach_left_pos = sys.points[:attach_left].pos_cad
@@ -383,7 +383,7 @@ system:
         @test l0_left_expected ≈ l0_right_expected atol=1e-10
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Run to settle at equilibrium
         dt = 0.001
@@ -423,9 +423,9 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_tension", set=set)
+        sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_symmetric", set=set)
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Run to equilibrium
         dt = 0.001

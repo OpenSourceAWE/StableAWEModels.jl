@@ -265,9 +265,9 @@ system:
         set.g_earth = 0.0
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test_nograv", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Record initial position
         initial_z = sam.sys_struct.points[:mass_point].pos_w[3]
@@ -295,14 +295,14 @@ system:
 
         # Use low damping YAML with 5.0 kg point mass (>> segment mass ~0.14 kg)
         # This ensures clean spring-damper dynamics where point mass dominates
-        sys = load_sys_struct_from_yaml(yaml_low_damp_path; system_name="segment_test_grav", set=set)
+        sys = load_sys_struct_from_yaml(yaml_low_damp_path; system_name="segment_test", set=set)
 
         # Verify the properties were loaded
         @test sys.segments[:test_segment].unit_damping == 100.0
         @test sys.points[:mass_point].extra_mass == 5.0
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Physics parameters
         l0 = 10.0  # rest length [m]
@@ -405,7 +405,7 @@ system:
         set.v_wind = 0.0
         set.cd_tether = 0.958  # enable segment aero drag for this test
 
-        sys = load_sys_struct_from_yaml(yaml_horiz_drag_path; system_name="horiz_drag_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_horiz_drag_path; system_name="segment_test", set=set)
         segment = sys.segments[:horiz_segment]
         L = segment.l0  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
@@ -421,7 +421,7 @@ system:
         @test sys.points[:point_right].extra_mass == 0.0
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Run simulation until terminal velocity is reached
         dt = 0.1
@@ -479,12 +479,12 @@ system:
         set.profile_law = 0  # Use constant wind profile
 
         # Verify no extra mass on points (segment mass only)
-        sys = load_sys_struct_from_yaml(yaml_vert_wind_path; system_name="vert_wind_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_vert_wind_path; system_name="segment_test", set=set)
         @test sys.points[:point_top].extra_mass == 0.0
         @test sys.points[:point_bottom].extra_mass == 0.0
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Record initial positions
         initial_z_top = sam.sys_struct.points[:point_top].pos_w[3]
@@ -534,7 +534,7 @@ system:
         set.profile_law = 0  # Reset to constant profile
 
         # Get segment properties
-        sys = load_sys_struct_from_yaml(yaml_high_alt_path; system_name="high_alt_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_high_alt_path; system_name="segment_test", set=set)
         segment = sys.segments[:horiz_segment]
         L = segment.l0  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
@@ -546,7 +546,7 @@ system:
         cd = set.cd_tether
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Run simulation - shorter time since we want to stay at altitude
         dt = 0.1

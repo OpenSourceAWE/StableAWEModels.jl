@@ -60,18 +60,25 @@ function wing_eqs!(
     function get_ref_position(
         pos, ref_pt::WeightedRefPoints
     )
-        result = ref_pt.weights[1] *
-            pos[:, ref_pt.ids[1]]
-        for i in 2:length(ref_pt.ids)
-            result += ref_pt.weights[i] *
-                pos[:, ref_pt.ids[i]]
+        w1 = ref_pt.weights[1]
+        id1 = ref_pt.ids[1]
+        if length(ref_pt.ids) == 1
+            return pos[:, id1]
         end
+        # Use element-wise access to avoid
+        # symbolic slice scalarization issues
+        result = [
+            sum(ref_pt.weights[i] *
+                pos[j, ref_pt.ids[i]]
+                for i in eachindex(ref_pt.ids))
+            for j in 1:3
+        ]
         return result
     end
 
     for wing in wings
         # ============= REFINE WINGS ============= #
-        if wing isa VSMWing && wing.wing_type == REFINE
+        if wing.wing_type == REFINE
             z_p1, z_p2 = wing.z_ref_points
             y_p1, y_p2 = wing.y_ref_points
             pos_z1 = get_ref_position(pos, z_p1)

@@ -533,7 +533,7 @@ function assign_indices_and_resolve!(
         wing.transform_idx = resolve_ref(wing.transform_ref, transform_names, "transform")
 
         # VSMWing-specific fields
-        if isa(wing, VSMWing)
+        if isa(wing, VSMWing) || isa(wing, PlateWing)
             if !isnothing(wing.origin_ref)
                 wing.origin_idx = resolve_ref(
                     wing.origin_ref, point_names,
@@ -568,10 +568,51 @@ function assign_indices_and_resolve!(
                 end
             end
         end
+        if isa(wing, PlateWing)
+            for surf in wing.surfaces
+                surf.point_idx = resolve_ref(
+                    surf.point_ref, point_names, "point")
+            end
+        end
     end
 
     return (point_names, group_names, segment_names, pulley_names,
             tether_names, winch_names, wing_names, transform_names)
+end
+
+"""
+    init_body_frame_from_ref_points!(wing, points; prn=true)
+
+Initialize wing body frame (R_b_to_c, pos_cad) from z/y
+reference points. Shared by VSMWing REFINE and PlateWing.
+"""
+function init_body_frame_from_ref_points!(
+    wing, points; prn=true
+)
+    isnothing(wing.origin_idx) && return
+    isnothing(wing.z_ref_points) && return
+    isnothing(wing.y_ref_points) && return
+
+    origin_pos = points[wing.origin_idx].pos_cad
+    wing.pos_cad .= origin_pos
+
+    # Temporarily set pos_w = pos_cad so
+    # calc_refine_wing_frame can read positions
+    for p in points
+        p.type == WING && p.wing_idx == wing.idx &&
+            (p.pos_w .= p.pos_cad)
+    end
+    R_b_to_c, _ = calc_refine_wing_frame(
+        points, wing.z_ref_points,
+        wing.y_ref_points, wing.origin_idx)
+    wing.R_b_to_c .= R_b_to_c
+    wing.R_b_to_p .= Matrix{SimFloat}(I, 3, 3)
+
+    if prn
+        o = round.(origin_pos; digits=3)
+        @info "Wing $(wing.name) ($(typeof(wing).name.name))" *
+              ": origin=[$o]"
+    end
 end
 
 """
@@ -711,29 +752,35 @@ function SystemStructure(name, set;
         pulleys=Pulley[],
         tethers=Tether[],
         winches=Winch[],
-        wings=VSMWing[],
+        wings=AbstractWing[],
         transforms=Transform[],
         ignore_l0::Bool=false,
         vsm_set=nothing,
         prn::Bool=true,
     )
-    # Load VSMSettings if not provided and wings exist
-    if isnothing(vsm_set) && !isempty(wings)
+    # Load VSMSettings if not provided and VSM wings exist
+    has_vsm_wings = any(w isa VSMWing for w in wings)
+    if isnothing(vsm_set) && has_vsm_wings
         model_dir = get_data_path()
         vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
         if isfile(vsm_set_path)
-            vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+            vsm_set = VortexStepMethod.VSMSettings(
+                vsm_set_path; data_prefix=false)
         end
     end
 
     # Validate all wings are the same concrete type
-    if length(wings) > 1
+    # and narrow from AbstractWing[] to concrete type
+    if length(wings) > 0
         W = typeof(wings[1])
         for i in 2:length(wings)
             @assert typeof(wings[i]) === W (
                 "All wings must be the same concrete " *
                 "type, got $(typeof(wings[i])) at " *
                 "index $i, expected $W")
+        end
+        if eltype(wings) !== W
+            wings = convert(Vector{W}, wings)
         end
     end
 
@@ -903,45 +950,27 @@ function SystemStructure(name, set;
             end
 
         elseif wing.wing_type == REFINE
-            # Body frame from structural ref points.
-            # Points are in CAD frame at construction
-            # time (pos_w = pos_cad before transforms).
-            if !isnothing(wing.origin_idx) &&
-               !isnothing(wing.z_ref_points) &&
-               !isnothing(wing.y_ref_points)
-                origin_pos = points[
-                    wing.origin_idx].pos_cad
-                wing.pos_cad .= origin_pos
+            init_body_frame_from_ref_points!(
+                wing, points; prn)
 
-                # Temporarily set pos_w = pos_cad so
-                # calc_refine_wing_frame can read them
-                for p in points
-                    p.type == WING &&
-                        p.wing_idx == wing.idx &&
-                        (p.pos_w .= p.pos_cad)
-                end
-                R_b_to_c, _ = calc_refine_wing_frame(
-                    points, wing.z_ref_points,
-                    wing.y_ref_points,
-                    wing.origin_idx)
-                wing.R_b_to_c .= R_b_to_c
-
+            if !isnothing(wing.origin_idx)
                 # Transform VSM sections: CAD → body
-                vsm_wing.T_cad_body .= origin_pos
+                vsm_wing.T_cad_body .= wing.pos_cad
                 adjust_vsm_panels_to_origin!(
-                    vsm_wing, origin_pos)
+                    vsm_wing, wing.pos_cad)
                 rotate_vsm_sections!(
                     vsm_wing, wing.R_b_to_c')
                 vsm_wing.R_cad_body .= wing.R_b_to_c
                 VortexStepMethod.reinit!(wing.vsm_aero)
-
-                if prn
-                    o = round.(origin_pos; digits=3)
-                    @info "REFINE wing " *
-                        "$(wing.idx): origin=[$o]"
-                end
             end
         end
+    end
+
+    # PlateWing body frame initialization from ref points
+    for wing in wings
+        wing isa PlateWing || continue
+        init_body_frame_from_ref_points!(
+            wing, points; prn)
     end
 
     # Auto-create groups for QUATERNION wings if needed (before geometry initialization)
@@ -1118,8 +1147,8 @@ function SystemStructure(name, set;
 
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
-        # For REFINE wings, set defaults if not provided
-        if wing.wing_type == REFINE
+        # For VSMWing REFINE wings, set defaults if not provided
+        if wing isa VSMWing && wing.wing_type == REFINE
             # Build point_to_vsm_point mapping if not provided
             if isnothing(wing.point_to_vsm_point)
                 # Get WING-type points for this wing
@@ -1168,7 +1197,6 @@ function SystemStructure(name, set;
     # - Warn if both sources have nonzero values
     for wing in wings
         wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
-
         # Sum of user-specified WING point masses
         point_mass_sum = sum(
             p.extra_mass for p in points if p.type == WING && p.wing_idx == wing.idx;

@@ -49,16 +49,18 @@ using LinearAlgebra
 
     # Create and initialize SAMs once for each wing type
     quat_sys = load_sys_struct_from_yaml(
-        quat_yaml_path; system_name="transform_test_QUATERNION", set=set, vsm_set=vsm_set
+        quat_yaml_path; system_name="transform_test_QUATERNION", set=set, vsm_set=vsm_set,
+        aero_mode=AERO_NONE
     )
     quat_sam = SymbolicAWEModel(set, quat_sys)
-    test_init!(quat_sam; remake=false, reload=false)  # Load/build once
+    test_init!(quat_sam)
 
     refine_sys = load_sys_struct_from_yaml(
-        refine_yaml_path; system_name="transform_test_REFINE", set=set, vsm_set=vsm_set
+        refine_yaml_path; system_name="transform_test_REFINE", set=set, vsm_set=vsm_set,
+        aero_mode=AERO_NONE
     )
     refine_sam = SymbolicAWEModel(set, refine_sys)
-    test_init!(refine_sam; remake=false, reload=false)  # Load/build once
+    test_init!(refine_sam)
 
     # Helper to reset transform to default YAML values
     function reset_transform!(sys)
@@ -107,7 +109,7 @@ using LinearAlgebra
             # ================================================================
             @testset "Initial angles after init!" begin
                 reset_transform!(sam.sys_struct)
-                test_init!(sam; remake=false, reload=false)
+                test_init!(sam; prn=false)
 
                 # After init, the transform angles should still match
                 transform = sam.sys_struct.transforms[:main_transform]
@@ -127,7 +129,7 @@ using LinearAlgebra
             # ================================================================
             @testset "Initial velocities after init!" begin
                 reset_transform!(sam.sys_struct)
-                test_init!(sam; remake=false, reload=false)
+                test_init!(sam; prn=false)
 
                 transform = sam.sys_struct.transforms[:main_transform]
 
@@ -147,7 +149,7 @@ using LinearAlgebra
                 # For elevation=80deg, azimuth=0deg, the wing should be positioned
                 # according to spherical coordinate transformation
                 reset_transform!(sam.sys_struct)
-                test_init!(sam; remake=false, reload=false)
+                test_init!(sam; prn=false)
 
                 # Get wing position
                 wing = sam.sys_struct.wings[:main_wing]
@@ -193,7 +195,7 @@ using LinearAlgebra
                 @test tf.elevation_vel ≈ deg2rad(0.1) atol=1e-10
                 @test tf.azimuth_vel ≈ deg2rad(0.5) atol=1e-10
 
-                test_init!(sam; remake=false, reload=false)
+                test_init!(sam; prn=false)
 
                 # Angles should be preserved after init
                 transform_after = sam.sys_struct.transforms[:main_transform]
@@ -211,12 +213,12 @@ using LinearAlgebra
             @testset "Transform affects wing position" begin
                 # Test 1: elevation = 80 deg (default)
                 reset_transform!(sam.sys_struct)
-                test_init!(sam; remake=false, reload=false)
+                test_init!(sam; prn=false)
                 wing_z1 = sam.sys_struct.wings[:main_wing].base.pos_w[3]
 
                 # Test 2: elevation = 45 deg
                 sam.sys_struct.transforms[:main_transform].elevation = deg2rad(45)
-                test_init!(sam; remake=false, reload=false)
+                test_init!(sam; prn=false)
                 wing_z2 = sam.sys_struct.wings[:main_wing].base.pos_w[3]
 
                 # Higher elevation should result in higher z position
@@ -234,12 +236,12 @@ using LinearAlgebra
             @testset "Azimuth affects y-position" begin
                 # Test 1: azimuth = 0 deg (default)
                 reset_transform!(sam.sys_struct)
-                test_init!(sam; remake=false, reload=false)
+                test_init!(sam; prn=false)
                 wing_y1 = sam.sys_struct.wings[:main_wing].base.pos_w[2]
 
                 # Test 2: azimuth = 30 deg (more to the side)
                 sam.sys_struct.transforms[:main_transform].azimuth = deg2rad(30)
-                test_init!(sam; remake=false, reload=false)
+                test_init!(sam; prn=false)
                 wing_y2 = sam.sys_struct.wings[:main_wing].base.pos_w[2]
 
                 # Larger azimuth should give larger |y| component
@@ -255,7 +257,7 @@ using LinearAlgebra
             # ================================================================
             @testset "Heading affects orientation" begin
                 reset_transform!(sam.sys_struct)
-                test_init!(sam; remake=false, reload=false)
+                test_init!(sam; prn=false)
 
                 wing = sam.sys_struct.wings[:main_wing]
 
@@ -280,7 +282,7 @@ using LinearAlgebra
                 @test transform.base_point_idx == 10  # ground index
 
                 reset_transform!(sam.sys_struct)
-                test_init!(sam; remake=false, reload=false)
+                test_init!(sam; prn=false)
 
                 # Transform base_pos should match the ground point position
                 ground_pos = sam.sys_struct.points[:ground].pos_w
@@ -309,7 +311,7 @@ using LinearAlgebra
                         tf.base_pos .= base_pos
                         reset_transform!(sys)
                         tf.heading = target_h
-                        test_init!(sam; remake=false, reload=false)
+                        test_init!(sam; prn=false)
                         wing = sys.wings[:main_wing]
                         reinit_R = copy(wing.R_b_to_w)
                         reinit_pos = copy(wing.pos_w)
@@ -318,7 +320,7 @@ using LinearAlgebra
                         # reposition! to target
                         tf.base_pos .= base_pos
                         reset_transform!(sys)
-                        test_init!(sam; remake=false, reload=false)
+                        test_init!(sam; prn=false)
                         tf.heading = target_h
                         reposition!(sys.transforms, sys)
                         wing = sys.wings[:main_wing]
@@ -336,6 +338,265 @@ using LinearAlgebra
             test_reposition_heading(
                 sam, KVec3(10.0, 5.0, 0.0),
                 "non-origin base")
+        end
+    end
+
+    # ================================================================
+    # Chained Transform Tests (using kps4_plate-style programmatic API)
+    # ================================================================
+    @testset "Chained Transforms" begin
+        using SymbolicAWEModels: Point, Segment, Tether, Winch,
+            PlateWing, PlateSurface, Transform,
+            SystemStructure,
+            create_plate_interpolations, get_rot_pos,
+            get_rot_pos_cad, get_base_pos, reinit!
+
+        # Use kps4 settings (2plate_kite has no tethers)
+        kps4_data = joinpath(tmpdir, "kps4")
+        cp(joinpath(pkg_root, "data", "kps4"),
+            kps4_data; force=true)
+        set_data_path(kps4_data)
+        set_c = Settings("system.yaml")
+        set_c.upwind_dir = rad2deg(-pi/2)
+
+        # Geometry from KiteUtils
+        particles = KiteUtils.get_particles(
+            set_c.height_k, set_c.h_bridle,
+            set_c.width, set_c.m_k)
+        pos_kcu = particles[2]
+        pos_nose = particles[3]
+        pos_top = particles[4]
+        pos_right = particles[5]
+        pos_left = particles[6]
+
+        kite_mass = set_c.mass
+        k_nose = set_c.rel_nose_mass * kite_mass
+        k_top = set_c.rel_top_mass *
+            (1.0 - set_c.rel_nose_mass) * kite_mass
+        k_side = 0.5 * (1.0 - set_c.rel_top_mass) *
+            (1.0 - set_c.rel_nose_mass) * kite_mass
+        set_c.mass = 0.0
+
+        pre_stress = 0.9975
+        pos_map = Dict(:kcu => pos_kcu, :nose => pos_nose,
+            :top => pos_top, :right => pos_right,
+            :left => pos_left)
+        bridle_l0(a, b) =
+            norm(pos_map[b] - pos_map[a]) * pre_stress
+
+        points_c = [
+            Point(:ground, zeros(3), STATIC),
+            Point(:kcu, pos_kcu, DYNAMIC;
+                extra_mass=set_c.kcu_mass,
+                transform=:main_tf),
+            Point(:nose, pos_nose, DYNAMIC;
+                extra_mass=k_nose,
+                transform=:main_tf),
+            Point(:top, pos_top, WING;
+                extra_mass=k_top, wing=:plate_wing,
+                transform=:kite_tilt),
+            Point(:right, pos_right, WING;
+                extra_mass=k_side, wing=:plate_wing,
+                transform=:kite_tilt),
+            Point(:left, pos_left, WING;
+                extra_mass=k_side, wing=:plate_wing,
+                transform=:kite_tilt),
+        ]
+
+        segments_c = [
+            Segment(:kcu_nose, set_c, :kcu, :nose;
+                l0=bridle_l0(:kcu, :nose),
+                diameter_mm=set_c.d_line),
+            Segment(:right_nose, set_c, :right, :nose;
+                l0=bridle_l0(:right, :nose),
+                diameter_mm=set_c.d_line),
+            Segment(:right_left, set_c, :right, :left;
+                l0=bridle_l0(:right, :left),
+                diameter_mm=set_c.d_line),
+            Segment(:top_right, set_c, :top, :right;
+                l0=bridle_l0(:top, :right),
+                diameter_mm=set_c.d_line),
+            Segment(:left_kcu, set_c, :left, :kcu;
+                l0=bridle_l0(:left, :kcu),
+                diameter_mm=set_c.d_line),
+            Segment(:right_kcu, set_c, :right, :kcu;
+                l0=bridle_l0(:right, :kcu),
+                diameter_mm=set_c.d_line),
+            Segment(:top_left, set_c, :top, :left;
+                l0=bridle_l0(:top, :left),
+                diameter_mm=set_c.d_line),
+            Segment(:left_nose, set_c, :left, :nose;
+                l0=bridle_l0(:left, :nose),
+                diameter_mm=set_c.d_line),
+            Segment(:nose_top, set_c, :nose, :top;
+                l0=bridle_l0(:nose, :top),
+                diameter_mm=set_c.d_line),
+        ]
+
+        tethers_c = [Tether(:main_tether,
+            set_c.l_tethers[1];
+            start_point=:ground, end_point=:kcu,
+            n_segments=set_c.segments)]
+
+        winches_c = [Winch(:winch, set_c,
+            [:main_tether]; winch_point=:ground)]
+
+        rel_side = set_c.rel_side_area / 100.0
+        K = 1.0 - rel_side
+        surfaces_c = [
+            PlateSurface(:main, [1,0,0], [0,1,0],
+                set_c.area, :top;
+                twist=deg2rad(set_c.alpha_zero)),
+            PlateSurface(:right_tip, [1,0,0], [0,0,-1],
+                set_c.area * rel_side, :right;
+                twist=deg2rad(set_c.alpha_ztip)),
+            PlateSurface(:left_tip, [1,0,0], [0,0,1],
+                set_c.area * rel_side, :left;
+                twist=deg2rad(set_c.alpha_ztip)),
+        ]
+        cl_interp, cd_interp =
+            create_plate_interpolations(
+                set_c.alpha_cl, set_c.cl_list,
+                set_c.cd_list; alpha_cd=set_c.alpha_cd)
+
+        wing_c = PlateWing(:plate_wing, surfaces_c,
+            cl_interp, cd_interp;
+            wing_type=REFINE,
+            z_ref_points=([:right, :left], :top),
+            y_ref_points=(:left, :right),
+            origin=:kcu, drag_corr=0.93 * K,
+            cmq=set_c.cmq, smc=set_c.smc,
+            cord_length=set_c.cord_length)
+
+        elev = deg2rad(set_c.elevation)
+        azim = deg2rad(10.0)
+        kite_angle = deg2rad(3.83)
+
+        transforms_c = [
+            Transform(:main_tf, elev, azim, 0.0;
+                base_pos=zeros(3), base_point=:ground,
+                wing=:plate_wing),
+            Transform(:kite_tilt,
+                elev + kite_angle, azim, 0.0;
+                base_transform=:main_tf,
+                rot_point=:top),
+        ]
+
+        sys_c = SystemStructure("chained_test", set_c;
+            points=points_c, segments=segments_c,
+            tethers=tethers_c, winches=winches_c,
+            wings=[wing_c], transforms=transforms_c)
+
+        sam_c = SymbolicAWEModel(set_c, sys_c)
+        init!(sam_c)
+
+        @testset "get_base_pos returns different values" begin
+            sys = sam_c.sys_struct
+            tf_child = sys.transforms[:kite_tilt]
+            base_pos, curr_base_pos = get_base_pos(
+                tf_child, sys.transforms,
+                sys.wings, sys.points)
+            # After init, parent wing has moved from CAD
+            # so base_pos (world) != curr_base_pos (CAD)
+            @test !(base_pos ≈ curr_base_pos)
+            println("  base_pos=$(round.(base_pos, digits=2))")
+            println("  curr_base_pos=" *
+                "$(round.(curr_base_pos, digits=2))")
+        end
+
+        @testset "Child points translated from CAD" begin
+            sys = sam_c.sys_struct
+            top = sys.points[:top]
+            # top should NOT be at its CAD position
+            @test !(top.pos_w ≈ top.pos_cad)
+            # top should be far from origin (at tether length)
+            @test norm(top.pos_w) > 50.0
+            println("  top.pos_w=" *
+                "$(round.(top.pos_w, digits=2))")
+            println("  top.pos_cad=" *
+                "$(round.(top.pos_cad, digits=2))")
+        end
+
+        @testset "Child points near parent wing" begin
+            sys = sam_c.sys_struct
+            wing_pos = sys.wings[1].pos_w
+            top_pos = sys.points[:top].pos_w
+            right_pos = sys.points[:right].pos_w
+            left_pos = sys.points[:left].pos_w
+
+            # All child points should be near the wing
+            # (within bridle length, ~30m)
+            @test norm(top_pos - wing_pos) < 50.0
+            @test norm(right_pos - wing_pos) < 50.0
+            @test norm(left_pos - wing_pos) < 50.0
+
+            println("  wing_pos=" *
+                "$(round.(wing_pos, digits=2))")
+            dist = round(
+                norm(top_pos - wing_pos), digits=2)
+            println("  dist(top, wing)=$dist")
+        end
+
+        @testset "Distances preserved (rigid body)" begin
+            sys = sam_c.sys_struct
+            # CAD distances between child points
+            cad_dist_top_right = norm(
+                sys.points[:top].pos_cad -
+                sys.points[:right].pos_cad)
+            cad_dist_top_left = norm(
+                sys.points[:top].pos_cad -
+                sys.points[:left].pos_cad)
+            cad_dist_right_left = norm(
+                sys.points[:right].pos_cad -
+                sys.points[:left].pos_cad)
+
+            # World distances should match CAD distances
+            # (transforms are rigid body)
+            world_dist_top_right = norm(
+                sys.points[:top].pos_w -
+                sys.points[:right].pos_w)
+            world_dist_top_left = norm(
+                sys.points[:top].pos_w -
+                sys.points[:left].pos_w)
+            world_dist_right_left = norm(
+                sys.points[:right].pos_w -
+                sys.points[:left].pos_w)
+
+            @test cad_dist_top_right ≈
+                world_dist_top_right atol=1e-6
+            @test cad_dist_top_left ≈
+                world_dist_top_left atol=1e-6
+            @test cad_dist_right_left ≈
+                world_dist_right_left atol=1e-6
+        end
+
+        @testset "reposition! no crash" begin
+            sys = sam_c.sys_struct
+            # Should not crash for chained transforms
+            @test_nowarn reposition!(
+                sys.transforms, sys)
+        end
+
+        @testset "Different child elevation changes pos" begin
+            sys = sam_c.sys_struct
+            tf_child = sys.transforms[:kite_tilt]
+
+            # Elevation 1
+            tf_child.elevation = elev + kite_angle
+            init!(sam_c; prn=false)
+            top_pos1 = copy(sys.points[:top].pos_w)
+
+            # Elevation 2 (larger tilt)
+            tf_child.elevation = elev + 2 * kite_angle
+            init!(sam_c; prn=false)
+            top_pos2 = copy(sys.points[:top].pos_w)
+
+            # Different elevation should give different pos
+            @test !(top_pos1 ≈ top_pos2)
+            println("  top_pos(tilt1)=" *
+                "$(round.(top_pos1, digits=2))")
+            println("  top_pos(tilt2)=" *
+                "$(round.(top_pos2, digits=2))")
         end
     end
 

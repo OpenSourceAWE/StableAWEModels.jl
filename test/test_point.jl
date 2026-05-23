@@ -210,11 +210,11 @@ system:
         set.v_wind = 0.0
 
         # Use no-drag YAML for cleaner test
-        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="point_test_stat", set=set)
+        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="point_no_drag_test", set=set)
         @test sys.points[:test_point].area == 0.0
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Record initial state
         initial_pos = copy(sam.sys_struct.points[:test_point].pos_w)
@@ -257,7 +257,7 @@ system:
         @test sys.points[:test_point].extra_mass == 50.0
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Physics: F = 0.5 * rho * Cd * A * v^2
         rho = 1.225
@@ -309,14 +309,14 @@ system:
         set.v_wind = 0.0
 
         # Use no-drag YAML - just a point with mass, no segments
-        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="freefall_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="point_no_drag_test", set=set)
 
         @test sys.points[:test_point].area == 0.0
         @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
         @test sys.points[:test_point].extra_mass == 0.69
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Initial state
         z0 = sam.sys_struct.points[:test_point].pos_w[3]
@@ -362,7 +362,7 @@ system:
         @test sys.points[:test_point].extra_mass == 2.3
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Terminal velocity calculation:
         # world_frame_damping is a per-mass damping coefficient (damping ratio)
@@ -406,7 +406,7 @@ system:
         @test sys.points[:test_point].total_mass == 0.0 # Not initialized yet
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
         @test sys.points[:test_point].total_mass == 2.3
 
         # Verify point properties are preserved after init
@@ -470,7 +470,7 @@ system:
         @test sys.points[:test_point].extra_mass == 2.3
 
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         point = sam.sys_struct.points[:test_point]
         m = 2.3

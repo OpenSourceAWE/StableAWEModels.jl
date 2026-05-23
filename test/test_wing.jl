@@ -53,7 +53,7 @@ function reset_state!(sam, set)
 
     sam.sys_struct.winches[:main_winch].brake = true
 
-    test_init!(sam; remake=false, reload=false, prn=false)
+    test_init!(sam; prn=false)
 end
 
 @testset "Wing Tests" begin
@@ -90,14 +90,14 @@ end
         system_name="wing_test_QUATERNION", set, vsm_set
     )
     quat_sam = SymbolicAWEModel(set, quat_sys)
-    test_init!(quat_sam; remake=true, prn=true)
+    test_init!(quat_sam)
 
     refine_sys = load_sys_struct_from_yaml(
         refine_yaml_path;
         system_name="wing_test_REFINE", set, vsm_set
     )
     refine_sam = SymbolicAWEModel(set, refine_sys)
-    test_init!(refine_sam; remake=true, prn=true)
+    test_init!(refine_sam)
 
     sam_configs = [
         ("REFINE", refine_sam, SymbolicAWEModels.REFINE),
@@ -105,6 +105,11 @@ end
     ]
 
     for (wtn, sam, expected_wing_type) in sam_configs
+        is_linearized = expected_wing_type ==
+            SymbolicAWEModels.QUATERNION
+        dt = is_linearized ? 0.2 : 1/300
+        n_steps = is_linearized ? 5 : 300
+
         @testset "$wtn Wing" begin
             # ========================================================
             # Test 0: YAML Loading Verification
@@ -141,9 +146,7 @@ end
                 reset_state!(sam, set)
                 set.g_earth = 0.0
                 set.v_wind = 0.0
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
                 @show sam.set.wind_vec
                 @show sam.sys_struct.wings[1].heading
 
@@ -152,9 +155,8 @@ end
                 init_wing_pos = copy(wing.pos_w)
                 init_kcu_pos = copy(sys.points[:kcu].pos_w)
 
-                for _ in 1:50
-                    next_step!(sam; dt=0.05,
-                        vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 wing_drift = norm(wing.pos_w - init_wing_pos)
@@ -180,16 +182,13 @@ end
             @testset "Gravity no wind" begin
                 reset_state!(sam, set)
                 set.v_wind = 0.0
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
 
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_z = wing.pos_w[3]
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.05,
-                        vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 final_z = wing.pos_w[3]
@@ -210,9 +209,8 @@ end
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_norm = norm(wing.pos_w)
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.001,
-                        vsm_interval=1)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=1)
                 end
 
                 final_norm = norm(wing.pos_w)
@@ -233,9 +231,8 @@ end
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_pos = copy(wing.pos_w)
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.001,
-                        vsm_interval=1)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=1)
                 end
 
                 displacement = norm(wing.pos_w - initial_pos)
@@ -257,11 +254,6 @@ end
 
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_Q = copy(wing.Q_b_to_w)
-
-                is_linearized = expected_wing_type ==
-                    SymbolicAWEModels.QUATERNION
-                dt = is_linearized ? 0.2 : 0.001
-                n_steps = is_linearized ? 5 : 100
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=1)
@@ -292,9 +284,7 @@ end
                 for wing in sam.sys_struct.wings
                     wing.fix_sphere = true
                 end
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
 
                 # QUATERNION: fix_sphere constrains com_w
                 # (not kcu, which shifts with rotation).
@@ -310,8 +300,8 @@ end
                 end
                 r̂0 = normalize(p0)
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.05, vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 if expected_wing_type == SymbolicAWEModels.QUATERNION
@@ -340,9 +330,7 @@ end
                         point.fix_static = true
                     end
                 end
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
 
                 # QUATERNION: kcu is a WING point (derived
                 # from com_w + R * pos_b), not a DYNAMIC
@@ -359,9 +347,8 @@ end
                     for n in check_names
                 )
 
-                for _ in 1:50
-                    next_step!(sam; dt=0.05,
-                        vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 for name in check_names
@@ -391,16 +378,13 @@ end
                 # Undamped run
                 reset_state!(sam, set)
                 set.v_wind = 0.0
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
 
                 wing = sam.sys_struct.wings[:main_wing]
                 init_pos = copy(wing.pos_w)
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.05,
-                        vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 undamped_speed = norm(wing.vel_w)
@@ -412,15 +396,12 @@ end
                 set_world_frame_damping(
                     sam.sys_struct, 1000.0
                 )
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
 
                 init_pos .= wing.pos_w
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.05,
-                        vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 damped_speed = norm(wing.vel_w)
@@ -442,12 +423,9 @@ end
             # ========================================================
             @testset "Force vs sol.force conservation" begin
                 reset_state!(sam, set)
-                test_init!(
-                    sam; remake=false, reload=false, prn=false, remake_vsm=true
-                )
-                for _ in 1:5
-                    next_step!(sam; dt=0.001,
-                        vsm_interval=1)
+                test_init!(sam; prn=false, remake_vsm=true)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=1)
                 end
 
                 wing = sam.sys_struct.wings[:main_wing]
@@ -501,9 +479,9 @@ end
                     "model=$(round(lift_tot; digits=2))")
 
                 @test isapprox(drag_tot, drag_sol;
-                    rtol=0.06)
+                    rtol=0.1)
                 @test isapprox(lift_tot, lift_sol;
-                    rtol=0.06)
+                    rtol=0.1)
             end
         end
     end

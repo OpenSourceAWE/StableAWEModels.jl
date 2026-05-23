@@ -167,7 +167,18 @@ function load_serialized_model!(sam, model_path; remake=false, reload=false)
                 return true
             end
         catch e
-            @warn "Failure to deserialize $model_path: $(typeof(e))"
+            bt = catch_backtrace()
+            log_path = model_path * ".error.log"
+            open(log_path, "w") do io
+                println(io,
+                    "Deserialization failed at ",
+                    time())
+                println(io, "Path: $model_path")
+                showerror(io, e, bt)
+            end
+            @warn "Failure to deserialize " *
+                "$model_path: $(typeof(e)). " *
+                "Details in $log_path"
         end
     end
     sam.serialized_model = SerializedModel(; set_hash, sys_struct_hash)
@@ -318,9 +329,9 @@ function init!(sam::SymbolicAWEModel;
     vsm_min_wind=0.5
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
-    sam.sys_struct isa SystemStructure{VSMWing} || error(
-        "Equation generation requires SystemStructure{VSMWing}, " *
-        "got SystemStructure{$(eltype(sam.sys_struct.wings))}.")
+    sam.sys_struct isa SystemStructure || error(
+        "Equation generation requires SystemStructure, " *
+        "got $(typeof(sam.sys_struct)).")
     time = @elapsed begin
         if isnothing(solver)
             if sam.set.solver == "QNDF"
@@ -522,7 +533,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                      Int(wing.aero_mode))
 
         # Include wing reference points in hash
-        if wing isa VSMWing
+        if wing isa VSMWing || wing isa PlateWing
             _ref_hash(r) = (r.ids, r.weights)
             _rp_hash(rp) = isnothing(rp) ? nothing :
                 (_ref_hash(rp[1]), _ref_hash(rp[2]))
@@ -530,6 +541,14 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                 _rp_hash(wing.z_ref_points),
                 _rp_hash(wing.y_ref_points),
                 wing.origin_idx)
+        end
+        if wing isa PlateWing
+            # Include surface geometry in hash
+            for surf in wing.surfaces
+                wing_data = (wing_data...,
+                    surf.point_idx, surf.area,
+                    surf.x_airf, surf.y_airf)
+            end
         end
 
         push!(data_parts, wing_data)
