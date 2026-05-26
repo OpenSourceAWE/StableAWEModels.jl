@@ -1,4 +1,32 @@
 
+# v0.10.0 26-05-2026
+
+## Changed
+- BREAKING: `WingType` constants `QUATERNION` and `REFINE` are now
+  deprecated. Use `RIGID_DYNAMICS` and `PARTICLE_DYNAMICS` instead.
+  Deprecated bindings emit a warning and will be removed in a future
+  release.
+- `DataInterpolations` added as a package dependency (required for
+  `PlateWing` polar interpolation).
+
+## Added
+- `PlateWing` and `PlateSurface` types for flat-plate CL/CD lookup
+  aerodynamics.
+- `AERO_PLATE` aerodynamics mode — evaluates lift and drag from a
+  polar table (CL/CD vs α) via registered symbolic interpolants.
+- `create_plate_interpolations(alpha_deg, cl_data, cd_data)` — helper
+  to build CL and CD interpolation objects (cubic or linear spline)
+  for use with `PlateWing`.
+- `examples/kps4_comparison.jl` — comparison of a `PlateWing`-based
+  rigid-body kite model against the KiteModels kps4 reference.
+- `data/kps4/` — YAML settings and system definition for the kps4
+  plate model.
+
+## Fixed
+- `bin/create_sys_image`: fixed a bug that prevented deletion of
+  stale `.so` files before rebuilding the system image.
+- `AUTHORS.md`: corrected contributor entry.
+
 # v0.9.0 20-05-2026
 
 ## Changed
