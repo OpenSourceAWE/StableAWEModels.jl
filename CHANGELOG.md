@@ -22,11 +22,24 @@
   rigid-body kite model against the KiteModels kps4 reference.
 - `data/kps4/` — YAML settings and system definition for the kps4
   plate model.
+- Added missing examples to `examples/menu.jl`:
+  `coupled_linearize`, `cosine_steering_trajectory`,
+  `kps4_comparison`, `vsm_linearization`, and `sam_tutorial`.
 
 ### Fixed
 - `bin/create_sys_image`: fixed a bug that prevented deletion of
   stale `.so` files before rebuilding the system image.
 - `AUTHORS.md`: corrected contributor entry.
+- `examples/kps4_comparison.jl`: fixed soft-scope ambiguity warning
+  for `sys_state` inside the simulation loop.
+- Multi-log `plot()` legend labels now render correctly as LaTeX.
+  Added `lbl()` helper that places the symbol and suffix inside a
+  single `$...\text{...}$` math environment, fixing the literal
+  `$\gamma$ (SymAWE)` display in the legend.
+
+### Removed
+- `examples/makie_polar_plots.jl` — removed (functionality
+  superseded).
 
 ## v0.9.0 20-05-2026
 
