@@ -1,7 +1,8 @@
+# CHANGELOG
 
-# v0.10.0 26-05-2026
+## v0.10.0 26-05-2026
 
-## Changed
+### Changed
 - BREAKING: `WingType` constants `QUATERNION` and `REFINE` are now
   deprecated. Use `RIGID_DYNAMICS` and `PARTICLE_DYNAMICS` instead.
   Deprecated bindings emit a warning and will be removed in a future
@@ -9,7 +10,7 @@
 - `DataInterpolations` added as a package dependency (required for
   `PlateWing` polar interpolation).
 
-## Added
+### Added
 - `PlateWing` and `PlateSurface` types for flat-plate CL/CD lookup
   aerodynamics.
 - `AERO_PLATE` aerodynamics mode — evaluates lift and drag from a
@@ -22,14 +23,14 @@
 - `data/kps4/` — YAML settings and system definition for the kps4
   plate model.
 
-## Fixed
+### Fixed
 - `bin/create_sys_image`: fixed a bug that prevented deletion of
   stale `.so` files before rebuilding the system image.
 - `AUTHORS.md`: corrected contributor entry.
 
-# v0.9.0 20-05-2026
+## v0.9.0 20-05-2026
 
-## Changed
+### Changed
 - BREAKING: simplified `AERO_LINEARIZED`. ForwardDiff Jacobian
   over `[α, β, ω, θ_groups]` returning wind-axis coefficients
   `[CL, CD, CS, CM, cm_groups]`. Wing fields and accessors
@@ -47,15 +48,15 @@
 - Safe `atan`/`smooth_normalize` replacements for `asin`/`normalize`
   in VSM equations and linearisation to avoid NaN at edge cases.
 
-## Added
+### Added
 - `examples/vsm_linearization.jl` — plots the VSM linearisation
   tangents around the operating point.
 - `test/util.jl` — shared test utilities for allocation checks across
   all integrators.
 
-# v0.8.3 03-05-2026
+## v0.8.3 03-05-2026
 
-## Changed
+### Changed
 - VSM solver type is taken from VSM settings instead of being
   hard-coded to `NONLIN`.
 - At low apparent wind, aero outputs are zeroed instead of warning
@@ -63,12 +64,12 @@
   on `init!`, `reinit!`, `next_step!`.
 - Bumped `VortexStepMethod` compat to `3.2.0`.
 
-# v0.8.2 26-04-2026
+## v0.8.2 26-04-2026
 
-## Changed
+### Changed
 - Updated the default manifest files.
 
-## Added
+### Added
 - `drag_force` field on `Point` — total drag in world frame (point's
   own aerodynamic drag plus its share of connected segment drag).
   Populated by `update_sys_struct!` each timestep.
@@ -80,31 +81,31 @@
 - Drag-related tests in `test_point.jl`, `test_segment.jl`, and
   `test_wing.jl`.
 
-## Fixed
+### Fixed
 - Crash with Julia 1.11; `setup_env` updated to fix that.
 
-## Removed
+### Removed
 - `plot_recipe.jl` — unused legacy Plots.jl recipe. Visualization is
   handled by `SymbolicAWEModelsMakieExt`.
 
-# v0.8.1 23-04-2026
+## v0.8.1 23-04-2026
 
-## Changed
+### Changed
 - `SystemStructure.set` field is no longer `const`, allowing change
   after deserialisation.
 - Replaced all `@unpack` macro usage with Julia's native destructuring
   syntax `(; a, b) = x`.
 
-## Fixed
+### Fixed
 - Fixed JETLS warnings across multiple source files.
 - `bin/install` now copies `.JETLSConfig.toml.default` to
   `.JETLSConfig.toml` if it does not exist, and warns when an existing
   config differs from the default.
 - `bin/install` warning messages now use colored output for visibility.
 
-# v0.8.0 18-04-2026
+## v0.8.0 18-04-2026
 
-## Changed
+### Changed
 - BREAKING: `SegmentType` positional argument removed from `Segment`
   constructor. Use `unit_stiffness`, `unit_damping`, `diameter_mm`
   kwargs or a YAML material instead. The `SegmentType` enum is kept
@@ -159,7 +160,7 @@
   upgrading the package automatically invalidates stale cached models.
 - the script `bin/run_julia` was updated to work also with Julia 1.12.6
 
-## Added
+### Added
 - Route 2 tether auto-generation: `Tether(name; start_point,
   end_point, n_segments)` automatically creates intermediate points
   and segments, evenly spaced between endpoints. YAML format:
@@ -185,7 +186,7 @@
 - Developer documentation improvements (troubleshooting section for
   segfault issues, updated docs to use GLMakie).
 
-## Fixed
+### Fixed
 - YAML `calculate_derived_properties!` no longer requires `l0` to
   compute `unit_stiffness` from material properties (needed for
   Route 2 tethers).
@@ -204,7 +205,7 @@
 - README pendulum example also calls `set_data_path("data/base")`
   before loading `Settings`.
 
-## Removed
+### Removed
 - `SimpleLinModelWithAttributes` struct and `simple_linearize!`.
 - `sim_oscillate!` and `sim_turn!` simulation functions.
 - `getstate` and `setstate!` functions from `linearize.jl`.
@@ -213,13 +214,13 @@
   `bin/run_julia` no longer embed the git branch name in the `.so`
   filename. A single `kps-image-<julia_major>.so` is used instead.
 
-## Tests
+### Tests
 - README pendulum example and README 2-plate kite example are now
   executed in `test/setup_integration.jl`.
 
-# v0.7.2 18-03-2026
+## v0.7.2 18-03-2026
 
-## Added
+### Added
 - `speed_controlled` field on `Winch` — when `true`, tether velocity
   is prescribed externally (`D(tether_vel) = 0`) while length still
   tracks velocity.
@@ -231,7 +232,7 @@
   package.
 - CI: GLMakie tests on Linux via `xvfb-run`, Julia 1.12 test matrix.
 
-## Fixed
+### Fixed
 - `reposition!()` now uses the analytical `solve_heading_rotation`
   for wind-relative heading, consistent with `reinit!`. Previously
   heading was applied as a relative delta, causing drift.
@@ -247,28 +248,28 @@
 - Typo fixes in README and documentation ("ODE solver" → "ODE
   problem").
 
-## Changed
+### Changed
 - `sam_tutorial.jl` example updated: adds WING-type points and uses
   `VSMSettings` with `data_prefix=false`.
 - Examples updated to pass `data_prefix=false` to `VSMSettings`.
 - 2plate_kite aero geometry TE z-coordinates adjusted.
 - `settings.yaml` now includes `sample_freq` field.
 
-# v0.7.1 27-02-2026
+## v0.7.1 27-02-2026
 
-## Added
+### Added
 - `update_sys_struct_from_yaml!()` — update a `SystemStructure` in-place
   from a modified YAML file (point `pos_cad` and segment `l0`).
 - `segment_cad_length()` and `autocalc_tether_len()` shared helpers,
   replacing duplicated code in the constructor, `reinit!`, and YAML loader.
 
-## Fixed
+### Fixed
 - `SystemStructure` constructor auto-calculates `winch.tether_len` from
   all connected tethers (was only using the first).
 
-# v0.7.0 DD-02-2026
+## v0.7.0 DD-02-2026
 
-## Changed
+### Changed
 - BREAKING: Julia version requirement raised from 1.10 to 1.11, 1.12.
 - `reinit!()` uses a unified code path for all wing types, calling
   `match_aero_sections_to_structure!` and
@@ -279,7 +280,7 @@
   scripts, and test sub-projects.
 - Manifest files renamed to `.default` suffix and gitignored.
 
-## Added
+### Added
 - Asymmetric aero/structural section counts: aerodynamic and structural
   meshes can now have different numbers of sections. When counts differ,
   `match_aero_sections_to_structure!()` rebuilds unrefined
@@ -302,16 +303,16 @@
 - Helper scripts: `bin/install` (environment setup, Julia version detection)
   and `bin/run_julia` (launcher with system image support).
 
-# v0.6.1 23-02-2026
+## v0.6.1 23-02-2026
 
-## Fixed
+### Fixed
 - Disable VSM auto-sorting of sections (`sort_sections=false`) in all
   VortexStepMethod calls. Auto-sorting silently broke the correspondence
   between VSM sections and structural point indices / group mappings.
 
-# v0.6.0 21-02-2026
+## v0.6.0 21-02-2026
 
-## Changed
+### Changed
 - Component constructors (`Point`, `Segment`, `Wing`, `Winch`,
   `Transform`) now accept a symbolic `name` (Symbol) as the first
   argument in addition to numeric indices. Numeric `idx` values still
@@ -364,7 +365,7 @@
 - Data files reorganised: base settings moved to `data/base/`, new
   `data/2plate_kite/` and `data/saddle_form/` model directories added.
 
-## Added
+### Added
 - `NamedCollection` indexing — components support symbolic names
   (e.g. `sys.points[:kcu]`, `sys.segments[:bridle_1]`).
   `SystemStructure` resolves all symbolic references to numeric indices
@@ -403,7 +404,7 @@
   `static_load_2plate_kite`.
 - Benchmark test (`test_bench.jl`) for performance tracking.
 
-## Removed
+### Removed
 - `predefined_structures.jl` and factory functions
   (`create_ram_sys_struct`, `create_simple_ram_sys_struct`,
   `create_tether_sys_struct`, `copy_to_simple!`).
@@ -414,93 +415,93 @@
 - `SymbolicAWEModelsControlPlotsExt` package extension.
 - `src/precompile.jl`.
 
-# v0.5.0 25-08-2024
-## Removed
+## v0.5.0 25-08-2024
+### Removed
 - BREAKING: the Winch struct doesn't have a model field anymore. Instead, all equations are symbolic, and the WinchModels dependency is removed.
-## Added
+### Added
 - The function `calc_steady_torque` calculates the torque that will result in zero acceleration.
 
-# v0.4.2 24-08-2024
-## Fixed
+## v0.4.2 24-08-2024
+### Fixed
 - Don't write protect manifest
 
-# v0.4.1 13-08-2025
-## Fixed
+## v0.4.1 13-08-2025
+### Fixed
 - Update Artifacts.toml.default
 
-# v0.4.0 13-08-2025
-## Added
+## v0.4.0 13-08-2025
+### Added
 - Structs with attributes for better serialization and code structure (`SimpleLinModelWithAttributes`, `ProbWithAttributes`, `LinProbWithAttributes`, `ControlFuncWithAttributes`).
 - `plot_force` option to the plot recipe.
 - `model_management.jl` file to better organize the code.
-## Changed
+### Changed
 - BREAKING: `init_module` function to simplify project setup, replacing `install_examples`, `copy_examples`, `copy_bin` and `copy_model_settings`.
 - Major refactoring of the `SymbolicAWEModel` and its initialization process. The `SerializedModel` struct is now much simpler and more robust.
 - The `run_julia` script is now much more powerful, with argument parsing for `--copy-manifest` and `--precompile`.
 - The precompilation process now uses artifacts instead of downloading files directly.
-## Fixed
+### Fixed
 - URLs in `Artifacts.toml.default`.
 - Cross-correlation analysis in tests.
-## Removed
+### Removed
 - `data/kite.obj` file.
 - `copy_examples`, `copy_bin`, `copy_model_settings`, `install_examples` functions.
 
-# v0.3.3 07-08-2025
-## Fixed
+## v0.3.3 07-08-2025
+### Fixed
 - Fix non-persistent state bug with `calc_tether_props`
 
-# v0.3.2 07-08-2025
-## Fixed
+## v0.3.2 07-08-2025
+### Fixed
 - Fix documentation for sim_oscillate!
 
-# v0.3.1 06-08-2025
-## Fixed
+## v0.3.1 06-08-2025
+### Fixed
 - Fix examples and menu
 
-# v0.3.0 06-08-2025
-## Changed
+## v0.3.0 06-08-2025
+### Changed
 - Breaking: sim!, sim_oscillate! and sim_turn! return a tuple (sl, lin_sl) instead of just a sl
-## Fixed
+### Fixed
 - Restrict LinearSolve version to `<3.25.0`
 - Fixed `linearize!(sam)` to get updated when the state gets updated
-## Added
+### Added
 - Added `lin_simple_tuned_model.jl` example
 
-# v0.2.1 01-08-2025
-## Fixed
+## v0.2.1 01-08-2025
+### Fixed
 - Import Pkg
 
-# v0.2.0 01-08-2025
-## Added
+## v0.2.0 01-08-2025
+### Added
 - Adds simple model and tether model
 - Adds `copy_to_simple!` function, which copies the ram model state to the simple model state, uses the tether model to find the equivalent 1-segment spring properties of the tether
 - Adds open-loop sim functions `sim!`, `sim_oscillate!`, `sim_turn!`
 - Adds plotting function `plot(sys_struct::SystemStructure, sys_log::SysLog)`
 - Adds documentation
 - Adds new updated tests: test/test_sam.jl
-## Fixed
+### Fixed
 - Fixes documentation
 - Fixes the bug where the kite could not have negative position
-## Changed
+### Changed
 - Improved precompilation
 - Breaking: `Segment` constructor has different arguments
-## Removed
+### Removed
 - Removed `.bin` files from git, will be added as release artifacts
 
-# v0.1.3 18-07-2025
-## Changed
+## v0.1.3 18-07-2025
+### Changed
 - Add interface keyword arguments to `init!`
 
-# v0.1.2 13-07-2025
-## Changed
+## v0.1.2 13-07-2025
+### Changed
 - Update VortexStepMethod.jl
 
-# v0.1.1 13-07-2025
-## Added
+## v0.1.1 13-07-2025
+### Added
 - Added a simple linearized model
-## Changed
+### Changed
 - Improved the reinitialization using scalar settings values
 - Update KiteUtils and AtmosphericModels
 
-# v0.1.0
+## v0.1.0
 - Moved the SymbolicAWEModel from KiteModels.jl to SymbolicAWEModels.jl
