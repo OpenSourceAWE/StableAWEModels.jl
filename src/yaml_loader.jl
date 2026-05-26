@@ -286,8 +286,16 @@ end
 
 function parse_wing_type(s::String)
     s_upper = uppercase(s)
-    s_upper == "REFINE" && return REFINE
-    s_upper == "QUATERNION" && return QUATERNION
+    s_upper == "PARTICLE_DYNAMICS" && return PARTICLE_DYNAMICS
+    s_upper == "RIGID_DYNAMICS" && return RIGID_DYNAMICS
+    if s_upper == "REFINE"
+        @warn "WingType \"$s\" is deprecated; use \"PARTICLE_DYNAMICS\" instead."
+        return PARTICLE_DYNAMICS
+    end
+    if s_upper == "QUATERNION"
+        @warn "WingType \"$s\" is deprecated; use \"RIGID_DYNAMICS\" instead."
+        return RIGID_DYNAMICS
+    end
     error("Unknown WingType: $s")
 end
 
@@ -373,7 +381,7 @@ function _load_plate_wing(row, idx, data, set, wt, am,
     end
 
     PlateWing(name, surfaces, cl_interp, cd_interp;
-              wing_type=wt, transform, y_damping,
+              dynamics_type=wt, transform, y_damping,
               drag_corr, cmq, smc, cord_length,
               z_ref_points=z_ref, y_ref_points=y_ref,
               origin)
@@ -385,7 +393,14 @@ end
 Build a `SystemStructure` from a component-based structural
 YAML file. See source for full documentation of expected blocks.
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing, wing_type::Union{Nothing,WingType}=nothing)
+    if !isnothing(wing_type)
+        if !isnothing(dynamics_type)
+            error("Cannot specify both `wing_type` and `dynamics_type`; `wing_type` is deprecated, use `dynamics_type`.")
+        end
+        @warn "Keyword argument `wing_type` is deprecated; use `dynamics_type` instead."
+        dynamics_type = wing_type
+    end
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
@@ -780,8 +795,21 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         wing_rows = parse_table(data["wings"])
 
         for (i, row) in enumerate(wing_rows)
-            # Use provided wing_type parameter or parse from YAML
-            wt = isnothing(wing_type) ? parse_wing_type(String(row.type)) : wing_type
+            # Use provided dynamics_type parameter or parse from YAML
+            # Support old `type` field with deprecation warning
+            wt = if !isnothing(dynamics_type)
+                dynamics_type
+            else
+                raw_wt_field = if hasfield(typeof(row), :dynamics_type) && !isnothing(row.dynamics_type)
+                    String(row.dynamics_type)
+                elseif hasfield(typeof(row), :type) && !isnothing(row.type)
+                    @warn "Wing YAML field `type` is deprecated; rename to `dynamics_type`."
+                    String(row.type)
+                else
+                    error("Wing entry missing required `dynamics_type` field.")
+                end
+                parse_wing_type(raw_wt_field)
+            end
 
             # Build kwargs based on wing type - SystemStructure handles resolution
             # Determine aero_mode: kwarg > YAML > default
@@ -791,7 +819,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     !isnothing(row.aero_mode)
                 parse_aero_mode(String(row.aero_mode))
             else
-                wt == QUATERNION ? AERO_LINEARIZED :
+                wt == RIGID_DYNAMICS ? AERO_LINEARIZED :
                     AERO_DIRECT
             end
 
@@ -810,20 +838,22 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                       "was not provided.")
             end
 
-            if wt == REFINE
-                # REFINE wings need z_ref_points, y_ref_points, origin
+            if wt == PARTICLE_DYNAMICS
+                # PARTICLE_DYNAMICS wings need z_ref_points, y_ref_points, origin
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
                     [:transform, :y_damping, :angular_damping,
-                     :wing_type, :aero_mode,
+                     :dynamics_type, :aero_mode,
                      :z_ref_points, :y_ref_points, :origin, :pos_cad,
                      :aero_scale_chord];
                     mappings=Dict(
                         :set => r -> resolved_set,
-                        :groups => r -> [],  # REFINE wings don't have groups
+                        :groups => r -> hasfield(typeof(r), :groups) &&
+                            !isnothing(r.groups) ?
+                            [yaml_to_ref(g) for g in r.groups] : [],
                         :vsm_set => r -> vsm_set,
-                        :wing_type => r -> wt,
+                        :dynamics_type => r -> wt,
                         :aero_mode => r -> am,
                         :name => r -> begin
                             if haskey(r, :name) && !isnothing(r.name)
@@ -858,12 +888,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             nothing
                         end
                     ))
-            else  # QUATERNION
+            else  # RIGID_DYNAMICS
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
                     [:transform, :y_damping, :angular_damping,
-                     :wing_type, :aero_mode, :aero_scale_chord,
+                     :dynamics_type, :aero_mode, :aero_scale_chord,
                      :aero_z_offset, :pos_cad,
                      :z_ref_points, :y_ref_points, :origin];
                     mappings=Dict(
@@ -873,7 +903,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             !isnothing(r.groups) ?
                             [yaml_to_ref(g) for g in r.groups] : [],
                         :vsm_set => r -> vsm_set,
-                        :wing_type => r -> wt,
+                        :dynamics_type => r -> wt,
                         :name => r -> begin
                             if haskey(r, :name) && !isnothing(r.name)
                                 Symbol(r.name)
@@ -1019,12 +1049,12 @@ Source and destination paths must be different for each pair.
 
 # Example
 ```julia
-sys = load_sys_struct_from_yaml("refine_struc_geometry.yaml"; ...)
+sys = load_sys_struct_from_yaml("particle_structural_geometry.yaml"; ...)
 sam = SymbolicAWEModel(set, sys)
 # ... run simulation ...
 update_yaml_from_sys_struct!(sys,
-    "refine_struc_geometry.yaml",
-    "refine_struc_geometry_stable.yaml",
+    "particle_structural_geometry.yaml",
+    "particle_structural_geometry_stable.yaml",
     "aero_geometry.yaml",
     "aero_geometry_stable.yaml")
 ```
@@ -1041,9 +1071,9 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
         return rounded
     end
 
-    # Update pos_b for REFINE wing points based on current wing orientation
+    # Update pos_b for PARTICLE_DYNAMICS wing points based on current wing orientation
     for wing in sys_struct.wings
-        if wing.wing_type == REFINE
+        if wing.dynamics_type == PARTICLE_DYNAMICS
             R_w_to_b = wing.R_b_to_w'  # transpose to get world-to-body
             for point in sys_struct.points
                 if point.wing_idx == wing.idx
@@ -1294,9 +1324,9 @@ components).
 
 # Example
 ```julia
-sys = load_sys_struct_from_yaml("refine_struc_geometry.yaml"; ...)
+sys = load_sys_struct_from_yaml("particle_structural_geometry.yaml"; ...)
 # ... edit YAML externally ...
-update_sys_struct_from_yaml!(sys, "refine_struc_geometry.yaml")
+update_sys_struct_from_yaml!(sys, "particle_structural_geometry.yaml")
 ```
 """
 function update_sys_struct_from_yaml!(

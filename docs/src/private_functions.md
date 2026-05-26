@@ -136,7 +136,7 @@ SymbolicAWEModels.compute_spatial_group_mapping!
 SymbolicAWEModels.copy_cad_to_world!
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
-SymbolicAWEModels.calc_refine_wing_frame
+SymbolicAWEModels.calc_particle_dynamics_wing_frame
 SymbolicAWEModels.calc_inertia_y_rotation
 SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.expand_auto_tethers!
@@ -182,7 +182,7 @@ SymbolicAWEModels._load_plate_wing
 SymbolicAWEModels.build_point_to_vsm_point_mapping
 SymbolicAWEModels.update_vsm_wing_from_structure!
 SymbolicAWEModels.distribute_panel_forces_to_points!
-SymbolicAWEModels._update_quaternion_wing!
+SymbolicAWEModels._update_rigid_dynamics_wing!
 SymbolicAWEModels._apply_direct_forces!
 SymbolicAWEModels._safe_vsm_solve!
 ```

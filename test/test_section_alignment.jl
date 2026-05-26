@@ -13,7 +13,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod, WING,
-    QUATERNION
+    RIGID_DYNAMICS
 using KiteUtils
 using LinearAlgebra
 
@@ -22,7 +22,7 @@ pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
 struc_yaml = joinpath(
-    get_data_path(), "quat_struc_geometry.yaml")
+    get_data_path(), "rigid_structural_geometry.yaml")
 
 set = Settings("system.yaml")
 set.g_earth = 0.0

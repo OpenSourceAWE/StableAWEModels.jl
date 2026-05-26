@@ -44,20 +44,24 @@ Enumeration for the dynamic model governing a point's motion.
 end
 
 """
-    WingType `QUATERNION` `REFINE`
+    WingType `RIGID_DYNAMICS` `PARTICLE_DYNAMICS`
 
 Enumeration for the aerodynamic model type of a wing.
 
 # Elements
-- `QUATERNION`: Wing uses quaternion-based rigid body dynamics with twist groups.
+- `RIGID_DYNAMICS`: Wing uses quaternion-based rigid body dynamics with twist groups.
   Aerodynamic forces/moments are applied to the wing center of mass.
-- `REFINE`: Wing uses refined per-panel forces directly applied to structural points.
+- `PARTICLE_DYNAMICS`: Wing uses refined per-panel forces directly applied to structural points.
   VSM panel forces are lumped to WING-type points with no rigid body constraint.
 """
 @enum WingType begin
-    QUATERNION
-    REFINE
+    RIGID_DYNAMICS
+    PARTICLE_DYNAMICS
 end
+
+# Backwards-compatible deprecated aliases for the previous WingType names.
+Base.@deprecate_binding QUATERNION RIGID_DYNAMICS
+Base.@deprecate_binding REFINE PARTICLE_DYNAMICS
 
 """
     AeroMode `AERO_NONE` `AERO_DIRECT` `AERO_LINEARIZED`
@@ -136,7 +140,7 @@ mutable struct Point
     const disturb::KVec3
     "Net force on the point [N] (updated during simulation)."
     const force::KVec3
-    "Aerodynamic force in body frame [N] (REFINE WING points)."
+    "Aerodynamic force in body frame [N] (PARTICLE_DYNAMICS WING points)."
     const aero_force_b::KVec3
     "Total drag force in world frame [N], including the point's own drag and any segment drag contributions assigned to it."
     const drag_force::KVec3

@@ -43,9 +43,9 @@ function generate_prob_getters(sys_struct, sys)
         ])
         get_wing_state = getu(sys, wing_vars)
 
-        # aero_input only exists for QUATERNION + AERO_LINEARIZED wings
+        # aero_input only exists for RIGID_DYNAMICS + AERO_LINEARIZED wings
         has_linearized = any(
-            w.wing_type === QUATERNION &&
+            w.dynamics_type === RIGID_DYNAMICS &&
             w.aero_mode === AERO_LINEARIZED
             for w in sys_struct.wings)
         if has_linearized
@@ -501,7 +501,7 @@ Includes all structural properties that affect the symbolic equations:
 - Pulley constraints and types
 - Tether topology
 - Winch configuration
-- Wing topology, connectivity, aerodynamic model type (QUATERNION vs REFINE), and aero mode
+- Wing topology, connectivity, aerodynamic model type (RIGID_DYNAMICS vs PARTICLE_DYNAMICS), and aero mode
 - Transform hierarchy
 
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
@@ -529,7 +529,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     end
     for wing in wings
         wing_data = ("wing", wing.idx, wing.group_idxs,
-                     Int(wing.wing_type),
+                     Int(wing.dynamics_type),
                      Int(wing.aero_mode))
 
         # Include wing reference points in hash
