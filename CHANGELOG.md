@@ -9,6 +9,11 @@
   release.
 - `DataInterpolations` added as a package dependency (required for
   `PlateWing` polar interpolation).
+- `bin/install` now displays an interactive menu to choose Julia
+  version (1.11 or 1.12) when no version parameter is provided. The
+  currently active Julia version is highlighted as the default. Menu
+  is skipped if a version is specified via `--version` or `+X.Y`
+  parameters.
 
 ### Added
 - `PlateWing` and `PlateSurface` types for flat-plate CL/CD lookup
