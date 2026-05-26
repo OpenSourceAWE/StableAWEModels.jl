@@ -61,7 +61,7 @@ for step in 1:N_STEPS
     global km_elapsed += @elapsed next_step!(
         kps4, integrator;
         set_speed=0, upwind_dir=UPWIND_DIR, dt=dt)
-    sys_state = SysState(kps4)
+    local sys_state = SysState(kps4)
     sys_state.var_01 = kps4.pitch
     sys_state.var_02 = kps4.pitch_rate
     log!(km_logger, sys_state)
