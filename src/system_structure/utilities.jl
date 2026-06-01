@@ -479,7 +479,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                     for idx in wing_point_idxs]
                 wing.point_to_vsm_point =
                     build_point_to_vsm_point_mapping(
-                        wing_pts, vsm_wing)
+                        wing_pts, wing)
             end
         end
     end
@@ -672,19 +672,24 @@ plot(sys)
 function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
     (; points, groups, tethers, winches, wings) = sys
 
-    # Calculate expected total points (regular points + panel corners)
+    # Total slots: structural points + panel corners + wings.
+    # Wing pos_w is appended after panel corners (see
+    # update_sys_state!).
     n_points = length(points)
     n_panel_corners = isempty(wings) ? 0 : sum(
         length(wing.vsm_aero.panels) * 4 for wing in wings if wing isa VSMWing;
         init=0
     )
-    expected_total = n_points + n_panel_corners
+    n_wings = length(wings)
+    total_with_wings = n_points + n_panel_corners + n_wings
+    total_without_wings = n_points + n_panel_corners
+    has_wing_slots = P == total_with_wings
 
-    # Verify compatibility
-    if expected_total != P
-        error("SystemStructure expects $expected_total points " *
-              "($n_points regular + $n_panel_corners corners) " *
-              "but SysState has $P points")
+    if !has_wing_slots && P != total_without_wings
+        error("SystemStructure expects $total_with_wings points " *
+              "($n_points regular + $n_panel_corners corners + " *
+              "$n_wings wings) or $total_without_wings without " *
+              "wing slots, but SysState has $P points")
     end
 
     # Update point positions (X, Y, Z from SysState)
@@ -710,9 +715,14 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         wing.azimuth = Float64(ss.azimuth)
         wing.heading = Float64(ss.heading)
 
-        # Compute wing position from average of points (if wings exist)
-        # For a typical system, the wing COM is near the bridle attachment
-        wing.pos_w .= [mean(ss.X), mean(ss.Y), mean(ss.Z)]
+        if has_wing_slots
+            wing_slot = n_points + n_panel_corners + wing.idx
+            wing.pos_w[1] = ss.X[wing_slot]
+            wing.pos_w[2] = ss.Y[wing_slot]
+            wing.pos_w[3] = ss.Z[wing_slot]
+        else
+            wing.pos_w .= [mean(ss.X), mean(ss.Y), mean(ss.Z)]
+        end
 
         # Copy velocity if available in vel_kite
         wing.vel_w .= ss.vel_kite
