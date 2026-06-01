@@ -1,5 +1,59 @@
 # CHANGELOG
 
+## v0.11.0 01-06-2026
+
+### Breaking
+- Tether `init_unstretched_length` (YAML) removed; specifying it errors.
+  The unstretched rest length is now *derived*: placement is driven by
+  `init_stretched_length` (the standoff / placed point geometry,
+  default = geometric) and `init_tether_force` (default 0), and
+  `len = stretched·(1 − force/unit_stiffness)`.
+- `Tether.init_stretched_len`/`init_unstretched_len` are now
+  `Union{SimFloat,Nothing}` (`init_unstretched_len` is derived); `Tether`
+  gained `init_tether_force`; the positional length constructor arg
+  (now the stretched length) is optional. Serialized models must be
+  rebuilt.
+- `VSMWing` `origin_idx`/`origin_ref` replaced by
+  `origin::WeightedRefPoints` (weighted body-frame origin).
+- `update_yaml_from_sys_struct!` and `update_sys_struct_from_yaml!`
+  removed (unreliable line-based YAML round-tripping, no longer used).
+
+### Added
+- `init_tether_force` (YAML / `Tether(...; tether_force)`, default 0):
+  `reinit!` derives every tether's unstretched `len` from the placed
+  stretched length, `len = stretched·(1 − force/unit_stiffness)`;
+  force 0 gives zero tension.
+- `init!`/`reinit!` `apply_tether_lengths` kwarg to skip placement.
+- `WeightedRefPoints(::AbstractString)`; `yaml_parse_origin` for
+  weighted origin specs.
+- Helpers: `apply_tether_init_forces!`, `tether_unit_stiffness`,
+  `tether_anchor_free`, `rigid_point_siblings`, `parse_tether_init`,
+  `tether_ordered_point_idxs`, `tether_downstream_idxs`,
+  `group_tethers_by_overlap`, `apply_cluster_init_stretched_len!`,
+  `_wing_log_pos`; `test_tether_init.jl`.
+
+### Changed
+- Tether placement honored only on *root* tethers (one endpoint on a
+  `STATIC`/winch boundary — the fixed anchor, either end); a tether
+  with neither endpoint anchored is an error. Tethers sharing a
+  `RIGID_DYNAMICS` wing are treated as one cluster (rigid-body
+  connectivity). Multi-root clusters placed by the mean displacement of
+  all roots (length + direction), logging `@info` (gated on `prn`).
+- Wing position stored in dedicated `SysState` slots; reads via
+  `update_from_sysstate!` / `_wing_log_pos` / Makie body-frame arrows
+  use `wing.pos_w` directly.
+- `build_point_to_vsm_point_mapping` takes a `VSMWing`, using
+  body-frame closest-point distances.
+
+### Fixed
+- Makie zoom/pan world-camera save/restore (no view drift); body-frame
+  zoom distance preserved across mode switches.
+- `vsm_refine.jl`: RIGID_DYNAMICS wings always keep their aerodynamic
+  panel geometry (mesh- or YAML-defined); section rebuilding from
+  structural points is now PARTICLE_DYNAMICS-only. The 2plate aero
+  geometry was corrected to match its structural points.
+- `get_sys_struct_hash` hashes `wing.origin`.
+
 ## v0.10.0 30-05-2026
 
 ### Changed
@@ -32,6 +86,12 @@
   `kps4_comparison`, `vsm_linearization`, and `sam_tutorial`.
 
 ### Fixed
+- `init_stretched_len` now works for multi-tether systems. Tethers
+  sharing downstream structure are placed to a single effective
+  length (the average of several specified values, with a warning),
+  and the initial-positioning BFS no longer drags other tethers'
+  ground anchors — it stops at `STATIC` points and winch points
+  (which may be `DYNAMIC`).
 - `bin/create_sys_image`: fixed a bug that prevented deletion of
   stale `.so` files before rebuilding the system image.
 - `AUTHORS.md`: corrected contributor entry.
