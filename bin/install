@@ -97,14 +97,12 @@ fi
 
 # If no version specified, show a menu with the current Julia version as default
 if [[ -z "$_desired_julia" ]]; then
-    # Detect current Julia version
-    _current_julia=$(julia --version 2>/dev/null | grep -oE '1\.[0-9]+' | head -1)
-    if [[ -z "$_current_julia" ]]; then
-        _current_julia="1.12"  # fallback default
+    # Detect current juliaup default (more reliable than julia --version,
+    # which can report a different binary if one is ahead on PATH).
+    _current_major=$(juliaup status 2>/dev/null | awk '/\*/ {print $2}')
+    if [[ -z "$_current_major" ]]; then
+        _current_major="1.12"  # fallback default
     fi
-
-    # Extract major.minor (e.g., "1.11" from "1.11.9")
-    _current_major="${_current_julia%.*}"
 
     # Ask user to choose version
     echo "Which Julia version would you like to use?"
