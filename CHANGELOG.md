@@ -18,6 +18,9 @@
 ### Fixed
 - Per-group unrefined moment uses the VSM solver field
   `moment_coeff_unrefined_dist`.
+- Body-frame camera tracking across animation frames (Makie ext):
+  `update_cam!` with explicit up-vector and `PLOT_BODY_PREV_WING_POS`
+  to eliminate view drift.
 
 ## v0.11.0 02-06-2026
 
