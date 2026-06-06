@@ -18,7 +18,7 @@ an efficient ODE problem using
 ```text
  Define Components         Assemble             Compile            Simulate
 ┌──────────────────┐    ┌──────────────┐     ┌─────────────────┐     ┌────────────┐
-│ Point, Segment,  │───▶│ System       │────▶│ SymbolicAWE     │────▶│ init!()    │
+│ Point, Segment,  │──▶│ System       │───▶│ SymbolicAWE     │───▶│ init!()    │
 │ Wing, Winch, ... │    │ Structure    │     │ Model           │     │ next_step! │
 │                  │    │              │     │ (symbolic eqs → │     │ sim!()     │
 │ Julia or YAML    │    │ (resolves    │     │  ODEProblem)    │     │            │
