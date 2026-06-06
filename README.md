@@ -26,7 +26,7 @@ an efficient ODE problem using
 └──────────────────┘    └──────────────┘     └─────────────────┘     └────────────┘
 ```
 
-The first compilation is slow (minutes) as ModelingToolkit generates and
+The first compilation is slow as ModelingToolkit generates and
 simplifies the symbolic equations. The result is cached to a binary file,
 making subsequent runs fast (seconds).
 
