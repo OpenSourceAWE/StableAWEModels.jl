@@ -1,6 +1,25 @@
 # CHANGELOG
 
-## v0.11.0 05-06-2026
+## v0.11.1 06-06-2026
+
+### Added
+- `init_stretch_frac` (YAML column and `Tether(...; stretch_frac)` kwarg),
+  mutually exclusive with `init_tether_force`: `reinit!` derives the
+  unstretched `len` as `len = stretch_frac·stretched`. Setting one input
+  clears the other. `init_stretch_frac` must be positive: `<1` pre-stretch,
+  `1` neutral, `>1` slack.
+- `test_twist_alignment.jl`: under group twist the structural strut
+  trailing-edge points stay aligned with the deformed VSM panel trailing
+  edges for a `RIGID_DYNAMICS` wing.
+
+### Changed
+- `VortexStepMethod` compat raised to `3.3.5`.
+
+### Fixed
+- Per-group unrefined moment uses the VSM solver field
+  `moment_coeff_unrefined_dist`.
+
+## v0.11.0 02-06-2026
 
 ### Breaking
 - Tether `init_unstretched_length` (YAML) removed; specifying it errors.
@@ -8,26 +27,21 @@
   `init_stretched_length` (the standoff / placed point geometry,
   default = geometric) and `init_tether_force` (default 0), and
   `len = stretched·(1 − force/unit_stiffness)`.
-- `Tether` gained `init_stretched_len` (`Union{SimFloat,Nothing}`
-  placement standoff) and the mutually-exclusive pre-tension inputs
-  `init_tether_force` / `init_stretch_frac`. `init_unstretched_len` is
-  no longer a field — the derived rest length is now the
-  `init_unstretched_len(tether, segments)` function. The positional
-  length constructor arg (now the stretched length) is optional.
-  Serialized models must be rebuilt.
+- `Tether.init_stretched_len`/`init_unstretched_len` are now
+  `Union{SimFloat,Nothing}` (`init_unstretched_len` is derived); `Tether`
+  gained `init_tether_force`; the positional length constructor arg
+  (now the stretched length) is optional. Serialized models must be
+  rebuilt.
 - `VSMWing` `origin_idx`/`origin_ref` replaced by
   `origin::WeightedRefPoints` (weighted body-frame origin).
 - `update_yaml_from_sys_struct!` and `update_sys_struct_from_yaml!`
   removed (unreliable line-based YAML round-tripping, no longer used).
 
 ### Added
-- `init_tether_force` (default 0) and `init_stretch_frac` (mutually
-  exclusive; YAML columns and `Tether(...; tether_force / stretch_frac)`
-  kwargs): `reinit!` derives every tether's unstretched `len` from the
-  placed stretched length — `len = stretched·(1 − force/unit_stiffness)`
-  or `len = stretch_frac·stretched`. Setting one clears the other.
-  `init_stretch_frac` must be positive: `<1` pre-stretch, `1` neutral,
-  `>1` slack.
+- `init_tether_force` (YAML / `Tether(...; tether_force)`, default 0):
+  `reinit!` derives every tether's unstretched `len` from the placed
+  stretched length, `len = stretched·(1 − force/unit_stiffness)`;
+  force 0 gives zero tension.
 - `init!`/`reinit!` `apply_tether_lengths` kwarg to skip placement.
 - `WeightedRefPoints(::AbstractString)`; `yaml_parse_origin` for
   weighted origin specs.
@@ -49,11 +63,8 @@
   use `wing.pos_w` directly.
 - `build_point_to_vsm_point_mapping` takes a `VSMWing`, using
   body-frame closest-point distances.
-- `VortexStepMethod` compat raised to `3.3.5`.
 
 ### Fixed
-- Per-group unrefined moment uses the VSM solver field
-  `moment_coeff_unrefined_dist`.
 - Makie zoom/pan world-camera save/restore (no view drift); body-frame
   zoom distance preserved across mode switches.
 - `vsm_refine.jl`: RIGID_DYNAMICS wings always keep their aerodynamic
