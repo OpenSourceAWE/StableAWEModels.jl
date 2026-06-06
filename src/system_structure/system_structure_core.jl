@@ -727,6 +727,18 @@ end
 # ==================== CONSTRUCTOR ==================== #
 
 """
+    has_mesh_inertia(wing) -> Bool
+
+True when `wing` is a `VSMWing` whose VSM geometry provides a non-zero mesh
+inertia tensor (an `ObjWing` built with `set.mass > 0`).
+"""
+function has_mesh_inertia(wing)
+    isa(wing, VSMWing) || return false
+    tensor = wing.vsm_wing.inertia_tensor
+    return !isempty(tensor) && any(!iszero, tensor)
+end
+
+"""
     SystemStructure(name, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 
 Constructs a `SystemStructure` object representing a complete kite system.
@@ -854,6 +866,35 @@ function SystemStructure(name, set;
                 seg_last.point_idxs[2]
         end
     end
+    for wing in wings
+        wing_point_idxs = [p.idx for p in points
+            if p.type == WING && p.wing_idx == wing.idx]
+        point_mass_sum = sum(
+            p.extra_mass for p in points
+            if p.type == WING && p.wing_idx == wing.idx; init=0.0)
+        set_mass = hasproperty(set, :mass) ? set.mass : 0.0
+
+        if set_mass > 0 && point_mass_sum > 0
+            @warn "Both set.mass ($set_mass) and wing point masses " *
+                  "($point_mass_sum) specified for wing $(wing.idx). " *
+                  "Using wing point masses (sys_struct priority)."
+            wing.mass = point_mass_sum
+        elseif point_mass_sum > 0
+            wing.mass = point_mass_sum
+        elseif set_mass > 0
+            n_wing_points = length(wing_point_idxs)
+            if n_wing_points > 0
+                mass_per_point = set_mass / n_wing_points
+                for point_idx in wing_point_idxs
+                    points[point_idx].extra_mass = mass_per_point
+                end
+            end
+            wing.mass = set_mass
+        else
+            wing.mass = 0.0
+        end
+    end
+
     # Compute body frame (COM + principal axes) and
     # transform VSM panels from CAD → body frame.
     # RIGID_DYNAMICS: COM from point masses, Y-axis rotation
@@ -872,24 +913,27 @@ function SystemStructure(name, set;
 
             masses = [p.extra_mass for p in wing_pts]
             total_m = sum(masses)
-            com_cad = if total_m > 0
-                sum(masses[j] .* wing_pts[j].pos_cad
-                    for j in eachindex(wing_pts)) /
-                    total_m
-            else
-                mean([p.pos_cad for p in wing_pts])
-            end
 
-            # Inertia tensor about COM in CAD frame
-            if total_m > 0
-                I_cad = zeros(3, 3)
-                for (m, p) in zip(masses, wing_pts)
-                    r = p.pos_cad - com_cad
-                    I_cad += m * (dot(r, r) * I(3) -
-                                  r * r')
+            # Mesh tensor is per-unit-mass; its COM is -T_cad_body.
+            if has_mesh_inertia(wing)
+                com_cad = -vsm_wing.T_cad_body
+                I_cad = wing.mass .* vsm_wing.inertia_tensor
+            else
+                com_cad = total_m > 0 ?
+                    sum(masses[j] .* wing_pts[j].pos_cad
+                        for j in eachindex(wing_pts)) / total_m :
+                    mean([p.pos_cad for p in wing_pts])
+                I_cad = nothing
+                if total_m > 0
+                    I_cad = zeros(3, 3)
+                    for (m, p) in zip(masses, wing_pts)
+                        r = p.pos_cad - com_cad
+                        I_cad += m * (dot(r, r) * I(3) - r * r')
+                    end
                 end
-                I_diag, Ry =
-                    calc_inertia_y_rotation(I_cad)
+            end
+            if !isnothing(I_cad)
+                I_diag, Ry = calc_inertia_y_rotation(I_cad)
                 wing.R_p_to_c .= Ry'  # principal→CAD
                 wing.inertia_principal .= diag(I_diag)
             end
@@ -1144,47 +1188,6 @@ function SystemStructure(name, set;
             end
 
         end
-    end
-
-    # Calculate wing mass with either/or priority logic:
-    # - If wing points have extra_mass specified, use point masses (priority)
-    # - If only set.mass specified, distribute to wing points
-    # - Warn if both sources have nonzero values
-    for wing in wings
-        wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
-        # Sum of user-specified WING point masses
-        point_mass_sum = sum(
-            p.extra_mass for p in points if p.type == WING && p.wing_idx == wing.idx;
-            init=0.0
-        )
-
-        # Check for conflict between set.mass and point masses
-        set_mass = hasproperty(set, :mass) ? set.mass : 0.0
-
-        if set_mass > 0 && point_mass_sum > 0
-            @warn "Both set.mass ($set_mass) and wing point masses ($point_mass_sum) " *
-                  "specified for wing $(wing.idx). Using wing point masses (sys_struct " *
-                  "priority)."
-            wing.mass = point_mass_sum
-        elseif point_mass_sum > 0
-            # Wing point masses specified, no set.mass
-            wing.mass = point_mass_sum
-        elseif set_mass > 0
-            # set.mass specified, distribute equally to wing points
-            n_wing_points = length(wing_point_idxs)
-            if n_wing_points > 0
-                mass_per_point = set_mass / n_wing_points
-                for point_idx in wing_point_idxs
-                    points[point_idx].extra_mass = mass_per_point  # ASSIGN, not add
-                end
-            end
-            wing.mass = set_mass
-        else
-            # Neither specified - wing has no mass
-            wing.mass = 0.0
-        end
-
-        # Mass and inertia validation is done in validate_sys_struct()
     end
 
     for (i, transform) in enumerate(transforms)

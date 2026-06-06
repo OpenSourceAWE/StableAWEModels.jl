@@ -76,8 +76,19 @@ function twist_te_diffs(sam)
     return rows
 end
 
+function report(label, rows)
+    for r in rows
+        println("[$label] group $(r.name): twist=",
+            round(r.twist; digits=5),
+            "  diff=", round(r.diff; digits=7))
+    end
+end
+
+# Ramp steering to a moderate, stable level. Larger amplitudes drive
+# the group twist of this 2-plate config unstable (the twist runs away
+# until the VSM solve diverges), so it is not a valid operating point.
 dt = 0.05
-steer_mag = 0.1
+steer_mag = 0.03
 for step in 1:60
     steer = steer_mag * clamp(step * dt / 2.0, 0.0, 1.0)
     sam.sys_struct.segments[:kcu_steering_left].l0 =
@@ -86,18 +97,21 @@ for step in 1:60
         l0_right + steer
     next_step!(sam; dt, vsm_interval=1)
 end
+dyn_rows = twist_te_diffs(sam)
+report("dynamic", dyn_rows)
 
-rows = twist_te_diffs(sam)
-for r in rows
-    println("group $(r.name): twist=", round(r.twist; digits=5),
-        "  struct_te=", round.(r.struct_te; digits=5),
-        "  vsm_te=", round.(r.vsm_te; digits=5),
-        "  diff=", round(r.diff; digits=6))
-end
+sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left - steer_mag
+sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right + steer_mag
+SymbolicAWEModels.find_steady_state!(sam)
+eq_rows = twist_te_diffs(sam)
+report("steady", eq_rows)
 
 @testset "twist TE alignment" begin
-    @test any(r -> abs(r.twist) > 0.01, rows)
-    for r in rows
-        @test r.diff < 3e-3
+    @test any(r -> abs(r.twist) > 0.1, eq_rows)
+    for r in dyn_rows
+        @test r.diff < 1e-3
+    end
+    for r in eq_rows
+        @test r.diff < 1e-3
     end
 end

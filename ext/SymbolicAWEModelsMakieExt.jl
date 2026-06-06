@@ -37,6 +37,7 @@ const PLOT_PREV_SEGMENT_IDX = Ref{Int}(-1)  # Previous segment index
 const PLOT_WORLD_EYEPOS = Ref{Union{Nothing, Vec3f}}(nothing)
 const PLOT_WORLD_LOOKAT = Ref{Union{Nothing, Vec3f}}(nothing)
 const PLOT_BODY_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)
+const PLOT_BODY_PREV_WING_POS = Ref{Union{Nothing, Vec3f}}(nothing)
 
 """
     _wing_log_pos(sl, sys, wing, k)
@@ -2637,12 +2638,7 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     cam_offset_world = R_b_w * cam_offset_body
     cam_pos = kite_pos + cam_offset_world
 
-    # Set camera position and "look at" target
-    update_cam!(scene, Vec3f(cam_pos), Vec3f(kite_pos))
-
-    # Set up vector to align with body z-axis AFTER updating camera
-    # This ensures the kite's z-axis always points straight up on screen
-    cam.upvector[] = Vec3f(R_b_w[:, 3])
+    update_cam!(scene, Vec3f(cam_pos), Vec3f(kite_pos), Vec3f(R_b_w[:, 3]))
 
     return distance
 end
@@ -2667,17 +2663,17 @@ function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
     end
 
     if PLOT_BODY_FRAME[]
-        if mode_changed
+        wing_pos = isempty(stored_sys.wings) ? nothing :
+                   Vec3f(stored_sys.wings[1].pos_w)
+        if mode_changed || isnothing(PLOT_BODY_PREV_WING_POS[])
             dist = zoom_body_frame!(scene, cam, stored_sys, PLOT_BODY_DISTANCE[])
-        elseif !isempty(stored_sys.wings)
-            wing = stored_sys.wings[1]
-            current_dist = norm(get_cam_eyepos(cam) - Vec3f(wing.pos_w))
-            dist = zoom_body_frame!(scene, cam, stored_sys, current_dist)
         else
-            dist = zoom_body_frame!(scene, cam, stored_sys, PLOT_BODY_DISTANCE[])
+            current_dist = norm(get_cam_eyepos(cam) - PLOT_BODY_PREV_WING_POS[])
+            dist = zoom_body_frame!(scene, cam, stored_sys, current_dist)
         end
         PLOT_BODY_DISTANCE[] = dist
         PLOT_CAMERA_DISTANCE[] = dist
+        PLOT_BODY_PREV_WING_POS[] = wing_pos
     elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
         dist = zoom_in!(scene, cam, stored_sys, PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_DISTANCE[])
         PLOT_CAMERA_DISTANCE[] = dist
