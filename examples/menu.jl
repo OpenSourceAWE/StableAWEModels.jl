@@ -24,6 +24,8 @@ options = [
     "kps4_comparison = include(\"kps4_comparison.jl\")",
     "vsm_linearization = include(\"vsm_linearization.jl\")",
     "sam_tutorial = include(\"sam_tutorial.jl\")",
+    "custom_winch = include(\"custom_winch.jl\")",
+    "custom_winch_vel = include(\"custom_winch_vel.jl\")",
     "quit",
 ]
 

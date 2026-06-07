@@ -24,7 +24,7 @@ function find_steady_state!(sam::SymbolicAWEModel;
     (; winches, wings) = sam.sys_struct
     old_brakes = [winch.brake for winch in winches]
     old_fixes = [wing.fix_sphere for wing in wings]
-    [winch.brake=true for winch in winches]
+    [winch.brake=1.0 for winch in winches]
     [wing.fix_sphere=true for wing in wings]
     for _ in 1:Int(round(t ÷ dt))
         next_step!(sam; dt, vsm_interval)
@@ -62,19 +62,19 @@ function update_vsm!(sam::SymbolicAWEModel,
     for wing in wings
         wing.dynamics_type != RIGID_DYNAMICS && continue
         wing.aero_mode == AERO_NONE && continue
-        if norm(wing.va_b) < vsm_min_wind
+        if norm(wing.va_b) < vsm_min_wind &&
+                wing.aero_mode == AERO_DIRECT
             fill!(wing.aero_x, 0.0)
             fill!(wing.aero_jac, 0.0)
-            if wing.aero_mode == AERO_DIRECT
-                fill!(wing.aero_force_b, 0.0)
-                fill!(wing.aero_moment_b, 0.0)
-            end
+            fill!(wing.aero_force_b, 0.0)
+            fill!(wing.aero_moment_b, 0.0)
             for gidx in wing.group_idxs
                 groups[gidx].aero_moment = 0.0
             end
             continue
         end
-        _update_rigid_dynamics_wing!(wing, sam.am, groups)
+        _update_rigid_dynamics_wing!(wing, sam.am, groups;
+                                     vsm_min_wind)
     end
 
     has_particle_dynamics_wings = any(
@@ -291,7 +291,7 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
 end
 
 """
-    _update_rigid_dynamics_wing!(wing, am, groups)
+    _update_rigid_dynamics_wing!(wing, am, groups; vsm_min_wind=0.5)
 
 Compute baseline wind-axis coefficients and the
 ForwardDiff Jacobian `d(coeffs)/d(inputs)` for one wing.
@@ -300,9 +300,10 @@ Writes `wing.aero_y / aero_x / aero_jac`, updates
 `groups[gidx].aero_moment`, and (in AERO_DIRECT mode) writes
 `wing.aero_force_b` / `wing.aero_moment_b`.
 """
-function _update_rigid_dynamics_wing!(wing, am, groups)
+function _update_rigid_dynamics_wing!(wing, am, groups;
+                                      vsm_min_wind=0.5)
     va_b = wing.va_b
-    va_mag = norm(va_b)
+    va_mag_actual = norm(va_b)
     omega_b = wing.ω_b
 
     group_idxs = wing.group_idxs
@@ -312,8 +313,15 @@ function _update_rigid_dynamics_wing!(wing, am, groups)
     moment_frac = isempty(group_idxs) ? 0.25 :
         groups[first(group_idxs)].moment_frac
 
+    va_mag = max(va_mag_actual, vsm_min_wind)
     alpha_0 = atan(va_b[3], va_b[1])
     beta_0 = atan(va_b[2], hypot(va_b[1], va_b[3]))
+    if !isfinite(alpha_0)
+        alpha_0 = 0.0
+    end
+    if !isfinite(beta_0)
+        beta_0 = 0.0
+    end
 
     # Operating-point input vector y₀ = [α, β, ω, θ_group]
     y0 = wing.aero_y
