@@ -1,6 +1,13 @@
 # Copyright (c) 2025 Bart van de Lint and Uwe Fechner
 # SPDX-License-Identifier: LGPL-3.0-only
 
+function make_psys_setter(sys)
+    psys_params = filter(p -> endswith(string(p), "psys"), parameters(sys))
+    setter = setp(sys, psys_params)
+    n = length(psys_params)
+    return (prob, sys_struct) -> setter(prob, ntuple(_ -> sys_struct, n))
+end
+
 """
     generate_prob_getters(sys_struct, sys)
 
@@ -17,13 +24,13 @@ of the compiled `ODESystem` (`sys`).
 - A `NamedTuple` containing various getter and setter functions for different parts of the system state.
 """
 function generate_prob_getters(sys_struct, sys)
-    c = collect
+    collect_each = collect
     (; wings, groups, pulleys, winches, tethers, segments) = sys_struct
     get_wing_state, get_aero_input, get_segment_state, get_group_state, get_pulley_state,
     get_winch_state, get_tether_state, set_set_values, get_set_values = ntuple(_ -> nothing, 9)
 
     if length(wings) > 0
-        wing_vars = c.([
+        wing_vars = collect_each.([
             sys.Q_b_to_w, sys.ω_b, sys.wing_pos,
             sys.wing_vel, sys.wing_acc,
             sys.va_wing_b, sys.wind_vel_wing,
@@ -45,20 +52,25 @@ function generate_prob_getters(sys_struct, sys)
 
         # aero_input only exists for RIGID_DYNAMICS + AERO_LINEARIZED wings
         has_linearized = any(
-            w.dynamics_type === RIGID_DYNAMICS &&
-            w.aero_mode === AERO_LINEARIZED
-            for w in sys_struct.wings)
+            wing.dynamics_type === RIGID_DYNAMICS &&
+            wing.aero_mode === AERO_LINEARIZED
+            for wing in sys_struct.wings)
         if has_linearized
-            get_aero_input = getu(sys, sys.aero_input)
+            aero_inputs = [
+                getproperty(sys, Symbol("aero_$(wing.idx)")).aero_input
+                for wing in sys_struct.wings
+                if wing.dynamics_type === RIGID_DYNAMICS &&
+                   wing.aero_mode === AERO_LINEARIZED]
+            get_aero_input = getu(sys, collect_each.(aero_inputs))
         else
             get_aero_input = nothing
         end
     end
-    if length(segments) > 0; get_segment_state = getu(sys, c.([sys.spring_force, sys.len, sys.l0])); end
-    if length(groups) > 0; get_group_state = getu(sys, c.([sys.twist_angle, sys.twist_ω, sys.group_tether_force, sys.group_tether_moment, sys.group_aero_moment])); end
-    if length(pulleys) > 0; get_pulley_state = getu(sys, c.([sys.pulley_len, sys.pulley_vel])); end
+    if length(segments) > 0; get_segment_state = getu(sys, collect_each.([sys.spring_force, sys.len, sys.l0])); end
+    if length(groups) > 0; get_group_state = getu(sys, collect_each.([sys.twist_angle, sys.twist_ω, sys.group_tether_force, sys.group_tether_moment, sys.group_aero_moment])); end
+    if length(pulleys) > 0; get_pulley_state = getu(sys, collect_each.([sys.pulley_len, sys.pulley_vel])); end
     if length(winches) > 0
-        get_winch_state = getu(sys, c.([
+        get_winch_state = getu(sys, collect_each.([
             sys.winch_acc, sys.winch_vel,
             sys.set_values, sys.winch_force_vec,
             sys.winch_friction]))
@@ -66,14 +78,14 @@ function generate_prob_getters(sys_struct, sys)
         get_set_values = getp(sys, sys.set_values)
     end
     if length(tethers) > 0
-        get_tether_state = getu(sys, c.([
+        get_tether_state = getu(sys, collect_each.([
             sys.tether_len,
             sys.stretched_len]))
     end
-    set_sys = setp(sys, sys.psys)
+    set_sys = make_psys_setter(sys)
 
     # point_state always returns, in order: pos, vel, point_force, va_point_b, point_mass, total_drag
-    get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
+    get_point_state = getu(sys, collect_each.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
 
     return (; get_wing_state, get_aero_input, get_segment_state, get_group_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
@@ -97,7 +109,7 @@ function generate_lin_getters(sys)
     if hasproperty(sys, :set_values)
         set_set_values = setp(sys, sys.set_values)
     end
-    set_sys = setp(sys, sys.psys)
+    set_sys = make_psys_setter(sys)
     return (; set_set_values, set_sys)
 end
 
@@ -123,11 +135,12 @@ function generate_control_funcs(model, inputs, outputs)
     (f_ip, f_oop), dvs, psym, io_sys = @suppress_err ModelingToolkit.generate_control_function(
         model, inputs; simplify=false
     )
-    nu, nx, ny = length(inputs), length(dvs), length(outputs)
+    num_inputs, num_states, num_outputs = length(inputs), length(dvs), length(outputs)
     (h_oop, h_ip) = ModelingToolkit.build_explicit_observed_function(
         io_sys, outputs; inputs, return_inplace=true
     )
-    return (f_oop=f_oop, f_ip=f_ip, h_oop=h_oop, h_ip=h_ip, nu=nu, nx=nx, ny=ny,
+    return (f_oop=f_oop, f_ip=f_ip, h_oop=h_oop, h_ip=h_ip,
+            nu=num_inputs, nx=num_states, ny=num_outputs,
             dvs=dvs, psym=psym, io_sys=io_sys)
 end
 
@@ -166,18 +179,18 @@ function load_serialized_model!(sam, model_path; remake=false, reload=false)
                 sam.serialized_model = serialized_model
                 return true
             end
-        catch e
-            bt = catch_backtrace()
+        catch exception
+            backtrace = catch_backtrace()
             log_path = model_path * ".error.log"
             open(log_path, "w") do io
                 println(io,
                     "Deserialization failed at ",
                     time())
                 println(io, "Path: $model_path")
-                showerror(io, e, bt)
+                showerror(io, exception, backtrace)
             end
             @warn "Failure to deserialize " *
-                "$model_path: $(typeof(e)). " *
+                "$model_path: $(typeof(exception)). " *
                 "Details in $log_path"
         end
     end
@@ -286,6 +299,21 @@ function maybe_create_control_functions!(sam, outputs; create_control_func=false
 end
 
 """
+    has_custom_component(sys_struct)
+
+Return `true` when the system has a non-default winch model or a wing using
+`AERO_CUSTOM`, in which case the compiled model cannot be reused from cache and
+must be rebuilt.
+"""
+function has_custom_component(sys_struct)
+    any(winch.model !== default_winch_component
+        for winch in sys_struct.winches) && return true
+    any(wing.aero_mode == AERO_CUSTOM
+        for wing in sys_struct.wings) && return true
+    return false
+end
+
+"""
     init!(sam::SymbolicAWEModel; ...)
 
 Load or build the symbolic model, create the `ODEProblem` (and optionally the
@@ -296,7 +324,9 @@ return a freshly initialized `ODEIntegrator`.
 - `solver`, `adaptive`: ODE solver and time-stepping mode. `solver=nothing` picks
   a default from `sam.set.solver`.
 - `prn`: print progress messages.
-- `remake`: force a full rebuild, ignoring any cached compiled model.
+- `remake`: force a full rebuild, ignoring any cached compiled model. Defaults to
+  `nothing`, which rebuilds automatically when a custom winch/aero component is
+  present (see [`has_custom_component`](@ref)) and reuses the cache otherwise.
 - `reload`: force reloading the serialized model from disk.
 - `outputs`: vector of output variables (used by linearization / control funcs).
 - `create_prob`, `create_lin_prob`, `create_control_func`: which artefacts to build.
@@ -315,7 +345,7 @@ return a freshly initialized `ODEIntegrator`.
 """
 function init!(sam::SymbolicAWEModel;
     solver=nothing, adaptive=true, prn=true,
-    remake=false, reload=false,
+    remake=nothing, reload=false,
     outputs=nothing,
     create_prob::Bool=true,
     create_lin_prob::Bool=false,
@@ -333,6 +363,12 @@ function init!(sam::SymbolicAWEModel;
     sam.sys_struct isa SystemStructure || error(
         "Equation generation requires SystemStructure, " *
         "got $(typeof(sam.sys_struct)).")
+    if isnothing(remake)
+        remake = has_custom_component(sam.sys_struct)
+        remake && prn && @info "Custom winch/aero model detected; " *
+            "forcing remake (custom component equations are not " *
+            "captured by the model hash)."
+    end
     time = @elapsed begin
         if isnothing(solver)
             if sam.set.solver == "QNDF"
@@ -482,12 +518,12 @@ This is used to check if a cached compiled model is still valid.
 function get_set_hash(set::Settings;
         fields=[:segments, :model, :foil_file, :physical_model, :quasi_static, :winch_model]
     )
-    h = zeros(UInt8, 1)
+    hash_acc = zeros(UInt8, 1)
     for field in fields
         value = getfield(set, field)
-        h = sha1(string((value, h)))
+        hash_acc = sha1(string((value, hash_acc)))
     end
-    return h
+    return hash_acc
 end
 
 """
@@ -532,15 +568,16 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     for wing in wings
         wing_data = ("wing", wing.idx, wing.group_idxs,
                      Int(wing.dynamics_type),
-                     Int(wing.aero_mode))
+                     Int(wing.aero_mode),
+                     nameof(wing.aero_model))
 
         # Include wing reference points in hash
         if wing isa VSMWing || wing isa PlateWing
-            _ref_hash(r) = (r.ids, r.weights)
-            _rp_hash(rp) = isnothing(rp) ? nothing :
-                (_ref_hash(rp[1]), _ref_hash(rp[2]))
-            _origin_hash(o) = isnothing(o) ? nothing :
-                _ref_hash(o)
+            _ref_hash(ref) = (ref.ids, ref.weights)
+            _rp_hash(ref_points) = isnothing(ref_points) ? nothing :
+                (_ref_hash(ref_points[1]), _ref_hash(ref_points[2]))
+            _origin_hash(origin) = isnothing(origin) ? nothing :
+                _ref_hash(origin)
             wing_data = (wing_data...,
                 _rp_hash(wing.z_ref_points),
                 _rp_hash(wing.y_ref_points),

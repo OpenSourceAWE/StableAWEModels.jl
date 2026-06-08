@@ -66,6 +66,7 @@ mutable struct BaseWing <: AbstractWing
     const inertia_principal::KVec3
     const dynamics_type::WingType
     aero_mode::AeroMode
+    aero_model::Function
 
     # Principal frame ODE state (RIGID_DYNAMICS dynamics)
     const com_w::KVec3                  # COM position in world frame
@@ -183,8 +184,8 @@ function WeightedRefPoints(refs::AbstractVector)
         "WeightedRefPoints requires at least one " *
         "reference point, got empty vector")
     if refs[1] isa Tuple
-        names = NameRef[_to_name_ref(t[1]) for t in refs]
-        weights = Float64[Float64(t[2]) for t in refs]
+        names = NameRef[_to_name_ref(entry[1]) for entry in refs]
+        weights = Float64[Float64(entry[2]) for entry in refs]
         _validate_weights!(weights)
         return WeightedRefPoints(names, Int64[], weights)
     end
@@ -304,6 +305,29 @@ end
 _to_name_ref(x::Integer) = Int(x)
 _to_name_ref(x) = Symbol(x)
 
+function default_aero_model_for(aero_mode::AeroMode)
+    aero_mode == AERO_NONE       && return default_aero_none
+    aero_mode == AERO_DIRECT     && return default_aero_direct
+    aero_mode == AERO_LINEARIZED && return default_aero_linearized
+    aero_mode == AERO_PLATE      && return default_aero_plate
+    error("aero_mode = $aero_mode has no default `aero_model`; " *
+          "AERO_CUSTOM requires an explicit `aero_model` builder.")
+end
+
+function resolve_aero_model(aero_mode::AeroMode,
+                            aero_model::Union{Nothing,Function})
+    if aero_mode == AERO_CUSTOM
+        isnothing(aero_model) && error(
+            "aero_mode = AERO_CUSTOM requires an explicit " *
+            "`aero_model` builder.")
+        return aero_model
+    end
+    isnothing(aero_model) || error(
+        "Providing a custom `aero_model` requires " *
+        "`aero_mode = AERO_CUSTOM` (got aero_mode = $aero_mode).")
+    return default_aero_model_for(aero_mode)
+end
+
 """
     BaseWing(name, groups, R_b_to_c, pos_cad, inertia_principal; transform=nothing, y_damping=150.0, dynamics_type=RIGID_DYNAMICS)
 
@@ -331,6 +355,7 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
                   angular_damping=0.0,
                   dynamics_type::Union{Nothing,WingType}=nothing,
                   aero_mode::Union{Nothing,AeroMode}=nothing,
+                  aero_model::Union{Nothing,Function}=nothing,
                   wing_type::Union{Nothing,WingType}=nothing)
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
@@ -344,11 +369,12 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
     isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
     isnothing(aero_mode) && (aero_mode = dynamics_type == RIGID_DYNAMICS ?
         AERO_LINEARIZED : AERO_DIRECT)
+    aero_model = resolve_aero_model(aero_mode, aero_model)
     # Convert groups to NameRef vector
-    group_refs = Vector{NameRef}([_to_name_ref(g) for g in groups])
+    group_refs = Vector{NameRef}([_to_name_ref(group) for group in groups])
     # Handle nothing - default to transform 1
-    tf = isnothing(transform) ? 1 : transform
-    transform_ref = _to_name_ref(tf)
+    transform_value = isnothing(transform) ? 1 : transform
+    transform_ref = _to_name_ref(transform_value)
 
     # idx, group_idxs, transform_idx are placeholders - resolved by SystemStructure
     return BaseWing(0, name,
@@ -361,7 +387,7 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
         Matrix{SimFloat}(I, 3, 3),         # R_b_to_p placeholder
         pos_cad, zeros(KVec3),  # com_offset_b placeholder
         inertia_principal, dynamics_type,
-        aero_mode,
+        aero_mode, aero_model,
         # Principal frame ODE state
         zeros(KVec3), zeros(KVec3),  # com_w, com_vel
         zeros(4), zeros(KVec3),      # Q_p_to_w, ω_p
@@ -428,10 +454,10 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
     # Fallback: load from aero_geometry.yaml using provided vsm_set
     prn && @info "Using provided VSMSettings for wing creation"
     # Resolve relative geometry_file paths against data dir
-    for ws in vsm_set.wings
-        gf = ws.geometry_file
-        if !isempty(gf) && !isabspath(gf)
-            ws.geometry_file = joinpath(model_dir, basename(gf))
+    for wing_settings in vsm_set.wings
+        geometry_file = wing_settings.geometry_file
+        if !isempty(geometry_file) && !isabspath(geometry_file)
+            wing_settings.geometry_file = joinpath(model_dir, basename(geometry_file))
         end
     end
     return VortexStepMethod.Wing(vsm_set; sort_sections)
@@ -480,6 +506,7 @@ function VSMWing(name, set::Settings,
                  inertia_diag=nothing,
                  dynamics_type::Union{Nothing,WingType}=nothing,
                  aero_mode::Union{Nothing,AeroMode}=nothing,
+                 aero_model::Union{Nothing,Function}=nothing,
                  wing_type::Union{Nothing,WingType}=nothing,
                  point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}=nothing,
                  wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}=nothing,
@@ -545,24 +572,26 @@ function VSMWing(name, set::Settings,
 
     base = BaseWing(name, groups, R_b_to_c, pos_cad,
                     inertia_vec; transform, y_damping,
-                    angular_damping, dynamics_type, aero_mode)
+                    angular_damping, dynamics_type, aero_mode,
+                    aero_model)
 
     # Size aero state vectors based on wing type
     # For RIGID_DYNAMICS: placeholder sizes using n_unrefined
     # as group count proxy; resized in SystemStructure
     # after groups are resolved.
     if dynamics_type == PARTICLE_DYNAMICS
-        nx = 0
-        ny = 0
+        num_aero_outputs = 0
+        num_aero_inputs = 0
     else
         n_groups_est = vsm_wing.n_unrefined_sections
-        nx = 6 + n_groups_est
-        ny = 5 + n_groups_est
+        num_aero_outputs = 6 + n_groups_est
+        num_aero_inputs = 5 + n_groups_est
     end
 
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
-                   zeros(SimFloat, ny), zeros(SimFloat, nx),
-                   zeros(SimFloat, nx, ny),
+                   zeros(SimFloat, num_aero_inputs),
+                   zeros(SimFloat, num_aero_outputs),
+                   zeros(SimFloat, num_aero_outputs, num_aero_inputs),
                    point_to_vsm_point, wing_segments,
                    z_ref, y_ref,
                    origin_rp,
@@ -601,11 +630,12 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
                     inertia_vec; transform)
     # Placeholder aero arrays — resized by SystemStructure
     n_groups_est = vsm_wing.n_unrefined_sections
-    nx = 6 + n_groups_est
-    ny = 5 + n_groups_est
+    num_aero_outputs = 6 + n_groups_est
+    num_aero_inputs = 5 + n_groups_est
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
-        zeros(SimFloat, ny), zeros(SimFloat, nx),
-        zeros(SimFloat, nx, ny),
+        zeros(SimFloat, num_aero_inputs),
+        zeros(SimFloat, num_aero_outputs),
+        zeros(SimFloat, num_aero_outputs, num_aero_inputs),
         nothing, nothing,
         nothing, nothing,  # z/y_ref_points
         nothing,           # origin
@@ -819,9 +849,9 @@ Compute current AoA [deg] from body-frame apparent wind and
 twist. Requires `va_b` to be up to date.
 """
 function plate_alpha(wing::PlateWing, surf::PlateSurface)
-    tw = surf.twist
-    ct, st = cos(tw), sin(tw)
-    x_tw = ct * surf.x_airf + st * (surf.y_airf × surf.x_airf)
+    twist_angle = surf.twist
+    cos_twist, sin_twist = cos(twist_angle), sin(twist_angle)
+    x_tw = cos_twist * surf.x_airf + sin_twist * (surf.y_airf × surf.x_airf)
     z_tw = x_tw × surf.y_airf
     v_tan = wing.va_b ⋅ x_tw
     v_norm = wing.va_b ⋅ z_tw

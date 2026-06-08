@@ -74,12 +74,14 @@ Orthogonal to WingType — determines the aero computation strategy at runtime.
 - `AERO_DIRECT`: Stored forces from nonlinear VSM solve, piecewise-constant between updates.
 - `AERO_LINEARIZED`: First-order Taylor expansion using Jacobian from VSM linearization.
 - `AERO_PLATE`: Flat-plate CL/CD lookup aerodynamics (PlateWing only).
+- `AERO_CUSTOM`: User-supplied aero component (see `wing.aero_model`).
 """
 @enum AeroMode begin
     AERO_NONE
     AERO_DIRECT
     AERO_LINEARIZED
     AERO_PLATE
+    AERO_CUSTOM
 end
 
 """
@@ -699,6 +701,10 @@ mutable struct Winch
     `winch_vel` and `tether_len` when `> 0.5`; custom components
     may interpret intermediate values as a continuous brake."""
     brake::SimFloat
+    """If true, reel-out velocity is prescribed externally rather
+    than integrated from motor dynamics: winch acceleration is forced
+    to 0 (ignoring `model`). Set the velocity via `winch.vel`."""
+    speed_controlled::Bool
     "Force vector at winch point [N]."
     const force::KVec3
     "Gear ratio [-]."
@@ -739,6 +745,9 @@ torque or speed regulation.
 - `init_vel::SimFloat=0.0`: Initial reel-out rate [m/s].
 - `brake=0.0`: Brake input in [0, 1]. `> 0.5` engages a hard
   freeze on `winch_vel` and `tether_len` at the outer integrator.
+- `speed_controlled::Bool=false`: If true, prescribe reel-out
+  velocity via `winch.vel` instead of integrating motor dynamics;
+  winch acceleration is forced to 0, ignoring `model`.
 - `friction_epsilon::SimFloat=6.0`: Smoothing parameter for
   Coulomb friction sign function.
 - `model::Function=default_winch_component`: Builder returning
@@ -747,7 +756,7 @@ torque or speed regulation.
 """
 function Winch(name, set::Settings, tethers;
                winch_point,
-               init_vel=0.0, brake=0.0,
+               init_vel=0.0, brake=0.0, speed_controlled=false,
                friction_epsilon=6.0,
                model::Function=default_winch_component)
     tether_refs = Vector{NameRef}(
@@ -757,7 +766,7 @@ function Winch(name, set::Settings, tethers;
     return Winch(0, name, Int64[], tether_refs, 0, wp,
                  init_vel, 0.0,
                  0.0, 0.0,
-                 SimFloat(brake), zeros(KVec3),
+                 SimFloat(brake), speed_controlled, zeros(KVec3),
                  set.gear_ratio, set.drum_radius,
                  set.f_coulomb, set.c_vf,
                  set.inertia_total, zero(SimFloat),
@@ -783,7 +792,7 @@ Constructs a `Winch` by directly providing physical parameters.
 function Winch(name, tethers, gear_ratio, drum_radius,
                f_coulomb, c_vf, inertia_total;
                winch_point,
-               init_vel=0.0, brake=0.0,
+               init_vel=0.0, brake=0.0, speed_controlled=false,
                friction_epsilon=6.0,
                model::Function=default_winch_component)
     tether_refs = Vector{NameRef}(
@@ -793,7 +802,7 @@ function Winch(name, tethers, gear_ratio, drum_radius,
     return Winch(0, name, Int64[], tether_refs, 0, wp,
                  init_vel, 0.0,
                  0.0, 0.0,
-                 SimFloat(brake), zeros(KVec3),
+                 SimFloat(brake), speed_controlled, zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb,
                  c_vf, inertia_total, zero(SimFloat),
                  friction_epsilon, model)
