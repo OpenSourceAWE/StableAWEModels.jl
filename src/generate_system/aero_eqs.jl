@@ -3,38 +3,38 @@
 
 # Aero coupling wiring (winch-style).
 #
-# Each non-plate wing's aerodynamics is a swappable subsystem built by
-# `wing.aero_model` (see aero_components.jl). This layer instantiates
-# the component, validates its connector contract, drives the body-frame
-# inputs, and reads the outputs back into the wing's aero variables.
-# All built-in modes (AERO_NONE / AERO_DIRECT / AERO_LINEARIZED) and any
-# AERO_CUSTOM model go through the same wiring.
+# Each wing's aerodynamics is a swappable subsystem built by
+# `aero_component(wing.aero, …)` (see aero_modes/common.jl). This layer
+# instantiates the component, validates its connector contract, drives the
+# body-frame inputs, and reads the outputs back into the wing's aero variables.
+# All built-in models (AeroNone / AeroDirect / AeroLinearized / AeroPlate) and
+# any custom AbstractAeroModel go through the same wiring. Flat-plate aero uses
+# the standard PARTICLE contract: it is the only mode that consumes the per-point
+# `va`/`rho` inputs the wiring drives for every particle wing.
 
 """
-    vsm_eqs!(s, eqs, guesses, psys; kwargs...)
+    aero_eqs!(s, eqs, guesses, psys; kwargs...)
         -> (eqs, guesses, aero_subsystems)
 
 Instantiate and wire each wing's aero component. Returns the list of
 component subsystems to attach to the parent `System`.
 """
-function vsm_eqs!(
+function aero_eqs!(
     s, eqs, guesses, psys;
-    aero_force_b, aero_moment_b, group_aero_moment,
+    aero_force_b, aero_moment_b, twist_surface_aero_moment,
     twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
-    pos, vel, aero_force_point_b=nothing
+    pos, vel, va_point_b, height, aero_force_point_b=nothing
 )
-    (; groups, wings, points) = s.sys_struct
+    (; twist_surfaces, wings, points) = s.sys_struct
     aero_subsystems = Any[]
     length(wings) == 0 && return eqs, guesses, aero_subsystems
 
     for wing in wings
-        wing isa PlateWing && continue   # handled by plate_eqs!
-
         wing_idx = wing.idx
-        subsys = wing.aero_model(s.sys_struct, wing_idx;
-                                 name = Symbol("aero_$(wing_idx)"))
-        validate_aero_component(subsys, wing)
+        subsys = aero_component(wing.aero, s.sys_struct, wing_idx;
+                                name = Symbol("aero_$(wing_idx)"))
         push!(aero_subsystems, subsys)
+        validate_aero_component(subsys, wing)
 
         if wing.dynamics_type == PARTICLE_DYNAMICS
             wing_points = [point for point in points
@@ -48,6 +48,9 @@ function vsm_eqs!(
                                                   wing_pos[:, wing_idx]))
                        collect(subsys.point_vel[:, k]) .~
                            collect(Rbw' * collect(vel[:, point.idx]))
+                       collect(subsys.va[:, k]) .~
+                           collect(va_point_b[:, point.idx])
+                       subsys.rho[k] ~ calc_rho(s.am, height[point.idx])
                        collect(aero_force_point[:, point.idx]) .~
                            collect(subsys.point_force[:, k])]
             end
@@ -60,31 +63,35 @@ function vsm_eqs!(
         end
 
         # RIGID_DYNAMICS
-        num_groups = length(wing.group_idxs)
+        num_twist_surfaces = length(wing.twist_surface_idxs)
         rho = calc_rho(s.am, wing_pos[3, wing_idx])
         eqs = [eqs
                collect(subsys.va) .~ collect(va_wing_b[:, wing_idx])
                subsys.rho ~ rho
                vec(collect(subsys.R_b_w)) .~ vec(R_b_to_w[:, :, wing_idx])
                collect(subsys.omega) .~ collect(ω_b[:, wing_idx])]
-        if num_groups > 0
+        if num_twist_surfaces > 0
             eqs = [eqs
                    collect(subsys.twist) .~
-                       [twist_angle[groups[gidx].idx]
-                        for gidx in wing.group_idxs]
+                       [twist_angle[twist_surfaces[gidx].idx]
+                        for gidx in wing.twist_surface_idxs]
                    collect(subsys.twist_vel) .~
-                       [twist_ω[groups[gidx].idx]
-                        for gidx in wing.group_idxs]]
+                       [twist_ω[twist_surfaces[gidx].idx]
+                        for gidx in wing.twist_surface_idxs]]
         end
 
         eqs = [eqs
                collect(aero_force_b[:, wing_idx]) .~ collect(subsys.force)
                collect(aero_moment_b[:, wing_idx]) .~ collect(subsys.moment)]
-        for (group_pos, gidx) in enumerate(wing.group_idxs)
-            isempty(groups[gidx].unrefined_section_idxs) && continue
+        for (twist_surface_pos, gidx) in enumerate(wing.twist_surface_idxs)
+            twist_surface = twist_surfaces[gidx]
+            # FIXED surfaces without aero sections are zero-bound by
+            # twist_surface_eqs!; everything else reads the component output.
+            twist_surface.type == FIXED &&
+                isempty(twist_surface.unrefined_section_idxs) && continue
             eqs = [eqs
-                   group_aero_moment[groups[gidx].idx] ~
-                       subsys.twist_moment[group_pos]]
+                   twist_surface_aero_moment[twist_surface.idx] ~
+                       subsys.twist_moment[twist_surface_pos]]
         end
 
         if s.set.quasi_static && hasproperty(subsys, :aero_input)

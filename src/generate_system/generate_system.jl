@@ -7,11 +7,10 @@
 # Utilities and accessors first (no dependencies)
 include("helpers.jl")
 include("accessors.jl")
-include("aero_components.jl")
 
 # Component equations (can be in any order - no inter-dependencies)
 include("point_eqs.jl")
-include("group_eqs.jl")
+include("twist_surface_eqs.jl")
 include("segment_eqs.jl")
 include("pulley_eqs.jl")
 include("winch_eqs.jl")
@@ -19,8 +18,7 @@ include("tether_eqs.jl")
 
 # Higher-level equations
 include("wing_eqs.jl")
-include("vsm_eqs.jl")
-include("plate_eqs.jl")
+include("aero_eqs.jl")
 include("scalar_eqs.jl")
 
 # Main entry point last (depends on all above)

@@ -43,8 +43,7 @@ acc       = ifelse(brake > 0.5, 0, drum_radius / gear_ratio * α_motor)
 """
 function default_winch_component(sys_struct::SystemStructure,
                                  winch_idx::Int; name)
-    SST = typeof(sys_struct)
-    @parameters (psys::SST = sys_struct), [tunable = false]
+    psys = system_struct_param(sys_struct)
     @variables begin
         vel(t)
         len(t)
@@ -113,7 +112,7 @@ function validate_winch_component(subsys, winch)
     end
     for eq in ModelingToolkit.equations(subsys)
         lhs = ModelingToolkit.Symbolics.unwrap(eq.lhs)
-        var_name = _differential_inner_name(lhs)
+        var_name = differential_inner_name(lhs)
         if var_name === :vel || var_name === :len
             error("Winch $(winch.name): component must not define " *
                   "`D($var_name) ~ …`; that derivative is owned by the outer " *
@@ -123,7 +122,7 @@ function validate_winch_component(subsys, winch)
     return nothing
 end
 
-function _differential_inner_name(expr)
+function differential_inner_name(expr)
     try
         ModelingToolkit.iscall(expr) || return nothing
         mtk_operation = ModelingToolkit.operation(expr)

@@ -1,10 +1,14 @@
+```@meta
+CurrentModule = SymbolicAWEModels
+```
+
 # VSM coupling
 
 This document explains how SymbolicAWEModels couples with the
 Vortex Step Method (VSM) for aerodynamic force computation. The
 coupling is configured by two orthogonal choices:
 [`WingType`](@ref) (structural representation) and
-[`AeroMode`](@ref) (force computation strategy).
+[`AbstractAeroModel`](@ref) (force computation strategy).
 
 ## Overview
 
@@ -99,10 +103,10 @@ optional deformable groups.
 - Wing treated as a rigid body with quaternion-based orientation
 - No per-point wing structure — aerodynamic forces applied to
   wing center of mass
-- Optional **groups** represent deformable sections with twist
+- Optional **twist surfaces** represent deformable sections with twist
   degrees of freedom
-- Groups control segment twist angles. With
-  `use_prior_polar=true`, group LE/TE positions also define the
+- Twist surfaces control segment twist angles. With
+  `use_prior_polar=true`, their LE/TE positions also define the
   aerodynamic section geometry
 
 #### VSM mapping
@@ -113,15 +117,16 @@ individual structural points:
 ```
 Unrefined sections: [Sec₁,  Sec₂,  Sec₃,  Sec₄,  Sec₅]
                         ╲       ╱       ╲       ╱
-Groups:              [─ Group₁ ─]    [─ Group₂ ─]
+Twist surfaces:      [─ Surf₁ ─]    [─ Surf₂ ─]
                      twist DOF θ₁    twist DOF θ₂
 ```
 
-Multiple unrefined sections can be combined into a single group
-for twist control. `compute_spatial_group_mapping!` builds the
-mapping automatically: each unrefined section is assigned to the
-nearest group centre (Voronoi partition in the body frame), and
-the group's single twist DOF then drives every section it owns
+Multiple unrefined sections can be combined into a single twist
+surface for twist control. `compute_spatial_twist_surface_mapping!`
+builds the mapping automatically: each unrefined section is assigned
+to the nearest twist-surface centre (Voronoi partition in the body
+frame), and the surface's single twist DOF then drives every section
+it owns
 as a rigid unit. `n_groups > n_unrefined` is rejected — a twist
 DOF without a section to drive would be undefined.
 
@@ -134,7 +139,7 @@ DOF.
 
 ## Aero modes
 
-[`AeroMode`](@ref) controls **how aerodynamic forces enter the
+[`AbstractAeroModel`](@ref) controls **how aerodynamic forces enter the
 ODE system** — orthogonal to the wing type choice.
 
 ### AERO_DIRECT
@@ -143,9 +148,9 @@ A single VSM solve at the current operating point. The resulting
 forces are stored in the wing struct and read by registered
 symbolic functions during ODE evaluation:
 
-1. `_vsm_aero_coeffs` (Float64 path) sets the VSM body wind/ω
+1. `vsm_aero_coeffs` (Float64 path) sets the VSM body wind/ω
    from the live wing state and calls `VortexStepMethod.solve!`
-2. `_apply_direct_forces!` reconstructs physical forces in the
+2. `apply_direct_forces!` reconstructs physical forces in the
    wind-axis basis: `F = q∞ · A · (CL · lift + CD · drag + CS · side)`
 3. Forces are stored in `wing.aero_force_b` and
    `wing.aero_moment_b` (RIGID_DYNAMICS) or per-point via
@@ -170,13 +175,13 @@ State:
 - `aero_x = [CL, CD, CS, CMx, CMy, CMz, cm_g_1, …, cm_g_n]`
 - `aero_jac = ∂aero_x/∂aero_y` (dense)
 
-Every `vsm_interval` steps, `update_vsm!`:
+Every `vsm_interval` steps, `refresh_aero!`:
 
 1. Float64 VSM solve at `y0` to refresh `aero_x` and the
    converged circulation γ₀
 2. ForwardDiff Jacobian via a lazily-allocated Dual-shadow
    solver, warm-started from γ₀ (1–2 Picard iters per column)
-3. `_safe_vsm_solve!` guards each solve, checking convergence
+3. `safe_vsm_solve!` guards each solve, checking convergence
    and finiteness of both Dual values and partials (plain
    `isfinite(::Dual)` misses partial NaNs)
 
@@ -192,47 +197,124 @@ without aerodynamic coupling.
 
 ### Compatibility
 
-| Wing type | Default aero mode | Supported modes |
-|-----------|-------------------|-----------------|
-| **RIGID_DYNAMICS** | `AERO_LINEARIZED` | `AERO_LINEARIZED`, `AERO_DIRECT`, `AERO_NONE` |
-| **PARTICLE_DYNAMICS** | `AERO_DIRECT` | `AERO_DIRECT`, `AERO_NONE` |
+| Wing type | Default aero model | Supported models |
+|-----------|--------------------|------------------|
+| **RIGID_DYNAMICS** | `AeroLinearized()` | `AeroLinearized`, `AeroDirect`, `AeroNone` |
+| **PARTICLE_DYNAMICS** | `AeroDirect()` | `AeroDirect`, `AeroNone` |
 
-`PARTICLE_DYNAMICS` + `AERO_LINEARIZED` is not yet implemented (raises an
+`PARTICLE_DYNAMICS` + `AeroLinearized` is not yet implemented (raises an
 error during model build).
 
-## Swappable aero components (`AERO_CUSTOM`)
+## Swappable aero components (dispatch)
 
-Each wing carries an `aero_model` builder, exactly like a winch's
-[`Winch`](@ref) `model` field. The built-in `aero_mode`s select a default
-builder (`default_aero_none` / `default_aero_direct` /
-`default_aero_linearized`); to plug in your own aerodynamics, pass a builder
-and set `aero_mode = AERO_CUSTOM`:
+Each wing carries an `aero::AbstractAeroModel` field. The builder is selected
+by dispatch on its type, [`aero_component`](@ref)`(mode, sys_struct, wing_idx;
+name)`, returning a `System` exactly like a winch's [`Winch`](@ref) `model`.
+The built-in subtypes [`AeroNone`](@ref), [`AeroDirect`](@ref),
+[`AeroLinearized`](@ref) ship their own methods. To plug in your own
+aerodynamics, subtype `AbstractAeroModel` and add exactly two methods —
+the component builder and a cache tag:
 
 ```julia
-VSMWing(name, set, groups, vsm_set;
-        aero_mode = AERO_CUSTOM, aero_model = my_aero_builder)
+struct MyAero <: AbstractAeroModel end
+
+function SymbolicAWEModels.aero_component(::MyAero, sys_struct, wing_idx; name)
+    # ... build and return a System with the connectors below ...
+end
+SymbolicAWEModels.aero_mode_tag(::MyAero) = "myaero"
+
+Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia; aero = MyAero())
 ```
 
-The builder has the signature `my_aero_builder(sys_struct, wing_idx; name)`
-and returns a `System` whose connectors are fixed by the wing's
-`dynamics_type` (all quantities in the wing **body frame**):
+Everything else is an **optional hook with a working default**, dispatched
+on the mode:
 
-- **`RIGID_DYNAMICS`** (`ng = length(wing.group_idxs)`):
+- **Lifecycle**: [`setup_aero!`](@ref) (construction),
+  [`remake_aero!`](@ref) (settings change), [`validate_aero_structure`](@ref)
+  (build-time checks), [`resize_aero_state!`](@ref) (after name resolution),
+  [`init_aero_state!`](@ref) (initial operating point).
+- **Low-frequency refresh** (every `vsm_interval` steps, orchestrated by
+  [`refresh_aero!`](@ref)): [`refresh_rigid_aero!`](@ref) /
+  [`refresh_particle_aero!`](@ref).
+- **Diagnostics**: [`calc_aoa`](@ref) (default `NaN`),
+  [`normalized_inertia`](@ref) — per-unit-mass inertia [m²], scaled by the
+  wing's mass at the single consumer (default: normalized point-mass inertia
+  from the WING points).
+- **Log-point visualization**: [`n_aero_log_points`](@ref) /
+  [`write_aero_log_points!`](@ref) / [`read_aero_log_points!`](@ref) /
+  [`restore_aero_twist!`](@ref) — extra `SysState` slots for the mode's
+  display geometry (defaults: none).
+- **Live Makie rendering**: [`plot_wing_aero!`](@ref) /
+  [`update_wing_aero_plot!`](@ref) — methods live in the Makie extension,
+  so a custom mode draws with full Makie access (default: draws nothing).
+- **Traits**: [`couples_to_sections`](@ref) (needs per-section twist
+  surfaces; default `false`), [`provides_aero_override`](@ref),
+  [`stores_point_force`](@ref), and the cache controls
+  [`is_builtin_aero`](@ref) / [`aero_hash_id`](@ref) (see below).
+
+Subtyping [`AbstractVSMAero`](@ref) (a [`VSMEngine`](@ref) in an `engine`
+field, exposed via [`vsm_engine`](@ref)) inherits the VSM implementation of
+every hook. There are no `isa`/`is_vsm` branches in the pipeline, so a
+custom mode is never excluded from a code path it cannot extend.
+
+The returned `System`'s connectors are fixed by the wing's `dynamics_type`
+(all quantities in the wing **body frame**):
+
+- **`RIGID_DYNAMICS`** (`ng = length(wing.twist_surface_idxs)`):
   - inputs: `va[1:3]`, `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`,
     and — when `ng > 0` — `twist[1:ng]`, `twist_vel[1:ng]`
   - outputs: `force[1:3]`, `moment[1:3]`, `twist_moment[1:ng]`
 - **`PARTICLE_DYNAMICS`** (`np` = number of `WING` points):
-  - inputs: `point_pos[1:3,1:np]`, `point_vel[1:3,1:np]`
+  - inputs: `point_pos[1:3,1:np]`, `point_vel[1:3,1:np]`,
+    `va[1:3,1:np]`, `rho[1:np]`
   - outputs: `point_force[1:3,1:np]`
 
 The wiring layer drives the inputs and reads the outputs; the component is
 flattened by `mtkcompile`, so its connectors become inlined unknowns (no
 array crosses a registered-function boundary). `validate_aero_component`
-checks the contract at build time.
+checks the contract at build time. A rigid component may additionally expose
+an `aero_input` connector vector (as `AeroLinearized` does); it is detected by
+name and logged as wing state — no extra method needed.
 
-Custom builder equations are **not captured by the model hash**, so `init!`
-defaults to `remake=true` whenever a custom winch/aero component is present
-(via `has_custom_component`).
+A custom model returns `false` from [`is_builtin_aero`](@ref) by default, so
+its equations bypass the compiled-model cache and `init!` rebuilds (via
+`has_custom_component`). Structural fields that change the *generated
+equations* must be reported by [`aero_hash_id`](@ref); runtime-mutable fields
+must not (they are read live, see below).
+
+### Live-updating fields
+
+Dispatch alone does **not** make a mode's fields update live — a registered
+getter that reads the live `SystemStructure` does. Put the mutable value on the
+mode struct and read it through a registered scalar getter:
+
+```julia
+mutable struct ConstantLiftAero <: AbstractAeroModel
+    CL::Float64                       # live-tunable
+end
+
+get_const_cl(sys::SystemStructure, w::Int) = sys.wings[w].aero.CL
+@register_symbolic get_const_cl(sys::SystemStructure, w::Int)
+
+function SymbolicAWEModels.aero_component(::ConstantLiftAero,
+                                          sys_struct, wing_idx; name)
+    SST = typeof(sys_struct)
+    @parameters (psys::SST = sys_struct), [tunable = false]
+    # ... use get_const_cl(psys, wing_idx) in the force equation ...
+end
+```
+
+Mutate the field between steps — no `remake`, read at the next RHS evaluation:
+
+```julia
+sam.sys_struct.wings[1].aero.CL = 0.8
+```
+
+Only **numeric field values** update live. A field that changes the equation
+*structure* is a compile-time change (`init!(sam; remake=true)`) and belongs in
+`aero_hash_id`. A vector-valued getter must use `@register_array_symbolic` with
+an explicit `ndims`, and must return a **stored** field (never a freshly built
+array) to stay allocation-free.
 
 !!! note "Zero-allocation RHS"
     The built-in modes generate an allocation-free ODE RHS (asserted by
@@ -297,8 +379,8 @@ end
 
 The mapping enables:
 
-1. **Group twist angles**: Applying the correct twist angle from
-   groups to refined panels via their parent section
+1. **Twist-surface twist angles**: Applying the correct twist angle
+   from twist surfaces to refined panels via their parent section
 2. **Force distribution (PARTICLE_DYNAMICS)**: Accumulating refined panel
    forces at the structural points of their parent section
 3. **Linearization (RIGID_DYNAMICS + AERO_LINEARIZED)**: Propagating
@@ -319,10 +401,10 @@ The mapping enables:
 - `src/vsm_refine.jl`: Aero-to-structure alignment (all wing
   types), PARTICLE_DYNAMICS force distribution, and geometry updates
 - `src/system_structure/types.jl`: Component type definitions
-  including `WingType` and `AeroMode` enums
+  including the `WingType` enum and `AbstractAeroModel` types
 - `src/system_structure/wing.jl`: Wing and VSMWing type
   definitions, group-to-section mapping
-- `src/generate_system/vsm_eqs.jl`: Symbolic VSM equation
+- `src/generate_system/aero_eqs.jl`: Symbolic VSM equation
   generation (all wing type × aero mode combinations)
 - `src/generate_system/wing_eqs.jl`: Wing dynamics equation
   generation

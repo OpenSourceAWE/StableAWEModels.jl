@@ -50,14 +50,14 @@ using LinearAlgebra
     # Create and initialize SAMs once for each wing type
     rigid_dynamics_sys = load_sys_struct_from_yaml(
         rigid_dynamics_yaml_path; system_name="transform_test_RIGID_DYNAMICS", set=set, vsm_set=vsm_set,
-        aero_mode=AERO_NONE
+        aero_mode=AeroNone()
     )
     rigid_dynamics_sam = SymbolicAWEModel(set, rigid_dynamics_sys)
     test_init!(rigid_dynamics_sam)
 
     particle_dynamics_sys = load_sys_struct_from_yaml(
         particle_dynamics_yaml_path; system_name="transform_test_PARTICLE_DYNAMICS", set=set, vsm_set=vsm_set,
-        aero_mode=AERO_NONE
+        aero_mode=AeroNone()
     )
     particle_dynamics_sam = SymbolicAWEModel(set, particle_dynamics_sys)
     test_init!(particle_dynamics_sam)
@@ -153,7 +153,7 @@ using LinearAlgebra
 
                 # Get wing position
                 wing = sam.sys_struct.wings[:main_wing]
-                wing_pos = wing.base.pos_w
+                wing_pos = wing.pos_w
 
                 # Get ground position
                 ground_pos = sam.sys_struct.points[:ground].pos_w
@@ -214,12 +214,12 @@ using LinearAlgebra
                 # Test 1: elevation = 80 deg (default)
                 reset_transform!(sam.sys_struct)
                 test_init!(sam; prn=false)
-                wing_z1 = sam.sys_struct.wings[:main_wing].base.pos_w[3]
+                wing_z1 = sam.sys_struct.wings[:main_wing].pos_w[3]
 
                 # Test 2: elevation = 45 deg
                 sam.sys_struct.transforms[:main_transform].elevation = deg2rad(45)
                 test_init!(sam; prn=false)
-                wing_z2 = sam.sys_struct.wings[:main_wing].base.pos_w[3]
+                wing_z2 = sam.sys_struct.wings[:main_wing].pos_w[3]
 
                 # Higher elevation should result in higher z position
                 # (wing more overhead)
@@ -237,12 +237,12 @@ using LinearAlgebra
                 # Test 1: azimuth = 0 deg (default)
                 reset_transform!(sam.sys_struct)
                 test_init!(sam; prn=false)
-                wing_y1 = sam.sys_struct.wings[:main_wing].base.pos_w[2]
+                wing_y1 = sam.sys_struct.wings[:main_wing].pos_w[2]
 
                 # Test 2: azimuth = 30 deg (more to the side)
                 sam.sys_struct.transforms[:main_transform].azimuth = deg2rad(30)
                 test_init!(sam; prn=false)
-                wing_y2 = sam.sys_struct.wings[:main_wing].base.pos_w[2]
+                wing_y2 = sam.sys_struct.wings[:main_wing].pos_w[2]
 
                 # Larger azimuth should give larger |y| component
                 @test abs(wing_y2) > abs(wing_y1)
@@ -262,15 +262,15 @@ using LinearAlgebra
                 wing = sam.sys_struct.wings[:main_wing]
 
                 # Wing should have a rotation matrix
-                @test !isnothing(wing.base.R_b_to_w)
-                @test size(wing.base.R_b_to_w) == (3, 3)
+                @test !isnothing(wing.R_b_to_w)
+                @test size(wing.R_b_to_w) == (3, 3)
 
                 # R_b_to_w should be a valid rotation matrix (orthonormal)
-                @test det(wing.base.R_b_to_w) ≈ 1.0 atol=1e-10
-                @test wing.base.R_b_to_w * wing.base.R_b_to_w' ≈ I(3) atol=1e-10
+                @test det(wing.R_b_to_w) ≈ 1.0 atol=1e-10
+                @test wing.R_b_to_w * wing.R_b_to_w' ≈ I(3) atol=1e-10
 
                 println("\n  ====== [$dynamics_type_name] Heading affects rotation: " *
-                    "det(R_b_to_w)=$(round(det(wing.base.R_b_to_w), digits=4)) ======\n")
+                    "det(R_b_to_w)=$(round(det(wing.R_b_to_w), digits=4)) ======\n")
             end
 
             # ================================================================
@@ -346,7 +346,7 @@ using LinearAlgebra
     # ================================================================
     @testset "Chained Transforms" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            PlateWing, PlateSurface, Transform,
+            PlateWing, TwistSurface, Transform,
             SystemStructure,
             create_plate_interpolations, get_rot_pos,
             get_rot_pos_cad, get_base_pos, reinit!
@@ -443,15 +443,17 @@ using LinearAlgebra
 
         rel_side = set_c.rel_side_area / 100.0
         K = 1.0 - rel_side
-        surfaces_c = [
-            PlateSurface(:main, [1,0,0], [0,1,0],
-                set_c.area, :top;
-                twist=deg2rad(set_c.alpha_zero)),
-            PlateSurface(:right_tip, [1,0,0], [0,0,-1],
-                set_c.area * rel_side, :right;
+        twist_surfaces_c = [
+            TwistSurface(:main, [:top], FIXED, 0.0;
+                x_airf=[1,0,0], y_airf=[0,1,0],
+                area=set_c.area, twist=deg2rad(set_c.alpha_zero)),
+            TwistSurface(:right_tip, [:right], FIXED, 0.0;
+                x_airf=[1,0,0], y_airf=[0,0,-1],
+                area=set_c.area * rel_side,
                 twist=deg2rad(set_c.alpha_ztip)),
-            PlateSurface(:left_tip, [1,0,0], [0,0,1],
-                set_c.area * rel_side, :left;
+            TwistSurface(:left_tip, [:left], FIXED, 0.0;
+                x_airf=[1,0,0], y_airf=[0,0,1],
+                area=set_c.area * rel_side,
                 twist=deg2rad(set_c.alpha_ztip)),
         ]
         cl_interp, cd_interp =
@@ -459,14 +461,13 @@ using LinearAlgebra
                 set_c.alpha_cl, set_c.cl_list,
                 set_c.cd_list; alpha_cd=set_c.alpha_cd)
 
-        wing_c = PlateWing(:plate_wing, surfaces_c,
+        wing_c = PlateWing(:plate_wing,
+            [:main, :right_tip, :left_tip],
             cl_interp, cd_interp;
             dynamics_type=PARTICLE_DYNAMICS,
             z_ref_points=([:right, :left], :top),
             y_ref_points=(:left, :right),
-            origin=:kcu, drag_corr=0.93 * K,
-            cmq=set_c.cmq, smc=set_c.smc,
-            cord_length=set_c.cord_length)
+            origin=:kcu, drag_corr=0.93 * K)
 
         elev = deg2rad(set_c.elevation)
         azim = deg2rad(10.0)
@@ -483,7 +484,8 @@ using LinearAlgebra
         ]
 
         sys_c = SystemStructure("chained_test", set_c;
-            points=points_c, segments=segments_c,
+            points=points_c, twist_surfaces=twist_surfaces_c,
+            segments=segments_c,
             tethers=tethers_c, winches=winches_c,
             wings=[wing_c], transforms=transforms_c)
 

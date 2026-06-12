@@ -27,7 +27,11 @@ SIM_TIME = 30.0
 dt = 0.05
 N_STEPS = round(Int, SIM_TIME / dt)
 UPWIND_DIR = -pi/2 + deg2rad(10)
-PRE_STRESS = 0.9975
+# KiteModels places the initial kite directly downwind; SAM transform
+# azimuth is world-frame and applied as -azimuth, so this matches it.
+AZIMUTH = UPWIND_DIR + pi/2
+# Same value as KiteModels.PRE_STRESS (applied to its kite springs).
+PRE_STRESS = 0.9998
 
 # ==================== KITEMODELS SIMULATION ================ #
 println("=" ^ 60)
@@ -126,39 +130,33 @@ pos_map = Dict(:kcu => pos_kcu, :nose => pos_nose,
                :left => pos_left)
 bridle_l0(a, b) = norm(pos_map[b] - pos_map[a]) * PRE_STRESS
 
+# This yaml's rel_damping is KPS4's kite-spring multiplier of the tether
+# damping (only applied in tension there), NOT a damping/stiffness ratio
+# as SAM's Segment default would read it.
+bridle_damping = set.rel_damping * set.axial_damping
+bridle_pairs = [
+    (:kcu_nose, :kcu, :nose), (:right_nose, :right, :nose),
+    (:right_left, :right, :left), (:top_right, :top, :right),
+    (:left_kcu, :left, :kcu), (:right_kcu, :right, :kcu),
+    (:top_left, :top, :left), (:left_nose, :left, :nose),
+    (:nose_top, :nose, :top),
+]
 segments = [
-    Segment(:kcu_nose,   set, :kcu,   :nose;
-        l0=bridle_l0(:kcu, :nose),
-        diameter_mm=set.d_line),
-    Segment(:right_nose, set, :right, :nose;
-        l0=bridle_l0(:right, :nose),
-        diameter_mm=set.d_line),
-    Segment(:right_left, set, :right, :left;
-        l0=bridle_l0(:right, :left),
-        diameter_mm=set.d_line),
-    Segment(:top_right,  set, :top,   :right;
-        l0=bridle_l0(:top, :right),
-        diameter_mm=set.d_line),
-    Segment(:left_kcu,   set, :left,  :kcu;
-        l0=bridle_l0(:left, :kcu),
-        diameter_mm=set.d_line),
-    Segment(:right_kcu,  set, :right, :kcu;
-        l0=bridle_l0(:right, :kcu),
-        diameter_mm=set.d_line),
-    Segment(:top_left,   set, :top,   :left;
-        l0=bridle_l0(:top, :left),
-        diameter_mm=set.d_line),
-    Segment(:left_nose,  set, :left,  :nose;
-        l0=bridle_l0(:left, :nose),
-        diameter_mm=set.d_line),
-    Segment(:nose_top,   set, :nose,  :top;
-        l0=bridle_l0(:nose, :top),
-        diameter_mm=set.d_line),
+    Segment(name, set, point_a, point_b;
+        l0=bridle_l0(point_a, point_b),
+        diameter_mm=set.d_line,
+        unit_damping=bridle_damping,
+        compression_frac=set.rel_compr_stiffness)
+    for (name, point_a, point_b) in bridle_pairs
 ]
 
+# KPS4's loop! overrides the tether springs with axial_stiffness and
+# axial_damping each step, not the e_tether-derived values SAM defaults to.
 tethers = [Tether(:main_tether, set.l_tethers[1];
     start_point=:ground, end_point=:kcu,
-    n_segments=set.segments)]
+    n_segments=set.segments,
+    unit_stiffness=set.axial_stiffness,
+    unit_damping=set.axial_damping)]
 
 winches = [Winch(:winch, set, [:main_tether];
                  winch_point=:ground)]
@@ -167,15 +165,21 @@ winches = [Winch(:winch, set, [:main_tether];
 rel_side_area = set.rel_side_area / 100.0
 K = 1.0 - rel_side_area
 
-surfaces = [
-    PlateSurface(:main, [1,0,0], [0,1,0],
-        set.area, :top;
-        twist=deg2rad(set.alpha_zero)),
-    PlateSurface(:right_tip, [1,0,0], [0,0,-1],
-        set.area * rel_side_area, :right;
+# KitePodModels inits the KCU at depower_offset (depowers[1] is unused),
+# so the KiteModels run flies fully powered: alpha_depower = 0.
+alpha_depower = calc_alpha_depower(KCU(set), set.depower_offset / 100.0)
+
+twist_surfaces = [
+    TwistSurface(:main, [:top], FIXED, 0.0;
+        x_airf=[1,0,0], y_airf=[0,1,0], area=set.area,
+        twist=deg2rad(set.alpha_zero) - alpha_depower),
+    TwistSurface(:right_tip, [:right], FIXED, 0.0;
+        x_airf=[1,0,0], y_airf=[0,0,-1],
+        area=set.area * rel_side_area,
         twist=deg2rad(set.alpha_ztip)),
-    PlateSurface(:left_tip, [1,0,0], [0,0,1],
-        set.area * rel_side_area, :left;
+    TwistSurface(:left_tip, [:left], FIXED, 0.0;
+        x_airf=[1,0,0], y_airf=[0,0,1],
+        area=set.area * rel_side_area,
         twist=deg2rad(set.alpha_ztip)),
 ]
 
@@ -184,43 +188,38 @@ cl_interp, cd_interp = create_plate_interpolations(
     alpha_cd=set.alpha_cd)
 
 plate_wing = PlateWing(
-    :plate_wing, surfaces, cl_interp, cd_interp;
+    :plate_wing, [:main, :right_tip, :left_tip],
+    cl_interp, cd_interp;
     dynamics_type=PARTICLE_DYNAMICS,
     z_ref_points=([:right, :left], :top),
     y_ref_points=(:left, :right),
     origin=:kcu,
-    drag_corr=0.93 * K,
-    cmq=set.cmq, smc=set.smc,
-    cord_length=set.cord_length)
-
-alpha_depower = calc_alpha_depower(KCU(set), 0.25)
-plate_wing.surfaces[1].twist =
-    deg2rad(set.alpha_zero) - alpha_depower
+    drag_corr=0.93 * K)
 
 KITE_ANGLE = 3.83
 transforms = [
     Transform(:main_tf,
-        deg2rad(set.elevation), 0.0, 0.0;
+        deg2rad(set.elevation), AZIMUTH, 0.0;
         base_pos=zeros(3), base_point=:ground,
         wing=:plate_wing),
     Transform(:kite_tilt,
         deg2rad(set.elevation - KITE_ANGLE),
-        0.0, 0.0;
+        AZIMUTH, 0.0;
         base_transform=:main_tf,
         rot_point=:top),
 ]
 
 sys = SystemStructure("kps4", set;
-    points, segments, tethers, winches,
+    points, twist_surfaces, segments, tethers, winches,
     wings=[plate_wing], transforms)
 sys.winches[1].brake = true
 
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false, prn=true)
 
-w = sam.sys_struct.wings[1]
-aoas = [round(s.aoa, digits=2) for s in w.surfaces]
-println("SymAWE initial aoa=$(aoas)")
+twists = [round(rad2deg(ts.twist), digits=2)
+          for ts in sam.sys_struct.twist_surfaces]
+println("SymAWE section twists [deg]=$(twists)")
 
 sam_logger = Logger(sam, N_STEPS + 1)
 sys_state = SysState(sam)

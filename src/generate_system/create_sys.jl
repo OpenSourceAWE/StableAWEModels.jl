@@ -27,27 +27,13 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     defaults = Pair{Num, Any}[]
     guesses = Pair{Num, Any}[]
 
-    (; points, groups, segments, pulleys, tethers, winches, wings) = system
+    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings) = system
 
-    # Validation for VSMWing PARTICLE_DYNAMICS wings
+    validate_twist_surface_modes(twist_surfaces, wings)
+
+    # Per-mode structural validation (e.g. VSM particle point↔panel mapping)
     for wing in wings
-        if wing isa VSMWing && wing.dynamics_type == PARTICLE_DYNAMICS
-            # PARTICLE_DYNAMICS wings cannot have groups
-            @assert length(wing.group_idxs) == 0 "PARTICLE_DYNAMICS wing $(wing.idx) cannot have groups"
-            @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
-
-            # Verify all WING points for this wing are in the mapping
-            wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
-            for point_idx in wing_point_idxs
-                @assert haskey(wing.point_to_vsm_point, point_idx) "PARTICLE_DYNAMICS wing $(wing.idx) missing mapping for point $(point_idx)"
-            end
-
-            # Verify 1:1 correspondence: n_structural_points == 2 * n_sections
-            n_sections = length(wing.vsm_wing.unrefined_sections)
-            @assert length(wing_point_idxs) == 2 * n_sections "PARTICLE_DYNAMICS wing $(wing.idx): expected $(2*n_sections) points for $(n_sections) sections, got $(length(wing_point_idxs))"
-
-            prn && println("✓ PARTICLE_DYNAMICS wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")
-        end
+        validate_aero_structure(wing.aero, wing, points; prn)
     end
 
     SST = typeof(system)
@@ -85,10 +71,10 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         # Aerodynamic forces and moments
         aero_force_b(t)[1:3, eachindex(wings)]
         aero_moment_b(t)[1:3, eachindex(wings)]
-        group_aero_moment(t)[eachindex(groups)]
+        twist_surface_aero_moment(t)[eachindex(twist_surfaces)]
         # Wing deformation states
-        twist_angle(t)[eachindex(groups)]
-        twist_ω(t)[eachindex(groups)]
+        twist_angle(t)[eachindex(twist_surfaces)]
+        twist_ω(t)[eachindex(twist_surfaces)]
         # Wind and apparent velocity
         wind_vec_gnd(t)[1:3]
         va_wing_b(t)[1:3, eachindex(wings)]
@@ -100,17 +86,17 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # ==================== INLINED FORCE_EQS! CONTENT ==================== #
     # The following variables and component calls were previously in force_eqs!
 
-    # Declare group geometry symbolic variables
-    if length(groups) > 0
+    # Declare twist_surface geometry symbolic variables
+    if length(twist_surfaces) > 0
         @variables begin
-            group_y_airf(t)[1:3, eachindex(groups)]
-            group_chord(t)[1:3, eachindex(groups)]
-            group_le_pos(t)[1:3, eachindex(groups)]
+            twist_surface_y_airf(t)[1:3, eachindex(twist_surfaces)]
+            twist_surface_chord(t)[1:3, eachindex(twist_surfaces)]
+            twist_surface_le_pos(t)[1:3, eachindex(twist_surfaces)]
         end
     else
-        group_y_airf = nothing
-        group_chord = nothing
-        group_le_pos = nothing
+        twist_surface_y_airf = nothing
+        twist_surface_chord = nothing
+        twist_surface_le_pos = nothing
     end
 
     # Aggregate forces and moments from tethers onto the wing's center of mass
@@ -181,7 +167,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # 1. Point equations (generates point dynamics, modifies tether_wing_force/moment in-place)
     eqs, defaults, guesses = point_eqs!(
-        s, eqs, defaults, guesses, points, segments, groups, wings, psys;
+        s, eqs, defaults, guesses, points, segments, twist_surfaces, wings, psys;
         R_b_to_w, com_w,
         wing_vel, wind_vec_gnd, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -190,14 +176,14 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
         va_point_b, va_point_w, wind_at_point, height,
         aero_force_point_b,
-        group_y_airf, tether_wing_force, tether_wing_moment
+        twist_surface_y_airf, tether_wing_force, tether_wing_moment
     )
 
-    # 2. Group equations (deformable wing sections with twist dynamics)
-    eqs, defaults, guesses = group_eqs!(
-        eqs, defaults, guesses, groups, wings, psys;
-        R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
-        point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos
+    # 2. TwistSurface equations (deformable wing sections with twist dynamics)
+    eqs, defaults, guesses = twist_surface_eqs!(
+        eqs, defaults, guesses, twist_surfaces, wings, psys;
+        R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
+        point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos
     )
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
@@ -227,24 +213,14 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
 
-    # Build aerodynamic equations: each non-plate wing's aero component
-    # is wired in winch-style and returned as a subsystem.
-    eqs, guesses, aero_subsystems = vsm_eqs!(
+    # Build aerodynamic equations: each wing's aero component (including
+    # flat-plate) is wired in winch-style and returned as a subsystem.
+    eqs, guesses, aero_subsystems = aero_eqs!(
         s, eqs, guesses, psys;
-        aero_force_b, aero_moment_b, group_aero_moment,
+        aero_force_b, aero_moment_b, twist_surface_aero_moment,
         twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
-        pos, vel, aero_force_point_b
+        pos, vel, va_point_b, height, aero_force_point_b
     )
-
-    # Build plate aerodynamic equations for PlateWings
-    for wing in wings
-        wing isa PlateWing || continue
-        wing.aero_mode == AERO_NONE && continue
-        eqs = plate_eqs!(s, eqs, psys, wing;
-            R_b_to_w, aero_force_b, aero_moment_b,
-            aero_force_point_b, pos, vel, com_w,
-            wind_vec_gnd, height)
-    end
 
     # Build wing rigid body dynamics equations
     eqs, defaults = wing_eqs!(

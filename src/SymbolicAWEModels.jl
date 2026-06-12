@@ -67,15 +67,16 @@ export load_settings
 # Core Model
 export SymbolicAWEModel
 # System Structure Components
-export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
-export AbstractWing, BaseWing, VSMWing, PlateWing, PlateSurface
+export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
+export AbstractWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
 # Enums
-export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
+export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC, FIXED
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
-export AeroMode, AERO_NONE, AERO_DIRECT, AERO_LINEARIZED, AERO_PLATE
+export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate
+export aero_component
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_reposition!
@@ -151,6 +152,29 @@ function record end
 function plot_sphere_trajectory end
 function plot_body_frame end
 function plot_aoa end
+"""
+    plot_wing_aero!(ax, sys, wing, mode::AbstractAeroModel;
+                    use_observables=false, geometry_obs=nothing)
+
+Render `wing`'s aero geometry into `ax`, dispatched on its aero `mode`:
+VSM modes plot their panels via VortexStepMethod's recipe, flat-plate modes
+draw their section quads in the same style (red mesh, black borders). The
+default draws nothing — add a method for a custom mode to render its own
+geometry. With `use_observables`, the plot re-reads the live structure on
+every `geometry_obs` trigger (live plots and replay). Returns the plot
+object, or `nothing` when nothing was drawn. Defined in the Makie extension.
+"""
+function plot_wing_aero! end
+
+"""
+    update_wing_aero_plot!(wing, mode::AbstractAeroModel)
+
+Per-frame update of `wing`'s aero plot, dispatched on its aero `mode`.
+Default no-op; VSM modes push the current pose into the panel-mesh
+observables. Modes drawn through the geometry observable (flat-plate quads)
+need no update here. Defined in the Makie extension.
+"""
+function update_wing_aero_plot! end
 function find_steady_state! end
 function make_lin_sys_state end
 function create_model_archive end
@@ -168,11 +192,20 @@ include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
-include("plate_aero.jl")
 include("yaml_loader.jl")
 include("tether_properties.jl")
 include("linearize.jl")
 include("generate_system/generate_system.jl")
+# Aero subsystem. `common.jl` holds everything shared by all modes (the dispatch
+# interface, the MTK connector scaffolding, the refresh orchestrator + VSM
+# numerics); each mode then lives in one self-contained file (struct + all its
+# dispatches). Loaded after generate_system so the accessors/MTK the builders use
+# are available.
+include("aero_modes/common.jl")
+include("aero_modes/none.jl")
+include("aero_modes/direct.jl")
+include("aero_modes/linearized.jl")
+include("aero_modes/plate.jl")
 include("simulate.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule

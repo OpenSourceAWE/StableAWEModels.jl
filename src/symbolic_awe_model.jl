@@ -15,7 +15,7 @@ associated getter and setter functions for the full, nonlinear physical state.
                                   GetAeroInput, GetSegmentState,
                                   GetWinchState, GetTetherState,
                                   GetPointState,
-                                  GetPulleyState, GetGroupState}
+                                  GetPulleyState, GetTwistSurfaceState}
     "The ODE problem for the full nonlinear model."
     prob::Prob
 
@@ -34,7 +34,7 @@ associated getter and setter functions for the full, nonlinear physical state.
     get_tether_state::GetTetherState
     get_point_state::GetPointState
     get_pulley_state::GetPulleyState
-    get_group_state::GetGroupState
+    get_twist_surface_state::GetTwistSurfaceState
 end
 
 """
@@ -165,18 +165,16 @@ $(TYPEDFIELDS)
     t_vsm::SimFloat  = zero(SimFloat)
     "Time spent in the ODE integration step"
     t_step::SimFloat = zero(SimFloat)
-    "Vector of tether length set-points"
-    set_tether_len::Vector{SimFloat} = zeros(SimFloat, 3)
 end
 
 """
-    _SAM_FIELDS
+    SAM_FIELDS
 
 Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to fields
 delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
 to dispatch field access correctly.
 """
-const _SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
+const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step)
 
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
@@ -191,7 +189,7 @@ function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
         getfield(sam, :sys_struct).set
     elseif sym === :am
         getfield(sam, :sys_struct).am
-    elseif sym in _SAM_FIELDS
+    elseif sym in SAM_FIELDS
         getfield(sam, sym)
     else
         getproperty(getfield(sam, :serialized_model), sym)
@@ -210,7 +208,7 @@ function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
         error("Cannot replace `set`: it is owned by `sys_struct` " *
               "(const field). Mutate fields directly, " *
               "e.g. `sam.set.wind_vec = ...`.")
-    elseif sym in _SAM_FIELDS
+    elseif sym in SAM_FIELDS
         setfield!(sam, sym, val)
     else
         setproperty!(getfield(sam, :serialized_model), sym, val)
@@ -263,7 +261,7 @@ to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
-    (; points, groups, segments, pulleys, winches, wings, tethers) = sam.sys_struct
+    (; points, twist_surfaces, segments, pulleys, winches, wings, tethers) = sam.sys_struct
 
     for (ti, tether) in enumerate(tethers)
         ti > 4 && break
@@ -275,14 +273,14 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.winch_force[winch.idx] = norm(winch.force)
         ss.set_torque[winch.idx] = winch.set_value
     end
-    if length(groups) > 0
+    if length(twist_surfaces) > 0
         # Only fill up to the size of ss.twist_angles (typically 4)
-        max_groups = min(length(groups), length(ss.twist_angles))
-        for group in groups[1:max_groups]
-            ss.twist_angles[group.idx] = group.twist
+        max_twist_surfaces = min(length(twist_surfaces), length(ss.twist_angles))
+        for twist_surface in twist_surfaces[1:max_twist_surfaces]
+            ss.twist_angles[twist_surface.idx] = twist_surface.twist
         end
-        ss.depower = rad2deg(mean(ss.twist_angles[1:max_groups])) # Average twist for depower
-        ss.steering = rad2deg(ss.twist_angles[max_groups] - ss.twist_angles[1])
+        ss.depower = rad2deg(mean(ss.twist_angles[1:max_twist_surfaces])) # Average twist for depower
+        ss.steering = rad2deg(ss.twist_angles[max_twist_surfaces] - ss.twist_angles[1])
     end
     if length(wings) > 0
         wing = wings[1]
@@ -298,24 +296,8 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.v_wind_kite .= wing.v_wind
         # Calculate AoA and Side Slip from apparent wind in body frame
         if ss.v_app > 1e-6 # Avoid division by zero
-            if wing isa VSMWing
-                aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 +
-                          (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
-                ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
-                ss.side_slip = atan(wing.va_b[2],
-                    hypot(wing.va_b[1], wing.va_b[3]))
-            elseif wing isa PlateWing
-                # AoA from body frame apparent wind
-                # (x=chord, z=normal, same as
-                #  calc_angle_of_attack)
-                ss.AoA = atan(wing.va_b[3], wing.va_b[1])
-                ss.side_slip = atan(wing.va_b[2],
-                    hypot(wing.va_b[1], wing.va_b[3]))
-            else
-                ss.AoA = NaN
-                ss.side_slip = NaN
-            end
-            
+            ss.AoA = calc_aoa(wing.aero, wing)
+            ss.side_slip = calc_side_slip(wing)
         else
             ss.AoA = NaN       # Apparent wind too small to define AoA
             ss.side_slip = NaN # Side slip not defined for zero apparent wind
@@ -342,22 +324,11 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.Z[point.idx] = point.pos_w[3] * zoom
     end
 
-    # Store VSM panel corner positions in world frame
+    # Store per-mode aero log points (e.g. VSM panel corners) in world frame
     corner_idx = length(points)
     for wing in wings
-        wing isa VSMWing || continue
-        R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-        for panel in wing.vsm_aero.panels
-            for j in 1:4
-                corner_idx += 1
-                # Transform from body frame to world frame
-                corner_b = panel.corner_points[:, j]
-                corner_w = wing.pos_w + R_b_to_w * corner_b
-                ss.X[corner_idx] = corner_w[1] * zoom
-                ss.Y[corner_idx] = corner_w[2] * zoom
-                ss.Z[corner_idx] = corner_w[3] * zoom
-            end
-        end
+        corner_idx = write_aero_log_points!(wing.aero, wing, sam.sys_struct,
+                                            ss, corner_idx, zoom)
     end
 
     # Wing origin positions appended after panel corners.
@@ -393,10 +364,7 @@ with the current state of the provided model.
 function SysState(s::SymbolicAWEModel, zoom=1.0)
     # Total slots: structural points + 4 corners per panel + 1 per wing
     n_points = length(s.sys_struct.points)
-    n_panel_corners = isempty(s.sys_struct.wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings if wing isa VSMWing;
-        init=0
-    )
+    n_panel_corners = count_aero_log_points(s.sys_struct.wings)
     n_wings = length(s.sys_struct.wings)
     total_points = n_points + n_panel_corners + n_wings
     ss = SysState{total_points}()
@@ -428,10 +396,7 @@ logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
     # Total slots: structural points + 4 corners per panel + 1 per wing
     n_points = length(sam.sys_struct.points)
-    n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings if wing isa VSMWing;
-        init=0
-    )
+    n_panel_corners = count_aero_log_points(sam.sys_struct.wings)
     n_wings = length(sam.sys_struct.wings)
     total_points = n_points + n_panel_corners + n_wings
     return Logger(total_points, steps)
@@ -508,7 +473,7 @@ function next_step!(sam::SymbolicAWEModel;
     if prob isa ProbWithAttributes
         update_sys_struct!(prob, integrator, sam.sys_struct)
         if vsm_interval != 0 && sam.iter % vsm_interval == 0
-            sam.t_vsm = @elapsed update_vsm!(sam, prob; vsm_min_wind)
+            sam.t_vsm = @elapsed refresh_aero!(sam, prob; vsm_min_wind)
         end
     end
     return nothing
@@ -526,7 +491,7 @@ synchronization step is crucial for making the simulation results accessible.
 function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,
                             sys_struct::SystemStructure)
-    (; points, groups, segments, pulleys, winches, tethers, wings) = sys_struct
+    (; points, twist_surfaces, segments, pulleys, winches, tethers, wings) = sys_struct
     pos, vel, force, va_b, total_mass, drag_f =
         prob.get_point_state(integ)
     for point in points
@@ -553,14 +518,14 @@ function update_sys_struct!(prob::ProbWithAttributes,
             segment.l0 = l0_arr[segment.idx]
         end
     end
-    if length(groups) > 0
-        twist, twist_ω, tether_force, tether_moment, aero_moment = prob.get_group_state(integ)
-        for group in groups
-            group.twist = twist[group.idx]
-            group.twist_ω = twist_ω[group.idx]
-            group.tether_force = tether_force[group.idx]
-            group.tether_moment = tether_moment[group.idx]
-            group.aero_moment = aero_moment[group.idx]
+    if length(twist_surfaces) > 0
+        twist, twist_ω, tether_force, tether_moment, aero_moment = prob.get_twist_surface_state(integ)
+        for twist_surface in twist_surfaces
+            twist_surface.twist = twist[twist_surface.idx]
+            twist_surface.twist_ω = twist_ω[twist_surface.idx]
+            twist_surface.tether_force = tether_force[twist_surface.idx]
+            twist_surface.tether_moment = tether_moment[twist_surface.idx]
+            twist_surface.aero_moment = aero_moment[twist_surface.idx]
         end
     end
     if length(winches) > 0
@@ -637,14 +602,6 @@ function update_sys_struct!(prob::ProbWithAttributes,
                 com_vel_v[:, wing.idx]
             wing.Q_p_to_w .= Q_p_to_w_v[:, wing.idx]
             wing.ω_p .= ω_p_v[:, wing.idx]
-
-            # Update PlateWing surface aoa from current twist
-            if wing isa PlateWing
-                for surf in wing.surfaces
-                    surf.aoa =
-                        plate_alpha(wing, surf)
-                end
-            end
         end
     end
     return nothing
@@ -678,15 +635,11 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
         "mixed"
     end
 
-    aero_modes = [wing.aero_mode for wing in sys_struct.wings]
-    aero_mode_str = if isempty(aero_modes)
+    aero_tags = unique(aero_mode_tag(wing.aero) for wing in sys_struct.wings)
+    aero_mode_str = if isempty(aero_tags)
         ""
-    elseif all(m -> m === AERO_LINEARIZED, aero_modes)
-        "lin"
-    elseif all(m -> m === AERO_DIRECT, aero_modes)
-        "dir"
-    elseif all(m -> m === AERO_NONE, aero_modes)
-        "none"
+    elseif length(aero_tags) == 1
+        only(aero_tags)
     else
         "mixed_aero_modes"
     end
@@ -696,11 +649,11 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     # Count components
     n_points = length(sys_struct.points)
     n_segments = length(sys_struct.segments)
-    n_groups = length(sys_struct.groups)
+    n_twist_surfaces = length(sys_struct.twist_surfaces)
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_groups)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
 end
 
 """
@@ -745,14 +698,12 @@ end
 """
     calc_aoa(s::SymbolicAWEModel)
 
-Calculates the mean angle of attack [rad] over the wingspan from the VSM solver.
+Angle of attack [rad] of the first wing, dispatched on its aero mode
+([`calc_aoa(::AbstractAeroModel, wing)`](@ref)). `NaN` if the mode defines no AoA.
 """
 function calc_aoa(sam::SymbolicAWEModel)
     wing = sam.sys_struct.wings[1]
-    wing isa VSMWing || error("calc_aoa: wing[1] is not a VSMWing")
-    alpha_array = wing.vsm_solver.sol.alpha_dist
-    middle = length(alpha_array) ÷ 2
-    return iseven(length(alpha_array)) ? (0.5 * (alpha_array[middle] + alpha_array[middle+1])) : alpha_array[middle+1]
+    return calc_aoa(wing.aero, wing)
 end
 
 """
@@ -797,42 +748,4 @@ Returns a vector of the position vectors [m] for each point in the system.
 """
 pos(sam::SymbolicAWEModel) = [point.pos_w for point in sam.sys_struct.points]
 
-"""
-    min_chord_len(s::SymbolicAWEModel)
-
-Calculates the minimum chord length of the wing at the tip.
-"""
-function min_chord_len(sam::SymbolicAWEModel)
-    min_len = Inf
-    for wing in sam.sys_struct.wings
-        wing isa VSMWing || continue
-        vsm_wing = wing.vsm_wing
-        if hasproperty(vsm_wing, :le_interp) && hasproperty(vsm_wing, :te_interp) && hasproperty(vsm_wing, :gamma_tip)
-            le_pos = [vsm_wing.le_interp[i](vsm_wing.gamma_tip) for i in 1:3]
-            te_pos = [vsm_wing.te_interp[i](vsm_wing.gamma_tip) for i in 1:3]
-            min_len = min(norm(le_pos - te_pos), min_len)
-        elseif hasproperty(vsm_wing, :unrefined_sections) && !isempty(vsm_wing.unrefined_sections)
-            for section in vsm_wing.unrefined_sections
-                chord = section.TE_point - section.LE_point
-                min_len = min(norm(chord), min_len)
-            end
-        end
-    end
-    return min_len
-end
-
-"""
-    set_depower_steering!(s::SymbolicAWEModel, depower, steering)
-
-Sets the kite's depower and steering by adjusting the tether length set-points.
-"""
-function set_depower_steering!(sam::SymbolicAWEModel, depower, steering)
-    len = sam.set_tether_len
-    len .= [tether.len for tether in sam.sys_struct.tethers]
-    depower *= min_chord_len(sam)
-    steering *= min_chord_len(sam)
-    len[2] = 0.5 * (2*depower + 2*len[1] + steering)
-    len[3] = 0.5 * (2*depower + 2*len[1] - steering)
-    return nothing
-end
 

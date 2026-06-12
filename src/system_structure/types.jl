@@ -5,8 +5,8 @@
 Basic type definitions for the system structure components.
 
 This file contains enums and struct definitions for:
-- DynamicsType, WingType, AeroMode, SegmentType (deprecated) enums
-- Point, Group, Segment, Pulley, Tether, Winch structs
+- DynamicsType, WingType, SegmentType (deprecated) enums; AbstractAeroModel types
+- Point, TwistSurface, Segment, Pulley, Tether, Winch structs
 """
 
 # ==================== ENUMS ==================== #
@@ -26,21 +26,24 @@ This file contains enums and struct definitions for:
 end
 
 """
-    DynamicsType `DYNAMIC` `QUASI_STATIC` `WING` `STATIC`
+    DynamicsType `DYNAMIC` `QUASI_STATIC` `WING` `STATIC` `FIXED`
 
-Enumeration for the dynamic model governing a point's motion.
+Enumeration for the dynamic model governing a point's motion or a twist_surface's twist.
 
 # Elements
 - `DYNAMIC`: The point is a dynamic point mass, moving according to Newton's second law.
 - `QUASI_STATIC`: The point's acceleration is constrained to zero, representing a force equilibrium.
 - `WING`: The point is rigidly attached to a wing body and moves with it.
 - `STATIC`: The point's position is fixed in the world frame.
+- `FIXED`: TwistSurface twist is a prescribed control input (no differential state, no
+  algebraic equilibrium). Read live via the registered twist getter.
 """
 @enum DynamicsType begin
     DYNAMIC
     QUASI_STATIC
     WING
     STATIC
+    FIXED
 end
 
 """
@@ -49,7 +52,7 @@ end
 Enumeration for the aerodynamic model type of a wing.
 
 # Elements
-- `RIGID_DYNAMICS`: Wing uses quaternion-based rigid body dynamics with twist groups.
+- `RIGID_DYNAMICS`: Wing uses quaternion-based rigid body dynamics with twist twist_surfaces.
   Aerodynamic forces/moments are applied to the wing center of mass.
 - `PARTICLE_DYNAMICS`: Wing uses refined per-panel forces directly applied to structural points.
   VSM panel forces are lumped to WING-type points with no rigid body constraint.
@@ -64,25 +67,104 @@ Base.@deprecate_binding QUATERNION RIGID_DYNAMICS
 Base.@deprecate_binding REFINE PARTICLE_DYNAMICS
 
 """
-    AeroMode `AERO_NONE` `AERO_DIRECT` `AERO_LINEARIZED`
+    AbstractAeroModel
 
-Enumeration for how aerodynamic forces enter the ODE system.
-Orthogonal to WingType — determines the aero computation strategy at runtime.
-
-# Elements
-- `AERO_NONE`: No aerodynamic forces (returns zeros). For debugging rigid body dynamics.
-- `AERO_DIRECT`: Stored forces from nonlinear VSM solve, piecewise-constant between updates.
-- `AERO_LINEARIZED`: First-order Taylor expansion using Jacobian from VSM linearization.
-- `AERO_PLATE`: Flat-plate CL/CD lookup aerodynamics (PlateWing only).
-- `AERO_CUSTOM`: User-supplied aero component (see `wing.aero_model`).
+Supertype for a wing's aerodynamic model. The concrete subtype selects, by
+dispatch, the [`aero_component`](@ref) builder that emits the wing's aero
+equations. Built-in subtypes: [`AeroNone`](@ref), [`AeroDirect`](@ref),
+[`AeroLinearized`](@ref), [`AeroPlate`](@ref). Subtype it and add an
+`aero_component` method to plug in custom aerodynamics; see the VSM coupling
+documentation for a worked example with a live-updating field.
 """
-@enum AeroMode begin
-    AERO_NONE
-    AERO_DIRECT
-    AERO_LINEARIZED
-    AERO_PLATE
-    AERO_CUSTOM
+abstract type AbstractAeroModel end
+
+"""
+    mutable struct VSMEngine{BA, W, SL}
+
+Vortex Step Method aerodynamic engine carried by a VSM aero mode
+([`AbstractVSMAero`](@ref) `engine` field). Holds the VortexStepMethod objects,
+the linearization state, and the structural↔panel mapping.
+
+# Fields
+- `vsm_aero`, `vsm_wing`, `vsm_solver`: VortexStepMethod objects.
+- `aero_y`: operating-point inputs `[alpha, beta, ω1, ω2, ω3, twist...]`.
+- `aero_x`: baseline wind-axis coefficients `[CL, CD, CS, CM1, CM2, CM3, cm...]`.
+- `aero_jac`: dense Jacobian `d(aero_x)/d(aero_y)`.
+- `point_to_vsm_point`, `wing_segments`: PARTICLE_DYNAMICS structural↔panel maps.
+- `aero_scale_chord`: force scale compensating chord-length error (PARTICLE).
+- `aero_z_offset`: body-frame z-shift of VSM panels (RIGID).
+"""
+mutable struct VSMEngine{BA, W, SL}
+    vsm_aero::BA
+    vsm_wing::W
+    vsm_solver::SL
+    aero_y::Vector{SimFloat}
+    aero_x::Vector{SimFloat}
+    aero_jac::Matrix{SimFloat}
+    point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
+    wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}
+    aero_scale_chord::SimFloat
+    aero_z_offset::SimFloat
 end
+
+"""
+    abstract type AbstractVSMAero <: AbstractAeroModel
+
+Aero modes backed by a [`VSMEngine`](@ref) (stored in the `engine` field). VSM
+operations dispatch on this supertype; the engine's fields (`vsm_wing`, `aero_x`,
+…) are forwarded from the mode. Built-in subtypes: [`AeroDirect`](@ref) and
+[`AeroLinearized`](@ref).
+"""
+abstract type AbstractVSMAero <: AbstractAeroModel end
+
+# VSM engine fields forwarded from a VSM aero mode to its `engine`.
+const VSM_ENGINE_FIELDS = (
+    :vsm_aero, :vsm_wing, :vsm_solver, :aero_y, :aero_x, :aero_jac,
+    :point_to_vsm_point, :wing_segments, :aero_scale_chord, :aero_z_offset)
+
+function Base.getproperty(mode::AbstractVSMAero, sym::Symbol)
+    sym === :engine && return getfield(mode, :engine)
+    if sym in VSM_ENGINE_FIELDS
+        engine = getfield(mode, :engine)
+        engine === nothing && error(
+            "$(typeof(mode)) has no VSM engine yet; field `$sym` unavailable.")
+        return getproperty(engine, sym)
+    end
+    return getfield(mode, sym)
+end
+
+function Base.setproperty!(mode::AbstractVSMAero, sym::Symbol, value)
+    sym === :engine && return setfield!(mode, :engine, value)
+    if sym in VSM_ENGINE_FIELDS
+        engine = getfield(mode, :engine)
+        engine === nothing && error(
+            "$(typeof(mode)) has no VSM engine yet; cannot set `$sym`.")
+        return setproperty!(engine, sym, value)
+    end
+    return setfield!(mode, sym, value)
+end
+
+# Concrete aero modes (AeroNone/AeroDirect/AeroLinearized/AeroPlate) and their
+# dispatch methods live in src/aero_modes/, one file per mode.
+
+"""
+    is_builtin_aero(mode::AbstractAeroModel) -> Bool
+
+`true` for the package's built-in aero models. Custom models return `false`,
+which forces a model rebuild (the compiled cache cannot be reused for
+user-supplied equations). Each built-in mode sets this in its `aero_modes/` file.
+"""
+is_builtin_aero(::AbstractAeroModel) = false
+
+"""
+    aero_hash_id(mode::AbstractAeroModel) -> Tuple
+
+Structural fields of `mode` that change the generated equations and therefore
+must enter the model-cache key. Return only fields that alter the equation
+structure, never runtime-mutable values (those are read live via registered
+getters). Defaults to an empty tuple.
+"""
+aero_hash_id(::AbstractAeroModel) = ()
 
 """
     NameRef = Union{Int, Symbol}
@@ -230,17 +312,17 @@ function Point(name, pos_cad, type;
         fix_sphere, fix_static)
 end
 
-# ==================== GROUP ==================== #
+# ==================== TWIST_SURFACE ==================== #
 
 """
-    mutable struct Group
+    mutable struct TwistSurface
 
 A set of bridle lines that share the same twist angle and trailing edge angle.
 
 $(TYPEDFIELDS)
 """
-mutable struct Group
-    "Index in the groups vector (assigned by SystemStructure)."
+mutable struct TwistSurface
+    "Index in the twist_surfaces vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
@@ -270,40 +352,52 @@ mutable struct Group
     tether_moment::SimFloat
     "Aerodynamic moment [N·m]."
     aero_moment::SimFloat
-    "Indices of VSM unrefined sections in this group."
+    "Indices of VSM unrefined sections in this twist_surface."
     unrefined_section_idxs::Vector{Int64}
+    "Surface area [m²] (flat-plate sections; `NaN` when unused)."
+    area::SimFloat
 end
 
 """
-    Group(name, points, type, moment_frac; damping=50.0)
+    TwistSurface(name, points, type, moment_frac; damping=50.0)
 
-Constructs a `Group` object representing a collection of points on a
+Constructs a `TwistSurface` object representing a collection of points on a
 kite body that share a common twist deformation.
 
-Group geometry (le_pos, chord, y_airf) is computed later by SystemStructure
-using the closest VSM panel to the group's mean point position.
+TwistSurface geometry (le_pos, chord, y_airf) is computed later by SystemStructure
+using the closest VSM panel to the twist_surface's mean point position.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the group.
+- `name::Union{Int, Symbol}`: Name/identifier for the twist_surface.
 - `points::Vector`: References to points (names or indices).
 - `type::DynamicsType`: DYNAMIC or QUASI_STATIC.
 - `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
 
 # Keyword Arguments
 - `damping::SimFloat=50.0`: Damping coefficient for twist dynamics.
+- `x_airf=nothing`: Chord-direction reference (body frame). When given, stored as
+  the `chord` field — twist is measured relative to it. Defaults to auto-derived
+  from the closest VSM panel during SystemStructure construction.
+- `y_airf=nothing`: Spanwise reference (body frame). Auto-derived when omitted.
+- `area=NaN`: Surface area [m²] for flat-plate (`AeroPlate`) sections.
+- `twist=0.0`: Initial twist angle [rad] (prescribed input for `FIXED` sections).
 
 # Returns
-- `Group`: A new `Group` object. The `idx` and `point_idxs` are resolved by SystemStructure.
-  Geometry fields (le_pos, chord, y_airf) are initialized to zero and computed during
-  SystemStructure construction from the closest VSM panel.
+- `TwistSurface`: A new `TwistSurface` object. The `idx` and `point_idxs` are resolved by SystemStructure.
+  When `x_airf`/`y_airf` are omitted the geometry fields (le_pos, chord, y_airf) are
+  computed during SystemStructure construction from the closest VSM panel.
 """
-function Group(name, points, type, moment_frac; damping=50.0)
+function TwistSurface(name, points, type, moment_frac;
+                      damping=50.0, x_airf=nothing, y_airf=nothing,
+                      area=NaN, twist=0.0)
     point_refs = Vector{NameRef}([p isa Integer ? Int(p) : Symbol(p) for p in points])
-    Group(0, name, Int64[], point_refs,
-          zeros(KVec3), zeros(KVec3), zeros(KVec3),
+    chord_vec = isnothing(x_airf) ? zeros(KVec3) : KVec3(x_airf)
+    y_vec = isnothing(y_airf) ? zeros(KVec3) : KVec3(y_airf)
+    TwistSurface(0, name, Int64[], point_refs,
+          zeros(KVec3), chord_vec, y_vec,
           type, moment_frac, damping,
-          0.0, 0.0, 0.0, 0.0, 0.0,
-          Int64[])
+          SimFloat(twist), 0.0, 0.0, 0.0, 0.0,
+          Int64[], SimFloat(area))
 end
 
 # ==================== SEGMENT ==================== #
@@ -589,24 +683,24 @@ function Tether(name, segments::AbstractVector, stretched_length=nothing;
               "Winch constructor.")
     end
     init_force, init_frac =
-        _resolve_tether_init(name, tether_force, stretch_frac)
-    segment_refs = Vector{NameRef}(_name_ref.(segments))
-    init_stretched = _opt_simfloat(stretched_length)
+        resolve_tether_init(name, tether_force, stretch_frac)
+    segment_refs = Vector{NameRef}(name_ref.(segments))
+    init_stretched = opt_simfloat(stretched_length)
     return Tether(0, name, Int64[], segment_refs,
-                  0, _name_ref(start_point), 0, _name_ref(end_point),
+                  0, name_ref(start_point), 0, name_ref(end_point),
                   length(segments),
                   NaN, NaN, NaN, 0.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 
-_name_ref(::Nothing) = nothing
-_name_ref(x::Integer) = Int(x)
-_name_ref(x) = Symbol(x)
+name_ref(::Nothing) = nothing
+name_ref(x::Integer) = Int(x)
+name_ref(x) = Symbol(x)
 
-_opt_simfloat(::Nothing) = nothing
-_opt_simfloat(x) = SimFloat(x)
+opt_simfloat(::Nothing) = nothing
+opt_simfloat(x) = SimFloat(x)
 
-function _resolve_tether_init(name, tether_force, stretch_frac)
+function resolve_tether_init(name, tether_force, stretch_frac)
     if !isnothing(tether_force) && !isnothing(stretch_frac)
         error("Tether $name: set only one of `tether_force` and " *
               "`stretch_frac`.")
@@ -651,12 +745,12 @@ function Tether(name, stretched_length=nothing;
                 diameter=NaN, tether_force=nothing,
                 stretch_frac=nothing)
     init_force, init_frac =
-        _resolve_tether_init(name, tether_force, stretch_frac)
+        resolve_tether_init(name, tether_force, stretch_frac)
     seg_refs = Vector{NameRef}(
         [Symbol("$(name)_seg_$i") for i in 1:n_segments])
-    init_stretched = _opt_simfloat(stretched_length)
+    init_stretched = opt_simfloat(stretched_length)
     return Tether(0, name, Int64[], seg_refs,
-                  0, _name_ref(start_point), 0, _name_ref(end_point),
+                  0, name_ref(start_point), 0, name_ref(end_point),
                   Int64(n_segments),
                   Float64(unit_stiffness),
                   Float64(unit_damping),
@@ -856,9 +950,9 @@ mutable struct Transform
 end
 
 # Helper to convert ref to NameRef or nothing
-_to_ref(::Nothing) = nothing
-_to_ref(x::Integer) = Int(x)
-_to_ref(x) = Symbol(x)
+to_ref(::Nothing) = nothing
+to_ref(x::Integer) = Int(x)
+to_ref(x) = Symbol(x)
 
 """
     Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
@@ -886,10 +980,10 @@ function Transform(name, elevation, azimuth, heading;
     (isnothing(base_pos) == isnothing(base_transform)) && error("Either provide the base_pos or the base_transform, not both or none.")
     (!isnothing(base_pos) && isnothing(base_point)) && error("When providing a base_pos, also provide a base_point.")
 
-    wing_ref = _to_ref(wing)
-    rot_point_ref = _to_ref(rot_point)
-    base_point_ref = _to_ref(base_point)
-    base_transform_ref = _to_ref(base_transform)
+    wing_ref = to_ref(wing)
+    rot_point_ref = to_ref(rot_point)
+    base_point_ref = to_ref(base_point)
+    base_transform_ref = to_ref(base_transform)
 
     Transform(0, name, nothing, wing_ref, nothing, rot_point_ref,
               nothing, base_point_ref, nothing, base_transform_ref,

@@ -78,7 +78,7 @@ function get_point_aero_force(
     point = sys.points[idx]
     if point.wing_idx > 0
         wing = sys.wings[point.wing_idx]
-        wing.aero_mode == AERO_NONE && return 0.0
+        stores_point_force(wing.aero) || return 0.0
     end
     return point.aero_force_b[component]
 end
@@ -190,6 +190,10 @@ get_drag_frac(sys::SystemStructure, idx::Int64) =
     sys.wings[idx].drag_frac
 @register_symbolic get_drag_frac(
     sys::SystemStructure, idx::Int64)
+get_group_points_moment(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].group_points_moment
+@register_symbolic get_group_points_moment(
+    sys::SystemStructure, idx::Int64)
 get_y_damping(sys::SystemStructure, idx::Int64) =
     sys.wings[idx].y_damping
 @register_symbolic get_y_damping(
@@ -288,12 +292,12 @@ get_tether_len(sys::SystemStructure, idx::Int64) =
     sys::SystemStructure, idx::Int64)
 
 # ---- Settings ----
-const _ZERO_WIND_FALLBACK = KVec3(1e-10, 0.0, 0.0)
+const ZERO_WIND_FALLBACK = KVec3(1e-10, 0.0, 0.0)
 
 function get_wind_vec(sys::SystemStructure)
     wv = sys.set.wind_vec
     if wv[1]^2 + wv[2]^2 + wv[3]^2 < 1e-20
-        return _ZERO_WIND_FALLBACK
+        return ZERO_WIND_FALLBACK
     end
     return wv
 end
@@ -314,7 +318,7 @@ function get_aero_force_override(
     sys::SystemStructure, idx::Int64, component::Int
 )
     wing = sys.wings[idx]
-    wing.aero_mode == AERO_DIRECT &&
+    provides_aero_override(wing.aero) &&
         return wing.aero_force_b[component]
     return 0.0
 end
@@ -324,7 +328,7 @@ function get_aero_moment_override(
     sys::SystemStructure, idx::Int64, component::Int
 )
     wing = sys.wings[idx]
-    wing.aero_mode == AERO_DIRECT &&
+    provides_aero_override(wing.aero) &&
         return wing.aero_moment_b[component]
     return 0.0
 end
@@ -332,77 +336,85 @@ end
     sys::SystemStructure, idx::Int64, component::Int)
 
 # ==================== VSM-SPECIFIC ACCESSORS ==================== #
-# These access VSMWing-specific fields or Group fields.
+# These access VSMWing-specific fields or TwistSurface fields.
 # Registered with SystemStructure (UnionAll) because
 # @register_symbolic erases type parameters.
 
 get_le_pos(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].le_pos
+    sys.twist_surfaces[idx].le_pos
 @register_array_symbolic get_le_pos(
     sys::SystemStructure, idx::Int64) begin
     size = (3,)
     eltype = SimFloat
 end
+# Function barriers: the wing's `vsm` field is an abstract `VSMEngine`, so the
+# read is dispatched to a method specialized on the concrete engine type to stay
+# type-stable and allocation-free in the compiled RHS.
+engine_aero_y(engine::VSMEngine, iy::Int)::SimFloat = engine.aero_y[iy]
+engine_aero_x(engine::VSMEngine, ix::Int)::SimFloat = engine.aero_x[ix]
+engine_aero_jac(engine::VSMEngine, ix::Int, iy::Int)::SimFloat =
+    engine.aero_jac[ix, iy]
+
 get_aero_y(sys::SystemStructure, idx::Int64, iy::Int) =
-    sys.wings[idx].aero_y[iy]
+    engine_aero_y(sys.wings[idx].aero.engine, iy)
 @register_symbolic get_aero_y(
     sys::SystemStructure, idx::Int64, iy::Int)
 get_aero_x(sys::SystemStructure, idx::Int64, ix::Int) =
-    sys.wings[idx].aero_x[ix]
+    engine_aero_x(sys.wings[idx].aero.engine, ix)
 @register_symbolic get_aero_x(
     sys::SystemStructure, idx::Int64, ix::Int)
 get_aero_jac(sys::SystemStructure, idx::Int64,
              ix::Int, iy::Int) =
-    sys.wings[idx].aero_jac[ix, iy]
+    engine_aero_jac(sys.wings[idx].aero.engine, ix, iy)
 @register_symbolic get_aero_jac(
     sys::SystemStructure, idx::Int64,
     ix::Int, iy::Int)
 get_twist(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].twist
+    sys.twist_surfaces[idx].twist
 @register_symbolic get_twist(
     sys::SystemStructure, idx::Int64)
-get_group_damping(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].damping
-@register_symbolic get_group_damping(
+get_twist_surface_damping(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].damping
+@register_symbolic get_twist_surface_damping(
     sys::SystemStructure, idx::Int64)
 get_twist_ω(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].twist_ω
+    sys.twist_surfaces[idx].twist_ω
 @register_symbolic get_twist_ω(
     sys::SystemStructure, idx::Int64)
-get_group_y_airf(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].y_airf
-@register_array_symbolic get_group_y_airf(
+get_twist_surface_y_airf(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].y_airf
+@register_array_symbolic get_twist_surface_y_airf(
     sys::SystemStructure, idx::Int64) begin
     size = (3,)
     eltype = SimFloat
 end
-get_group_chord(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].chord
-@register_array_symbolic get_group_chord(
+get_twist_surface_chord(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].chord
+@register_array_symbolic get_twist_surface_chord(
     sys::SystemStructure, idx::Int64) begin
     size = (3,)
     eltype = SimFloat
 end
-get_group_le_pos(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].le_pos
-@register_array_symbolic get_group_le_pos(
+get_twist_surface_le_pos(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].le_pos
+@register_array_symbolic get_twist_surface_le_pos(
     sys::SystemStructure, idx::Int64) begin
     size = (3,)
     eltype = SimFloat
 end
 get_moment_frac(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].moment_frac
+    sys.twist_surfaces[idx].moment_frac
 @register_symbolic get_moment_frac(
     sys::SystemStructure, idx::Int64)
-function get_group_moment_override(
+function get_twist_surface_moment_override(
     sys::SystemStructure, wing_idx::Int64,
-    group_idx::Int64
+    twist_surface_idx::Int64
 )
     wing = sys.wings[wing_idx]
-    wing.aero_mode == AERO_DIRECT &&
-        return sys.groups[group_idx].aero_moment
+    provides_aero_override(wing.aero) &&
+        return sys.twist_surfaces[twist_surface_idx].aero_moment
     return 0.0
 end
-@register_symbolic get_group_moment_override(
+@register_symbolic get_twist_surface_moment_override(
     sys::SystemStructure, wing_idx::Int64,
-    group_idx::Int64)
+    twist_surface_idx::Int64)

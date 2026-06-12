@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 function make_psys_setter(sys)
-    psys_params = filter(p -> endswith(string(p), "psys"), parameters(sys))
+    is_psys(p) = Symbolics.symtype(Symbolics.unwrap(p)) <: SystemStructure
+    psys_params = filter(is_psys, parameters(sys))
     setter = setp(sys, psys_params)
     n = length(psys_params)
     return (prob, sys_struct) -> setter(prob, ntuple(_ -> sys_struct, n))
@@ -25,8 +26,8 @@ of the compiled `ODESystem` (`sys`).
 """
 function generate_prob_getters(sys_struct, sys)
     collect_each = collect
-    (; wings, groups, pulleys, winches, tethers, segments) = sys_struct
-    get_wing_state, get_aero_input, get_segment_state, get_group_state, get_pulley_state,
+    (; wings, twist_surfaces, pulleys, winches, tethers, segments) = sys_struct
+    get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state, get_pulley_state,
     get_winch_state, get_tether_state, set_set_values, get_set_values = ntuple(_ -> nothing, 9)
 
     if length(wings) > 0
@@ -50,24 +51,19 @@ function generate_prob_getters(sys_struct, sys)
         ])
         get_wing_state = getu(sys, wing_vars)
 
-        # aero_input only exists for RIGID_DYNAMICS + AERO_LINEARIZED wings
-        has_linearized = any(
-            wing.dynamics_type === RIGID_DYNAMICS &&
-            wing.aero_mode === AERO_LINEARIZED
-            for wing in sys_struct.wings)
-        if has_linearized
-            aero_inputs = [
-                getproperty(sys, Symbol("aero_$(wing.idx)")).aero_input
-                for wing in sys_struct.wings
-                if wing.dynamics_type === RIGID_DYNAMICS &&
-                   wing.aero_mode === AERO_LINEARIZED]
-            get_aero_input = getu(sys, collect_each.(aero_inputs))
-        else
-            get_aero_input = nothing
-        end
+        # aero_input only exists for wings whose component exposes the
+        # connector (e.g. AeroLinearized); detected on the built subsystem,
+        # so a custom mode opts in by exposing it — no trait needed.
+        aero_inputs = [
+            getproperty(sys, Symbol("aero_$(wing.idx)")).aero_input
+            for wing in sys_struct.wings
+            if wing.dynamics_type === RIGID_DYNAMICS && hasproperty(
+                getproperty(sys, Symbol("aero_$(wing.idx)")), :aero_input)]
+        get_aero_input = isempty(aero_inputs) ? nothing :
+            getu(sys, collect_each.(aero_inputs))
     end
     if length(segments) > 0; get_segment_state = getu(sys, collect_each.([sys.spring_force, sys.len, sys.l0])); end
-    if length(groups) > 0; get_group_state = getu(sys, collect_each.([sys.twist_angle, sys.twist_ω, sys.group_tether_force, sys.group_tether_moment, sys.group_aero_moment])); end
+    if length(twist_surfaces) > 0; get_twist_surface_state = getu(sys, collect_each.([sys.twist_angle, sys.twist_ω, sys.twist_surface_tether_force, sys.twist_surface_tether_moment, sys.twist_surface_aero_moment])); end
     if length(pulleys) > 0; get_pulley_state = getu(sys, collect_each.([sys.pulley_len, sys.pulley_vel])); end
     if length(winches) > 0
         get_winch_state = getu(sys, collect_each.([
@@ -87,7 +83,7 @@ function generate_prob_getters(sys_struct, sys)
     # point_state always returns, in order: pos, vel, point_force, va_point_b, point_mass, total_drag
     get_point_state = getu(sys, collect_each.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
 
-    return (; get_wing_state, get_aero_input, get_segment_state, get_group_state,
+    return (; get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
             get_set_values, set_sys, get_point_state)
 end
@@ -301,14 +297,14 @@ end
 """
     has_custom_component(sys_struct)
 
-Return `true` when the system has a non-default winch model or a wing using
-`AERO_CUSTOM`, in which case the compiled model cannot be reused from cache and
-must be rebuilt.
+Return `true` when the system has a non-default winch model or a wing using a
+custom aero model, in which case the compiled model cannot be reused from cache
+and must be rebuilt.
 """
 function has_custom_component(sys_struct)
     any(winch.model !== default_winch_component
         for winch in sys_struct.winches) && return true
-    any(wing.aero_mode == AERO_CUSTOM
+    any(!is_builtin_aero(wing.aero)
         for wing in sys_struct.wings) && return true
     return false
 end
@@ -491,7 +487,7 @@ function reinit!(
     sam.integrator = integrator
     OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     update_sys_struct!(prob, integrator, sam.sys_struct)
-    lin_vsm && update_vsm!(sam, prob; vsm_min_wind)
+    lin_vsm && refresh_aero!(sam, prob; vsm_min_wind)
     validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues
     return integrator, true
 end
@@ -535,7 +531,7 @@ This is used to check if a cached compiled model is still valid.
 Includes all structural properties that affect the symbolic equations:
 - Point connectivity and types (STATIC, DYNAMIC, QUASI_STATIC, WING)
 - Segment connectivity
-- Group structure and types (FIXED, TWIST)
+- TwistSurface structure and types (FIXED, TWIST)
 - Pulley constraints and types
 - Tether topology
 - Winch configuration
@@ -545,7 +541,7 @@ Includes all structural properties that affect the symbolic equations:
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
-    (; points, groups, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
+    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
     data_parts = []
     for point in points
         push!(data_parts, ("point", point.idx, point.wing_idx, Int(point.type)))
@@ -553,8 +549,8 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     for segment in segments
         push!(data_parts, ("segment", segment.idx, segment.point_idxs))
     end
-    for group in groups
-        push!(data_parts, ("group", group.idx, group.point_idxs, Int(group.type)))
+    for twist_surface in twist_surfaces
+        push!(data_parts, ("twist_surface", twist_surface.idx, twist_surface.point_idxs, Int(twist_surface.type)))
     end
     for pulley in pulleys
         push!(data_parts, ("pulley", pulley.idx, pulley.segment_idxs, Int(pulley.type)))
@@ -566,32 +562,21 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("winch", winch.idx, winch.tether_idxs))
     end
     for wing in wings
-        wing_data = ("wing", wing.idx, wing.group_idxs,
+        wing_data = ("wing", wing.idx, wing.twist_surface_idxs,
                      Int(wing.dynamics_type),
-                     Int(wing.aero_mode),
-                     nameof(wing.aero_model))
+                     nameof(typeof(wing.aero)),
+                     aero_hash_id(wing.aero))
 
         # Include wing reference points in hash
-        if wing isa VSMWing || wing isa PlateWing
-            _ref_hash(ref) = (ref.ids, ref.weights)
-            _rp_hash(ref_points) = isnothing(ref_points) ? nothing :
-                (_ref_hash(ref_points[1]), _ref_hash(ref_points[2]))
-            _origin_hash(origin) = isnothing(origin) ? nothing :
-                _ref_hash(origin)
-            wing_data = (wing_data...,
-                _rp_hash(wing.z_ref_points),
-                _rp_hash(wing.y_ref_points),
-                _origin_hash(wing.origin))
-        end
-        if wing isa PlateWing
-            # Include surface geometry in hash
-            for surf in wing.surfaces
-                wing_data = (wing_data...,
-                    surf.point_idx, surf.area,
-                    surf.x_airf, surf.y_airf)
-            end
-        end
-
+        ref_hash(ref) = (ref.ids, ref.weights)
+        rp_hash(ref_points) = isnothing(ref_points) ? nothing :
+            (ref_hash(ref_points[1]), ref_hash(ref_points[2]))
+        origin_hash(origin) = isnothing(origin) ? nothing :
+            ref_hash(origin)
+        wing_data = (wing_data...,
+            rp_hash(wing.z_ref_points),
+            rp_hash(wing.y_ref_points),
+            origin_hash(wing.origin))
         push!(data_parts, wing_data)
     end
     for transform in transforms
