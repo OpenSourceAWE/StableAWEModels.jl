@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased (v0.12.0)
+## v0.12.0 12-06-2026
 
 ### Added
 - Winch interface (#210): each `Winch` carries a `model` builder
