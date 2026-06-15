@@ -952,7 +952,7 @@ function SystemStructure(name, set;
         NamedCollection{eltype(wings)}(wings, wing_names_dict),
         NamedCollection{Transform}(transforms, transform_names_dict),
         AtmosphericModel(set), false, false, vsm_set)
-    reinit!(sys_struct, set)
+    reinit!(sys_struct, set; prn)
 
     # Recalculate segment rest lengths from current positions if requested
     if ignore_l0
