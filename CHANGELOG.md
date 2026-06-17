@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- New aero mode `ContinuousAero` (`PARTICLE_DYNAMICS`, YAML
+  `aero_mode: continuous`): frozen-circulation VSM with the full force
+  assembly in the symbolic RHS. The low-frequency refresh runs only the
+  circulation solve (`solve_base!`) and freezes each refined panel's induced
+  velocity (`AIC·γ`); every RHS step re-derives panel geometry from the live
+  strut points (frozen mesh-interpolation weights), effective angle of
+  attack, polar coefficients (registered `Dual`-safe lookups on the panel
+  polars), lift/drag directions, and forces. Forces therefore respond to
+  wing motion between VSM updates — aerodynamic damping through the changing
+  angle of attack — unlike `AeroDirect`'s piecewise-constant forces. All
+  per-panel quantities (`alpha`, `cl`, `q_dyn`, `panel_force`, …) are
+  observable component variables. The mesh weights enter the model-cache
+  hash via `aero_hash_id`.
+- Per-segment material `density` [kg/m³]: each `Segment` and `Tether` carries
+  its own `density` (from the YAML `materials` table), replacing the single
+  global `set.rho_tether` in mass calculations. Falls back to `set.rho_tether`
+  when unset.
+
 ## v0.12.0 12-06-2026
 
 ### Added

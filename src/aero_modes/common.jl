@@ -257,6 +257,20 @@ end
 # is free.
 
 """
+    sync_aero_density!(wing, am)
+
+Set the wing's VSM solver air density to `calc_rho(am, wing.pos_w[3])`, the same
+altitude-dependent density the symbolic RHS uses to dimensionalize aero forces
+(see `aero_eqs.jl`). Keeps the VSM solve and the model consistent on dynamic
+pressure. No-op for non-VSM aero modes.
+"""
+function sync_aero_density!(wing, am)
+    wing.aero isa AbstractVSMAero || return nothing
+    wing.vsm_solver.density = calc_rho(am, wing.pos_w[3])
+    return nothing
+end
+
+"""
     refresh_aero!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
                   integ=sam.integrator; vsm_min_wind=0.5)
 
@@ -280,6 +294,10 @@ function refresh_aero!(sam::SymbolicAWEModel,
     points = sam.sys_struct.points
 
     length(wings) == 0 && return nothing
+
+    for wing in wings
+        sync_aero_density!(wing, sam.am)
+    end
 
     for wing in wings
         wing.dynamics_type == RIGID_DYNAMICS || continue
@@ -652,6 +670,49 @@ function safe_vsm_solve!(solver, body_aero,
         return false
     end
     return true
+end
+
+"""
+    set_particle_panel_va!(wing, va_point_b_vals)
+
+Set the per-panel apparent wind on the wing's VSM `BodyAerodynamics` from the
+per-point body-frame apparent wind: each section's `va` is the mean of its
+LE/TE point values, refined panels take their parent section's value. Falls
+back to the wing-level `va_b` when the structural↔panel mapping is missing.
+"""
+function set_particle_panel_va!(wing, va_point_b_vals)
+    if isnothing(wing.point_to_vsm_point)
+        set_va!(wing.vsm_aero, wing.va_b)
+        return nothing
+    end
+    n_sections = length(wing.vsm_wing.unrefined_sections)
+    section_va = Vector{Vector{Float64}}(undef, n_sections)
+
+    vsm_point_to_struct = Dict{Tuple{Int64, Symbol}, Int64}()
+    for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
+        vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
+    end
+
+    for section_idx in 1:n_sections
+        le_pi = get(vsm_point_to_struct, (Int64(section_idx), :LE), nothing)
+        te_pi = get(vsm_point_to_struct, (Int64(section_idx), :TE), nothing)
+        if !isnothing(le_pi) && !isnothing(te_pi)
+            va_le = va_point_b_vals[:, le_pi]
+            va_te = va_point_b_vals[:, te_pi]
+            section_va[section_idx] = 0.5 * (va_le + va_te)
+        else
+            section_va[section_idx] = wing.va_b
+        end
+    end
+
+    n_panels = length(wing.vsm_aero.panels)
+    va_dist = zeros(n_panels, 3)
+    mapping = wing.vsm_wing.refined_panel_mapping
+    for rpi in 1:n_panels
+        va_dist[rpi, :] .= section_va[mapping[rpi]]
+    end
+    set_va!(wing.vsm_aero, va_dist)
+    return nothing
 end
 
 """

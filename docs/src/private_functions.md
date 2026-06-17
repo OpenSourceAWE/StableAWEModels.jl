@@ -62,6 +62,7 @@ SymbolicAWEModels.aero_eqs!
 SymbolicAWEModels.point_eqs!
 SymbolicAWEModels.segment_eqs!
 SymbolicAWEModels.refresh_aero!
+SymbolicAWEModels.sync_aero_density!
 SymbolicAWEModels.jacobian
 SymbolicAWEModels.load_serialized_model!
 SymbolicAWEModels.maybe_create_lin_prob!
@@ -231,6 +232,17 @@ SymbolicAWEModels.vsm_aero_coeffs
 SymbolicAWEModels.vsm_solve_objects
 SymbolicAWEModels.safe_vsm_solve!
 SymbolicAWEModels.finite_full
+SymbolicAWEModels.set_particle_panel_va!
+SymbolicAWEModels.build_mesh_maps!
+SymbolicAWEModels.store_billow_offsets!
+SymbolicAWEModels.store_induced_velocity!
+SymbolicAWEModels.continuous_panel
+SymbolicAWEModels.induced_velocity_component
+SymbolicAWEModels.reconstruct_sections_b
+SymbolicAWEModels.get_continuous_v_ind
+SymbolicAWEModels.get_continuous_cl
+SymbolicAWEModels.get_continuous_cd
+SymbolicAWEModels.get_continuous_cm
 ```
 
 ## Heading and geometry
