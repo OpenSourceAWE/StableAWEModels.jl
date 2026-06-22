@@ -59,6 +59,7 @@ import ModelingToolkit.SciMLBase: successful_retcode, init
 
 # --- KiteUtils ---
 export update_from_sysstate!, get_data_path, set_data_path, se
+export position_slots
 export SysState, SysLog, Settings, AbstractKiteModel
 export Logger, log!, save_log, load_log
 export load_settings
@@ -68,11 +69,12 @@ export load_settings
 export SymbolicAWEModel
 # System Structure Components
 export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
+export RigidBody, ElasticJoint
 export AbstractWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
 # Enums
-export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC, FIXED
+export DynamicsType, DYNAMIC, WING, STATIC, FIXED
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
@@ -85,7 +87,6 @@ export sim!, sim_reposition!
 # --- Low-Level Simulation Functions ---
 export find_steady_state!
 export linearize!
-export update_segment_forces!
 export set_world_frame_damping
 export set_body_frame_damping
 export segment_stretch_stats
@@ -97,8 +98,8 @@ export unstretched_length
 export tether_length
 
 # --- Winch component API ---
-export default_winch_component
-export validate_winch_component
+export AbstractWinchModel, DefaultWinchModel
+export winch_component, is_builtin_winch, validate_winch_component
 
 # --- Helper Functions ---
 export init_module
@@ -179,8 +180,6 @@ function update_wing_aero_plot! end
 function find_steady_state! end
 function make_lin_sys_state end
 function create_model_archive end
-function default_winch_component end
-function validate_winch_component end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")
@@ -194,7 +193,6 @@ include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
 include("yaml_loader.jl")
-include("tether_properties.jl")
 include("linearize.jl")
 include("generate_system/generate_system.jl")
 # Aero subsystem. `common.jl` holds everything shared by all modes (the dispatch
@@ -208,6 +206,11 @@ include("aero_modes/direct.jl")
 include("aero_modes/linearized.jl")
 include("aero_modes/continuous.jl")
 include("aero_modes/plate.jl")
+# Winch motor dynamics. Same one-file-per-model layout as aero_modes: `common.jl`
+# holds the dispatch interface + connector validation, `default.jl` the
+# torque-controlled model. Loaded after generate_system for the MTK/flat-params it uses.
+include("winch_models/common.jl")
+include("winch_models/default.jl")
 include("simulate.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule

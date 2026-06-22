@@ -26,13 +26,12 @@ This file contains enums and struct definitions for:
 end
 
 """
-    DynamicsType `DYNAMIC` `QUASI_STATIC` `WING` `STATIC` `FIXED`
+    DynamicsType `DYNAMIC` `WING` `STATIC` `FIXED`
 
 Enumeration for the dynamic model governing a point's motion or a twist_surface's twist.
 
 # Elements
 - `DYNAMIC`: The point is a dynamic point mass, moving according to Newton's second law.
-- `QUASI_STATIC`: The point's acceleration is constrained to zero, representing a force equilibrium.
 - `WING`: The point is rigidly attached to a wing body and moves with it.
 - `STATIC`: The point's position is fixed in the world frame.
 - `FIXED`: TwistSurface twist is a prescribed control input (no differential state, no
@@ -40,7 +39,6 @@ Enumeration for the dynamic model governing a point's motion or a twist_surface'
 """
 @enum DynamicsType begin
     DYNAMIC
-    QUASI_STATIC
     WING
     STATIC
     FIXED
@@ -230,7 +228,7 @@ mutable struct Point
     const drag_force::KVec3
     "Apparent velocity in body frame [m/s] (VSM per-point)."
     const va_b::KVec3
-    "Dynamics type (STATIC, DYNAMIC, QUASI_STATIC, WING)."
+    "Dynamics type (STATIC, DYNAMIC, WING)."
     const type::DynamicsType
     "User-provided mass [kg]."
     extra_mass::SimFloat
@@ -253,10 +251,9 @@ end
 """
     Point(name, pos_cad, type; wing=1, transform=1, ...)
 
-Constructs a `Point` object, which can be of four different [`DynamicsType`](@ref)s:
+Constructs a `Point` object, which can be of three different [`DynamicsType`](@ref)s:
 - `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
 - `DYNAMIC`: The point moves according to Newton's second law. ``\\ddot{\\mathbf{r}} = \\mathbf{F}/m``
-- `QUASI_STATIC`: The acceleration is constrained to be zero by solving a nonlinear problem. ``\\mathbf{F}/m = \\mathbf{0}``
 - `WING`: The point has a static position in the rigid body wing frame. ``\\mathbf{r}_w = \\mathbf{r}_{wing} + \\mathbf{R}_{b\\rightarrow w} \\mathbf{r}_b``
 
 # Arguments
@@ -336,7 +333,7 @@ mutable struct TwistSurface
     chord::KVec3
     "Spanwise vector in local panel frame (from closest VSM panel)."
     y_airf::KVec3
-    "Dynamics type (DYNAMIC or QUASI_STATIC)."
+    "Dynamics type (DYNAMIC or FIXED)."
     const type::DynamicsType
     "Chordwise rotation point fraction (0=LE, 1=TE)."
     moment_frac::SimFloat
@@ -370,7 +367,7 @@ using the closest VSM panel to the twist_surface's mean point position.
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the twist_surface.
 - `points::Vector`: References to points (names or indices).
-- `type::DynamicsType`: DYNAMIC or QUASI_STATIC.
+- `type::DynamicsType`: DYNAMIC or FIXED.
 - `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
 
 # Keyword Arguments
@@ -563,7 +560,7 @@ mutable struct Pulley
     segment_idxs::Tuple{Int64, Int64}
     "Raw segment references (names or indices)."
     const segment_refs::Tuple{NameRef, NameRef}
-    "Dynamics type (DYNAMIC or QUASI_STATIC)."
+    "Dynamics type (DYNAMIC)."
     const type::DynamicsType
     "Sum of connected segment lengths [m]."
     sum_len::SimFloat
@@ -581,7 +578,7 @@ Constructs a `Pulley` object that enforces length redistribution between two seg
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the pulley.
 - `segment_i`, `segment_j`: References to the two segments (names or indices).
-- `type::DynamicsType`: Dynamics type (`DYNAMIC` or `QUASI_STATIC`).
+- `type::DynamicsType`: Dynamics type (`DYNAMIC`).
 """
 function Pulley(name, segment_i, segment_j, type)
     s1 = segment_i isa Integer ? Int(segment_i) : Symbol(segment_i)
@@ -776,6 +773,19 @@ end
 # ==================== WINCH ==================== #
 
 """
+    abstract type AbstractWinchModel
+
+Selects the winch motor dynamics. Each concrete model carries its own
+parameter fields and adds a `winch_component(model, sys_struct, idx; name,
+params)` method building the MTK subsystem (mirrors [`AbstractAeroModel`](@ref)).
+The model lives in [`Winch`](@ref)`.model`; common drum parameters
+(`gear_ratio`, `drum_radius`, `f_coulomb`, `c_vf`, `inertia_total`) stay on
+the `Winch` struct. New models = new struct + a few methods; see
+[`DefaultWinchModel`](@ref).
+"""
+abstract type AbstractWinchModel end
+
+"""
     mutable struct Winch
 
 A set of tethers (or a single tether) connected to a winch mechanism.
@@ -828,12 +838,9 @@ mutable struct Winch
     inertia_total::SimFloat
     "Current friction force [N] (updated during simulation)."
     friction::SimFloat
-    "Smoothing width for Coulomb friction sign function."
-    friction_epsilon::SimFloat
-    """Builder function for the winch component.
-    Called as `model(system, winch_idx; name) -> ODESystem`.
-    Defaults to [`default_winch_component`](@ref)."""
-    model::Function
+    """Winch motor dynamics model carrying its own parameters.
+    Defaults to [`DefaultWinchModel`](@ref). See [`AbstractWinchModel`](@ref)."""
+    model::AbstractWinchModel
 end
 
 """
@@ -857,17 +864,17 @@ torque or speed regulation.
 - `speed_controlled::Bool=false`: If true, prescribe reel-out
   velocity via `winch.vel` instead of integrating motor dynamics;
   winch acceleration is forced to 0, ignoring `model`.
-- `friction_epsilon::SimFloat=6.0`: Smoothing parameter for
-  Coulomb friction sign function.
-- `model::Function=default_winch_component`: Builder returning
-  the MTK component that defines the motor dynamics. See
-  [`default_winch_component`](@ref) for the connector contract.
+- `friction_epsilon::SimFloat=6.0`: Coulomb-friction smoothing width;
+  forwarded into the default [`DefaultWinchModel`](@ref) (ignored when an
+  explicit non-default `model` is passed).
+- `model::AbstractWinchModel=DefaultWinchModel()`: Winch motor dynamics
+  model. See [`AbstractWinchModel`](@ref) for plugging in your own.
 """
 function Winch(name, set::Settings, tethers;
                winch_point,
                init_vel=0.0, brake=0.0, speed_controlled=false,
                friction_epsilon=6.0,
-               model::Function=default_winch_component)
+               model::AbstractWinchModel=DefaultWinchModel(; friction_epsilon))
     tether_refs = Vector{NameRef}(
         [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     wp = winch_point isa Integer ? Int(winch_point) :
@@ -879,7 +886,7 @@ function Winch(name, set::Settings, tethers;
                  set.gear_ratio, set.drum_radius,
                  set.f_coulomb, set.c_vf,
                  set.inertia_total, zero(SimFloat),
-                 friction_epsilon, model)
+                 model)
 end
 
 """
@@ -903,7 +910,7 @@ function Winch(name, tethers, gear_ratio, drum_radius,
                winch_point,
                init_vel=0.0, brake=0.0, speed_controlled=false,
                friction_epsilon=6.0,
-               model::Function=default_winch_component)
+               model::AbstractWinchModel=DefaultWinchModel(; friction_epsilon))
     tether_refs = Vector{NameRef}(
         [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     wp = winch_point isa Integer ? Int(winch_point) :
@@ -914,7 +921,7 @@ function Winch(name, tethers, gear_ratio, drum_radius,
                  SimFloat(brake), speed_controlled, zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb,
                  c_vf, inertia_total, zero(SimFloat),
-                 friction_epsilon, model)
+                 model)
 end
 
 # ==================== TRANSFORM ==================== #

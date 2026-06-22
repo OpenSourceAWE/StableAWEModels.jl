@@ -13,26 +13,26 @@
 # `va`/`rho` inputs the wiring drives for every particle wing.
 
 """
-    aero_eqs!(s, eqs, guesses, psys; kwargs...)
-        -> (eqs, guesses, aero_subsystems)
+    aero_eqs!(s, eqs; kwargs...)
+        -> (eqs, aero_subsystems)
 
 Instantiate and wire each wing's aero component. Returns the list of
 component subsystems to attach to the parent `System`.
 """
 function aero_eqs!(
-    s, eqs, guesses, psys;
+    s, eqs, params;
     aero_force_b, aero_moment_b, twist_surface_aero_moment,
     twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
     pos, vel, va_point_b, height, aero_force_point_b=nothing
 )
     (; twist_surfaces, wings, points) = s.sys_struct
     aero_subsystems = Any[]
-    length(wings) == 0 && return eqs, guesses, aero_subsystems
+    length(wings) == 0 && return eqs, aero_subsystems
 
     for wing in wings
         wing_idx = wing.idx
         subsys = aero_component(wing.aero, s.sys_struct, wing_idx;
-                                name = Symbol("aero_$(wing_idx)"))
+                                name = Symbol("aero_$(wing_idx)"), params)
         push!(aero_subsystems, subsys)
         validate_aero_component(subsys, wing)
 
@@ -98,13 +98,6 @@ function aero_eqs!(
                        subsys.twist_moment[twist_surface_pos]]
         end
 
-        if s.set.quasi_static && hasproperty(subsys, :aero_input)
-            num_aero_inputs = length(wing.aero_y)
-            guesses = [guesses
-                       [subsys.aero_input[input_idx] =>
-                            get_aero_y(psys, wing_idx, input_idx)
-                        for input_idx in 1:num_aero_inputs]]
-        end
     end
-    return eqs, guesses, aero_subsystems
+    return eqs, aero_subsystems
 end

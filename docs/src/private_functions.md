@@ -16,6 +16,8 @@ SymbolicAWEModels.SerializedModel
 SymbolicAWEModels.SimFloat
 SymbolicAWEModels.KVec3
 SymbolicAWEModels.SVec3
+SymbolicAWEModels.InplaceGetter
+SymbolicAWEModels.ScatterGroup
 SymbolicAWEModels.create_vsm_wing
 SymbolicAWEModels.build_vsm_engine
 ```
@@ -34,6 +36,8 @@ SymbolicAWEModels.get_sys_struct_hash
 ## Physics and geometry helpers
 
 ```@docs
+SymbolicAWEModels.WindFactor
+SymbolicAWEModels.WindFactorReader
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
 SymbolicAWEModels.calc_R_t_to_w
@@ -58,6 +62,11 @@ SymbolicAWEModels.calc_aoa
 SymbolicAWEModels.create_sys!
 SymbolicAWEModels.scalar_eqs!
 SymbolicAWEModels.wing_eqs!
+SymbolicAWEModels.rigid_body_eqs!
+SymbolicAWEModels.body_eqs!
+SymbolicAWEModels.joint_eqs!
+SymbolicAWEModels.init_rigid_body!
+SymbolicAWEModels.n_orient_frames
 SymbolicAWEModels.aero_eqs!
 SymbolicAWEModels.point_eqs!
 SymbolicAWEModels.segment_eqs!
@@ -72,6 +81,12 @@ SymbolicAWEModels.has_custom_component
 SymbolicAWEModels.generate_control_funcs
 SymbolicAWEModels.generate_lin_getters
 SymbolicAWEModels.generate_prob_getters
+SymbolicAWEModels.scatter_spec
+SymbolicAWEModels.build_inplace_getter
+SymbolicAWEModels.build_grouped_views
+SymbolicAWEModels.copy_vec!
+SymbolicAWEModels.scatter_component
+SymbolicAWEModels.scatter_groups
 SymbolicAWEModels.LinProbWithAttributes
 SymbolicAWEModels.ProbWithAttributes
 SymbolicAWEModels.ControlFuncWithAttributes
@@ -84,9 +99,6 @@ SymbolicAWEModels.get_model_name
 SymbolicAWEModels.calc_height
 SymbolicAWEModels.pos
 SymbolicAWEModels.spring_forces
-SymbolicAWEModels.calc_spring_props
-SymbolicAWEModels.in_percent_band
-SymbolicAWEModels.step
 SymbolicAWEModels.create_model_archive
 SymbolicAWEModels.filecmp
 SymbolicAWEModels.extract_model_archive
@@ -196,6 +208,7 @@ SymbolicAWEModels.vsm_engine
 SymbolicAWEModels.has_vsm_engine
 SymbolicAWEModels.require_vsm_engine
 SymbolicAWEModels.couples_to_sections
+SymbolicAWEModels.has_vsm_wing
 SymbolicAWEModels.provides_aero_override
 SymbolicAWEModels.stores_point_force
 SymbolicAWEModels.aero_mode_tag
@@ -204,6 +217,7 @@ SymbolicAWEModels.validate_aero_component
 SymbolicAWEModels.validate_aero_structure
 SymbolicAWEModels.remake_aero!
 SymbolicAWEModels.setup_aero!
+SymbolicAWEModels.attach_engine!
 SymbolicAWEModels.resize_aero_state!
 SymbolicAWEModels.init_aero_state!
 SymbolicAWEModels.normalized_inertia
@@ -236,13 +250,8 @@ SymbolicAWEModels.set_particle_panel_va!
 SymbolicAWEModels.build_mesh_maps!
 SymbolicAWEModels.store_billow_offsets!
 SymbolicAWEModels.store_induced_velocity!
-SymbolicAWEModels.continuous_panel
-SymbolicAWEModels.induced_velocity_component
 SymbolicAWEModels.reconstruct_sections_b
-SymbolicAWEModels.get_continuous_v_ind
-SymbolicAWEModels.get_continuous_cl
-SymbolicAWEModels.get_continuous_cd
-SymbolicAWEModels.get_continuous_cm
+SymbolicAWEModels.ContinuousPolar
 ```
 
 ## Heading and geometry
@@ -262,12 +271,48 @@ SymbolicAWEModels.apply_heading!
 SymbolicAWEModels.finalize_transforms!
 ```
 
+## Flat parameters
+
+```@docs
+SymbolicAWEModels.read_path
+SymbolicAWEModels.PathReader
+SymbolicAWEModels.ParamEntry
+SymbolicAWEModels.ParamRegistry
+SymbolicAWEModels.make_param
+SymbolicAWEModels.make_array_param
+SymbolicAWEModels.make_callable_param
+SymbolicAWEModels.leaf_param!
+SymbolicAWEModels.param_computed!
+SymbolicAWEModels.param_descend
+SymbolicAWEModels.ParamView
+SymbolicAWEModels.PathView
+SymbolicAWEModels.ParamGroup
+SymbolicAWEModels.ParamSync
+SymbolicAWEModels.survivor_index
+SymbolicAWEModels.build_param_sync
+SymbolicAWEModels.sync_params!
+SymbolicAWEModels.joint_stiffness_term
+```
+
+## Initial conditions
+
+```@docs
+SymbolicAWEModels.InitialEntry
+SymbolicAWEModels.InitialRegistry
+SymbolicAWEModels.InitialView
+SymbolicAWEModels.InitialPath
+SymbolicAWEModels.bind_initial!
+SymbolicAWEModels.ElementReader
+SymbolicAWEModels.InitialSync
+SymbolicAWEModels.build_initial_sync
+SymbolicAWEModels.sync_initial!
+```
+
 ## Other internals
 
 ```@docs
 SymbolicAWEModels.init_principal_frame!
 SymbolicAWEModels.init_body_frame_from_ref_points!
-SymbolicAWEModels.update_segment_forces!
 SymbolicAWEModels.get_rot_pos_cad
 KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```

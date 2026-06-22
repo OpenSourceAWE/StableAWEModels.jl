@@ -29,6 +29,7 @@ const PLOT_SEGMENT_COLOR = Ref{Symbol}(:black)
 const PLOT_ZOOMED_IN = Ref{Bool}(false)
 const PLOT_ZOOM_RELMARGIN = Ref{Float64}(0.2)
 const PLOT_ZOOM_SEGMENT_IDX = Ref{Int}(-1)  # Which segment we're zoomed into (-1 = none)
+const PLOT_ZOOM_BODY_IDX = Ref{Int}(-1)     # Which rigid body we're zoomed into (-1 = none)
 const PLOT_BODY_FRAME = Ref{Bool}(false)  # Whether body frame tracking is active
 const PLOT_CAMERA_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)  # Stored camera distance
 const PLOT_PREV_BODY_FRAME = Ref{Bool}(false)  # Previous body frame state
@@ -48,9 +49,7 @@ slot appended after the structural points and panel corners in the
 mean of the wing's `WING`-type structural points (or all points).
 """
 function wing_log_pos(sl, sys, wing, k)
-    n_points = length(sys.points)
-    n_corners = SymbolicAWEModels.count_aero_log_points(sys.wings)
-    i = n_points + n_corners + wing.idx
+    i = SymbolicAWEModels.position_slots(sys).wings[wing.idx]
     if i <= length(sl.X[k])
         return SVector{3, Float64}(
             sl.X[k][i], sl.Y[k][i], sl.Z[k][i])
@@ -164,6 +163,100 @@ aero pose.
 aero_plot_translation(wing) =
     wing.pos_w .- wing.R_b_to_w * [0.0, 0.0, wing.aero_z_offset]
 
+"""
+    body_frame_arrows(frames, scale)
+
+Build flat `(origins, directions)` arrays of RGB body-frame axes (x→red,
+y→green, z→blue) for a list of `(position, rotation_matrix)` frames, each axis
+scaled by `scale`. Shared by the wing and rigid-body renderers.
+"""
+function body_frame_arrows(frames, scale)
+    origins = Point3f[]
+    directions = Vec3f[]
+    for (position, R) in frames
+        origin_pos = Point3f(position)
+        for i in 1:3
+            push!(origins, origin_pos)
+            push!(directions, Vec3f(R[:, i]) * scale)
+        end
+    end
+    return origins, directions
+end
+
+"""World-frame `(position, R_b_to_w)` per wing, orientation from the quaternion."""
+wing_frames(sys) = [(wing.pos_w,
+    SymbolicAWEModels.quaternion_to_rotation_matrix(wing.Q_b_to_w))
+    for wing in sys.wings]
+
+"""World-frame `(position, R_b_to_w)` per rigid body, orientation from the quaternion."""
+rigid_body_frames(sys) = [(body.pos_w,
+    SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w))
+    for body in sys.rigid_bodies]
+
+"""
+    body_joint_spokes(sys) -> Vector{Point3f}
+
+Flat list of segment endpoints (consecutive pairs, for `linesegments!`): for each
+elastic joint, a rigid spoke from each connected body's origin to its anchor on
+that joint. This shows a body's rigid extent and the actual joint connectivity,
+rather than assuming a rod shape or a fixed body order. (Point→body spokes would
+slot in here the same way once points can attach to rigid bodies.)
+"""
+function body_joint_spokes(sys)
+    points = Point3f[]
+    for joint in sys.elastic_joints
+        body_a = sys.rigid_bodies[joint.body_a_idx]
+        body_b = sys.rigid_bodies[joint.body_b_idx]
+        R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
+        R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
+        push!(points, Point3f(body_a.pos_w),
+              Point3f(body_a.pos_w .+ R_a * joint.anchor_a_b))
+        push!(points, Point3f(body_b.pos_w),
+              Point3f(body_b.pos_w .+ R_b * joint.anchor_b_b))
+    end
+    return points
+end
+
+"""
+    spoke_body_indices(sys) -> Vector{Int}
+
+Body index owning each spoke, in the same order as `body_joint_spokes` emits them
+(per joint: body_a's spoke then body_b's). Used to highlight a hovered body's
+spokes.
+"""
+function spoke_body_indices(sys)
+    idxs = Int[]
+    for joint in sys.elastic_joints
+        push!(idxs, joint.body_a_idx, joint.body_b_idx)
+    end
+    return idxs
+end
+
+"""
+    plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs)
+
+Plot RGB body-frame axes for `n` entities, reading frames via `frames_of(sys)`.
+Static when `geometry_obs === nothing`, otherwise observable-driven from
+`PLOT_SYSTEM_STRUCTURE[]`. No-op when `n == 0`.
+"""
+function plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs;
+                          facets=8)
+    n == 0 && return nothing
+    axis_colors = repeat([:red, :green, :blue], n)
+    if isnothing(geometry_obs)
+        origins, directions = body_frame_arrows(frames_of(sys), scale)
+        plots[key] = arrows3d!(ax, origins, directions; color=axis_colors, quality=facets)
+    else
+        origins_dirs = @lift begin
+            $geometry_obs  # Trigger dependency
+            body_frame_arrows(frames_of(PLOT_SYSTEM_STRUCTURE[]), PLOT_VECTOR_SCALE[])
+        end
+        plots[key] = arrows3d!(ax, @lift($origins_dirs[1]),
+            @lift($origins_dirs[2]); color=axis_colors, quality=facets)
+    end
+    return nothing
+end
+
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
@@ -173,13 +266,19 @@ function Makie.plot!(ax, sys::SystemStructure;
                      extra_points = nothing,
                      extra_groups = nothing,
                      mesh = nothing,
+                     # `facets` sets the orientation-arrow quality; `linewidth`
+                     # sizes the segment/rigid-body lines and `point_size` the
+                     # point-node markers.
+                     facets::Int = 8,
+                     linewidth = 2,
+                     point_size = 9,
                      # Optional observable for real-time updates
                      geometry_obs = nothing)
 
     plots = Dict{Symbol, Any}()
 
     # === Plot Segments ===
-    if show_segments
+    if show_segments && !isempty(sys.segments)
         if isnothing(geometry_obs)
             # Static plotting: build segment points once
             lineseg_points = Point3f[]
@@ -214,8 +313,9 @@ function Makie.plot!(ax, sys::SystemStructure;
             seg_colors = Observable(fill(to_color(segment_color), num_segments))
         end
 
-        plots[:segments] = linesegments!(ax, lineseg_points, color=seg_colors,
-                                         linewidth=2, label="Segments", transparency=true)
+        plots[:segments] = linesegments!(ax, lineseg_points; color=seg_colors,
+                                         linewidth, transparency=true,
+                                         label="Segments")
         plots[:segment_colors_obs] = seg_colors
     end
 
@@ -231,49 +331,42 @@ function Makie.plot!(ax, sys::SystemStructure;
                 [Point3f(p.pos_w) for p in PLOT_SYSTEM_STRUCTURE[].points]
             end
         end
-        plots[:points] = scatter!(ax, point_positions, color=point_color, label="Points",
+        plots[:points] = scatter!(ax, point_positions, color=point_color,
+                                  markersize=point_size, label="Points",
                                   transparency=true)
     end
 
-    # === Plot Wings ===
-    if show_orient
-        if isnothing(geometry_obs)
-            # Static plotting: create separate arrows for each wing
-            plots[:wings] = []
-            for (i, wing) in enumerate(sys.wings)
-                origin_pos = Point3f(wing.pos_w)
-                R = wing.R_b_to_w
-                scale = vector_scale
-                origins = [origin_pos, origin_pos, origin_pos]
-                directions = [Vec3f(R[:, 1]) * scale, Vec3f(R[:, 2]) * scale, Vec3f(R[:, 3]) * scale]
-
-                axis_colors = [:red, :green, :blue]
-                p = arrows3d!(ax, origins, directions, color=axis_colors, label="Wing $i Axes")
-                push!(plots[:wings], p)
-            end
-        else
-            # Dynamic plotting: compute from PLOT_SYSTEM_STRUCTURE when triggered
-            wing_origins_dirs = @lift begin
-                $geometry_obs  # Trigger dependency
-                sys_ref = PLOT_SYSTEM_STRUCTURE[]
-                scale = PLOT_VECTOR_SCALE[]
-                origins = Point3f[]
-                directions = Vec3f[]
-                for wing in sys_ref.wings
-                    origin_pos = Point3f(wing.pos_w)
-                    R = wing.R_b_to_w
-                    # Add three arrow vectors for each axis (x, y, z in body frame)
-                    for i in 1:3
-                        push!(origins, origin_pos)
-                        push!(directions, Vec3f(R[:, i]) * scale)
-                    end
+    # === Plot Rigid Bodies (standalone, e.g. a beam) ===
+    if !isempty(sys.rigid_bodies)
+        # Grey spokes from each body origin to its joint anchors: show the rigid
+        # extent and the true joint connectivity (works for chains, stars, Ys).
+        if !isempty(sys.elastic_joints)
+            if isnothing(geometry_obs)
+                spoke_points = body_joint_spokes(sys)
+            else
+                spoke_points = @lift begin
+                    $geometry_obs  # Trigger dependency
+                    body_joint_spokes(PLOT_SYSTEM_STRUCTURE[])
                 end
-                (origins, directions)
             end
-            axis_colors = repeat([:red, :green, :blue], length(sys.wings))
-            plots[:wings] = arrows3d!(ax, @lift($wing_origins_dirs[1]), @lift($wing_origins_dirs[2]),
-                                     color=axis_colors)
+            spoke_colors = Observable(fill(to_color(RGBf(0.32, 0.32, 0.32)),
+                                           length(spoke_body_indices(sys))))
+            plots[:body_chain] = linesegments!(ax, spoke_points; color=spoke_colors,
+                                               linewidth, label="Rigid bodies")
+            plots[:body_chain_colors_obs] = spoke_colors
         end
+
+        # RGB body-frame axes per body, from the orientation quaternion.
+        if show_orient
+            plot_frame_axes!(ax, plots, :bodies, sys, length(sys.rigid_bodies),
+                             rigid_body_frames, vector_scale, geometry_obs; facets)
+        end
+    end
+
+    # === Plot Wings (RGB body-frame axes from the orientation quaternion) ===
+    if show_orient
+        plot_frame_axes!(ax, plots, :wings, sys, length(sys.wings),
+                         wing_frames, vector_scale, geometry_obs; facets)
     end
 
     # === Plot VSM Aerodynamics ===
@@ -396,6 +489,12 @@ function Makie.plot!(ax, sys::SystemStructure;
             xr[2] - xr[1], yr[2] - yr[1], zr[2] - zr[1],
             1.0,  # minimum to avoid zero
         )
+    elseif !isempty(sys.rigid_bodies)
+        all_x = [b.pos_w[1] for b in sys.rigid_bodies]
+        all_y = [b.pos_w[2] for b in sys.rigid_bodies]
+        all_z = [b.pos_w[3] for b in sys.rigid_bodies]
+        xr, yr, zr = extrema(all_x), extrema(all_y), extrema(all_z)
+        data_char_length = max(xr[2]-xr[1], yr[2]-yr[1], zr[2]-zr[1], 1.0)
     end
 
     axis_length = data_char_length * 0.2
@@ -1954,6 +2053,32 @@ function get_cam_eyepos(cam)
     return Vec3f(inv_view[1, 4], inv_view[2, 4], inv_view[3, 4])
 end
 
+"""
+    zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
+
+Center the camera on rigid body `body_idx`. Without `distance`, derives one from
+the body's spoke reach (joint anchors) so the body fills the view.
+"""
+function zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
+    body = sys.rigid_bodies[body_idx]
+    center = Vec3f(body.pos_w)
+    if isnothing(distance)
+        R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
+        reach = 0.0
+        for joint in sys.elastic_joints
+            joint.body_a_idx == body_idx &&
+                (reach = max(reach, norm(R * joint.anchor_a_b)))
+            joint.body_b_idx == body_idx &&
+                (reach = max(reach, norm(R * joint.anchor_b_b)))
+        end
+        distance = reach * 4.0 + 2.0
+    end
+    inv_view = inv(cam.view[])
+    cam_dir = normalize(Vec3f(inv_view[1, 3], inv_view[2, 3], inv_view[3, 3]))
+    update_cam!(scene, center + distance * cam_dir, center)
+    return distance
+end
+
 function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
     cam = scene.camera
 
@@ -1982,6 +2107,9 @@ function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
         PLOT_BODY_PREV_WING_POS[] = wing_pos
     elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
         dist = zoom_in!(scene, cam, stored_sys, PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_DISTANCE[])
+        PLOT_CAMERA_DISTANCE[] = dist
+    elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_BODY_IDX[] > 0
+        dist = zoom_in_body!(scene, cam, stored_sys, PLOT_ZOOM_BODY_IDX[], PLOT_CAMERA_DISTANCE[])
         PLOT_CAMERA_DISTANCE[] = dist
     elseif !PLOT_ZOOMED_IN[]
         if mode_changed
@@ -2014,17 +2142,21 @@ hover_ref_label(name, idx) = isnothing(name) ? string(idx) : string(name)
 
 """
     setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
-                                 segment_plots::Vector, all_plots;
+                                 segment_color_obs::Vector, all_plots;
                                  segment_colors, highlight_color=:yellow,
                                  force_color=false, relmargin=0.2)
 
 Add hover labels and click-to-zoom for segments across multiple systems.
 
+`segment_color_obs[i]` is system `i`'s per-segment color observable (the one
+driving the `linesegments!` colors); the highlight is applied by writing to it.
+Segment endpoints are read from the live `SystemStructure`, not the plot.
+
 For multi-system, labels show "sys_idx:seg_ref" and "sys_idx:pt_ref" format.
 For single system, labels show just "seg_ref" and "pt_ref".
 """
 function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
-                                      segment_plots::Vector, all_plots;
+                                      segment_color_obs::Vector, all_plots;
                                       segment_colors::Vector,
                                       highlight_color=:yellow,
                                       force_color=false,
@@ -2062,13 +2194,11 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
         mouse_pos_2d = Point2f(mp)
         margin_px = 30.0
 
-        for (sys_i, (sys, seg_plot)) in enumerate(zip(systems, segment_plots))
-            seg_points_3d = seg_plot[1][]
+        for (sys_i, sys) in enumerate(systems)
             for seg_i in eachindex(sys.segments)
-                p1_3d = seg_points_3d[2*seg_i - 1]
-                p2_3d = seg_points_3d[2*seg_i]
-                p1_2d = Makie.project(scene, p1_3d)
-                p2_2d = Makie.project(scene, p2_3d)
+                seg = sys.segments[seg_i]
+                p1_2d = Makie.project(scene, Point3f(sys.points[seg.point_idxs[1]].pos_w))
+                p2_2d = Makie.project(scene, Point3f(sys.points[seg.point_idxs[2]].pos_w))
                 dist = point_line_segment_distance(mouse_pos_2d, p1_2d, p2_2d)
                 if dist < min_dist
                     min_dist = dist
@@ -2079,8 +2209,8 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
 
         hover = (min_dist < margin_px) ? closest : (-1, -1)
         if hover != last_hovered[]
-            # Reset all segment colors
-            for (sys_i, (sys, seg_plot)) in enumerate(zip(systems, segment_plots))
+            # Reset all segment colors (per-segment obs drives the mesh vertices)
+            for (sys_i, sys) in enumerate(systems)
                 base_color = segment_colors[sys_i]
                 if force_color
                     new_colors = calculate_segment_force_colors(sys.segments, base_color)
@@ -2090,7 +2220,7 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 if hover[1] == sys_i && hover[2] != -1
                     new_colors[hover[2]] = to_color(highlight_color)
                 end
-                seg_plot.color[] = new_colors
+                segment_color_obs[sys_i][] = new_colors
             end
 
             if hover != (-1, -1)
@@ -2177,6 +2307,7 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 zoomed_in[] = true
                 PLOT_ZOOMED_IN[] = true
                 PLOT_ZOOM_SEGMENT_IDX[] = seg_i
+                PLOT_ZOOM_BODY_IDX[] = -1
                 PLOT_PREV_ZOOMED_IN[] = true
                 PLOT_PREV_SEGMENT_IDX[] = seg_i
 
@@ -2207,6 +2338,119 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
         return Consume(false)
     end
 
+    return nothing
+end
+
+"""
+    setup_body_zoom_events!(scene, sys; relmargin=0.2,
+                            spoke_colors_obs=nothing, highlight_color=:red)
+
+Hover labels and click-to-zoom for standalone rigid bodies, picking on the grey
+joint spokes (origin→anchor segments). Hovering a body shows its name and, when
+`spoke_colors_obs` (the per-spoke color observable of `plots[:body_chain]`) is
+given, recolors that body's spokes to `highlight_color`. Clicking zooms in and
+tracks it (`PLOT_ZOOM_BODY_IDX`, followed each frame by `apply_zoom_mode!`);
+clicking empty space restores the prior view. No-op when the system has no rigid
+bodies. Mirrors `setup_segment_hover_events!`; the two don't clash because
+segment-less models (e.g. a beam) never install the segment one.
+"""
+function setup_body_zoom_events!(scene, sys; relmargin=0.2,
+                                 spoke_colors_obs=nothing, highlight_color=:red)
+    isempty(sys.rigid_bodies) && return nothing
+    last_body = Ref(-1)
+    base_spoke_color = to_color(RGBf(0.32, 0.32, 0.32))
+    spoke_owner = spoke_body_indices(sys)
+
+    body_label = Observable("")
+    body_label_pos = Observable(Point2f(0, 0))
+    body_label_visible = Observable(false)
+    text!(scene, body_label, position=body_label_pos, space=:pixel,
+          fontsize=14, color=:white, strokecolor=:black, strokewidth=1,
+          align=(:center, :center), visible=body_label_visible, transparency=true)
+
+    # Min 2D distance from the cursor to any of body `b`'s joint spokes.
+    function spoke_distance(b, mouse_2d)
+        body = sys.rigid_bodies[b]
+        R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
+        origin_2d = Makie.project(scene, Point3f(body.pos_w))
+        dist = Inf
+        for joint in sys.elastic_joints
+            anchor = if joint.body_a_idx == b
+                joint.anchor_a_b
+            elseif joint.body_b_idx == b
+                joint.anchor_b_b
+            else
+                continue
+            end
+            anchor_2d = Makie.project(scene, Point3f(body.pos_w .+ R * anchor))
+            dist = min(dist, point_line_segment_distance(mouse_2d, origin_2d, anchor_2d))
+        end
+        return dist
+    end
+
+    on(events(scene).mouseposition, priority=2) do mp
+        mouse_2d = Point2f(mp)
+        margin_px = 30.0
+        best, best_dist = -1, Inf
+        for b in eachindex(sys.rigid_bodies)
+            d = spoke_distance(b, mouse_2d)
+            d < best_dist && ((best, best_dist) = (b, d))
+        end
+        hovered = best_dist < margin_px ? best : -1
+        if hovered != last_body[]
+            if !isnothing(spoke_colors_obs)
+                spoke_colors_obs[] = [owner == hovered ? to_color(highlight_color) :
+                                      base_spoke_color for owner in spoke_owner]
+            end
+            if hovered != -1
+                body = sys.rigid_bodies[hovered]
+                body_label[] = hover_ref_label(body.name, hovered)
+                body_label_pos[] =
+                    Makie.project(scene, Point3f(body.pos_w)) + Point2f(20, 0)
+                body_label_visible[] = true
+            else
+                body_label_visible[] = false
+            end
+            last_body[] = hovered
+        end
+    end
+
+    on(scene.camera.view, priority=1) do _
+        if last_body[] != -1
+            body = sys.rigid_bodies[last_body[]]
+            body_label_pos[] =
+                Makie.project(scene, Point3f(body.pos_w)) + Point2f(20, 0)
+        end
+    end
+
+    on(events(scene).mousebutton, priority=1) do event
+        if event.button == Mouse.left && event.action == Mouse.press
+            cam = scene.camera
+            if last_body[] != -1
+                if !PLOT_ZOOMED_IN[] && !PLOT_BODY_FRAME[]
+                    cc = Makie.cameracontrols(scene)
+                    PLOT_WORLD_EYEPOS[] = Vec3f(cc.eyeposition[])
+                    PLOT_WORLD_LOOKAT[] = Vec3f(cc.lookat[])
+                end
+                dist = zoom_in_body!(scene, cam, sys, last_body[])
+                PLOT_CAMERA_DISTANCE[] = dist
+                PLOT_ZOOMED_IN[] = true
+                PLOT_PREV_ZOOMED_IN[] = true
+                PLOT_ZOOM_BODY_IDX[] = last_body[]
+                PLOT_ZOOM_SEGMENT_IDX[] = -1
+                return Consume(true)
+            elseif PLOT_ZOOMED_IN[]
+                PLOT_ZOOMED_IN[] = false
+                PLOT_ZOOM_BODY_IDX[] = -1
+                PLOT_ZOOM_SEGMENT_IDX[] = -1
+                if !isnothing(PLOT_WORLD_EYEPOS[]) && !isnothing(PLOT_WORLD_LOOKAT[])
+                    update_cam!(scene, PLOT_WORLD_EYEPOS[], PLOT_WORLD_LOOKAT[])
+                end
+                return Consume(true)
+            end
+        end
+        return Consume(false)
+    end
     return nothing
 end
 
@@ -2241,13 +2485,19 @@ function plot_with_panes(sys::SystemStructure;
             push!(relevant_plots, plots[:wings])
         end
     end
+    # Standalone rigid bodies (so the camera frames a body-only scene, e.g. a beam)
+    haskey(plots, :body_chain) && push!(relevant_plots, plots[:body_chain])
+    haskey(plots, :bodies) && push!(relevant_plots, plots[:bodies])
 
     # --- Event Handling for Segments (using extracted reusable function) ---
     if haskey(plots, :segments)
-        setup_segment_hover_events!(scene, [sys], [plots[:segments]], relevant_plots;
+        setup_segment_hover_events!(scene, [sys], [plots[:segment_colors_obs]], relevant_plots;
                                     segment_colors=[segment_color],
                                     highlight_color, force_color, relmargin)
     end
+    # Hover labels + highlight + click-to-zoom for standalone rigid bodies.
+    setup_body_zoom_events!(scene, sys; relmargin, highlight_color,
+                            spoke_colors_obs=get(plots, :body_chain_colors_obs, nothing))
 
     # Set initial camera position
     cam = scene.camera
@@ -2404,8 +2654,8 @@ function Makie.plot(syss::Vector{<:SystemStructure};
 
     PLOT_MULTI_SYSTEMS[] = syss
     all_plots = AbstractPlot[]
-    segment_plots = AbstractPlot[]  # Track segment plots for hover
-    segment_colors_list = Any[]     # Track colors for hover reset
+    segment_color_obs = Observable[]  # Per-segment color obs per system, for hover
+    segment_colors_list = Any[]       # Track base colors for hover reset
 
     if use_observables
         # Create trigger observables for each system
@@ -2417,14 +2667,14 @@ function Makie.plot(syss::Vector{<:SystemStructure};
             push!(segment_colors_list, color)
             obs = build_geometry_observables(sys, triggers[i])
 
-            # Plot with observable data (use vector color to match
-            # setup_segment_hover_events! which assigns Vector{RGBA})
-            seg_colors = fill(to_color(color), length(sys.segments))
+            # Observable per-segment colors so the hover handler can highlight
+            # (setup_segment_hover_events! writes Vector{RGBA} into this obs).
+            seg_colors = Observable(fill(to_color(color), length(sys.segments)))
             seg_plot = linesegments!(scene, obs[:segment_points];
                                      color=seg_colors, linewidth=2,
                                      transparency=true)
             push!(all_plots, seg_plot)
-            push!(segment_plots, seg_plot)
+            push!(segment_color_obs, seg_colors)
 
             pt_plot = scatter!(scene, obs[:point_positions];
                               color=color, transparency=true)
@@ -2451,15 +2701,17 @@ function Makie.plot(syss::Vector{<:SystemStructure};
                           kwargs...)
             if haskey(plots, :segments)
                 push!(all_plots, plots[:segments])
-                push!(segment_plots, plots[:segments])
             end
+            # One obs per system (aligned with `systems`); empty for segment-less.
+            push!(segment_color_obs, get(plots, :segment_colors_obs,
+                                         Observable(RGBAf[])))
             haskey(plots, :points) && push!(all_plots, plots[:points])
         end
     end
 
     # Add hover/click events for segments
-    if !isempty(segment_plots)
-        setup_segment_hover_events!(scene, syss, segment_plots, all_plots;
+    if !isempty(segment_color_obs)
+        setup_segment_hover_events!(scene, syss, segment_color_obs, all_plots;
                                     segment_colors=segment_colors_list,
                                     highlight_color, force_color, relmargin)
     end

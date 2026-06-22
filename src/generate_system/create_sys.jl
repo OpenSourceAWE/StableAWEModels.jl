@@ -25,9 +25,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
                      prn=true, tunable_params::Bool=false)
     eqs = Equation[]
     defaults = Pair{Num, Any}[]
-    guesses = Pair{Num, Any}[]
 
-    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings) = system
+    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings,
+       rigid_bodies, elastic_joints) = system
 
     validate_twist_surface_modes(twist_surfaces, wings)
 
@@ -36,17 +36,18 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         validate_aero_structure(wing.aero, wing, points; prn)
     end
 
-    SST = typeof(system)
+    # Flattened-parameter registry + build-time `params` view (see flat_params.jl).
+    param_registry = ParamRegistry(system)
+    params = ParamView(param_registry)
+
+    # Initial-condition registry + build-time `initial` view (initial_conditions.jl).
+    initial_registry = InitialRegistry(system)
+    initial = InitialView(initial_registry)
+
     if tunable_params
-        @parameters begin
-            psys::SST = system
-            fix_wing = false
-        end
+        @parameters fix_wing = false
     else
-        @parameters begin
-            (psys::SST = system), [tunable = false]
-            (fix_wing = false), [tunable = false]
-        end
+        @parameters (fix_wing = false), [tunable = false]
     end
     @variables begin
         # Control inputs
@@ -78,10 +79,33 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         # Wind and apparent velocity
         wind_vec_gnd(t)[1:3]
         va_wing_b(t)[1:3, eachindex(wings)]
+        # Standalone rigid body state/output
+        body_pos_w(t)[1:3, eachindex(rigid_bodies)]
+        body_vel_w(t)[1:3, eachindex(rigid_bodies)]
+        body_acc_w(t)[1:3, eachindex(rigid_bodies)]
+        body_ω_b(t)[1:3, eachindex(rigid_bodies)]
+        body_α_b(t)[1:3, eachindex(rigid_bodies)]
+        body_com_w(t)[1:3, eachindex(rigid_bodies)]
+        body_com_vel(t)[1:3, eachindex(rigid_bodies)]
+        body_com_acc(t)[1:3, eachindex(rigid_bodies)]
+        body_Q_p_to_w(t)[1:4, eachindex(rigid_bodies)]
+        body_Q_b_to_w(t)[1:4, eachindex(rigid_bodies)]
+        body_ω_p(t)[1:3, eachindex(rigid_bodies)]
+        body_α_p(t)[1:3, eachindex(rigid_bodies)]
+        body_moment_p(t)[1:3, eachindex(rigid_bodies)]
+        body_Q_p_vel(t)[1:4, eachindex(rigid_bodies)]
+        body_R_b_to_w(t)[1:3, 1:3, eachindex(rigid_bodies)]
+        body_R_p_to_w(t)[1:3, 1:3, eachindex(rigid_bodies)]
     end
     R_b_to_w = collect(R_b_to_w)
     R_p_to_w = collect(R_p_to_w)
     R_v_to_w = collect(R_v_to_w)
+    body_R_b_to_w = collect(body_R_b_to_w)
+    body_R_p_to_w = collect(body_R_p_to_w)
+
+    # Rigid body load accumulators (filled by joint_eqs!, read by body_eqs!).
+    body_force = zeros(Num, 3, length(rigid_bodies))
+    body_moment = zeros(Num, 3, length(rigid_bodies))
 
     # ==================== INLINED FORCE_EQS! CONTENT ==================== #
     # The following variables and component calls were previously in force_eqs!
@@ -166,8 +190,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # ==================== CALL COMPONENT FUNCTIONS ==================== #
 
     # 1. Point equations (generates point dynamics, modifies tether_wing_force/moment in-place)
-    eqs, defaults, guesses = point_eqs!(
-        s, eqs, defaults, guesses, points, segments, twist_surfaces, wings, psys;
+    eqs, defaults = point_eqs!(
+        s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
         R_b_to_w, com_w,
         wing_vel, wind_vec_gnd, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -180,29 +204,29 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     )
 
     # 2. TwistSurface equations (deformable wing sections with twist dynamics)
-    eqs, defaults, guesses = twist_surface_eqs!(
-        eqs, defaults, guesses, twist_surfaces, wings, psys;
+    eqs, defaults = twist_surface_eqs!(
+        eqs, defaults, twist_surfaces, wings, params, initial;
         R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
         point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos
     )
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
-    eqs, guesses, len, spring_force = segment_eqs!(
-        s, eqs, guesses, points, segments, pulleys, tethers, wings, psys;
+    eqs, len, spring_force = segment_eqs!(
+        s, eqs, points, segments, pulleys, tethers, wings, params;
         pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
         pulley_len, tether_len
     )
 
     # 4. Pulley equations (rope distribution)
-    eqs, defaults, guesses = pulley_eqs!(
-        eqs, defaults, guesses, pulleys, segments, psys;
+    eqs, defaults = pulley_eqs!(
+        eqs, defaults, pulleys, segments, params, initial;
         spring_force, pulley_len, pulley_vel
     )
 
     # 5. Winch equations (motor dynamics, tether reeling)
     eqs, defaults, winch_subsystems = winch_eqs!(
         eqs, defaults, winches, tethers, segments, points,
-        system, psys;
+        system, params, initial;
         spring_force_vec, set_values, tether_len,
         winch_vel, winch_acc, winch_force_vec, winch_force,
         winch_friction
@@ -215,8 +239,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # Build aerodynamic equations: each wing's aero component (including
     # flat-plate) is wired in winch-style and returned as a subsystem.
-    eqs, guesses, aero_subsystems = aero_eqs!(
-        s, eqs, guesses, psys;
+    eqs, aero_subsystems = aero_eqs!(
+        s, eqs, params;
         aero_force_b, aero_moment_b, twist_surface_aero_moment,
         twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
         pos, vel, va_point_b, height, aero_force_point_b
@@ -224,7 +248,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # Build wing rigid body dynamics equations
     eqs, defaults = wing_eqs!(
-        s, eqs, psys, defaults;
+        s, eqs, defaults, params, initial;
         tether_wing_force, tether_wing_moment,
         aero_force_b, aero_moment_b,
         ω_b, α_b, R_b_to_w, R_p_to_w,
@@ -233,9 +257,26 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         fix_wing, pos, vel, acc
     )
 
+    # Elastic joints: accumulate restoring wrenches into body_force/body_moment
+    # (must precede body_eqs!, which reads them).
+    eqs = joint_eqs!(
+        eqs, elastic_joints, params;
+        body_force, body_moment,
+        body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
+    )
+
+    # Build standalone rigid body dynamics equations
+    eqs, defaults = body_eqs!(
+        eqs, defaults, rigid_bodies, params, initial;
+        body_force, body_moment,
+        body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
+        body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,
+        body_R_b_to_w, body_R_p_to_w, body_moment_p, body_Q_p_vel,
+    )
+
     # Build scalar kinematic and apparent wind equations
     eqs = scalar_eqs!(
-        s, eqs, psys;
+        s, eqs, params;
         R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel,
         wing_acc, twist_angle, ω_b, α_b, R_v_to_w, pos
     )
@@ -271,13 +312,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     end
     prn && println("\tCreated System in $time seconds.")
 
-    defaults = [
-        defaults
-        [
-            set_values[winch.idx] => get_set_value(psys, winch.idx) for
-            winch in winches
-        ]
-    ]
+    # set_values is seeded from the struct at init and set every step; no default.
 
     # Debug: Check defaults for slice references
     for (i, d) in enumerate(defaults)
@@ -287,16 +322,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         end
     end
 
-    # Debug: Check guesses for slice references
-    for (i, g) in enumerate(guesses)
-        g_str = string(g)
-        if occursin("Colon()", g_str)
-            @warn "Guess $i contains Colon(): $g"
-        end
-    end
-
     s.defaults = defaults
-    s.guesses = guesses
     s.full_sys = sys
+    s.param_registry = param_registry
+    s.initial_registry = initial_registry
     return set_values
 end

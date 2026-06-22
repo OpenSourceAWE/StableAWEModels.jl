@@ -616,6 +616,12 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         winch.vel = winch.init_vel
     end
 
+    # Standalone rigid bodies: derive principal-frame ODE state from the
+    # body-frame initial conditions (pos_w/vel_w/Q_b_to_w/ω_b).
+    for rigid_body in sys_struct.rigid_bodies
+        init_rigid_body!(rigid_body)
+    end
+
     for twist_surface in twist_surfaces
         twist_surface.type == FIXED && continue
         twist_surface.twist = 0.0
@@ -683,12 +689,10 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Compute per-wing wind from settings
     wind_vec_gnd = set.wind_vec
 
+    wind_factor = WindFactor(sys_struct.am, sys_struct.set.profile_law)
     for wing in wings
         # Calculate wind at wing position using atmospheric model
-        wind_factor = calc_wind_factor(sys_struct.am,
-                                       wing.pos_w[1], wing.pos_w[2],
-                                       wing.pos_w[3], sys_struct)
-        wing.v_wind .= wind_factor * wind_vec_gnd
+        wing.v_wind .= wind_factor(wing.pos_w[3]) * wind_vec_gnd
 
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
         if wing.dynamics_type == PARTICLE_DYNAMICS
@@ -859,23 +863,21 @@ plot(sys)
 - The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
 """
 function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
-    (; points, twist_surfaces, tethers, winches, wings) = sys
+    (; points, twist_surfaces, tethers, winches, wings, rigid_bodies) = sys
 
-    # Total slots: structural points + panel corners + wings.
-    # Wing pos_w is appended after panel corners (see
-    # update_sys_state!).
+    # Position slot layout (points, panel corners, wing origins, body origins).
+    slots = position_slots(sys)
     n_points = length(points)
     n_panel_corners = count_aero_log_points(wings)
     n_wings = length(wings)
-    total_with_wings = n_points + n_panel_corners + n_wings
     total_without_wings = n_points + n_panel_corners
-    has_wing_slots = P == total_with_wings
+    has_wing_slots = P == slots.total
 
     if !has_wing_slots && P != total_without_wings
-        error("SystemStructure expects $total_with_wings points " *
+        error("SystemStructure expects $(slots.total) points " *
               "($n_points regular + $n_panel_corners corners + " *
-              "$n_wings wings) or $total_without_wings without " *
-              "wing slots, but SysState has $P points")
+              "$n_wings wings + $(length(rigid_bodies)) bodies) or " *
+              "$total_without_wings without wing slots, but SysState has $P points")
     end
 
     # Update point positions (X, Y, Z from SysState)
@@ -902,7 +904,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         wing.heading = Float64(sys_state.heading)
 
         if has_wing_slots
-            wing_slot = n_points + n_panel_corners + wing.idx
+            wing_slot = slots.wings[wing.idx]
             wing.pos_w[1] = sys_state.X[wing_slot]
             wing.pos_w[2] = sys_state.Y[wing_slot]
             wing.pos_w[3] = sys_state.Z[wing_slot]
@@ -928,6 +930,18 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         wing.acc_w .= 0.0
         wing.turn_rate .= sys_state.turn_rates
         wing.turn_acc .= 0.0
+    end
+
+    # Update standalone rigid bodies (origins after the wing slots;
+    # orientation frames after the wings).
+    if has_wing_slots
+        for rigid_body in rigid_bodies
+            slot = slots.bodies[rigid_body.idx]
+            rigid_body.pos_w[1] = sys_state.X[slot]
+            rigid_body.pos_w[2] = sys_state.Y[slot]
+            rigid_body.pos_w[3] = sys_state.Z[slot]
+            rigid_body.Q_b_to_w .= sys_state.orients[n_wings + rigid_body.idx]
+        end
     end
 
     # Update twist_surface twist angles
@@ -974,9 +988,8 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         sys.set.wind_vec = MVec3(sys_state.v_wind_gnd)
     end
 
-    # Calculate segment lengths and forces from current positions and velocities
-    # Note: velocities are set to zero, so damping term will be zero
-    update_segment_forces!(sys)
+    # Segment lengths/forces are not part of the SysState; they are populated
+    # by the symbolic getters from a live integrator, not reconstructed here.
 
     return nothing
 end

@@ -51,7 +51,6 @@ kite:
     struc_geometry_path: "particle_structural_geometry.yaml"
     aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
-    quasi_static: false
 tether:
     cd_tether: 0.958
     unit_damping: 0.0
@@ -168,7 +167,7 @@ system:
             sam = SymbolicAWEModel(set, sys)
             init!(sam; remake, remake_vsm=false, prn=false)
             for _ in 1:5
-                next_step!(sam; dt=1/300, vsm_interval=1)
+                next_step!(sam; dt=0.05, vsm_interval=1)
             end
             sam
         end

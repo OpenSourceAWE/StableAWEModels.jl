@@ -22,8 +22,8 @@ capturing aerodynamic damping between refreshes. Carries a
 [`VSMEngine`](@ref); the no-arg form is the engine-less marker filled in
 during wing construction.
 """
-mutable struct ContinuousAero <: AbstractVSMAero
-    engine::Union{Nothing, VSMEngine}
+mutable struct ContinuousAero{E} <: AbstractVSMAero
+    engine::Union{Nothing, E}
     "Frozen body-frame induced velocity per refined panel (3 × n_panels)."
     v_ind::Matrix{SimFloat}
     "Left strut (unrefined section) of each refined section (n_panels + 1)."
@@ -34,11 +34,24 @@ mutable struct ContinuousAero <: AbstractVSMAero
     section_le_offset::Matrix{SimFloat}
     "Frozen body-frame billow offset of each refined-section TE off the strut line (3 × n_sections)."
     section_te_offset::Matrix{SimFloat}
+    "Polar callables `(panel_idx, α)` for cl/cd/cm, set in `build_mesh_maps!`; read as callable flat params."
+    cl::Any
+    cd::Any
+    cm::Any
+    ContinuousAero{E}(engine, v_ind, section_left_strut, section_left_weight,
+        section_le_offset, section_te_offset, cl, cd, cm) where {E} =
+        new{E}(engine, v_ind, section_left_strut, section_left_weight,
+            section_le_offset, section_te_offset, cl, cd, cm)
 end
 
 ContinuousAero() =
-    ContinuousAero(nothing, zeros(SimFloat, 3, 0), Int64[], SimFloat[],
-                   zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0))
+    ContinuousAero{VSMEngine}(nothing, zeros(SimFloat, 3, 0), Int64[], SimFloat[],
+                   zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0),
+                   nothing, nothing, nothing)
+attach_engine!(mode::ContinuousAero, engine::VSMEngine) =
+    ContinuousAero{typeof(engine)}(engine, mode.v_ind, mode.section_left_strut,
+        mode.section_left_weight, mode.section_le_offset, mode.section_te_offset,
+        mode.cl, mode.cd, mode.cm)
 
 is_builtin_aero(::ContinuousAero) = true
 aero_mode_tag(::ContinuousAero) = "cont"
@@ -54,82 +67,22 @@ aero_hash_id(mode::ContinuousAero) =
      round.(mode.section_le_offset; digits=8),
      round.(mode.section_te_offset; digits=8))
 
-# ==================== registered accessors ==================== #
+# ==================== polar callable ==================== #
 """
-    induced_velocity_component(mode::ContinuousAero, panel_idx, component)
+    ContinuousPolar(body_aero, coef)
 
-Function barrier (see accessors.jl): the wing's `aero` field is abstract, so
-the buffer read is dispatched to the concrete mode and return-annotated to
-stay type-stable and allocation-free in the compiled RHS.
+Callable polar for [`ContinuousAero`](@ref), used as a callable flat parameter
+`p(panel_idx, α)`: looks up refined panel `panel_idx` and evaluates the VSM
+coefficient function `coef` (`calculate_cl`/`calculate_cd`/`calculate_cm`) at
+angle of attack `α`. The panel is typeasserted concrete so the polar dispatches
+statically with no boxing in the compiled RHS; `ForwardDiff.Dual`-safe in `α`.
 """
-induced_velocity_component(mode::ContinuousAero, panel_idx::Int,
-                           component::Int)::SimFloat =
-    mode.v_ind[component, panel_idx]
-
-"""
-    get_continuous_v_ind(sys, wing_idx, panel_idx, component)
-
-Frozen body-frame induced-velocity component [m/s] of refined panel
-`panel_idx` of wing `wing_idx`, read live from the [`ContinuousAero`](@ref)
-buffer.
-"""
-get_continuous_v_ind(sys::SystemStructure, wing_idx::Int64,
-                     panel_idx::Int, component::Int) =
-    induced_velocity_component(sys.wings[wing_idx].aero, panel_idx, component)
-@register_symbolic get_continuous_v_ind(
-    sys::SystemStructure, wing_idx::Int64, panel_idx::Int, component::Int)
-
-"""
-    continuous_panel(mode::ContinuousAero, panel_idx) -> Panel
-
-The refined VSM panel, typeasserted concrete (the wing's `aero` and the
-engine field are abstract) so the polar calls dispatch statically with an
-inferred Float64 return — a dynamic call would box the `alpha` argument and
-allocate in the compiled RHS. Only `Int`s cross the one remaining dynamic
-boundary (this function), which costs nothing.
-"""
-continuous_panel(mode::ContinuousAero, panel_idx::Int) =
-    mode.vsm_aero.panels[panel_idx]::VortexStepMethod.Panel{SimFloat}
-
-"""
-    get_continuous_cl(sys, wing_idx, panel_idx, alpha)
-
-Lift coefficient of refined panel `panel_idx` at angle of attack `alpha`
-[rad], evaluated live on the panel polar (`ForwardDiff.Dual`-safe, so the
-solver can differentiate through it).
-"""
-get_continuous_cl(sys::SystemStructure, wing_idx::Int64,
-                  panel_idx::Int, alpha) =
-    VortexStepMethod.calculate_cl(
-        continuous_panel(sys.wings[wing_idx].aero, panel_idx), alpha)
-@register_symbolic get_continuous_cl(
-    sys::SystemStructure, wing_idx::Int64, panel_idx::Int, alpha)
-
-"""
-    get_continuous_cd(sys, wing_idx, panel_idx, alpha)
-
-Drag coefficient of refined panel `panel_idx` at angle of attack `alpha` [rad]
-(live polar lookup, see [`get_continuous_cl`](@ref)).
-"""
-get_continuous_cd(sys::SystemStructure, wing_idx::Int64,
-                  panel_idx::Int, alpha) =
-    VortexStepMethod.calculate_cd(
-        continuous_panel(sys.wings[wing_idx].aero, panel_idx), alpha)
-@register_symbolic get_continuous_cd(
-    sys::SystemStructure, wing_idx::Int64, panel_idx::Int, alpha)
-
-"""
-    get_continuous_cm(sys, wing_idx, panel_idx, alpha)
-
-Pitching-moment coefficient of refined panel `panel_idx` at angle of attack
-`alpha` [rad] (live polar lookup, see [`get_continuous_cl`](@ref)).
-"""
-get_continuous_cm(sys::SystemStructure, wing_idx::Int64,
-                  panel_idx::Int, alpha) =
-    VortexStepMethod.calculate_cm(
-        continuous_panel(sys.wings[wing_idx].aero, panel_idx), alpha)
-@register_symbolic get_continuous_cm(
-    sys::SystemStructure, wing_idx::Int64, panel_idx::Int, alpha)
+struct ContinuousPolar{BA, F}
+    body_aero::BA
+    coef::F
+end
+(p::ContinuousPolar)(panel_idx, alpha) = p.coef(
+    p.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat}, alpha)
 
 # ==================== mesh maps ==================== #
 
@@ -171,6 +124,10 @@ function build_mesh_maps!(mode::ContinuousAero)
     store_billow_offsets!(mode)
     size(mode.v_ind) == (3, n_panels) ||
         (mode.v_ind = zeros(SimFloat, 3, n_panels))
+    body_aero = mode.vsm_aero
+    mode.cl = ContinuousPolar(body_aero, VortexStepMethod.calculate_cl)
+    mode.cd = ContinuousPolar(body_aero, VortexStepMethod.calculate_cd)
+    mode.cm = ContinuousPolar(body_aero, VortexStepMethod.calculate_cm)
     return nothing
 end
 
@@ -260,8 +217,11 @@ through the integrator, e.g. `aero_1.alpha`). Each panel force acts on the
 quarter-chord line (75 % LE / 25 % TE) with the pitching moment as an LE/TE
 force couple, distributed to the bounding struts by the mesh weights.
 """
-function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name)
-    psys = system_struct_param(sys_struct)
+function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name, params=nothing)
+    vind_p = params.wings[wing_idx].aero.v_ind
+    cl = params.wings[wing_idx].aero.cl   # callable flat params: `cl(panel_idx, α)`
+    cd = params.wings[wing_idx].aero.cd
+    cm = params.wings[wing_idx].aero.cm
     wing = sys_struct.wings[wing_idx]
     wing.dynamics_type == PARTICLE_DYNAMICS || error(
         "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
@@ -320,9 +280,6 @@ function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name)
         chord(t)[1:n_panels]
         width(t)[1:n_panels]
         alpha(t)[1:n_panels]
-        cl(t)[1:n_panels]
-        cd(t)[1:n_panels]
-        cm(t)[1:n_panels]
         q_dyn(t)[1:n_panels]
         dir_lift(t)[1:3, 1:n_panels]
         dir_drag(t)[1:3, 1:n_panels]
@@ -344,15 +301,14 @@ function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name)
         z_unit = z_cross ./ smooth_norm(z_cross)
 
         va_panel = 0.5 * (sec_va[i] + sec_va[i + 1])
-        v_eff_panel = va_panel + [get_continuous_v_ind(psys, wing_idx, i, c)
-                                  for c in 1:3]
+        v_eff_panel = va_panel + [vind_p[c, i] for c in 1:3]
         rho_panel = 0.5 * (sec_rho[i] + sec_rho[i + 1])
         # VSM dynamic pressure uses |v_eff × ŷ|² (spanwise component removed).
         v_eff_crossy = v_eff_panel × y_unit
 
-        lift = cl[i] * q_dyn[i] * chord[i]
-        drag = cd[i] * q_dyn[i] * chord[i]
-        panel_moment = cm[i] * q_dyn[i] * chord[i]^2
+        lift = cl(i, alpha[i]) * q_dyn[i] * chord[i]
+        drag = cd(i, alpha[i]) * q_dyn[i] * chord[i]
+        panel_moment = cm(i, alpha[i]) * q_dyn[i] * chord[i]^2
 
         dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
         lift_cross = dir_iva × y_unit
@@ -367,9 +323,6 @@ function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name)
             z_airf[:, i] ~ z_unit;
             v_eff[:, i] ~ v_eff_panel;
             alpha[i] ~ atan(v_eff_panel ⋅ z_unit, v_eff_panel ⋅ x_unit);
-            cl[i] ~ get_continuous_cl(psys, wing_idx, i, alpha[i]);
-            cd[i] ~ get_continuous_cd(psys, wing_idx, i, alpha[i]);
-            cm[i] ~ get_continuous_cm(psys, wing_idx, i, alpha[i]);
             q_dyn[i] ~ 0.5 * rho_panel * (v_eff_crossy ⋅ v_eff_crossy);
             dir_lift[:, i] ~ lift_cross ./ smooth_norm(lift_cross);
             dir_drag[:, i] ~ drag_cross ./ smooth_norm(drag_cross);
@@ -398,9 +351,9 @@ function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name)
     end
     vars = particle_unknowns(connectors)
     append!(vars, Any[x_airf, y_airf, z_airf, v_eff, chord, width, alpha,
-                      cl, cd, cm, q_dyn, dir_lift, dir_drag,
+                      q_dyn, dir_lift, dir_drag,
                       panel_force, panel_couple])
-    return System(eqs, t, vars, [psys]; name)
+    return System(eqs, t, vars, [vind_p, cl, cd, cm]; name)
 end
 
 # ==================== refresh ==================== #

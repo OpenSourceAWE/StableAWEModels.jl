@@ -4,7 +4,7 @@
 # Segment spring-damper equation generation
 
 """
-    segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, wings, psys;
+    segment_eqs!(s, eqs, points, segments, pulleys, tethers, wings, params;
                  pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
                  pulley_len, tether_len)
 
@@ -12,23 +12,23 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
-- `eqs`, `guesses`: Accumulating vectors for the MTK system.
+- `eqs`: Accumulating equation vector for the MTK system.
 - `points`, `segments`, `pulleys`, `tethers`, `wings`: System components.
-- `psys`: Symbolic parameter representing the system structure.
 - `pos`, `vel`: Symbolic point state variables.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
 - `pulley_len`, `tether_len`: Symbolic state variables for pulley and tether lengths.
 
 # Returns
-- Tuple `(eqs, guesses, len, spring_force)` with updated equation vectors
+- Tuple `(eqs, len, spring_force)` with updated equation vector
   and the segment length and spring force variables for use by other components.
 """
-function segment_eqs!(s, eqs, guesses, points, segments,
+function segment_eqs!(s, eqs, points, segments,
                       pulleys, tethers, wings,
-                      psys; pos, vel, wind_vec_gnd,
+                      params; pos, vel, wind_vec_gnd,
                       spring_force_vec, drag_force, l0,
                       pulley_len, tether_len)
+    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     @variables begin
         # Spring-damper model
         segment_vec(t)[1:3, eachindex(segments)]
@@ -51,13 +51,6 @@ function segment_eqs!(s, eqs, guesses, points, segments,
 
     for segment in segments
         p1, p2 = segment.point_idxs[1], segment.point_idxs[2]
-        guesses = [
-            guesses
-            [
-                segment_vec[i, segment.idx] =>
-                    get_pos_w(psys, p2)[i] - get_pos_w(psys, p1)[i] for i = 1:3
-            ]
-        ]
 
         # Check if both endpoints are WING points (structural segments within wings)
         # For RIGID_DYNAMICS wings: skip both spring and drag forces (rigid body)
@@ -84,7 +77,7 @@ function segment_eqs!(s, eqs, guesses, points, segments,
                 eqs = [
                     eqs
                     l0[segment.idx] ~
-                        get_sum_len(psys, pulley.idx) - pulley_len[pulley.idx]
+                        params.pulleys[pulley.idx].sum_len - pulley_len[pulley.idx]
                 ]
                 in_pulley += 1
             end
@@ -121,7 +114,7 @@ function segment_eqs!(s, eqs, guesses, points, segments,
             else
                 eqs = [eqs;
                     l0[segment.idx] ~
-                        get_l0(psys, segment.idx)]
+                        params.segments[segment.idx].l0]
             end
         end
 
@@ -147,12 +140,13 @@ function segment_eqs!(s, eqs, guesses, points, segments,
         else
             eqs = [
                 eqs
-                damping[segment.idx] ~ get_unit_damping(psys, segment.idx) / len[segment.idx]
+                damping[segment.idx] ~
+                    params.segments[segment.idx].unit_damping / len[segment.idx]
                 stiffness[segment.idx] ~ ifelse(
                     len[segment.idx] > l0[segment.idx],
-                    get_unit_stiffness(psys, segment.idx) / len[segment.idx],
-                    get_compression_frac(psys, segment.idx) *
-                    get_unit_stiffness(psys, segment.idx) / len[segment.idx],
+                    params.segments[segment.idx].unit_stiffness / len[segment.idx],
+                    params.segments[segment.idx].compression_frac *
+                    params.segments[segment.idx].unit_stiffness / len[segment.idx],
                 )
                 spring_force[segment.idx] ~ (
                     stiffness[segment.idx] * (len[segment.idx] - l0[segment.idx]) -
@@ -164,8 +158,6 @@ function segment_eqs!(s, eqs, guesses, points, segments,
         end
 
         # Aerodynamic properties for all segments
-        segment_pos_x = 0.5 * (pos[1, p1] + pos[1, p2])
-        segment_pos_y = 0.5 * (pos[2, p1] + pos[2, p2])
         segment_pos_z = 0.5 * (pos[3, p1] + pos[3, p2])
         eqs = [
             eqs
@@ -173,12 +165,11 @@ function segment_eqs!(s, eqs, guesses, points, segments,
             segment_vel[:, segment.idx] ~ 0.5 * (vel[:, p1] + vel[:, p2])
             segment_rho[segment.idx] ~ calc_rho(s.am, segment_height[segment.idx])
             wind_vel[:, segment.idx] ~
-                calc_wind_factor(s.am, segment_pos_x, segment_pos_y, segment_pos_z,
-                                 psys) * wind_vec_gnd
+                wind_factor(segment_pos_z) * wind_vec_gnd
             va[:, segment.idx] ~
                 wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
             area[segment.idx] ~
-                len[segment.idx] * get_diameter(psys, segment.idx)
+                len[segment.idx] * params.segments[segment.idx].diameter
             app_perp_vel[:, segment.idx] ~
                 va[:, segment.idx] -
                 (va[:, segment.idx] ⋅ unit_vec[:, segment.idx]) *
@@ -193,12 +184,12 @@ function segment_eqs!(s, eqs, guesses, points, segments,
                 eqs
                 drag_force[:, segment.idx] ~
                     (
-                        0.5 * segment_rho[segment.idx] * get_cd_tether(psys) *
+                        0.5 * segment_rho[segment.idx] * params.set.cd_tether *
                         smooth_norm(va[:, segment.idx]) * area[segment.idx]
                     ) * app_perp_vel[:, segment.idx]
             ]
         end
     end
 
-    return eqs, guesses, len, spring_force
+    return eqs, len, spring_force
 end

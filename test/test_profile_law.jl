@@ -6,7 +6,7 @@
 # Tests wind profile calculations at different altitudes using STATIC points as "probes".
 # Verifies that wind_at_point matches expected wind speed for each profile law.
 #
-# Profile laws (see helpers.jl calc_wind_factor):
+# Profile laws (see helpers.jl WindFactor):
 #   0 = CONST (constant wind, factor = 1.0)
 #   1 = EXP (delegated to AtmosphericModels)
 #   2 = LOG (delegated to AtmosphericModels)
@@ -79,7 +79,6 @@ kite:
     struc_geometry_path: "particle_structural_geometry.yaml"
     aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
-    quasi_static: false
 
 tether:
     cd_tether: 0.0

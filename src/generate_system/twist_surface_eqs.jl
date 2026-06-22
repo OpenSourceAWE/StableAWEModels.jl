@@ -9,7 +9,7 @@
 Check that each twist_surface's twist mode is coherent with its owning wing's dynamics
 and its point count. Errors loudly on an inconsistent combination:
 
-- `DYNAMIC`/`QUASI_STATIC` twist is an added rigid-body deformation DOF and needs
+- `DYNAMIC` twist is an added rigid-body deformation DOF and needs
   a bridle couple, so it requires a `RIGID_DYNAMICS` wing and ≥2 points.
 - A 1-point twist_surface has no bridle couple to oppose a twist moment, so its only
   coherent twist is prescribed → must be `FIXED`.
@@ -24,7 +24,7 @@ function validate_twist_surface_modes(twist_surfaces, wings)
         wing = owners[1]
         rigid = wing.dynamics_type == RIGID_DYNAMICS
         npoints = length(twist_surface.point_idxs)
-        if twist_surface.type in (DYNAMIC, QUASI_STATIC)
+        if twist_surface.type == DYNAMIC
             rigid || error(
                 "TwistSurface $(twist_surface.name): $(twist_surface.type) twist requires a " *
                 "RIGID_DYNAMICS wing (differential/algebraic twist is a rigid " *
@@ -45,17 +45,16 @@ function validate_twist_surface_modes(twist_surfaces, wings)
 end
 
 """
-    twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
+    twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, params;
                R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
                point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
 
 Generate equations for deformable wing twist_surface twist dynamics.
 
 # Arguments
-- `eqs`, `defaults`, `guesses`: Accumulating vectors for the MTK system.
+- `eqs`, `defaults`: Accumulating vectors for the MTK system.
 - `twist_surfaces`: Collection of TwistSurface objects (deformable wing sections).
 - `wings`: Collection of Wing objects.
-- `psys`: Symbolic parameter representing the system structure.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `fix_wing`: Symbolic boolean for fixing wing dynamics.
 - `twist_angle`, `twist_ω`: Symbolic twist state variables.
@@ -65,13 +64,13 @@ Generate equations for deformable wing twist_surface twist dynamics.
 - `twist_surface_y_airf`, `twist_surface_chord`, `twist_surface_le_pos`: Symbolic twist_surface geometry variables.
 
 # Returns
-- Tuple `(eqs, defaults, guesses)` with updated equation vectors.
+- Tuple `(eqs, defaults)` with updated equation vectors.
 """
-function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
+function twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, params, initial;
                     R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
                     point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
 
-    length(twist_surfaces) == 0 && return eqs, defaults, guesses
+    length(twist_surfaces) == 0 && return eqs, defaults
 
     @variables begin
         trailing_edge_angle(t)[eachindex(twist_surfaces)]
@@ -103,15 +102,15 @@ function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
         # Set twist_surface geometry from getters (allows runtime updates)
         eqs = [
             eqs
-            twist_surface_y_airf[:, twist_surface.idx] ~ get_twist_surface_y_airf(psys, twist_surface.idx)
-            twist_surface_chord[:, twist_surface.idx] ~ get_twist_surface_chord(psys, twist_surface.idx)
-            twist_surface_le_pos[:, twist_surface.idx] ~ get_twist_surface_le_pos(psys, twist_surface.idx)
+            twist_surface_y_airf[:, twist_surface.idx] ~ params.twist_surfaces[twist_surface.idx].y_airf
+            twist_surface_chord[:, twist_surface.idx] ~ params.twist_surfaces[twist_surface.idx].chord
+            twist_surface_le_pos[:, twist_surface.idx] ~ params.twist_surfaces[twist_surface.idx].le_pos
         ]
 
         if twist_surface.type == FIXED
             eqs = [
                 eqs
-                twist_angle[twist_surface.idx] ~ get_twist(psys, twist_surface.idx)
+                twist_angle[twist_surface.idx] ~ params.twist_surfaces[twist_surface.idx].twist
                 twist_ω[twist_surface.idx] ~ 0
                 twist_surface_tether_force[twist_surface.idx] ~ 0
                 twist_surface_tether_moment[twist_surface.idx] ~ 0
@@ -139,8 +138,8 @@ function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
             pf = collect(point_force[:, point_idx])
             rv = collect(r_vec[:, i, twist_surface.idx])
             pos_offset = collect(
-                get_pos_b(psys, point_idx) .-
-                (gl + get_moment_frac(psys, twist_surface.idx) * gc)
+                params.points[point_idx].pos_b .-
+                (gl + params.twist_surfaces[twist_surface.idx].moment_frac * gc)
             )
             eqs = [
                 eqs
@@ -155,7 +154,7 @@ function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
         # Inertia of a thin rectangular plate rotating around one edge
         # I = 1/3 × m × L² where m is total mass of twist_surface points
         twist_surface_chord = collect(twist_surface_chord)
-        twist_surface_mass = sum(get_extra_mass(psys, point_idx) for point_idx in twist_surface.point_idxs)
+        twist_surface_mass = sum(params.points[point_idx].extra_mass for point_idx in twist_surface.point_idxs)
         inertia = 1 / 3 * twist_surface_mass * smooth_norm(twist_surface_chord[:, twist_surface.idx])^2
         max_twist = deg2rad(90)
 
@@ -178,25 +177,20 @@ function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
                     fix_wing == true,
                     0,
                     twist_α[twist_surface.idx] -
-                    get_twist_surface_damping(psys, twist_surface.idx) * twist_ω[twist_surface.idx],
+                    params.twist_surfaces[twist_surface.idx].damping * twist_ω[twist_surface.idx],
                 )
             ]
             defaults = [
                 defaults
-                free_twist_angle[twist_surface.idx] => get_twist(psys, twist_surface.idx)
-                twist_ω[twist_surface.idx] => get_twist_ω(psys, twist_surface.idx)
-            ]
-        elseif twist_surface.type == QUASI_STATIC
-            eqs = [eqs; twist_ω[twist_surface.idx] ~ 0; twist_α[twist_surface.idx] ~ 0]
-            guesses = [
-                guesses
-                free_twist_angle[twist_surface.idx] => 0
-                twist_angle[twist_surface.idx] => 0
+                bind_initial!(initial.twist_surfaces[twist_surface.idx].twist,
+                              free_twist_angle[twist_surface.idx])
+                bind_initial!(initial.twist_surfaces[twist_surface.idx].twist_ω,
+                              twist_ω[twist_surface.idx])
             ]
         else
             error("Wrong twist_surface type.")
         end
     end
 
-    return eqs, defaults, guesses
+    return eqs, defaults
 end

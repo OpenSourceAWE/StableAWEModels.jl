@@ -5,36 +5,96 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
 const GetSetNothing = Union{AbstractIndexer, Nothing}
 
 """
+    ScatterGroup{Sel, Fns, Views}
+
+One component group of an [`InplaceGetter`](@ref). `selector(sys_struct)` returns
+the group's component vector (e.g. `sys_struct.points`); `copyfns` is a tuple of
+`(component, view) -> _` closures, one per output array, each copying that
+array's slice into the component's struct field; `views` is the matching tuple of
+zero-copy reshaped views into the getter's buffer.
+"""
+struct ScatterGroup{Sel, Fns, Views}
+    selector::Sel
+    copyfns::Fns
+    views::Views
+end
+
+"""
+    InplaceGetter{F, B, G}
+
+A single zero-allocation getter that both reads and scatters all per-step
+component state. `fn` is an in-place MTK observed function `fn(buf, u, p, t)`
+over the concatenation of every component's output arrays; `buf` is a
+preallocated flat buffer reused each call; `groups` is a tuple of
+[`ScatterGroup`](@ref)s that write the freshly-computed buffer straight into the
+`SystemStructure` fields. One spec drives both the buffer layout and the scatter.
+"""
+struct InplaceGetter{F, B, G}
+    fn::F
+    buf::B
+    groups::G
+end
+
+"Copy column `idx` of the matrix view `v` into the mutable vector `field` in place."
+@inline copy_vec!(field, v, idx) = (@views field .= v[:, idx]; nothing)
+
+"Apply each `(component, view)` copy closure for one component (tuple recursion)."
+@inline scatter_component(::Tuple{}, ::Tuple{}, component) = nothing
+@inline function scatter_component(copyfns::Tuple, views::Tuple, component)
+    first(copyfns)(component, first(views))
+    scatter_component(Base.tail(copyfns), Base.tail(views), component)
+    return nothing
+end
+
+"Scatter every group into `sys_struct` (tuple recursion over heterogeneous groups)."
+@inline scatter_groups(::Tuple{}, sys_struct) = nothing
+@inline function scatter_groups(groups::Tuple, sys_struct)
+    group = first(groups)
+    for component in group.selector(sys_struct)
+        scatter_component(group.copyfns, group.views, component)
+    end
+    scatter_groups(Base.tail(groups), sys_struct)
+    return nothing
+end
+
+"""
+    (g::InplaceGetter)(integ, sys_struct)
+
+Evaluate all component state at the integrator's current point and scatter it
+into `sys_struct` in place. Reads `integ.u`/`integ.p`/`integ.t` as direct fields;
+this method is itself the function barrier that keeps the call allocation-free.
+"""
+function (g::InplaceGetter)(integ, sys_struct)
+    g.fn(g.buf, integ.u, integ.p, integ.t)
+    scatter_groups(g.groups, sys_struct)
+    return nothing
+end
+
+"""
     @with_kw struct ProbWithAttributes{...}
 
 A container for the main Ordinary Differential Equation (ODE) problem and its
 associated getter and setter functions for the full, nonlinear physical state.
 """
-@with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues,
-                                  GetSetValues, GetWingState,
-                                  GetAeroInput, GetSegmentState,
-                                  GetWinchState, GetTetherState,
-                                  GetPointState,
-                                  GetPulleyState, GetTwistSurfaceState}
+@with_kw struct ProbWithAttributes{Prob, SetSetValues,
+                                  GetSetValues, GetAeroInput,
+                                  GetAllState, ParamSync, InitialSync}
     "The ODE problem for the full nonlinear model."
     prob::Prob
 
     # Setters for the ODE
-    "Setter for the system parameters."
-    set_sys::SetSys
+    "Syncs flattened struct-field parameters into the flat buffer once per step."
+    param_sync::ParamSync
+    "Pushes the struct's initial conditions onto the problem's `Initial` params."
+    initial_sync::InitialSync
     "Setter for the control input values."
     set_set_values::SetSetValues
 
     # Getters for the ODE state
     get_set_values::GetSetValues
-    get_wing_state::GetWingState
     get_aero_input::GetAeroInput
-    get_segment_state::GetSegmentState
-    get_winch_state::GetWinchState
-    get_tether_state::GetTetherState
-    get_point_state::GetPointState
-    get_pulley_state::GetPulleyState
-    get_twist_surface_state::GetTwistSurfaceState
+    "One monolithic zero-alloc getter for all per-step component state."
+    get_all_state::GetAllState
 end
 
 """
@@ -60,13 +120,12 @@ linearized model (A,B,C,D matrices).
 
 $(TYPEDFIELDS)
 """
-@with_kw struct LinProbWithAttributes{Prob, SetSetValues, SetSys}
+@with_kw struct LinProbWithAttributes{Prob, SetSetValues}
     "Linearization problem of the mtk model."
     prob::Prob
 
     # Setters for the linearization
     set_set_values::SetSetValues
-    set_sys::SetSys
 end
 
 """
@@ -111,13 +170,12 @@ This simplifies the structure and improves serialization robustness.
 
 $(TYPEDFIELDS)
 """
-@with_kw mutable struct SerializedModel{D<:AbstractVector, G<:AbstractVector}
+@with_kw mutable struct SerializedModel{D<:AbstractVector}
     set_hash::Vector{UInt8}
     sys_struct_hash::Vector{UInt8}
     "Unsimplified system of the mtk model"
     full_sys::Union{ModelingToolkit.System, Nothing} = nothing
     defaults::D = Pair{Num, Any}[]
-    guesses::G = Pair{Num, Any}[]
     "Symbolic representation of the control inputs."
     inputs::Union{Symbolics.Arr, Vector{Num}} = Num[]
     "Outputs of the linearization and control function."
@@ -165,6 +223,10 @@ $(TYPEDFIELDS)
     t_vsm::SimFloat  = zero(SimFloat)
     "Time spent in the ODE integration step"
     t_step::SimFloat = zero(SimFloat)
+    "Build-time flattened-parameter registry (transient, never serialized)."
+    param_registry::Any = nothing
+    "Build-time initial-condition registry (transient, never serialized)."
+    initial_registry::Any = nothing
 end
 
 """
@@ -174,7 +236,7 @@ Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to
 delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
 to dispatch field access correctly.
 """
-const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step)
+const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :param_registry, :initial_registry)
 
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
@@ -261,7 +323,8 @@ to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
-    (; points, twist_surfaces, segments, pulleys, winches, wings, tethers) = sam.sys_struct
+    (; points, twist_surfaces, segments, pulleys, winches, wings, tethers,
+       rigid_bodies) = sam.sys_struct
 
     for (ti, tether) in enumerate(tethers)
         ti > 4 && break
@@ -331,20 +394,62 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
                                             ss, corner_idx, zoom)
     end
 
-    # Wing origin positions appended after panel corners.
-    # Lets replay read wing.pos_w directly without recomputing
-    # a weighted centroid from points.
-    wing_slot = corner_idx
+    # Wing/body origins occupy dedicated slots after the panel corners (see
+    # `position_slots`); orientation frames are wings-first, then bodies. This
+    # lets replay read each pose directly without recomputing a centroid.
+    slots = position_slots(sam.sys_struct)
+    n_wings = length(wings)
     for wing in wings
-        wing_slot += 1
-        ss.X[wing_slot] = wing.pos_w[1] * zoom
-        ss.Y[wing_slot] = wing.pos_w[2] * zoom
-        ss.Z[wing_slot] = wing.pos_w[3] * zoom
+        slot = slots.wings[wing.idx]
+        ss.X[slot] = wing.pos_w[1] * zoom
+        ss.Y[slot] = wing.pos_w[2] * zoom
+        ss.Z[slot] = wing.pos_w[3] * zoom
+        ss.orients[wing.idx] .= wing.Q_b_to_w   # frame 1 == legacy `orient`
+    end
+    for rigid_body in rigid_bodies
+        slot = slots.bodies[rigid_body.idx]
+        ss.X[slot] = rigid_body.pos_w[1] * zoom
+        ss.Y[slot] = rigid_body.pos_w[2] * zoom
+        ss.Z[slot] = rigid_body.pos_w[3] * zoom
+        ss.orients[n_wings + rigid_body.idx] .= rigid_body.Q_b_to_w
     end
 
     ss.v_wind_gnd .= sam.set.wind_vec
     nothing
 end
+
+"""
+    position_slots(sys_struct) -> NamedTuple
+
+Index layout of a `SysState`'s `X/Y/Z` position arrays for this model:
+structural `points`, then VSM `panel_corners`, then `wings` origins, then
+standalone rigid `bodies` origins. Each field is the `UnitRange` of slots for
+that group (empty if none); `total` is the position count. Orientation frames
+(`orients`) are laid out wings-first, then bodies — i.e. wing `w` uses frame
+`w`, rigid body `b` uses frame `n_wings + b`.
+
+```julia
+slots = position_slots(sam.sys_struct)
+sam.sys_struct.rigid_bodies[2]  # logged at X/Y/Z slot slots.bodies[2]
+```
+"""
+function position_slots(sys_struct)
+    n_points = length(sys_struct.points)
+    n_corners = count_aero_log_points(sys_struct.wings)
+    n_wings = length(sys_struct.wings)
+    n_bodies = length(sys_struct.rigid_bodies)
+    base_wings = n_points + n_corners
+    base_bodies = base_wings + n_wings
+    return (points        = 1:n_points,
+            panel_corners = (n_points + 1):(n_points + n_corners),
+            wings         = (base_wings + 1):(base_wings + n_wings),
+            bodies        = (base_bodies + 1):(base_bodies + n_bodies),
+            total         = base_bodies + n_bodies)
+end
+
+"""Number of orientation frames (wings + rigid bodies, at least 1)."""
+n_orient_frames(sys_struct) = max(1,
+    length(sys_struct.wings) + length(sys_struct.rigid_bodies))
 
 """
     SysState(s::SymbolicAWEModel, zoom=1.0)
@@ -362,12 +467,8 @@ with the current state of the provided model.
 - `SysState`: A new state struct representing the current model state.
 """
 function SysState(s::SymbolicAWEModel, zoom=1.0)
-    # Total slots: structural points + 4 corners per panel + 1 per wing
-    n_points = length(s.sys_struct.points)
-    n_panel_corners = count_aero_log_points(s.sys_struct.wings)
-    n_wings = length(s.sys_struct.wings)
-    total_points = n_points + n_panel_corners + n_wings
-    ss = SysState{total_points}()
+    slots = position_slots(s.sys_struct)
+    ss = SysState{slots.total, n_orient_frames(s.sys_struct)}()
     update_sys_state!(ss, s, zoom)
     ss
 end
@@ -394,12 +495,8 @@ logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1
 ```
 """
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
-    # Total slots: structural points + 4 corners per panel + 1 per wing
-    n_points = length(sam.sys_struct.points)
-    n_panel_corners = count_aero_log_points(sam.sys_struct.wings)
-    n_wings = length(sam.sys_struct.wings)
-    total_points = n_points + n_panel_corners + n_wings
-    return Logger(total_points, steps)
+    slots = position_slots(sam.sys_struct)
+    return Logger(slots.total, n_orient_frames(sam.sys_struct), steps)
 end
 
 """
@@ -461,6 +558,9 @@ function next_step!(sam::SymbolicAWEModel;
     if prob isa ProbWithAttributes && !isnothing(prob.set_set_values)
         prob.set_set_values(integrator, set_values)
     end
+    if prob isa ProbWithAttributes
+        sync_params!(prob.param_sync, integrator, sam.sys_struct)
+    end
 
     sam.t_0 = integrator.t
     sam.t_step = @elapsed OrdinaryDiffEqCore.step!(integrator, dt, true)
@@ -472,8 +572,12 @@ function next_step!(sam::SymbolicAWEModel;
     sam.iter += 1
     if prob isa ProbWithAttributes
         update_sys_struct!(prob, integrator, sam.sys_struct)
-        if vsm_interval != 0 && sam.iter % vsm_interval == 0
-            sam.t_vsm = @elapsed refresh_aero!(sam, prob; vsm_min_wind)
+        if vsm_interval != 0 && sam.iter % vsm_interval == 0 &&
+                has_vsm_wing(sam.sys_struct)
+            sam.t_vsm = @elapsed begin
+                refresh_aero!(sam; vsm_min_wind)
+                sync_params!(prob.param_sync, integrator, sam.sys_struct)
+            end
         end
     end
     return nothing
@@ -491,119 +595,7 @@ synchronization step is crucial for making the simulation results accessible.
 function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,
                             sys_struct::SystemStructure)
-    (; points, twist_surfaces, segments, pulleys, winches, tethers, wings) = sys_struct
-    pos, vel, force, va_b, total_mass, drag_f =
-        prob.get_point_state(integ)
-    for point in points
-        point.pos_w .= pos[:, point.idx]
-        point.vel_w .= vel[:, point.idx]
-        point.force .= force[:, point.idx]
-        point.va_b .= va_b[:, point.idx]
-        point.total_mass = total_mass[point.idx]
-        point.drag_force .= drag_f[:, point.idx]
-    end
-    if length(pulleys) > 0
-        len, vel = prob.get_pulley_state(integ)
-        for pulley in pulleys
-            pulley.len = len[pulley.idx]
-            pulley.vel = vel[pulley.idx]
-        end
-    end
-    if length(segments) > 0
-        spring_force, len, l0_arr =
-            prob.get_segment_state(integ)
-        for segment in segments
-            segment.force = spring_force[segment.idx]
-            segment.len = len[segment.idx]
-            segment.l0 = l0_arr[segment.idx]
-        end
-    end
-    if length(twist_surfaces) > 0
-        twist, twist_ω, tether_force, tether_moment, aero_moment = prob.get_twist_surface_state(integ)
-        for twist_surface in twist_surfaces
-            twist_surface.twist = twist[twist_surface.idx]
-            twist_surface.twist_ω = twist_ω[twist_surface.idx]
-            twist_surface.tether_force = tether_force[twist_surface.idx]
-            twist_surface.tether_moment = tether_moment[twist_surface.idx]
-            twist_surface.aero_moment = aero_moment[twist_surface.idx]
-        end
-    end
-    if length(winches) > 0
-        winch_acc, winch_vel_arr, set_value,
-            winch_force_vec, friction =
-            prob.get_winch_state(integ)
-        for winch in winches
-            winch.acc = winch_acc[winch.idx]
-            winch.vel = winch_vel_arr[winch.idx]
-            winch.set_value = set_value[winch.idx]
-            winch.force .= winch_force_vec[:, winch.idx]
-            winch.friction = friction[winch.idx]
-        end
-    end
-    if length(tethers) > 0
-        tether_len, stretched_len =
-            prob.get_tether_state(integ)
-        for tether in tethers
-            tether.len = tether_len[tether.idx]
-            tether.stretched_len =
-                stretched_len[tether.idx]
-        end
-    end
-    if length(wings) > 0
-        wing_state = prob.get_wing_state(integ)
-        Q_b_to_w, ω_b, pos_w, vel_w, acc_w,
-            va_b, v_wind,
-            aero_force_b, aero_moment_b,
-            tether_moment, tether_force,
-            elevation, elevation_vel, elevation_acc,
-            azimuth, azimuth_vel, azimuth_acc,
-            heading, turn_rate, turn_acc,
-            course, aoa,
-            com_w_v, com_vel_v,
-            Q_p_to_w_v, ω_p_v = wing_state
-        for wing in wings
-            # Body frame output
-            wing.Q_b_to_w .= Q_b_to_w[:, wing.idx]
-            wing.ω_b .= ω_b[:, wing.idx]
-            wing.pos_w .= pos_w[:, wing.idx]
-            wing.vel_w .= vel_w[:, wing.idx]
-            wing.acc_w .= acc_w[:, wing.idx]
-            wing.va_b .= va_b[:, wing.idx]
-            wing.v_wind .= v_wind[:, wing.idx]
-            wing.aero_force_b .=
-                aero_force_b[:, wing.idx]
-            wing.aero_moment_b .=
-                aero_moment_b[:, wing.idx]
-            wing.tether_moment .=
-                tether_moment[:, wing.idx]
-            wing.tether_force .=
-                tether_force[:, wing.idx]
-            wing.elevation =
-                elevation[wing.idx]
-            wing.elevation_vel =
-                elevation_vel[wing.idx]
-            wing.elevation_acc =
-                elevation_acc[wing.idx]
-            wing.azimuth = azimuth[wing.idx]
-            wing.azimuth_vel =
-                azimuth_vel[wing.idx]
-            wing.azimuth_acc =
-                azimuth_acc[wing.idx]
-            wing.heading = heading[wing.idx]
-            wing.turn_rate .=
-                turn_rate[:, wing.idx]
-            wing.turn_acc .=
-                turn_acc[:, wing.idx]
-            wing.course = course[wing.idx]
-            wing.aoa = aoa[wing.idx]
-            # Principal frame state
-            wing.com_w .= com_w_v[:, wing.idx]
-            wing.com_vel .=
-                com_vel_v[:, wing.idx]
-            wing.Q_p_to_w .= Q_p_to_w_v[:, wing.idx]
-            wing.ω_p .= ω_p_v[:, wing.idx]
-        end
-    end
+    prob.get_all_state(integ, sys_struct)
     return nothing
 end
 
@@ -644,7 +636,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
         "mixed_aero_modes"
     end
 
-    dynamics_type = ifelse(set.quasi_static, "static", "dynamic")
+    dynamics_type = "dynamic"
 
     # Count components
     n_points = length(sys_struct.points)
@@ -652,8 +644,10 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     n_twist_surfaces = length(sys_struct.twist_surfaces)
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
+    n_bodies = length(sys_struct.rigid_bodies)
+    body_tag = n_bodies > 0 ? "_$(n_bodies)bdy" : ""
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch$(body_tag).bin$suffix"
 end
 
 """
