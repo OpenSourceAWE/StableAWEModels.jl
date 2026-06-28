@@ -12,7 +12,7 @@
                fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
                va_point_b, va_point_w, wind_at_point, height,
                aero_force_point_b,
-               twist_surface_y_airf, tether_wing_force, tether_wing_moment)
+               twist_surface_y_airf)
 
 Generate equations for all point types (STATIC, DYNAMIC, WING).
 
@@ -29,11 +29,11 @@ Generate equations for all point types (STATIC, DYNAMIC, WING).
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
 - `spring_sum_force`: Pre-declared accumulated spring/drag forces variable.
 - Other variables: Various point-specific symbolic variables.
-- `tether_wing_force`, `tether_wing_moment`: Mutable arrays to accumulate forces/moments.
+- `body_force`, `body_moment`: Mutable arrays to accumulate WING-point loads onto bodies.
 
 # Returns
 - Tuple `(eqs, defaults)` with updated equation vectors.
-  Note: `tether_wing_force` and `tether_wing_moment` are modified in-place.
+  Note: `body_force` and `body_moment` are modified in-place.
 """
 function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
                     R_b_to_w, com_w,
@@ -44,7 +44,8 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
                     va_point_b, va_point_w, wind_at_point, height,
                     aero_force_point_b,
-                    twist_surface_y_airf, tether_wing_force, tether_wing_moment)
+                    twist_surface_y_airf,
+                    body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w)
 
     wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     for point in points
@@ -74,13 +75,12 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
             eqs
             spring_sum_force[:, point.idx] ~ F  # Store accumulated spring/drag forces
             point_mass[point.idx] ~ mass
-            disturb_force[:, point.idx] ~ params.points[point.idx].disturb
+            disturb_force[:, point.idx] ~ params.points[point.idx].ext_force_w
             body_frame_damping[:, point.idx] ~ params.points[point.idx].body_frame_damping
             world_frame_damping[:, point.idx] ~ params.points[point.idx].world_frame_damping
         ]
 
-        # Calculate apparent velocity for ALL points (needed for PARTICLE_DYNAMICS wings and generally useful)
-        # Get the wing's R_b_to_w for transforming to body frame
+        # Apparent velocity for ALL points (PARTICLE_DYNAMICS wings need body frame).
         wing_idx_for_transform = if point.type == WING
             point.wing_idx
         elseif length(wings) > 0
@@ -133,17 +133,35 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 point_drag_force[:, point.idx] + seg_drag
         ]
 
-        if point.type == WING
-            # Find the wing for this point
-            wing = wings[point.wing_idx]
+        if point.type == BODY_STATIC
+            # Rides a Body kinematically; feeds its force and COM moment to the body.
+            body = point.body_idx
+            anchor = collect(params.points[point.idx].anchor_b)
+            anchor_w = collect(body_pos_w[:, body]) .+
+                collect(body_R_b_to_w[:, :, body]) * anchor
+            eqs = [
+                eqs
+                point_force[:, point.idx] ~
+                    spring_sum_force[:, point.idx] +
+                    Num[0, 0, -params.set.g_earth * mass] +
+                    disturb_force[:, point.idx] + point_drag_force[:, point.idx]
+                pos[:, point.idx] ~ anchor_w
+                vel[:, point.idx] ~ zeros(3)
+                acc[:, point.idx] ~ zeros(3)
+            ]
+            force_on_body = collect(point_force[:, point.idx])
+            arm = anchor_w .- collect(body_com_w[:, body])
+            body_force[:, body] .+= force_on_body
+            body_moment[:, body] .+= arm × force_on_body
+        elseif point.type == WING
+            # The wing is a body (looked up in the full bodies, incl. AeroNone wings).
+            wing = s.sys_struct.bodies[point.wing_idx]
 
             if wing.dynamics_type == PARTICLE_DYNAMICS
-                # PARTICLE_DYNAMICS wing: Points are DYNAMIC and receive lumped
-                # panel/plate forces. Similar to DYNAMIC points but
-                # with aero forces included.
-
-                # Add aerodynamic forces (calculated in aero_eqs!)
-                aero_force_w = R_b_to_w[:, :, wing.idx] * aero_force_point_b[:, point.idx]
+                # AeroNone particle wings have no per-point aero array, so zero force.
+                aero_force_w = is_wing(wing) ?
+                    R_b_to_w[:, :, wing.idx] * aero_force_point_b[:, point.idx] :
+                    zeros(Num, 3)
 
                 eqs = [
                     eqs
@@ -189,11 +207,11 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 ]
 
             elseif wing.dynamics_type == RIGID_DYNAMICS
-                # RIGID_DYNAMICS wing: rigid body constraint
+                # RIGID_DYNAMICS point feeds force to body accumulator; gravity at COM.
                 eqs = [
                     eqs
                     point_force[:, point.idx] ~
-                        spring_sum_force[:, point.idx] + Num[0, 0, -params.set.g_earth * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
+                        spring_sum_force[:, point.idx] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 ]
 
                 found = 0
@@ -212,14 +230,14 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
 
                 if found == 1
                     found = 0
-                    for wing_ in wings
+                    for wing_ in s.sys_struct.bodies
                         if twist_surface.idx in wing_.twist_surface_idxs
                             found += 1
                         end
                     end
                     !(found == 1) && error(
-                        "Kite twist_surface number $(twist_surface.idx) is part of $found wings, " *
-                        "and should be part of exactly 1 wing.",
+                        "Kite twist_surface number $(twist_surface.idx) is part of $found bodies, " *
+                        "and should be part of exactly 1 body.",
                     )
 
                     eqs = [
@@ -243,22 +261,19 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                         pos[:, point.idx] -
                         com_w[:, point.wing_idx]
                 ]
-                # In-group (twist_surface) points can be excluded from the
-                # wing moment via the wing's group_points_moment flag, while
-                # their force always contributes.
+                # group_points_moment may exclude in-group points from the wing moment.
                 point_moment = tether_r[:, point.idx] ×
                     point_force[:, point.idx]
                 if in_group
                     point_moment = ifelse.(
-                        params.wings[point.wing_idx].group_points_moment == true,
+                        params.bodies[point.wing_idx].group_points_moment == true,
                         point_moment, zeros(3))
                 end
-                tether_wing_moment[:, point.wing_idx] .+= point_moment
-                tether_wing_force[:, point.wing_idx] .+=
-                    point_force[:, point.idx]
+                # Feed the body load accumulator (read by body_eqs!).
+                body_force[:, point.wing_idx] .+= point_force[:, point.idx]
+                body_moment[:, point.wing_idx] .+= point_moment
 
-                # Rigid body constraint: COM + R_b_to_w * pos_b
-                # (pos_b is offset from COM in body frame)
+                # pos_b is the offset from COM in the body frame.
                 eqs = [
                     eqs
                     pos[:, point.idx] ~

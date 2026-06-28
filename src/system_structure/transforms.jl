@@ -139,37 +139,37 @@ end
 # ==================== HELPERS ==================== #
 
 """
-    copy_cad_to_world!(points, wings; update_vel=true)
+    copy_cad_to_world!(points, bodies; update_vel=true)
 
-Copy CAD geometry to world frame for ALL points and wings.
+Copy CAD geometry to world frame for ALL points and bodies.
 Sets `pos_w = pos_cad` (and `Q_b_to_w` to initial CAD orientation
-for wings). Must be called before `reinit!(transforms, ...)`.
+for bodies). Must be called before `reinit!(transforms, ...)`.
 """
-function copy_cad_to_world!(points, wings; update_vel::Bool=true)
+function copy_cad_to_world!(points, bodies; update_vel::Bool=true)
     for point in points
         point.pos_w .= point.pos_cad
         update_vel && (point.vel_w .= 0.0)
     end
-    for wing in wings
-        wing.pos_w .= wing.pos_cad
-        wing.Q_b_to_w .= rotation_matrix_to_quaternion(wing.R_b_to_c)
+    for body in bodies
+        body.pos_w .= body.pos_cad
+        body.Q_b_to_w .= rotation_matrix_to_quaternion(body.R_b_to_c)
         if update_vel
-            wing.vel_w .= 0.0
-            wing.ω_b .= 0.0
+            body.vel_w .= 0.0
+            body.ω_b .= 0.0
         end
     end
 end
 
 """
-    apply_azimuth_elevation!(transform, wings, points, base_pos; update_vel=false)
+    apply_azimuth_elevation!(transform, points, bodies, base_pos; update_vel=false)
 
-Apply the azimuth/elevation rotation of a single transform to all
-components in it. Returns `(curr_R_t_to_w, R_t_to_w)` for use in
-the heading step.
+Apply the azimuth/elevation rotation of a single transform to all components in
+it (points and bodies). Returns `(curr_R_t_to_w, R_t_to_w)` for
+use in the heading step.
 """
-function apply_azimuth_elevation!(transform, wings, points, base_pos;
+function apply_azimuth_elevation!(transform, points, bodies, base_pos;
                                    update_vel::Bool=false)
-    curr_rot_pos = get_rot_pos(transform, wings, points)
+    curr_rot_pos = get_rot_pos(transform, bodies, points)
     rel_pos = curr_rot_pos - base_pos
 
     if norm(rel_pos) < 1e-6
@@ -196,13 +196,17 @@ function apply_azimuth_elevation!(transform, wings, points, base_pos;
         point.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
         update_vel && (point.vel_w .= norm(point.pos_w - base_pos) / r_rot * vel_spherical)
     end
-    for wing in wings
-        wing.transform_idx == transform.idx || continue
-        vec = wing.pos_w - base_pos
-        wing.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
+    # Bodies carry orientation: rotate both pos_w (about base) and Q_b_to_w by R_azel.
+    R_azel = R_t_to_w * curr_R_t_to_w'
+    for body in bodies
+        body.transform_idx == transform.idx || continue
+        vec = body.pos_w - base_pos
+        body.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
+        R_b_to_w = R_azel * quaternion_to_rotation_matrix(body.Q_b_to_w)
+        body.Q_b_to_w .= rotation_matrix_to_quaternion(R_b_to_w)
         if update_vel
-            wing.vel_w .= norm(wing.pos_w - base_pos) / r_rot * vel_spherical
-            wing.ω_b .= 0.0
+            body.vel_w .= norm(body.pos_w - base_pos) / r_rot * vel_spherical
+            body.ω_b .= 0.0
         end
     end
 
@@ -210,27 +214,29 @@ function apply_azimuth_elevation!(transform, wings, points, base_pos;
 end
 
 """
-    apply_heading!(transform, wings, points,
+    apply_heading!(transform, points, bodies,
                     curr_R_t_to_w, R_t_to_w, base_pos)
 
 Apply heading rotation to all components in a single transform.
 Rotates around the radial axis through `base_pos` (not the origin).
-Uses `wing.R_b_to_w` for the no-ref-points orientation source.
-After `copy_cad_to_world!`, this equals `wing.R_b_to_c` (for
+Uses the reference body's `R_b_to_w` for the no-ref-points orientation source.
+After `copy_cad_to_world!`, this equals `R_b_to_c` (for
 `reinit!`), or the current world orientation (for `reposition!`).
+Bodies in the transform rotate with the same heading delta; a transform
+without a body target applies no heading (matching point behavior).
 """
-function apply_heading!(transform, wings, points,
+function apply_heading!(transform, points, bodies,
                          curr_R_t_to_w, R_t_to_w, base_pos)
-    for wing in wings
-        wing.transform_idx == transform.idx || continue
+    for reference_body in bodies
+        reference_body.transform_idx == transform.idx || continue
 
-        if !isnothing(wing.z_ref_points)
+        if !isnothing(reference_body.z_ref_points)
             R_b_to_w, _ = calc_particle_dynamics_wing_frame(
-                points, wing.z_ref_points,
-                wing.y_ref_points, wing.origin)
+                points, reference_body.z_ref_points,
+                reference_body.y_ref_points, reference_body.origin)
         else
             R_b_to_w = zeros(3, 3)
-            R_source_any = wing.R_b_to_w
+            R_source_any = reference_body.R_b_to_w
             R_source_any isa AbstractMatrix || continue
             R_source = R_source_any
             for i in 1:3
@@ -240,7 +246,7 @@ function apply_heading!(transform, wings, points,
             end
         end
 
-        rel_pos = wing.pos_w - base_pos
+        rel_pos = reference_body.pos_w - base_pos
         delta_heading = solve_heading_rotation(
             R_b_to_w, transform.heading, rel_pos)
         k = normalize(rel_pos)
@@ -250,43 +256,46 @@ function apply_heading!(transform, wings, points,
             point.pos_w .= base_pos .+ rotate_v_around_k(
                 point.pos_w .- base_pos, k, delta_heading)
         end
-
-        wing.pos_w .= base_pos .+ rotate_v_around_k(
-            rel_pos, k, delta_heading)
-        for i in 1:3
-            R_b_to_w[:, i] .= rotate_v_around_k(
-                R_b_to_w[:, i], k, delta_heading)
+        for body in bodies
+            body.transform_idx == transform.idx || continue
+            body.pos_w .= base_pos .+ rotate_v_around_k(
+                body.pos_w .- base_pos, k, delta_heading)
+            R_b = quaternion_to_rotation_matrix(body.Q_b_to_w)
+            for i in 1:3
+                R_b[:, i] .= rotate_v_around_k(R_b[:, i], k, delta_heading)
+            end
+            body.Q_b_to_w .= rotation_matrix_to_quaternion(R_b)
         end
-        wing.R_b_to_w = R_b_to_w
     end
 end
 
 """
-    finalize_transforms!(wings, points)
+    finalize_transforms!(points, bodies)
 
-Finalize transforms: update PARTICLE_DYNAMICS wing frames from structural
-point positions, then compute principal frame ODE state.
+Finalize transforms: update PARTICLE_DYNAMICS body frames from structural
+point positions, then compute principal frame ODE state for every body
+(RIGID_DYNAMICS bodies re-derived from the transformed `pos_w`/`Q_b_to_w`).
 """
-function finalize_transforms!(wings, points)
-    for wing in wings
-        wing.dynamics_type == PARTICLE_DYNAMICS || continue
-        (isnothing(wing.z_ref_points) || isnothing(wing.y_ref_points) ||
-         isnothing(wing.origin)) && continue
+function finalize_transforms!(points, bodies)
+    for body in bodies
+        body.dynamics_type == PARTICLE_DYNAMICS || continue
+        (isnothing(body.z_ref_points) || isnothing(body.y_ref_points) ||
+         isnothing(body.origin)) && continue
         R_b_to_w, origin = calc_particle_dynamics_wing_frame(
-            points, wing.z_ref_points, wing.y_ref_points, wing.origin)
-        wing.R_b_to_w = R_b_to_w
-        wing.pos_w .= origin
+            points, body.z_ref_points, body.y_ref_points, body.origin)
+        body.R_b_to_w = R_b_to_w
+        body.pos_w .= origin
         for point in points
-            if point.type == WING && point.wing_idx == wing.idx
+            if point.type == WING && point.wing_idx == body.idx
                 point.pos_b .= R_b_to_w' * (point.pos_w - origin)
             end
         end
     end
-    init_principal_frame!(wings, points)
+    init_principal_frame!(bodies, points)
 end
 
 """
-    init_principal_frame!(wings, points)
+    init_principal_frame!(bodies, points)
 
 Compute principal frame ODE state from body frame.
 Must be called after body frame (`pos_w`, `R_b_to_w`,
@@ -296,33 +305,26 @@ Sets: `com_w`, `Q_p_to_w`, `com_vel`, `ω_p` (derived from body
 frame), and `pos_b` for RIGID_DYNAMICS wing points (body
 frame, relative to COM).
 """
-function init_principal_frame!(wings, points)
-    for wing in wings
-        R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-        # COM position in world frame
-        wing.com_w .= wing.pos_w .+
-            R_b_to_w * wing.com_offset_b
-        # Principal frame quaternion:
-        # R_p_to_w = R_b_to_w * R_b_to_c' * R_p_to_c
-        R_p_to_w = R_b_to_w * wing.R_b_to_c' * wing.R_p_to_c
-        wing.Q_p_to_w .= rotation_matrix_to_quaternion(
-            R_p_to_w)
-        # Derive principal velocities from body frame
-        ω_w = R_b_to_w * wing.ω_b
-        r_com_w = R_b_to_w * wing.com_offset_b
-        wing.com_vel .= wing.vel_w .+
-            cross(ω_w, r_com_w)
-        wing.ω_p .= R_p_to_w' * ω_w
-        # pos_b: offset from COM in body frame
-        wing.dynamics_type != RIGID_DYNAMICS && continue
-        com_cad = wing.pos_cad .+
-            wing.R_b_to_c * wing.com_offset_b
-        for point in points
-            if point.type == WING &&
-               point.wing_idx == wing.idx
-                point.pos_b .= wing.R_b_to_c' *
-                    (point.pos_cad - com_cad)
+function init_principal_frame!(bodies, points)
+    for body in bodies
+        if body.dynamics_type == RIGID_DYNAMICS
+            init_principal_state!(body)
+            # pos_b: WING points' offset from COM in body frame
+            com_cad = body.pos_cad .+ body.R_b_to_c * body.com_offset_b
+            for point in points
+                if point.type == WING && point.wing_idx == body.idx
+                    point.pos_b .= body.R_b_to_c' * (point.pos_cad - com_cad)
+                end
             end
+        else
+            # PARTICLE: R_b_to_p is identity, so derive R_p_to_w from R_b_to_c/R_p_to_c.
+            R_b_to_w = body.R_b_to_w::Matrix{SimFloat}
+            body.com_w .= body.pos_w .+ R_b_to_w * body.com_offset_b
+            R_p_to_w = R_b_to_w * body.R_b_to_c' * body.R_p_to_c
+            body.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
+            ω_w = R_b_to_w * body.ω_b
+            body.com_vel .= body.vel_w .+ cross(ω_w, R_b_to_w * body.com_offset_b)
+            body.ω_p .= R_p_to_w' * ω_w
         end
     end
 end
@@ -341,10 +343,10 @@ Applies: translate (from pos_w) → azimuth/elevation → heading.
 """
 function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
                  update_vel::Bool=true)
-    (; points, wings) = sys_struct
+    (; points, bodies) = sys_struct
 
     if isempty(transforms)
-        finalize_transforms!(wings, points)
+        finalize_transforms!(points, bodies)
         return
     end
 
@@ -357,30 +359,28 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
         end
 
         # ==================== TRANSLATE ==================== #
-        # T is computed from pos_w of base (via get_base_pos).
-        # After copy_cad_to_world! and apply_tether_init_stretched_lens!,
-        # pos_w reflects any tether scaling already applied.
-        base_pos, curr_base_pos = get_base_pos(transform, transforms, wings, points)
+        base_pos, curr_base_pos = get_base_pos(transform, transforms, bodies, points)
         T = base_pos - curr_base_pos
         for point in points
             point.transform_idx == transform.idx || continue
             point.pos_w .= point.pos_w .+ T
             update_vel && (point.vel_w .= 0.0)
         end
-        for wing in wings
-            wing.transform_idx == transform.idx || continue
-            wing.pos_w .= wing.pos_w .+ T
-            update_vel && (wing.vel_w .= 0.0)
+        # Wings are bodies, handled by the bodies loop.
+        for body in bodies
+            body.transform_idx == transform.idx || continue
+            body.pos_w .= body.pos_w .+ T
+            update_vel && (body.vel_w .= 0.0)
         end
 
         # ==================== ROTATE + HEADING ==================== #
         curr_R_t_to_w, R_t_to_w = apply_azimuth_elevation!(
-            transform, wings, points, base_pos; update_vel)
-        apply_heading!(transform, wings, points,
+            transform, points, bodies, base_pos; update_vel)
+        apply_heading!(transform, points, bodies,
             curr_R_t_to_w, R_t_to_w, base_pos)
     end
 
-    finalize_transforms!(wings, points)
+    finalize_transforms!(points, bodies)
 end
 
 """
@@ -399,23 +399,23 @@ function reposition!(
     transforms::AbstractVector{Transform},
     sys_struct::SystemStructure
 )
-    (; points, wings) = sys_struct
+    (; points, bodies) = sys_struct
     for transform in transforms
         base_pos = if !isnothing(
                 transform.base_transform_idx)
             base_tf = transforms[something(
                 transform.base_transform_idx)]
-            get_rot_pos(base_tf, wings, points)
+            get_rot_pos(base_tf, bodies, points)
         else
             points[something(
                 transform.base_point_idx)].pos_w
         end
         curr_R_t_to_w, R_t_to_w =
             apply_azimuth_elevation!(
-                transform, wings, points, base_pos;
+                transform, points, bodies, base_pos;
                 update_vel=false)
-        apply_heading!(transform, wings, points,
+        apply_heading!(transform, points, bodies,
             curr_R_t_to_w, R_t_to_w, base_pos)
     end
-    finalize_transforms!(wings, points)
+    finalize_transforms!(points, bodies)
 end

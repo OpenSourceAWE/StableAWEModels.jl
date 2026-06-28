@@ -18,7 +18,7 @@ of the compiled `ODESystem` (`sys`).
 """
 function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                                initial_registry=nothing)
-    (; points, wings, twist_surfaces, pulleys, winches, tethers, segments, rigid_bodies) = sys_struct
+    (; points, wings, twist_surfaces, pulleys, winches, tethers, segments, bodies) = sys_struct
     get_aero_input, set_set_values, get_set_values = nothing, nothing, nothing
 
     specs = NamedTuple[]
@@ -66,18 +66,12 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.stretched_len => (c, v) -> (c.stretched_len = v[c.idx]; nothing)))
     end
     if length(wings) > 0
+        # Wing rigid-body state is synced via the embedded body in the bodies spec below.
         push!(specs, scatter_spec(ss -> ss.wings,
-            sys.Q_b_to_w         => (c, v) -> copy_vec!(c.Q_b_to_w, v, c.idx),
-            sys.ω_b              => (c, v) -> copy_vec!(c.ω_b, v, c.idx),
-            sys.wing_pos         => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
-            sys.wing_vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
-            sys.wing_acc         => (c, v) -> copy_vec!(c.acc_w, v, c.idx),
             sys.va_wing_b        => (c, v) -> copy_vec!(c.va_b, v, c.idx),
             sys.wind_vel_wing    => (c, v) -> copy_vec!(c.v_wind, v, c.idx),
             sys.aero_force_b     => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx),
             sys.aero_moment_b    => (c, v) -> copy_vec!(c.aero_moment_b, v, c.idx),
-            sys.moment_tether_wing => (c, v) -> copy_vec!(c.tether_moment, v, c.idx),
-            sys.force_tether_wing  => (c, v) -> copy_vec!(c.tether_force, v, c.idx),
             sys.elevation        => (c, v) -> (c.elevation = v[c.idx]; nothing),
             sys.elevation_vel    => (c, v) -> (c.elevation_vel = v[c.idx]; nothing),
             sys.elevation_acc    => (c, v) -> (c.elevation_acc = v[c.idx]; nothing),
@@ -88,16 +82,9 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.turn_rate        => (c, v) -> copy_vec!(c.turn_rate, v, c.idx),
             sys.turn_acc         => (c, v) -> copy_vec!(c.turn_acc, v, c.idx),
             sys.course           => (c, v) -> (c.course = v[c.idx]; nothing),
-            sys.angle_of_attack  => (c, v) -> (c.aoa = v[c.idx]; nothing),
-            # Principal frame state
-            sys.com_w            => (c, v) -> copy_vec!(c.com_w, v, c.idx),
-            sys.com_vel          => (c, v) -> copy_vec!(c.com_vel, v, c.idx),
-            sys.Q_p_to_w         => (c, v) -> copy_vec!(c.Q_p_to_w, v, c.idx),
-            sys.ω_p              => (c, v) -> copy_vec!(c.ω_p, v, c.idx)))
+            sys.angle_of_attack  => (c, v) -> (c.aoa = v[c.idx]; nothing)))
 
-        # aero_input only exists for wings whose component exposes the
-        # connector (e.g. AeroLinearized); detected on the built subsystem,
-        # so a custom mode opts in by exposing it — no trait needed.
+        # aero_input exists only for wings whose component exposes the connector.
         aero_inputs = [
             getproperty(sys, Symbol("aero_$(wing.idx)")).aero_input
             for wing in sys_struct.wings
@@ -106,8 +93,8 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
         get_aero_input = isempty(aero_inputs) ? nothing :
             getu(sys, collect.(aero_inputs))
     end
-    if length(rigid_bodies) > 0
-        push!(specs, scatter_spec(ss -> ss.rigid_bodies,
+    if length(bodies) > 0
+        push!(specs, scatter_spec(ss -> ss.bodies,
             sys.body_Q_b_to_w => (c, v) -> copy_vec!(c.Q_b_to_w, v, c.idx),
             sys.body_ω_b      => (c, v) -> copy_vec!(c.ω_b, v, c.idx),
             sys.body_pos_w    => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
@@ -187,10 +174,13 @@ function build_inplace_getter(sys, specs)
     return InplaceGetter(iip, buf, groups)
 end
 
-# Julia's serializer does not preserve `SubArray.parent === buf` sharing, so
-# serialize the (heavy) generated function plus a cheap layout and rebuild the
-# aliased buffer + views on load. The selectors/copyfns are stateless closures
-# that serialize directly.
+"""
+    serialize(s, g::InplaceGetter)
+
+Julia's serializer does not preserve `SubArray.parent === buf` sharing, so
+serialize the generated function plus a cheap layout and rebuild the aliased
+buffer and views on load.
+"""
 function Serialization.serialize(s::Serialization.AbstractSerializer,
                                  g::InplaceGetter)
     Serialization.serialize_type(s, typeof(g))
@@ -605,9 +595,7 @@ function reinit!(
         prob.set_set_values(target,
             SimFloat[winch.set_value for winch in sam.sys_struct.winches])
     if fresh
-        # Sync params and initial conditions onto the problem so the single init
-        # solve honors both. A trailing `reinit!(...; reinit_dae)` would re-solve
-        # the DAE init without re-reading `Initial`, discarding the synced state.
+        # A trailing reinit! would re-solve the DAE init and discard this synced state.
         sync_params!(prob.param_sync, prob.prob, sam.sys_struct)
         sync_initial!(prob.initial_sync, prob.prob, sam.sys_struct)
         seed_set_values!(prob.prob)
@@ -667,9 +655,9 @@ Calculates a SHA1 hash for the topology and structure of a `SystemStructure`.
 This is used to check if a cached compiled model is still valid.
 
 Includes all structural properties that affect the symbolic equations:
-- Point connectivity and types (STATIC, DYNAMIC, WING)
+- Point connectivity and types (STATIC, DYNAMIC, WING, BODY_STATIC)
 - Segment connectivity
-- TwistSurface structure and types (FIXED, TWIST)
+- TwistSurface structure and types (STATIC, DYNAMIC)
 - Pulley constraints and types
 - Tether topology
 - Winch configuration
@@ -680,10 +668,10 @@ Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
     (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms,
-       rigid_bodies, elastic_joints) = sys_struct
+       bodies, elastic_joints) = sys_struct
     data_parts = []
     for point in points
-        push!(data_parts, ("point", point.idx, point.wing_idx, Int(point.type)))
+        push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx, Int(point.type)))
     end
     for segment in segments
         push!(data_parts, ("segment", segment.idx, segment.point_idxs))
@@ -722,13 +710,11 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx,
                         transform.base_point_idx, transform.base_transform_idx))
     end
-    for rigid_body in rigid_bodies
-        push!(data_parts, ("rigid_body", rigid_body.idx))
+    for rigid_body in bodies
+        push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type)))
     end
     for joint in elastic_joints
-        # The stiffness type selects the generated law: a `Real` emits a scalar
-        # param (`k·Δ`), an interpolation a callable param (`k(Δ)`). So a float vs
-        # interpolation (or a different interpolation type) is a distinct model.
+        # Stiffness type selects the generated law (scalar `k·Δ` vs callable `k(Δ)`).
         stiff_type(s) = s isa Real ? "float" : string(typeof(s))
         push!(data_parts, ("elastic_joint", joint.idx,
                            joint.body_a_idx, joint.body_b_idx,

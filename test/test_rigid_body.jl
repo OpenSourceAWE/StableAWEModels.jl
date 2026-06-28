@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_rigid_body.jl - Standalone RigidBody component tests.
+# test_rigid_body.jl - Standalone Body component tests.
 #
-# A RigidBody shares the 6-DOF generator (rigid_body_eqs!) with rigid wings but
+# A Body shares the 6-DOF generator (rigid_body_eqs!) with rigid wings but
 # carries no aero/tether/transform machinery. Tests:
 # 1. Free fall: translational acc = g, no spurious rotation.
 # 2. Spin-up under applied body-frame moment: α = τ / I.
@@ -18,7 +18,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using SymbolicAWEModels: KVec3, Point
 using KiteUtils
 using LinearAlgebra
 
@@ -57,7 +57,7 @@ environment:
     profile_law: 0
 """
 
-@testset "RigidBody component" begin
+@testset "Body component" begin
     pkg_root = dirname(@__DIR__)
     src_data_path = joinpath(pkg_root, "data", "2plate_kite")
     tmpdir = mktempdir()
@@ -70,20 +70,20 @@ environment:
     set = Settings("system.yaml")
 
     inertia = [0.1, 0.2, 0.3]
-    body = RigidBody(:body1; mass=2.0, inertia_principal=inertia,
+    body = Body(:body1; mass=2.0, inertia_principal=inertia,
                      pos=[0.0, 0.0, 10.0])
-    sys = SystemStructure("rigid_body_test", set; rigid_bodies=[body])
+    sys = SystemStructure("rigid_body_test", set; bodies=[body])
 
     @testset "Model setup" begin
-        @test length(sys.rigid_bodies) == 1
-        @test sys.rigid_bodies[:body1].mass ≈ 2.0
+        @test length(sys.bodies) == 1
+        @test sys.bodies[:body1].mass ≈ 2.0
     end
 
     sam = SymbolicAWEModel(set, sys)
     test_init!(sam)
 
     @testset "Free fall acceleration = g" begin
-        rb = sam.sys_struct.rigid_bodies[:body1]
+        rb = sam.sys_struct.bodies[:body1]
         dt = 0.01
         for _ in 1:5
             next_step!(sam; dt, vsm_interval=0)
@@ -102,11 +102,11 @@ environment:
     end
 
     @testset "Spin-up under applied moment" begin
-        rb = sam.sys_struct.rigid_bodies[:body1]
-        rb.pos_w .= [0.0, 0.0, 10.0]
+        rb = sam.sys_struct.bodies[:body1]
+        rb.pos_cad .= [0.0, 0.0, 10.0]
+        rb.R_b_to_c .= [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
         rb.vel_w .= 0.0
         rb.ω_b .= 0.0
-        rb.Q_b_to_w .= [1.0, 0.0, 0.0, 0.0]
         torque = 0.05
         rb.ext_moment_b .= [torque, 0.0, 0.0]
         test_init!(sam; prn=false, reset_vel=false)
@@ -127,12 +127,12 @@ environment:
 
     @testset "COM-offset body-frame output" begin
         offset = [0.5, 0.0, 0.0]
-        body2 = RigidBody(:body2; mass=1.0, inertia_principal=inertia,
+        body2 = Body(:body2; mass=1.0, inertia_principal=inertia,
                           pos=[1.0, 2.0, 5.0], com_offset_b=offset)
-        sys2 = SystemStructure("rigid_body_test", set; rigid_bodies=[body2])
+        sys2 = SystemStructure("rigid_body_test", set; bodies=[body2])
         sam2 = SymbolicAWEModel(set, sys2)
         test_init!(sam2)
-        rb = sam2.sys_struct.rigid_bodies[:body2]
+        rb = sam2.sys_struct.bodies[:body2]
         # identity orientation: com_w = pos_w + offset
         @test rb.com_w ≈ rb.pos_w .+ offset atol=1e-6
         for _ in 1:10
@@ -141,6 +141,35 @@ environment:
         R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
         @test rb.com_w ≈ rb.pos_w .+ R_b_to_w * offset atol=1e-5
         @test norm(rb.ω_b) < 1e-6
+    end
+
+    # A transform must reposition AND reorient a rigid body, like a wing.
+    # Tested at the SystemStructure level (reinit!), no ODE compilation.
+    @testset "Transform repositions and rotates a rigid body" begin
+        ground = Point(:ground, [0.0, 0.0, 0.0], STATIC; transform=0)
+        body3 = Body(:body3; mass=1.0, inertia_principal=inertia,
+                          pos=[100.0, 0.0, 0.0], transform=:tf)
+        tip = Point(:tip, [100.0, 0.0, 0.0], BODY_STATIC;
+                    body=:body3, anchor_b=[0.0, 0.0, 0.0], transform=:tf)
+        tf = Transform(:tf, deg2rad(45), 0.0, 0.0;
+                       base_pos=[0.0, 0.0, 0.0], base_point=:ground,
+                       rot_point=:tip)
+        sys3 = SystemStructure("rigid_body_transform_test", set;
+            points=[ground, tip], bodies=[body3], transforms=[tf])
+
+        SymbolicAWEModels.reinit!(sys3, set)
+
+        rb = sys3.bodies[:body3]
+        r = 100.0 / sqrt(2)
+        @test rb.pos_w ≈ KVec3(r, 0.0, r) atol=1e-6
+        # body x-axis followed the radial from +x to the 45° elevation direction
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
+        @test R_b_to_w[:, 1] ≈ normalize(KVec3(1.0, 0.0, 1.0)) atol=1e-6
+        # the body-anchored point rides the rotated body
+        @test sys3.points[:tip].pos_w ≈ rb.pos_w atol=1e-6
+        # idempotent across a second reinit!
+        SymbolicAWEModels.reinit!(sys3, set)
+        @test rb.pos_w ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 
     rm(tmpdir; recursive=true)

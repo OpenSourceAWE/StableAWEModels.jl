@@ -9,8 +9,12 @@ updates) are at the bottom of this file.  The shared
 `match_aero_sections_to_structure!` works for all VSMWing types.
 """
 
-# Baseline chord-based aero scaling for PARTICLE_DYNAMICS wings.
-# Effective multiplier = 1 + (wing.aero_scale_chord or default below).
+"""
+    const AERO_SCALE_CHORD = 0.0
+
+Baseline chord-based aero scaling for PARTICLE_DYNAMICS wings; effective
+multiplier is `1 + (wing.aero_scale_chord or this default)`.
+"""
 const AERO_SCALE_CHORD = 0.0
 
 """
@@ -115,7 +119,7 @@ preserve polars.
   via [`identify_wing_segments`](@ref).
 """
 function match_aero_sections_to_structure!(
-    wing::Wing,
+    wing::Body,
     points::AbstractVector{Point};
     twist_surfaces::AbstractVector{TwistSurface}=TwistSurface[]
 )
@@ -243,7 +247,7 @@ function match_aero_sections_to_structure!(
 end
 
 """
-    build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, wing::Wing)
+    build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, wing::Body)
 
 Build 1:1 mapping from structural WING points to VSM wing section points (LE/TE) using closest-point distance.
 
@@ -257,7 +261,7 @@ Requires: `length(wing_points) == 2 * length(wing.vsm_wing.unrefined_sections)`
 """
 function build_point_to_vsm_point_mapping(
     wing_points::AbstractVector{Point},
-    wing::Wing,
+    wing::Body,
 )
     vsm_wing = wing.vsm_wing
     n_points = length(wing_points)
@@ -379,7 +383,7 @@ function compute_aerostruc_loads(panel, F_panel::SVector{3}, M_panel::SVector{3}
 end
 
 """
-    distribute_panel_forces_to_points!(wing::Wing, points::AbstractVector{Point})
+    distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{Point})
 
 Distribute VSM forces to structural points using refined panel forces.
 
@@ -397,10 +401,10 @@ the structural LE/TE points of the parent section (1:1 mapping).
    - Accumulate forces at the corresponding structural points
 
 # Arguments
-- `wing::Wing`: Wing with PARTICLE_DYNAMICS type and solved VSM state
+- `wing::Body`: Wing with PARTICLE_DYNAMICS type and solved VSM state
 - `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
-function distribute_panel_forces_to_points!(wing::Wing, points::AbstractVector{Point})
+function distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{Point})
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only distribute forces for PARTICLE_DYNAMICS wings"
 
     sol = wing.vsm_solver.sol
@@ -468,7 +472,7 @@ function distribute_panel_forces_to_points!(wing::Wing, points::AbstractVector{P
 end
 
 """
-    update_vsm_wing_from_structure!(wing::Wing, points::AbstractVector{Point})
+    update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
 
 Update VSM section points (LE/TE) directly from structural point positions using 1:1 mapping.
 
@@ -487,14 +491,13 @@ Uses direct 1:1 correspondence between structural points and VSM section points:
 - To get world coordinates: `world_pos = wing.R_b_to_w * section.LE_point + wing.pos_w`
 
 # Arguments
-- `wing::Wing`: Wing with PARTICLE_DYNAMICS type
+- `wing::Body`: Wing with PARTICLE_DYNAMICS type
 - `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
-function update_vsm_wing_from_structure!(wing::Wing, points::AbstractVector{Point})
+function update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"
 
-    # Get current R_b_to_w and origin from wing state
-    # (These are updated during simulation from structural geometry)
+    # R_b_to_w and origin are updated during simulation from structural geometry.
     R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
     origin = wing.pos_w::KVec3
 
@@ -526,8 +529,7 @@ function update_vsm_wing_from_structure!(wing::Wing, points::AbstractVector{Poin
 
     refine!(wing.vsm_wing; recompute_mapping=false, sort_sections=false)
     VortexStepMethod.reinit!(wing.vsm_aero)
-    # Do NOT call reinit! on wing - only modify sections!
-    # body_aero reinit! will update panels from modified sections (called in refresh_aero!)
+    # Do NOT reinit! the wing; body_aero reinit! updates panels in refresh_aero!.
     return nothing
 end
 
@@ -580,7 +582,7 @@ function compute_twist_surface_geometry!(wing, twist_surfaces, points)
         iszero(twist_surface.chord) || continue
         center = zeros(3)
         for pt_idx in twist_surface.point_idxs
-            center += wing.R_b_to_c' *
+            center .+= wing.R_b_to_c' *
                 (points[pt_idx].pos_cad - wing.pos_cad)
         end
         center ./= length(twist_surface.point_idxs)

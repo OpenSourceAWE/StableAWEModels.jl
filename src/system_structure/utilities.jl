@@ -100,8 +100,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
                   "This is physically nonsensical."
         end
 
-        # Check total_mass for division by zero (DYNAMIC points only)
-        # NOTE: Check mass before NaN position - NaN pos is often caused by zero mass
+        # Check mass before NaN position: NaN pos is often caused by zero mass.
         if point.type == DYNAMIC && point.total_mass <= 0
             error("Point $(point.name) has non-positive total_mass ($(point.total_mass)). " *
                   "This will cause division by zero in acceleration calculations.")
@@ -115,8 +114,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
 
     # ==================== WING VALIDATIONS ==================== #
     for wing in wings
-        # Check for non-positive mass (all wing types)
-        # NOTE: Check mass/inertia before NaN position - NaN pos is often caused by zero mass
+        # Check mass/inertia before NaN position: NaN pos is often caused by zero mass.
         if wing.mass <= 0
             error("Wing $(wing.name) has non-positive mass ($(wing.mass)). " *
                   "This will cause division by zero in acceleration calculations.")
@@ -142,8 +140,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
                 error("Wing $(wing.name) has NaN inertia: I_b = $I_b")
             end
 
-            # Warn if a section-coupled RIGID_DYNAMICS wing has no twist_surfaces
-            # (AeroNone does not couple to sections, so its absence is expected)
+            # AeroNone does not couple to sections, so missing twist_surfaces is fine.
             if isempty(wing.twist_surface_idxs) &&
                couples_to_sections(wing.aero)
                 @warn "Wing $(wing.name) (RIGID_DYNAMICS)" *
@@ -263,15 +260,14 @@ end
 
 Return `(anchor_idx, free_idx)` for a root tether: the endpoint in
 `boundary` (`STATIC`/winch points) is the anchor, the other is free.
-Returns `(nothing, nothing)` if neither endpoint is on a boundary;
-errors if both are.
+Returns `(nothing, nothing)` if neither endpoint is on a boundary, or if
+both are (a both-fixed tether cannot be placed; the caller warns and skips it).
 """
 function tether_anchor_free(tether, boundary)
     start_on_boundary = tether.start_point_idx in boundary
     end_on_boundary = tether.end_point_idx in boundary
     if start_on_boundary && end_on_boundary
-        error("Tether $(tether.name): both endpoints are " *
-              "ground-fixed; cannot place it to a length.")
+        return nothing, nothing
     elseif start_on_boundary
         return tether.start_point_idx, tether.end_point_idx
     elseif end_on_boundary
@@ -283,10 +279,11 @@ end
 """
     rigid_point_siblings(points, wings)
 
-Map each `WING`-type point index of a `RIGID_DYNAMICS` wing to the
-set of all such points sharing that wing. These points move as one
-rigid body without inter-point segments, so the set captures their
-connectivity for downstream traversal.
+Map each point index that rides a rigid body to the set of all points sharing
+that body, so downstream traversal moves them as one unit. Covers `WING` points
+of a `RIGID_DYNAMICS` wing (grouped by `wing_idx`) and `BODY_STATIC` points
+(grouped by `body_idx`). These points carry no inter-point segments, so the set
+captures their connectivity.
 """
 function rigid_point_siblings(points, wings)
     siblings = Dict{Int64, Set{Int64}}()
@@ -294,6 +291,15 @@ function rigid_point_siblings(points, wings)
         wing.dynamics_type == RIGID_DYNAMICS || continue
         members = Set{Int64}(point.idx for point in points
             if point.type == WING && point.wing_idx == wing.idx)
+        for member in members
+            siblings[member] = members
+        end
+    end
+    body_idxs = unique(point.body_idx for point in points
+        if point.type == BODY_STATIC)
+    for body_idx in body_idxs
+        members = Set{Int64}(point.idx for point in points
+            if point.type == BODY_STATIC && point.body_idx == body_idx)
         for member in members
             siblings[member] = members
         end
@@ -363,9 +369,11 @@ function twist_surface_tethers_by_overlap(specified, reach)
     n = length(specified)
     parent = collect(1:n)
     function find_root(i)
-        parent[i] == i && return i
-        parent[i] = find_root(parent[i])
-        return parent[i]
+        while parent[i] != i
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        end
+        return i
     end
     for i in 1:n
         for j in i+1:n
@@ -414,7 +422,7 @@ then interior points are redistributed proportionally along each
 tether. For a multi-tether cluster, logs an `@info` when `prn`.
 """
 function apply_cluster_init_stretched_len!(
-    cluster, points, segments, downstream, boundary; prn=true)
+    cluster, points, segments, bodies, downstream, boundary; prn=true)
     snaps = map(cluster) do tether
         anchor_idx, free_idx = tether_anchor_free(tether, boundary)
         anchor_pos = copy(points[anchor_idx].pos_w)
@@ -456,6 +464,14 @@ function apply_cluster_init_stretched_len!(
         end
     end
 
+    # Move the body, not its points: the pos~anchor constraint would snap them back.
+    moved_bodies = Set{Int64}(points[idx].body_idx for idx in moved
+                              if points[idx].body_idx != 0)
+    for body_idx in moved_bodies
+        bodies[body_idx].pos_w .+= delta
+        bodies[body_idx].com_w .+= delta
+    end
+
     for snap in snaps
         length(snap.ordered) <= 2 && continue
         line = (snap.free_pos .+ delta) .- snap.anchor_pos
@@ -494,10 +510,25 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
 
     rigid_siblings = rigid_point_siblings(points, wings)
 
+    # Boundary = externally world-fixed points: STATIC, winch, and BODY_STATIC on a STATIC body.
+    bodies = sys_struct.bodies
     boundary = Set{Int64}(w.winch_point_idx for w in winches)
     for point in points
         point.type == STATIC && push!(boundary, point.idx)
+        point.type == BODY_STATIC && bodies[point.body_idx].type == STATIC &&
+            push!(boundary, point.idx)
     end
+
+    # Both-fixed tethers (both endpoints on a boundary) are warned and skipped.
+    both_fixed(tether) = tether.start_point_idx in boundary &&
+                         tether.end_point_idx in boundary
+    placeable = filter(!both_fixed, specified)
+    for tether in specified
+        both_fixed(tether) && @warn "Tether $(tether.name): both endpoints " *
+            "are fixed; skipping its length placement."
+    end
+    isempty(placeable) && return
+    specified = placeable
 
     anchor_free = Dict(tether.idx => tether_anchor_free(tether, boundary)
                        for tether in specified)
@@ -521,6 +552,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
 
     for cluster in twist_surface_tethers_by_overlap(specified, reach)
         apply_cluster_init_stretched_len!(cluster, points, segments,
+                                          sys_struct.bodies,
                                           downstream, boundary; prn)
     end
 end
@@ -616,23 +648,27 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         winch.vel = winch.init_vel
     end
 
-    # Standalone rigid bodies: derive principal-frame ODE state from the
-    # body-frame initial conditions (pos_w/vel_w/Q_b_to_w/ω_b).
-    for rigid_body in sys_struct.rigid_bodies
+    # Reset body pose to CAD (idempotent placement); ODE state derived below.
+    for rigid_body in sys_struct.bodies
+        rigid_body.pos_w .= rigid_body.pos_cad
+        rigid_body.Q_b_to_w .= rotation_matrix_to_quaternion(rigid_body.R_b_to_c)
+        if reset_vel
+            rigid_body.vel_w .= 0.0
+            rigid_body.ω_b .= 0.0
+        end
         init_rigid_body!(rigid_body)
     end
 
     for twist_surface in twist_surfaces
-        twist_surface.type == FIXED && continue
+        twist_surface.type == STATIC && continue
         twist_surface.twist = 0.0
         twist_surface.twist_ω = 0.0
     end
 
-    # Transforms are not updated from Settings -
-    # YAML structure geometry has priority
+    # Transforms are not updated from Settings; YAML structure geometry has priority.
 
     # Step 1: copy CAD geometry to world frame
-    copy_cad_to_world!(points, wings; update_vel=reset_vel)
+    copy_cad_to_world!(points, sys_struct.bodies; update_vel=reset_vel)
 
     # Step 2: apply stretched lengths (scales pos_w)
     if apply_tether_lengths
@@ -662,23 +698,19 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                              segments[pulley.segment_idxs[2]]
         pulley.sum_len = segment1.l0 + segment2.l0
 
-        # Initialize pulley.len proportional to current segment lengths
-        # More accurate for asymmetric bridle configurations
+        # Proportional to current segment lengths (accurate for asymmetric bridles).
         pulley.len = segment1.len / (segment1.len+segment2.len) *
                      pulley.sum_len
 
         pulley.vel = 0.0
     end
 
-    # Step 5: apply transforms (translate/rotate/heading);
-    # pos_w already initialized by copy_cad_to_world! +
-    # apply_tether_init_stretched_lens!
+    # Step 5: apply transforms (translate/rotate/heading); pos_w already initialized.
     if apply_transforms
         reinit!(transforms, sys_struct; update_vel=reset_vel)
     end
 
-    # Recreate each wing's aero engine from settings if requested (no-op for
-    # modes without one, e.g. flat-plate).
+    # Recreate each wing's aero engine from settings (no-op for engine-less modes).
     if remake_vsm
         for wing in wings
             remake_aero!(wing.aero, wing, set, sys_struct.vsm_set,
@@ -704,8 +736,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         end
     end
 
-    # NOTE: validate_sys_struct() is called from model_management.jl after update_sys_struct!
-    # because total_mass is only computed after the integrator exists.
+    # validate_sys_struct() runs later: total_mass needs the live integrator.
 
     # Recalculate segment rest lengths from current positions if requested
     if ignore_l0
@@ -863,7 +894,7 @@ plot(sys)
 - The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
 """
 function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
-    (; points, twist_surfaces, tethers, winches, wings, rigid_bodies) = sys
+    (; points, twist_surfaces, tethers, winches, wings, bodies) = sys
 
     # Position slot layout (points, panel corners, wing origins, body origins).
     slots = position_slots(sys)
@@ -876,7 +907,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     if !has_wing_slots && P != total_without_wings
         error("SystemStructure expects $(slots.total) points " *
               "($n_points regular + $n_panel_corners corners + " *
-              "$n_wings wings + $(length(rigid_bodies)) bodies) or " *
+              "$n_wings wings + $(length(bodies)) bodies) or " *
               "$total_without_wings without wing slots, but SysState has $P points")
     end
 
@@ -932,10 +963,9 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         wing.turn_acc .= 0.0
     end
 
-    # Update standalone rigid bodies (origins after the wing slots;
-    # orientation frames after the wings).
+    # Standalone bodies: origins after the wing slots, orientations after the wings.
     if has_wing_slots
-        for rigid_body in rigid_bodies
+        for rigid_body in bodies
             slot = slots.bodies[rigid_body.idx]
             rigid_body.pos_w[1] = sys_state.X[slot]
             rigid_body.pos_w[2] = sys_state.Y[slot]
@@ -988,8 +1018,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         sys.set.wind_vec = MVec3(sys_state.v_wind_gnd)
     end
 
-    # Segment lengths/forces are not part of the SysState; they are populated
-    # by the symbolic getters from a live integrator, not reconstructed here.
+    # Segment lengths/forces come from symbolic getters, not from the SysState.
 
     return nothing
 end

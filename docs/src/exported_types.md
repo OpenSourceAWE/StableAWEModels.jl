@@ -38,7 +38,8 @@ aero_hash_id
 
 ```@docs
 AbstractWinchModel
-DefaultWinchModel
+TorqueWinch
+CascadedLengthWinch
 ```
 
 ## Core model type
@@ -69,13 +70,15 @@ Winch
 Winch(name, set::Settings, tethers; winch_point, init_vel, brake)
 Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; winch_point, init_vel, brake)
 AbstractWing
+RigidWing
+ParticleWing
 Wing
 VSMEngine
 VSMWing
 PlateWing
 create_plate_interpolations
-RigidBody
-RigidBody(name; mass, inertia_principal, pos, vel, Q_b_to_w, ω_b, com_offset_b, R_b_to_p, angular_damping, ext_force_w, ext_moment_b)
+Body
+Body(name; mass, inertia_principal, pos, vel, Q_b_to_w, ω_b, com_offset_b, R_b_to_p, angular_damping, ext_force_w, ext_moment_b)
 ElasticJoint
 ElasticJoint(name, body_a, body_b; anchor_a, anchor_b, stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping_trans, damping_rot)
 Transform

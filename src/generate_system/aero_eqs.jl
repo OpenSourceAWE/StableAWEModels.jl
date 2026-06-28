@@ -1,16 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Aero coupling wiring (winch-style).
-#
-# Each wing's aerodynamics is a swappable subsystem built by
-# `aero_component(wing.aero, …)` (see aero_modes/common.jl). This layer
-# instantiates the component, validates its connector contract, drives the
-# body-frame inputs, and reads the outputs back into the wing's aero variables.
-# All built-in models (AeroNone / AeroDirect / AeroLinearized / AeroPlate) and
-# any custom AbstractAeroModel go through the same wiring. Flat-plate aero uses
-# the standard PARTICLE contract: it is the only mode that consumes the per-point
-# `va`/`rho` inputs the wiring drives for every particle wing.
+# Aero coupling wiring (winch-style): each wing's aero is a swappable subsystem.
 
 """
     aero_eqs!(s, eqs; kwargs...)
@@ -31,7 +22,7 @@ function aero_eqs!(
 
     for wing in wings
         wing_idx = wing.idx
-        subsys = aero_component(wing.aero, s.sys_struct, wing_idx;
+        subsys = aero_component(wing.aero, wing, s.sys_struct;
                                 name = Symbol("aero_$(wing_idx)"), params)
         push!(aero_subsystems, subsys)
         validate_aero_component(subsys, wing)
@@ -89,9 +80,8 @@ function aero_eqs!(
                collect(aero_moment_b[:, wing_idx]) .~ collect(subsys.moment)]
         for (twist_surface_pos, gidx) in enumerate(wing.twist_surface_idxs)
             twist_surface = twist_surfaces[gidx]
-            # FIXED surfaces without aero sections are zero-bound by
-            # twist_surface_eqs!; everything else reads the component output.
-            twist_surface.type == FIXED &&
+            # STATIC surfaces without aero sections are zero-bound by twist_surface_eqs!.
+            twist_surface.type == STATIC &&
                 isempty(twist_surface.unrefined_section_idxs) && continue
             eqs = [eqs
                    twist_surface_aero_moment[twist_surface.idx] ~
