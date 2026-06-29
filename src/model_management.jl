@@ -668,13 +668,16 @@ Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
     (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms,
-       bodies, elastic_joints) = sys_struct
+       bodies, elastic_joints, timoshenko_joints) = sys_struct
     data_parts = []
     for point in points
         push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx, Int(point.type)))
     end
     for segment in segments
-        push!(data_parts, ("segment", segment.idx, segment.point_idxs))
+        # Stiffness type selects the spring law (scalar k·Δ vs callable F(ε)).
+        stiff_type = segment.unit_stiffness isa Real ? "float" :
+                     string(typeof(segment.unit_stiffness))
+        push!(data_parts, ("segment", segment.idx, segment.point_idxs, stiff_type))
     end
     for twist_surface in twist_surfaces
         push!(data_parts, ("twist_surface", twist_surface.idx, twist_surface.point_idxs, Int(twist_surface.type)))
@@ -722,6 +725,15 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                            stiff_type(joint.stiffness_shear),
                            stiff_type(joint.stiffness_torsion),
                            stiff_type(joint.stiffness_bending)))
+    end
+    for joint in timoshenko_joints
+        # Rigidity type selects the generated law (scalar vs callable of strain).
+        rigidity_type(r) = r isa Real ? "float" : string(typeof(r))
+        push!(data_parts, ("timoshenko_joint", joint.idx,
+                           joint.body_a_idx, joint.body_b_idx,
+                           rigidity_type(joint.EA), rigidity_type(joint.GA),
+                           rigidity_type(joint.GJ), rigidity_type(joint.EIy),
+                           rigidity_type(joint.EIz)))
     end
     content = string(data_parts)
     return sha1(content)

@@ -318,6 +318,10 @@ mutable struct ElasticJoint{S}
     damping_trans::SimFloat
     "Rotational damping [N·m·s/rad]."
     damping_rot::SimFloat
+    "Rest anchor offset (body A frame), set at `reinit!` so the as-placed geometry is unstrained."
+    const rest_offset_a::KVec3
+    "Rest relative rotation `R_a' R_b`, set at `reinit!` so the as-placed orientation is unstrained."
+    const R_rel0::Matrix{SimFloat}
 end
 
 """
@@ -353,5 +357,186 @@ function ElasticJoint(name, body_a, body_b;
     body_b_ref = body_b isa Integer ? Int(body_b) : Symbol(body_b)
     return ElasticJoint{S}(0, name, 0, 0, body_a_ref, body_b_ref,
         KVec3(anchor_a), KVec3(anchor_b), stiffs...,
-        SimFloat(damping_trans), SimFloat(damping_rot))
+        SimFloat(damping_trans), SimFloat(damping_rot),
+        KVec3(0.0, 0.0, 0.0), Matrix{SimFloat}(I, 3, 3))
+end
+
+"""
+    TimoshenkoJoint
+
+A consistent-stiffness Timoshenko connection between two `Body`s — the
+distributed-compliance counterpart of the lumped [`ElasticJoint`](@ref). Like
+that joint it connects two bodies and applies a restoring wrench; a chain of
+bodies joined by `TimoshenkoJoint`s forms a beam. The "element" of the underlying
+2-node beam finite element is exactly this body-A–to–body-B connection.
+
+Unlike the hinge, the stiffness couples each node's transverse displacement to its
+rotation, so transverse shear (cross-sections rotating while the centerline stays
+straight) is represented — the defining Timoshenko ingredient. Fewer segments
+match a given beam fidelity than a hinge chain.
+
+The element wraps the linear stiffness corotationally: an element frame follows
+the chord and node A's orientation, small deformations are measured relative to
+it, and the restoring wrench is accumulated equal-and-opposite into both bodies'
+load accumulators (the same `body_force`/`body_moment` that [`ElasticJoint`](@ref)
+and `body_eqs!` use). Damping resists the relative node velocity/spin.
+
+Each rigidity (`EA` axial, `GA` shear with `shear_coeff` correction factor `k`,
+`Φ = 12·EI/(k·GA·L²)`, `GJ` torsion, `EIy`/`EIz` bending about the two transverse
+axes) is either a `Real` (linear) or a callable of that mode's strain/curvature
+returning the *effective rigidity* at the current deformation — the
+distributed-beam analogue of [`ElasticJoint`](@ref)'s nonlinear stiffness. Unlike
+the hinge, whose callable returns a force, here it returns a rigidity, because the
+consistent element couples bending to shear and no single force suffices; a
+curvature-softening `EIy(κ)` is how inflated-tube wrinkling enters (Breukels). All
+callables must share one type. `rest_length` (0 ⇒ taken from the initial geometry)
+and the per-node rest orientations `R_a_rel0`/`R_b_rel0` (set at `reinit!`) define
+the unstrained configuration.
+
+$(TYPEDFIELDS)
+"""
+mutable struct TimoshenkoJoint{S}
+    "Index in the timoshenko_joints vector (assigned by SystemStructure)."
+    idx::Int64
+    "Name used for lookup."
+    const name::Union{Int, Symbol, Nothing}
+
+    "Resolved index of body A (filled by SystemStructure)."
+    body_a_idx::Int64
+    "Resolved index of body B (filled by SystemStructure)."
+    body_b_idx::Int64
+    "Raw reference (name or index) of body A."
+    const body_a_ref::NameRef
+    "Raw reference (name or index) of body B."
+    const body_b_ref::NameRef
+
+    "Node offset from body A origin, body A frame [m]."
+    const anchor_a_b::KVec3
+    "Node offset from body B origin, body B frame [m]."
+    const anchor_b_b::KVec3
+
+    "Axial rigidity: `Real` EA [N], or callable EA(ε) of axial strain ε=δ/L₀."
+    EA::S
+    "Shear rigidity (before `shear_coeff`): `Real` GA [N], or callable GA(γ) of shear angle."
+    GA::S
+    "Torsional rigidity: `Real` GJ [N·m²], or callable GJ(κ) of twist rate κ=Δθ/L₀."
+    GJ::S
+    "Bending rigidity about y: `Real` EIy [N·m²], or callable EIy(κ) of curvature κ=Δθ/L₀."
+    EIy::S
+    "Bending rigidity about z: `Real` EIz [N·m²], or callable EIz(κ) of curvature κ=Δθ/L₀."
+    EIz::S
+    "Shear correction factor k (e.g. 5/6 solid, 8/9 inflated tube)."
+    shear_coeff::SimFloat
+    "Translational damping [N·s/m] on relative node velocity."
+    damping_trans::SimFloat
+    "Rotational damping [N·m·s/rad] on relative node spin."
+    damping_rot::SimFloat
+    "Rest (unstrained) chord length [m]; 0 ⇒ taken from initial geometry."
+    rest_length::SimFloat
+    "Rest orientation of node A in the element frame (set at reinit!)."
+    const R_a_rel0::Matrix{SimFloat}
+    "Rest orientation of node B in the element frame (set at reinit!)."
+    const R_b_rel0::Matrix{SimFloat}
+end
+
+"""
+    TimoshenkoJoint(name, body_a, body_b; anchor_a=zeros, anchor_b=zeros,
+                   EA, GA, GJ, EIy, EIz, shear_coeff=5/6,
+                   damping_trans=0, damping_rot=0, rest_length=0)
+
+Connect `body_a` to `body_b` (names or indices) with a Timoshenko beam element.
+`anchor_a`/`anchor_b` are the node points in each body's frame. Each rigidity is a
+`Real` (linear) or a callable of its strain/curvature returning the effective
+rigidity (nonlinear); callables must all be the same type. `rest_length=0` takes
+the unstrained length from the initial geometry.
+"""
+function TimoshenkoJoint(name, body_a, body_b;
+        anchor_a = zeros(SimFloat, 3),
+        anchor_b = zeros(SimFloat, 3),
+        EA, GA, GJ, EIy, EIz,
+        shear_coeff::Real = 5 / 6,
+        damping_trans::Real = 0.0,
+        damping_rot::Real = 0.0,
+        rest_length::Real = 0.0,
+    )
+    # Reals → SimFloat; callables kept as-is. All callables must share a type.
+    conv(s) = s isa Real ? SimFloat(s) : s
+    rigidities = map(conv, (EA, GA, GJ, EIy, EIz))
+    callable_types = unique(typeof(s) for s in rigidities if !(s isa Real))
+    length(callable_types) > 1 && error(
+        "TimoshenkoJoint: all callable rigidities must be the same type, " *
+        "got $(callable_types). Mix only `Real`s and a single callable type.")
+    S = Union{map(typeof, rigidities)...}
+    body_a_ref = body_a isa Integer ? Int(body_a) : Symbol(body_a)
+    body_b_ref = body_b isa Integer ? Int(body_b) : Symbol(body_b)
+    return TimoshenkoJoint{S}(0, name, 0, 0, body_a_ref, body_b_ref,
+        KVec3(anchor_a), KVec3(anchor_b), rigidities...,
+        SimFloat(shear_coeff), SimFloat(damping_trans), SimFloat(damping_rot),
+        SimFloat(rest_length),
+        Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3))
+end
+
+"""
+    timoshenko_element_frame(x_a, x_b, R_a) -> (e1, e2, e3, len)
+
+Orthonormal corotational element frame: `e1` along the chord from node A to node
+B, `e2`/`e3` from node A's y-axis projected transverse to the chord. `len` is the
+current chord length. Generic over numeric and symbolic inputs.
+"""
+function timoshenko_element_frame(x_a, x_b, R_a)
+    d = x_b .- x_a
+    len = sqrt(sum(abs2, d))
+    e1 = d ./ len
+    y_a = R_a[:, 2]
+    e2_raw = y_a .- sum(y_a .* e1) .* e1
+    e2 = e2_raw ./ sqrt(sum(abs2, e2_raw))
+    e3 = e1 × e2
+    return e1, e2, e3, len
+end
+
+"""
+    joint_endpoint_frames(joint, bodies) -> (R_a, R_b, anchor_a_w, anchor_b_w)
+
+World rotations of the two connected bodies and the world positions of the joint's
+two anchors, from the current (placed) poses. Shared by every `init_joint_rest!`.
+"""
+function joint_endpoint_frames(joint, bodies)
+    body_a = bodies[joint.body_a_idx]
+    body_b = bodies[joint.body_b_idx]
+    R_a = quaternion_to_rotation_matrix(body_a.Q_b_to_w)
+    R_b = quaternion_to_rotation_matrix(body_b.Q_b_to_w)
+    anchor_a_w = body_a.pos_w .+ R_a * joint.anchor_a_b
+    anchor_b_w = body_b.pos_w .+ R_b * joint.anchor_b_b
+    return R_a, R_b, anchor_a_w, anchor_b_w
+end
+
+"""
+    init_joint_rest!(joint, bodies)
+
+Capture `joint`'s rest reference from the current (placed) body poses, so the
+as-placed (CAD) geometry is unstrained and the joint wrench is exactly zero at
+initialization. One method per joint type; a new joint type adds a method.
+
+- [`ElasticJoint`](@ref): rest anchor offset (body-A frame) and rest relative
+  rotation `R_a' R_b`.
+- [`TimoshenkoJoint`](@ref): rest length (if unset) and per-node orientations
+  relative to the corotational element frame.
+"""
+function init_joint_rest!(joint::ElasticJoint, bodies)
+    R_a, R_b, anchor_a_w, anchor_b_w = joint_endpoint_frames(joint, bodies)
+    joint.rest_offset_a .= R_a' * (anchor_b_w .- anchor_a_w)
+    joint.R_rel0 .= R_a' * R_b
+    return nothing
+end
+
+function init_joint_rest!(joint::TimoshenkoJoint, bodies)
+    R_a, R_b, x_a, x_b = joint_endpoint_frames(joint, bodies)
+    e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, R_a)
+    element_frame = [e1[1] e2[1] e3[1];
+                     e1[2] e2[2] e3[2];
+                     e1[3] e2[3] e3[3]]
+    joint.rest_length ≈ 0 && (joint.rest_length = len)
+    joint.R_a_rel0 .= element_frame' * R_a
+    joint.R_b_rel0 .= element_frame' * R_b
+    return nothing
 end

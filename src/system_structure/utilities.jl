@@ -201,12 +201,14 @@ function validate_sys_struct(sys_struct::SystemStructure)
                   "l0 = $(segment.l0) m. This will cause division by zero.")
         end
 
-        # Warn about zero or negative stiffness/damping
-        if segment.unit_stiffness ≈ 0.0
-            @warn "Segment $(segment.name) has zero stiffness"
-        elseif segment.unit_stiffness < 0
-            @warn "Segment $(segment.name) has negative stiffness " *
-                  "$(segment.unit_stiffness) N"
+        # Warn about zero or negative stiffness/damping (callable laws self-validate).
+        if segment.unit_stiffness isa Real
+            if segment.unit_stiffness ≈ 0.0
+                @warn "Segment $(segment.name) has zero stiffness"
+            elseif segment.unit_stiffness < 0
+                @warn "Segment $(segment.name) has negative stiffness " *
+                      "$(segment.unit_stiffness) N"
+            end
         end
 
         if segment.unit_damping < 0
@@ -400,6 +402,10 @@ segments. Errors if the segments are not uniform, since the spring
 inversion in `apply_tether_init_forces!` assumes a single stiffnesys_state.
 """
 function tether_unit_stiffness(tether, segments)
+    any(!(segments[i].unit_stiffness isa Real) for i in tether.segment_idxs) &&
+        error("Tether $(tether.name): init_tether_force needs constant " *
+              "unit_stiffness; a segment has a nonlinear force law. " *
+              "Use init_stretch_frac instead.")
     stiffness_values = SimFloat[segments[seg_idx].unit_stiffness
                                 for seg_idx in tether.segment_idxs]
     stiffness = first(stiffness_values)
@@ -746,6 +752,10 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             segment.l0 = norm(point2.pos_w - point1.pos_w)
         end
     end
+
+    # Joint rest geometry, from the final placed body poses (as-placed = unstrained).
+    init_joint_rest!.(sys_struct.elastic_joints, Ref(sys_struct.bodies))
+    init_joint_rest!.(sys_struct.timoshenko_joints, Ref(sys_struct.bodies))
 
     return nothing
 end
