@@ -2170,21 +2170,21 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
     segment_label_pos = Observable(Point2f(0, 0))
     segment_label_visible = Observable(false)
     text!(scene, segment_label, position=segment_label_pos, space=:pixel,
-          fontsize=14, color=:white, strokecolor=:black, strokewidth=1,
+          fontsize=14, color=:black, overdraw=true,
           align=(:center, :center), visible=segment_label_visible, transparency=true)
 
     point1_label = Observable("")
     point1_label_pos = Observable(Point2f(0, 0))
     point1_label_visible = Observable(false)
     text!(scene, point1_label, position=point1_label_pos, space=:pixel,
-          fontsize=14, color=:white, strokecolor=:black, strokewidth=1,
+          fontsize=14, color=:black, overdraw=true,
           align=(:center, :center), visible=point1_label_visible, transparency=true)
 
     point2_label = Observable("")
     point2_label_pos = Observable(Point2f(0, 0))
     point2_label_visible = Observable(false)
     text!(scene, point2_label, position=point2_label_pos, space=:pixel,
-          fontsize=14, color=:white, strokecolor=:black, strokewidth=1,
+          fontsize=14, color=:black, overdraw=true,
           align=(:center, :center), visible=point2_label_visible, transparency=true)
 
     # --- Hover handler: find closest segment across ALL systems ---
@@ -2365,7 +2365,7 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2,
     body_label_pos = Observable(Point2f(0, 0))
     body_label_visible = Observable(false)
     text!(scene, body_label, position=body_label_pos, space=:pixel,
-          fontsize=14, color=:white, strokecolor=:black, strokewidth=1,
+          fontsize=14, color=:black, overdraw=true,
           align=(:center, :center), visible=body_label_visible, transparency=true)
 
     # Min 2D distance from the cursor to any of body `b`'s joint spokes.
