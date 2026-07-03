@@ -252,7 +252,7 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
         if set.physical_model == "simple_ram"
             n_unrefined_sections = 2
         else
-            n_unrefined_sections = 4
+            n_unrefined_sections = 6
         end
 
         return VortexStepMethod.ObjWing(obj_path, dat_path;
