@@ -150,6 +150,9 @@ function validate_weights!(weights::Vector{Float64})
     end
 end
 
+"""Declare Wing as a generic function (not an extension of VortexStepMethod.Wing)."""
+function Wing end
+
 """
     Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_principal;
          transform=nothing, y_damping=150.0, angular_damping=0.0,
