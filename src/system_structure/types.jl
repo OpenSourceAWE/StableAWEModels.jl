@@ -400,6 +400,13 @@ mutable struct TwistSurface
     moment_frac::SimFloat
     "Damping coefficient for twist dynamics [N·m·s/rad]."
     damping::SimFloat
+    "Torsional restoring stiffness for twist dynamics [N·m/rad], applied the
+    same way as `damping` (subtracted directly from the twist angular
+    acceleration, not divided by inertia again). Models the panel's own
+    structural resistance to twisting, independent of any restoring moment
+    from bridle tension geometry. Defaults to 0.0 (no effect, matching prior
+    behaviour) when not set."
+    stiffness::SimFloat
     "Current twist angle [rad]."
     twist::SimFloat
     "Current twist angular velocity [rad/s]."
@@ -433,6 +440,9 @@ using the closest VSM panel to the twist_surface's mean point position.
 
 # Keyword Arguments
 - `damping::SimFloat=50.0`: Damping coefficient for twist dynamics.
+- `stiffness::SimFloat=0.0`: Torsional restoring stiffness [N·m/rad]. Adds a
+  `-stiffness * twist_angle` term to the twist dynamics, independent of the
+  bridle-tension restoring moment. `0.0` reproduces prior behaviour exactly.
 - `x_airf=nothing`: Chord-direction reference (body frame). When given, stored as
   the `chord` field — twist is measured relative to it. Defaults to auto-derived
   from the closest VSM panel during SystemStructure construction.
@@ -446,14 +456,14 @@ using the closest VSM panel to the twist_surface's mean point position.
   computed during SystemStructure construction from the closest VSM panel.
 """
 function TwistSurface(name, points, type, moment_frac;
-                      damping=50.0, x_airf=nothing, y_airf=nothing,
+                      damping=50.0, stiffness=0.0, x_airf=nothing, y_airf=nothing,
                       area=NaN, twist=0.0)
     point_refs = Vector{NameRef}([p isa Integer ? Int(p) : Symbol(p) for p in points])
     chord_vec = isnothing(x_airf) ? zeros(KVec3) : KVec3(x_airf)
     y_vec = isnothing(y_airf) ? zeros(KVec3) : KVec3(y_airf)
     TwistSurface(0, name, Int64[], point_refs,
           zeros(KVec3), chord_vec, y_vec,
-          type, moment_frac, damping,
+          type, moment_frac, damping, stiffness,
           SimFloat(twist), 0.0, 0.0, 0.0, 0.0,
           Int64[], SimFloat(area))
 end

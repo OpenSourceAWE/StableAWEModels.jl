@@ -199,7 +199,8 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
                     fix_wing == true,
                     0,
                     twist_α[twist_surface.idx] -
-                    params.twist_surfaces[twist_surface.idx].damping * twist_ω[twist_surface.idx],
+                    params.twist_surfaces[twist_surface.idx].damping * twist_ω[twist_surface.idx] -
+                    params.twist_surfaces[twist_surface.idx].stiffness * twist_angle[twist_surface.idx],
                 )
             ]
             defaults = [

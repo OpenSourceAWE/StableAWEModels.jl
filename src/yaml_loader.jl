@@ -674,7 +674,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Create TwistSurface using new constructor (name, points, type, moment_frac)
             twist_surface = call_yaml_constructor(TwistSurface, row,
                 [:name, :points, :type, :moment_frac],
-                [:damping];
+                [:damping, :stiffness];
                 mappings=Dict(
                     :points => row -> [yaml_to_ref(point) for point in row.point_idxs],
                     :name => row -> begin
