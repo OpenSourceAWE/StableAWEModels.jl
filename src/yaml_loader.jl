@@ -323,13 +323,16 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
             [:transform, :y_damping, :angular_damping,
              :dynamics_type, :aero,
              :z_ref_points, :y_ref_points, :origin, :pos_cad,
-             :aero_scale_chord];
+             :aero_scale_chord, :n_unrefined_sections];
             mappings=Dict(
                 :set => row -> set,
                 :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
                     !isnothing(row.twist_surfaces) ?
                     [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
                 :vsm_set => row -> vsm_set,
+                :n_unrefined_sections => row -> hasfield(typeof(row), :twist_surfaces) &&
+                    !isnothing(row.twist_surfaces) ?
+                    length(row.twist_surfaces) : nothing,
                 :dynamics_type => row -> wing_type,
                 :aero => row -> mode,
                 :name => row -> begin
@@ -367,7 +370,8 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
             [:transform, :y_damping, :angular_damping,
              :dynamics_type, :aero, :aero_scale_chord,
              :aero_z_offset, :pos_cad,
-             :z_ref_points, :y_ref_points, :origin];
+             :z_ref_points, :y_ref_points, :origin,
+             :n_unrefined_sections];
             mappings=Dict(
                 :set => row -> set,
                 :aero => row -> mode,
@@ -375,6 +379,9 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                     !isnothing(row.twist_surfaces) ?
                     [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
                 :vsm_set => row -> vsm_set,
+                :n_unrefined_sections => row -> hasfield(typeof(row), :twist_surfaces) &&
+                    !isnothing(row.twist_surfaces) ?
+                    length(row.twist_surfaces) : nothing,
                 :dynamics_type => row -> wing_type,
                 :name => row -> begin
                     if haskey(row, :name) && !isnothing(row.name)
