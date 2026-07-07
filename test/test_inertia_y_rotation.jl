@@ -33,7 +33,7 @@ using LinearAlgebra
         @test isapprox(det(Ry), 1.0; atol=1e-12)
     end
 
-    @testset "matches the closed-form axis assignment for the A1-15 wing" begin
+    @testset "matches the closed-form axis assignment for a hybrid wing" begin
         # Raw (pre-diagonalization) inertia tensor of a hybrid wing,
         # as returned by `normalized_inertia`. I_xx (271.8) and I_zz (281.2)
         # are close enough that `principal_frame`'s eigendecomposition +
