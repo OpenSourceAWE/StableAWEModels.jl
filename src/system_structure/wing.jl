@@ -234,15 +234,23 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
 end
 
 """
-    create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true)
+    create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true,
+                    n_unrefined_sections=nothing)
 
 Create a `VortexStepMethod.Wing` geometry object from the settings provided.
 
 This function checks for .obj and .dat files in the model directory.
 If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the wing.
 Otherwise, it falls back to loading from `aero_geometry.yaml`.
+
+# Keywords
+- `prn=true`: Print progress info.
+- `sort_sections=true`: Sort wing sections.
+- `n_unrefined_sections`: Number of unrefined (twist) sections for the wing.
+  Defaults to `2` for `"simple_ram"`, `4` otherwise.
 """
-function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true, n_unrefined_sections=nothing)
+function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true,
+                          n_unrefined_sections=nothing)
     # Check for .obj and .dat files in the model directory
     model_dir = get_data_path()
     obj_path = joinpath(model_dir, set.model)
@@ -252,11 +260,11 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
         # Use ObjWing constructor (default path)
         prn && @info "Loading wing from .obj/.dat files"
 
-        if isnothing(n_unrefined_sections)
-            if set.physical_model == "simple_ram"
-                n_unrefined_sections = 2
+        if n_unrefined_sections === nothing
+            n_unrefined_sections = if set.physical_model == "simple_ram"
+                2
             else
-                n_unrefined_sections = 6
+                4
             end
         end
 
@@ -280,13 +288,21 @@ end
 
 """
     build_vsm_engine(set, vsm_set, dynamics_type; point_to_vsm_point=nothing,
-                     wing_segments=nothing, aero_scale_chord=0.0, aero_z_offset=0.0)
+                     wing_segments=nothing, aero_scale_chord=0.0, aero_z_offset=0.0,
+                     n_unrefined_sections=nothing)
 
 Build a [`VSMEngine`](@ref): create the VortexStepMethod `vsm_wing`/`vsm_aero`/
 `vsm_solver` and size the linearization state vectors. Aero-state sizes are
 placeholders for `RIGID_DYNAMICS` (using `n_unrefined_sections` as the
 twist_surface-count proxy) and resized by `SystemStructure` once twist_surfaces
 are resolved.
+
+# Keywords
+- `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
+- `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
+- `n_unrefined_sections`: Forwarded to [`create_vsm_wing`](@ref). When `nothing`
+  (default), the value is determined by `create_vsm_wing`'s own default logic
+  (2 for `"simple_ram"`, 4 otherwise).
 """
 function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
                           dynamics_type::WingType;

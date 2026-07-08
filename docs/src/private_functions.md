@@ -54,6 +54,7 @@ SymbolicAWEModels.apply_heading
 SymbolicAWEModels.get_rot_pos
 SymbolicAWEModels.get_base_pos
 SymbolicAWEModels.calc_aoa
+SymbolicAWEModels.calc_inertia_y_rotation
 ```
 
 ## Equations and system management
