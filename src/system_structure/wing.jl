@@ -341,6 +341,14 @@ it to the wing.
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
+- `n_unrefined_sections=nothing`: Number of coarse (unrefined) spanwise
+  sections used for twist/deformation control, before mesh refinement into
+  the full VSM panel mesh; also sizes the linearized aero I/O in
+  [`build_vsm_engine`](@ref) (twist_surface-count proxy). Only used for
+  `.obj`/`.dat`-based wings ([`create_vsm_wing`](@ref)); ignored when loading
+  from `aero_geometry.yaml`, where it is inferred from the geometry file's
+  sections instead. When `nothing`, defaults to `2` if
+  `set.physical_model == "simple_ram"`, else `6`.
 """
 function VSMWing(name, set::Settings,
                  twist_surfaces::AbstractVector,
