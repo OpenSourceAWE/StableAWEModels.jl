@@ -364,7 +364,7 @@ it to the wing.
   `.obj`/`.dat`-based wings ([`create_vsm_wing`](@ref)); ignored when loading
   from `aero_geometry.yaml`, where it is inferred from the geometry file's
   sections instead. When `nothing`, defaults to `2` if
-  `set.physical_model == "simple_ram"`, else `6`.
+  `set.physical_model == "simple_ram"`, else `4`.
 """
 function VSMWing(name, set::Settings,
                  twist_surfaces::AbstractVector,
