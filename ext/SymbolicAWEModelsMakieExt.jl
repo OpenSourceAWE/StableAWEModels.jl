@@ -3083,6 +3083,11 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
                 # Check play button
                 if mp[1] >= play_button_rect.origin[1] && mp[1] <= play_button_rect.origin[1] + play_button_rect.widths[1] &&
                    mp[2] >= play_button_rect.origin[2] && mp[2] <= play_button_rect.origin[2] + play_button_rect.widths[2]
+                    # Restart from beginning if at the end
+                    if frame_idx[] >= n_frames
+                        frame_idx[] = 1
+                        update_frame!(1)
+                    end
                     is_playing[] = !is_playing[]
                     return Consume(true)
                 end
