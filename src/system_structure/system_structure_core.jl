@@ -704,7 +704,7 @@ and `Ry` is a rotation about the Y axis by angle
 
 Unlike the generic [`principal_frame`](@ref) (full 3-axis eigendecomposition +
 a discrete permutation search), this is a closed-form, unique solution
-constrained to a rotation about Y — the right choice for a wing that's
+constrained to a rotation about Y, for a wing that's
 symmetric about the XZ-plane (no Y products of inertia), where a generic
 permutation search is ambiguous whenever two principal moments are close and
 can pick a qualitatively different (though equally valid) axis assignment
