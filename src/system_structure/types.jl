@@ -400,12 +400,13 @@ mutable struct TwistSurface
     moment_frac::SimFloat
     "Damping coefficient for twist dynamics [N·m·s/rad]."
     damping::SimFloat
-    "Torsional restoring stiffness for twist dynamics [N·m/rad], applied the
-    same way as `damping` (subtracted directly from the twist angular
-    acceleration, not divided by inertia again). Models the panel's own
-    structural resistance to twisting, independent of any restoring moment
-    from bridle tension geometry. Defaults to 0.0 (no effect, matching prior
-    behaviour) when not set."
+    "Torsional restoring stiffness for twist dynamics [N·m/rad]. The resulting
+    moment (`stiffness * twist_angle`) is divided by the twist_surface's
+    inertia, same as the aero/tether moments, before being applied to the
+    twist angular acceleration. Models the panel's own structural resistance
+    to twisting, independent of any restoring moment from bridle tension
+    geometry. Defaults to 0.0 (no effect, matching prior behaviour) when not
+    set."
     stiffness::SimFloat
     "Current twist angle [rad]."
     twist::SimFloat
@@ -441,8 +442,9 @@ using the closest VSM panel to the twist_surface's mean point position.
 # Keyword Arguments
 - `damping::SimFloat=50.0`: Damping coefficient for twist dynamics.
 - `stiffness::SimFloat=0.0`: Torsional restoring stiffness [N·m/rad]. Adds a
-  `-stiffness * twist_angle` term to the twist dynamics, independent of the
-  bridle-tension restoring moment. `0.0` reproduces prior behaviour exactly.
+  `-stiffness * twist_angle / inertia` term to the twist angular acceleration,
+  independent of the bridle-tension restoring moment. `0.0` reproduces prior
+  behaviour exactly.
 - `x_airf=nothing`: Chord-direction reference (body frame). When given, stored as
   the `chord` field — twist is measured relative to it. Defaults to auto-derived
   from the closest VSM panel during SystemStructure construction.
