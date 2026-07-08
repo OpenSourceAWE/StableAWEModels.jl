@@ -726,6 +726,9 @@ Compute a wing's body frame (`R_b_to_c`, `pos_cad`) and, for `RIGID_DYNAMICS`, i
 COM offset and principal inertia, from the WING points and ref points. This is
 dynamics/geometry only — independent of the aero mode, which does its own
 mode-specific setup afterwards in [`setup_aero!`](@ref).
+
+Without ref points the body frame keeps the CAD orientation (origin at the
+COM).
 """
 function setup_wing_frame!(wing, points; prn=true)
     if wing.dynamics_type == RIGID_DYNAMICS
@@ -746,7 +749,7 @@ function setup_wing_frame!(wing, points; prn=true)
             wing.inertia_principal .= diag(I_diag)
         end
 
-        # Body frame from ref points (else body = principal, origin = COM)
+        # Body frame from ref points (else body = CAD orientation, origin = COM)
         origin = wing.origin
         z_ref = wing.z_ref_points
         y_ref = wing.y_ref_points
@@ -765,7 +768,7 @@ function setup_wing_frame!(wing, points; prn=true)
             wing.com_offset_b .= R_b_to_c' * (com_cad - origin_cad)
         else
             wing.pos_cad .= com_cad
-            wing.R_b_to_c .= wing.R_p_to_c
+            wing.R_b_to_c .= Matrix{SimFloat}(I, 3, 3)
             wing.com_offset_b .= 0.0
         end
 
