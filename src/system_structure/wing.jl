@@ -245,7 +245,8 @@ wing, passing `n_unrefined_sections` through (`nothing` leaves the choice to
 `ObjWing`, which defaults to one unrefined section per panel boundary).
 Otherwise, it falls back to loading from `aero_geometry.yaml`.
 """
-function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true, n_unrefined_sections=nothing)
+function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
+                         prn=true, sort_sections=true, n_unrefined_sections=nothing)
     # Check for .obj and .dat files in the model directory
     model_dir = get_data_path()
     obj_path = joinpath(model_dir, set.model)
@@ -275,13 +276,21 @@ end
 
 """
     build_vsm_engine(set, vsm_set, dynamics_type; point_to_vsm_point=nothing,
-                     wing_segments=nothing, aero_scale_chord=0.0, aero_z_offset=0.0)
+                     wing_segments=nothing, aero_scale_chord=0.0, aero_z_offset=0.0,
+                     n_unrefined_sections=nothing)
 
 Build a [`VSMEngine`](@ref): create the VortexStepMethod `vsm_wing`/`vsm_aero`/
 `vsm_solver` and size the linearization state vectors. Aero-state sizes are
 placeholders for `RIGID_DYNAMICS` (using `n_unrefined_sections` as the
 twist_surface-count proxy) and resized by `SystemStructure` once twist_surfaces
 are resolved.
+
+# Keywords
+- `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
+- `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
+- `n_unrefined_sections`: Forwarded to [`create_vsm_wing`](@ref). When `nothing`
+  (default), `ObjWing` picks its own default (one unrefined section per panel
+  boundary).
 """
 function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
                           dynamics_type::WingType;
@@ -336,6 +345,14 @@ it to the wing.
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
+- `n_unrefined_sections=nothing`: Number of coarse (unrefined) spanwise
+  sections used for twist/deformation control, before mesh refinement into
+  the full VSM panel mesh; also sizes the linearized aero I/O in
+  [`build_vsm_engine`](@ref) (twist_surface-count proxy). Only used for
+  `.obj`/`.dat`-based wings ([`create_vsm_wing`](@ref)); ignored when loading
+  from `aero_geometry.yaml`, where it is inferred from the geometry file's
+  sections instead. When `nothing`, `ObjWing` picks its own default (one
+  unrefined section per panel boundary).
 """
 function VSMWing(name, set::Settings,
                  twist_surfaces::AbstractVector,
