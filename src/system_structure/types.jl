@@ -74,6 +74,23 @@ Base.@deprecate_binding QUATERNION RIGID_DYNAMICS
 Base.@deprecate_binding REFINE PARTICLE_DYNAMICS
 
 """
+    InertiaMethod
+
+Strategy for diagonalizing an inertia tensor into the principal frame.
+
+- `EIGEN_DECOMP`: full 3-axis eigendecomposition + permutation search
+  ([`principal_frame`](@ref)). General-purpose; correct for any body.
+- `Y_ROTATION`: closed-form rotation about Y only
+  ([`calc_inertia_y_rotation`](@ref)). Use for wings symmetric about the
+  XZ-plane where the generic permutation search is ambiguous when two
+  principal moments are close.
+"""
+@enum InertiaMethod begin
+    EIGEN_DECOMP
+    Y_ROTATION
+end
+
+"""
     abstract type WingDynamics
 
 Phantom tag for a wing's dynamics, carried as the second type parameter of

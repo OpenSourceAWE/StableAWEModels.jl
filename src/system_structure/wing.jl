@@ -187,7 +187,8 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
               aero::Union{Nothing,AbstractAeroModel}=nothing,
               wing_type::Union{Nothing,WingType}=nothing,
               group_points_moment::Bool=true,
-              z_ref_points=nothing, y_ref_points=nothing, origin=nothing)
+              z_ref_points=nothing, y_ref_points=nothing, origin=nothing,
+              inertia_method::InertiaMethod=EIGEN_DECOMP)
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
         if !isnothing(dynamics_type)
@@ -217,6 +218,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
         0, name, 0, transform_ref,
         zero(SimFloat), KVec3(inertia_principal),
         Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3), zeros(KVec3),
+        inertia_method,
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
         damping_vec, false, body_type,
         KVec3(pos_cad), Matrix{SimFloat}(R_b_to_c),
@@ -373,7 +375,8 @@ function VSMWing(name, set::Settings,
                  origin=nothing,
                  aero_scale_chord::SimFloat=0.0,
                  aero_z_offset::SimFloat=0.0,
-                 n_unrefined_sections=nothing)
+                 n_unrefined_sections=nothing,
+                 inertia_method::InertiaMethod=EIGEN_DECOMP)
 
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
@@ -420,7 +423,8 @@ function VSMWing(name, set::Settings,
 
     return Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
         transform, y_damping, angular_damping, dynamics_type, aero,
-        group_points_moment, z_ref_points, y_ref_points, origin)
+        group_points_moment, z_ref_points, y_ref_points, origin,
+        inertia_method)
 end
 
 """

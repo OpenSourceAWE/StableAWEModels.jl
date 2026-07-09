@@ -294,6 +294,13 @@ function parse_wing_type(text::String)
     error("Unknown WingType: $text")
 end
 
+function parse_inertia_method(text::String)
+    text_upper = uppercase(text)
+    text_upper == "EIGEN_DECOMP" && return EIGEN_DECOMP
+    text_upper == "Y_ROTATION" && return Y_ROTATION
+    error("Unknown InertiaMethod: $text")
+end
+
 function parse_aero_mode(text::String)
     key = lowercase(replace(text, "_" => ""))
     key in ("aeronone", "none") && return AeroNone()
@@ -341,7 +348,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
             [:transform, :y_damping, :angular_damping,
              :dynamics_type, :aero,
              :z_ref_points, :y_ref_points, :origin, :pos_cad,
-             :aero_scale_chord, :n_unrefined_sections];
+             :aero_scale_chord, :n_unrefined_sections, :inertia_method];
             mappings=Dict(
                 :set => row -> set,
                 :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
@@ -377,7 +384,12 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                 :pos_cad => row -> begin
                     # pos_cad is set from the origin point position during resolution.
                     nothing
-                end
+                end,
+                :inertia_method => row ->
+                    hasfield(typeof(row), :inertia_method) &&
+                    !isnothing(row.inertia_method) ?
+                        parse_inertia_method(String(row.inertia_method)) :
+                        EIGEN_DECOMP
             ))
     else  # RIGID_DYNAMICS
         # Pass raw values - constructor handles defaults
@@ -387,7 +399,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
              :dynamics_type, :aero, :aero_scale_chord,
              :aero_z_offset, :pos_cad,
              :z_ref_points, :y_ref_points, :origin,
-             :n_unrefined_sections];
+             :n_unrefined_sections, :inertia_method];
             mappings=Dict(
                 :set => row -> set,
                 :aero => row -> mode,
@@ -428,7 +440,12 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                 :y_ref_points => row ->
                     yaml_parse_ref_points(row, :y_ref_points),
                 :origin => row ->
-                    yaml_parse_origin(row, :origin_idx)
+                    yaml_parse_origin(row, :origin_idx),
+                :inertia_method => row ->
+                    hasfield(typeof(row), :inertia_method) &&
+                    !isnothing(row.inertia_method) ?
+                        parse_inertia_method(String(row.inertia_method)) :
+                        EIGEN_DECOMP
             ))
     end
 end
