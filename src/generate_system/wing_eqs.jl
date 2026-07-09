@@ -87,18 +87,6 @@ function wing_eqs!(
             Q_p_vel[:, wing.idx] ~ zeros(4)
             moment_p[:, wing.idx] ~ zeros(3)
         ]
-        # Without these, mixed KINEMATIC/DYNAMIC array defaults get `nothing` holes.
-        defaults = [
-            defaults
-            bind_initial!(initial.bodies[wing.idx].com_w,
-                collect(com_w[:, wing.idx]))
-            bind_initial!(initial.bodies[wing.idx].com_vel,
-                collect(com_vel[:, wing.idx]))
-            bind_initial!(initial.bodies[wing.idx].Q_p_to_w,
-                collect(Q_p_to_w[:, wing.idx]))
-            bind_initial!(initial.bodies[wing.idx].ω_p,
-                collect(ω_p[:, wing.idx]))
-        ]
     end
 
     return eqs, defaults
