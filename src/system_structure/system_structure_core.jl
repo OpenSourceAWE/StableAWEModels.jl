@@ -712,7 +712,7 @@ function setup_wing_frame!(wing, points; prn=true)
         if !isnothing(inertia_normalized)
             # The hook returns per-unit-mass inertia [m²]; scale once here.
             I_cad = wing.mass .* inertia_normalized
-            inertia_principal, R_c_to_p = wing.inertia_method == Y_ROTATION ?
+            inertia_principal, R_c_to_p = wing.principal_frame_method == Y_ROTATION ?
                 calc_inertia_y_rotation(I_cad) : principal_frame(I_cad)
             wing.R_p_to_c .= R_c_to_p'
             wing.inertia_principal .= inertia_principal

@@ -56,8 +56,8 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const R_p_to_c::Matrix{SimFloat}
     "Offset from body origin to COM, body frame [m]."
     const com_offset_b::KVec3
-    "Inertia diagonalization strategy (see [`InertiaMethod`](@ref))."
-    inertia_method::InertiaMethod
+    "Method used to compute the principal frame (see [`PrincipalFrameMethod`](@ref))."
+    principal_frame_method::PrincipalFrameMethod
     "External force applied at the COM, world frame [N] (settable)."
     const ext_force_w::KVec3
     "External force applied at the COM, body frame [N] (settable)."
@@ -207,7 +207,7 @@ origin (radial DOF frozen), like a `RIGID_DYNAMICS` wing's `fix_sphere`.
 Supply the inertia in one of two ways: `inertia_principal` (a length-3 diagonal
 principal inertia, with `R_b_to_p` giving the body→principal rotation), or
 `inertia` (a full 3×3 body-frame tensor), in which case both `inertia_principal`
-and `R_b_to_p` are derived via the chosen `inertia_method`. Give one, not both.
+and `R_b_to_p` are derived via the chosen `principal_frame_method`. Give one, not both.
 """
 function Body(name;
         mass::Real,
@@ -226,7 +226,7 @@ function Body(name;
         ext_force_w = zeros(SimFloat, 3),
         ext_force_b = zeros(SimFloat, 3),
         ext_moment_b = zeros(SimFloat, 3),
-        inertia_method::InertiaMethod = EIGEN_DECOMP,
+        principal_frame_method::PrincipalFrameMethod = EIGEN_DECOMP,
     )
     # Scalar damping broadcasts to an isotropic per-axis vector.
     damping_vec = damping isa Real ? KVec3(damping, damping, damping) : KVec3(damping)
@@ -236,7 +236,7 @@ function Body(name;
     if !isnothing(inertia)
         isnothing(inertia_principal) || error(
             "Body $name: give `inertia` or `inertia_principal`, not both.")
-        inertia_principal, R_b_to_p = inertia_method == Y_ROTATION ?
+        inertia_principal, R_b_to_p = principal_frame_method == Y_ROTATION ?
             calc_inertia_y_rotation(inertia) : principal_frame(inertia)
     elseif isnothing(inertia_principal)
         error("Body $name: provide `inertia_principal` or `inertia`.")
@@ -246,7 +246,7 @@ function Body(name;
     return Body{AeroNone, RigidDynamics}(
         0, name, 0, transform_ref,
         SimFloat(mass), KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
-        Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b), inertia_method,
+        Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
         damping_vec, fix_sphere, type,
         KVec3(pos), Matrix{SimFloat}(R_b_to_c),

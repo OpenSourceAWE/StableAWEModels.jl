@@ -74,9 +74,9 @@ Base.@deprecate_binding QUATERNION RIGID_DYNAMICS
 Base.@deprecate_binding REFINE PARTICLE_DYNAMICS
 
 """
-    InertiaMethod
+    PrincipalFrameMethod
 
-Strategy for diagonalizing an inertia tensor into the principal frame.
+Strategy for computing the principal frame from an inertia tensor.
 
 - `EIGEN_DECOMP`: full 3-axis eigendecomposition + permutation search
   ([`principal_frame`](@ref)). General-purpose; correct for any body.
@@ -85,7 +85,7 @@ Strategy for diagonalizing an inertia tensor into the principal frame.
   XZ-plane where the generic permutation search is ambiguous when two
   principal moments are close.
 """
-@enum InertiaMethod begin
+@enum PrincipalFrameMethod begin
     EIGEN_DECOMP
     Y_ROTATION
 end
