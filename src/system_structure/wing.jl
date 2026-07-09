@@ -234,12 +234,15 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
 end
 
 """
-    create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true)
+    create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
+                    prn=true, sort_sections=true, n_unrefined_sections=nothing)
 
 Create a `VortexStepMethod.Wing` geometry object from the settings provided.
 
 This function checks for .obj and .dat files in the model directory.
-If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the wing.
+If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the
+wing, passing `n_unrefined_sections` through (`nothing` leaves the choice to
+`ObjWing`, which defaults to one unrefined section per panel boundary).
 Otherwise, it falls back to loading from `aero_geometry.yaml`.
 """
 function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true, n_unrefined_sections=nothing)
@@ -251,14 +254,6 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
     if isfile(obj_path) && isfile(dat_path)
         # Use ObjWing constructor (default path)
         prn && @info "Loading wing from .obj/.dat files"
-
-        if isnothing(n_unrefined_sections)
-            if set.physical_model == "simple_ram"
-                n_unrefined_sections = 2
-            else
-                n_unrefined_sections = 6
-            end
-        end
 
         return VortexStepMethod.ObjWing(obj_path, dat_path;
             mass=1.0, crease_frac=set.crease_frac, n_unrefined_sections,

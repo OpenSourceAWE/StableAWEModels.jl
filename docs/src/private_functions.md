@@ -242,6 +242,7 @@ SymbolicAWEModels.restore_aero_twist!
 SymbolicAWEModels.plot_wing_aero!
 SymbolicAWEModels.update_wing_aero_plot!
 SymbolicAWEModels.load_wing
+SymbolicAWEModels.yaml_n_unrefined_sections
 ```
 
 ## VSM and aerodynamics internals

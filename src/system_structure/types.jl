@@ -301,6 +301,12 @@ Constructs a `Point` object, which can be of four different [`DynamicsType`](@re
 - `BODY_STATIC`: The point is static in a [`Body`](@ref)'s body frame
   (pass `body`); it rides the body and feeds its net force and moment into it.
 
+A `WING` point of a `PARTICLE_DYNAMICS` wing may also pass `body`: it then rides
+that [`Body`](@ref) instead of integrating Newton's law, keeping its wing
+membership (per-point aero, wing-frame fitting) while feeding its net force and
+COM moment into the body — the coupling used when the wing structure is a chain
+of bodies joined by [`TimoshenkoJoint`](@ref)s instead of spring segments.
+
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the point (e.g., `:kcu`, `:le_1`, or `1` for legacy).
 - `pos_cad::KVec3`: Position of the point in the CAD frame.
@@ -311,9 +317,9 @@ Constructs a `Point` object, which can be of four different [`DynamicsType`](@re
 - `wing::Union{Int, Symbol}=1`: Reference to the wing (name or index).
 - `transform::Union{Int, Symbol}=1`: Reference to the transform (name or index).
 - `body::Union{Int, Symbol}`: Reference to a [`Body`](@ref) to anchor the
-  point to (requires `type = BODY_STATIC`). The point then rides the body
-  kinematically and feeds its net force (and the moment about the body COM)
-  into the body. Defaults to no anchor.
+  point to (requires `type = BODY_STATIC` or `type = WING`). The point then
+  rides the body kinematically and feeds its net force (and the moment about
+  the body COM) into the body. Defaults to no anchor.
 - `anchor_b::KVec3`: Anchor offset in the body frame [m] (used with `body`).
 - `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
 - `extra_mass::Float64=0.0`: User-provided mass of the point [kg].
@@ -335,8 +341,8 @@ function Point(name, pos_cad, type;
     if type == BODY_STATIC
         isnothing(body) && error("Point $name: BODY_STATIC requires a `body` " *
             "reference to a Body.")
-    elseif !isnothing(body)
-        error("Point $name: `body` is only valid with type BODY_STATIC.")
+    elseif !isnothing(body) && type != WING
+        error("Point $name: `body` is only valid with type BODY_STATIC or WING.")
     end
     # transform 0 means no transform; a body-anchored point has no wing (wing_ref 0).
     body_ref = isnothing(body) ? 0 : body

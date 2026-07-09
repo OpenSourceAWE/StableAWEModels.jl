@@ -305,6 +305,24 @@ function parse_aero_mode(text::String)
 end
 
 """
+    yaml_n_unrefined_sections(row)
+
+Number of unrefined VSM sections for a wing `row`: the explicit
+`n_unrefined_sections` field when given, else the number of listed
+`twist_surfaces`, else `nothing` (`ObjWing` then picks its own default).
+"""
+function yaml_n_unrefined_sections(row)
+    if hasfield(typeof(row), :n_unrefined_sections) &&
+       !isnothing(row.n_unrefined_sections)
+        return Int(row.n_unrefined_sections)
+    end
+    if hasfield(typeof(row), :twist_surfaces) && !isnothing(row.twist_surfaces)
+        return length(row.twist_surfaces)
+    end
+    return nothing
+end
+
+"""
     load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type, vsm_set,
               yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin, twist_surfaces)
 
@@ -330,9 +348,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                     !isnothing(row.twist_surfaces) ?
                     [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
                 :vsm_set => row -> vsm_set,
-                :n_unrefined_sections => row -> hasfield(typeof(row), :twist_surfaces) &&
-                    !isnothing(row.twist_surfaces) ?
-                    length(row.twist_surfaces) : nothing,
+                :n_unrefined_sections => yaml_n_unrefined_sections,
                 :dynamics_type => row -> wing_type,
                 :aero => row -> mode,
                 :name => row -> begin
@@ -379,9 +395,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                     !isnothing(row.twist_surfaces) ?
                     [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
                 :vsm_set => row -> vsm_set,
-                :n_unrefined_sections => row -> hasfield(typeof(row), :twist_surfaces) &&
-                    !isnothing(row.twist_surfaces) ?
-                    length(row.twist_surfaces) : nothing,
+                :n_unrefined_sections => yaml_n_unrefined_sections,
                 :dynamics_type => row -> wing_type,
                 :name => row -> begin
                     if haskey(row, :name) && !isnothing(row.name)

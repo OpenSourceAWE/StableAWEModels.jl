@@ -693,33 +693,6 @@ end
 # ==================== CONSTRUCTOR ==================== #
 
 """
-    calc_inertia_y_rotation(I_tensor)
-
-Find the Y-axis rotation that diagonalizes the XZ block
-of the inertia tensor (zeros out `I[1,3]` and `I[3,1]`).
-
-Returns `(I_diag, Ry)` where `I_diag = Ry * I_tensor * Ry'`
-and `Ry` is a rotation about the Y axis by angle
-`θ = atan(2·I₁₃, I₁₁ − I₃₃) / 2`.
-
-Unlike the generic [`principal_frame`](@ref) (full 3-axis eigendecomposition +
-a discrete permutation search), this is a closed-form, unique solution
-constrained to a rotation about Y — the right choice for a wing that's
-symmetric about the XZ-plane (no Y products of inertia), where a generic
-permutation search is ambiguous whenever two principal moments are close and
-can pick a qualitatively different (though equally valid) axis assignment
-than the wing's actual CAD/aero-panel frame expects.
-"""
-function calc_inertia_y_rotation(I_tensor)
-    θ = atan(2 * I_tensor[1, 3],
-             I_tensor[1, 1] - I_tensor[3, 3]) / 2
-    cθ, sθ = cos(θ), sin(θ)
-    Ry = [cθ 0 sθ; 0 1 0; -sθ 0 cθ]
-    I_diag = Ry * I_tensor * Ry'
-    return I_diag, Ry
-end
-
-"""
     setup_wing_frame!(wing, points; prn=true)
 
 Compute a wing's body frame (`R_b_to_c`, `pos_cad`) and, for `RIGID_DYNAMICS`, its
@@ -739,14 +712,9 @@ function setup_wing_frame!(wing, points; prn=true)
         if !isnothing(inertia_normalized)
             # The hook returns per-unit-mass inertia [m²]; scale once here.
             I_cad = wing.mass .* inertia_normalized
-            # Wing-specific Y-axis-constrained diagonalization (not the generic
-            # `principal_frame`): a wing is symmetric about the XZ-plane, and
-            # this closed-form solution is the unique one, unlike the generic
-            # eigendecomposition's discrete permutation search (see
-            # `calc_inertia_y_rotation`'s docstring).
-            I_diag, Ry = calc_inertia_y_rotation(I_cad)
-            wing.R_p_to_c .= Ry'  # principal→CAD
-            wing.inertia_principal .= diag(I_diag)
+            inertia_principal, R_c_to_p = principal_frame(I_cad)
+            wing.R_p_to_c .= R_c_to_p'
+            wing.inertia_principal .= inertia_principal
         end
 
         # Body frame from ref points (else body = CAD orientation, origin = COM)
