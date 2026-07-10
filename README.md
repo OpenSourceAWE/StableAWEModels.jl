@@ -1,6 +1,5 @@
 # StableAWEModels
 
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://OpenSourceAWE.github.io/StableAWEModels.jl/stable)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://OpenSourceAWE.github.io/StableAWEModels.jl/dev)
 [![CI](https://github.com/OpenSourceAWE/StableAWEModels.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/OpenSourceAWE/StableAWEModels.jl/actions/workflows/CI.yml)
 [![Coverage](https://codecov.io/gh/OpenSourceAWE/StableAWEModels.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/OpenSourceAWE/StableAWEModels.jl)
