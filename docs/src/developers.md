@@ -18,8 +18,8 @@ Before you begin, ensure you have the following software installed:
 
   ```bash
   curl -fsSL https://install.julialang.org | sh
-  juliaup add release
-  juliaup default release
+  juliaup add 1.12
+  juliaup default 1.12
   ```
 
 - **Git**: For version control.
