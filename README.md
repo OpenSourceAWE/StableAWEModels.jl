@@ -5,7 +5,10 @@
 [![CI](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/actions/workflows/CI.yml)
 [![Coverage](https://codecov.io/gh/OpenSourceAWE/SymbolicAWEModels.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/OpenSourceAWE/SymbolicAWEModels.jl)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.19092013-blue.svg?logo=doi)](https://doi.org/10.5281/zenodo.19092013)
+
+## StableAWEModels vs SymbolicAWEModels
+
+This is a fork of SymbolicAWEModels from July 2026 with the goal not to introduce any braking changes for at least a year.
 
 ## Overview
 
