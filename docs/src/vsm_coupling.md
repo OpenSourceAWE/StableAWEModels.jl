@@ -1,10 +1,10 @@
 ```@meta
-CurrentModule = SymbolicAWEModels
+CurrentModule = StableAWEModels
 ```
 
 # VSM coupling
 
-This document explains how SymbolicAWEModels couples with the
+This document explains how StableAWEModels couples with the
 Vortex Step Method (VSM) for aerodynamic force computation. The
 coupling is configured by two orthogonal choices:
 [`WingType`](@ref) (structural representation) and
@@ -23,7 +23,7 @@ element that maps to VSM geometry:
   its parent unrefined section
 
 The VSM solver computes aerodynamic coefficients (cl, cd, cm,
-alpha) at both refined and unrefined levels. SymbolicAWEModels
+alpha) at both refined and unrefined levels. StableAWEModels
 uses the **unrefined-level coefficients** to map forces back to
 the structural model.
 
@@ -221,10 +221,10 @@ dynamics you support) and a cache tag:
 ```julia
 struct MyAero <: AbstractAeroModel end
 
-function SymbolicAWEModels.aero_component(::MyAero, wing::RigidWing, sys_struct; name, params)
+function StableAWEModels.aero_component(::MyAero, wing::RigidWing, sys_struct; name, params)
     # ... build and return a System with the connectors below ...
 end
-SymbolicAWEModels.aero_mode_tag(::MyAero) = "myaero"
+StableAWEModels.aero_mode_tag(::MyAero) = "myaero"
 
 Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia; aero = MyAero())
 ```
@@ -297,7 +297,7 @@ mutable struct ConstantLiftAero <: AbstractAeroModel
     CL::Float64                       # live-tunable
 end
 
-function SymbolicAWEModels.aero_component(::ConstantLiftAero,
+function StableAWEModels.aero_component(::ConstantLiftAero,
                                           wing::RigidWing, sys_struct; name, params)
     CL = params.wings[wing.idx].aero.CL   # flat param, synced live each step
     # ... use CL in the force equation ...

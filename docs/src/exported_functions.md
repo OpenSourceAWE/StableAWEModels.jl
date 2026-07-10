@@ -1,11 +1,11 @@
 ```@meta
-CurrentModule = SymbolicAWEModels
+CurrentModule = StableAWEModels
 ```
 
 # API reference
 
 This page provides a detailed reference for all public functions exported by
-`SymbolicAWEModels.jl`.
+`StableAWEModels.jl`.
 
 ## High-level simulation functions
 
@@ -71,7 +71,7 @@ segment_stretch_stats
 
 ## Visualization functions
 
-SymbolicAWEModels provides plotting functionality through a package extension that
+StableAWEModels provides plotting functionality through a package extension that
 automatically loads when you import GLMakie.
 
 ### 3D system visualization
@@ -122,7 +122,7 @@ plot(sys::SystemStructure, log::SysLog; kwargs...)
 - `size::Tuple=(1200, 800)`: Figure size in pixels
 
 !!! note "Automatic extension loading"
-    Simply `using GLMakie` after loading SymbolicAWEModels to make
+    Simply `using GLMakie` after loading StableAWEModels to make
     the `plot` functions available.
 
 ## Utility and helper functions

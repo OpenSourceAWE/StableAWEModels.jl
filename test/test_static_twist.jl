@@ -11,8 +11,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, validate_twist_surface_modes,
+using StableAWEModels
+using StableAWEModels: VortexStepMethod, validate_twist_surface_modes,
     Wing, TwistSurface
 using KiteUtils: init!, next_step!
 using LinearAlgebra

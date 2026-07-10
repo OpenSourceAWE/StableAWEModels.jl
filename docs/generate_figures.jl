@@ -12,13 +12,13 @@ import GLMakie
 GLMakie.activate!(; visible=false)
 
 using KiteUtils: init!, next_step!, update_sys_state!
-using SymbolicAWEModels: Point
+using StableAWEModels: Point
 
 # --- Section 1: Literate tutorial figures ---
 include(joinpath(@__DIR__, "src", "literate", "tutorial_julia.jl"))
 
 # --- Section 2: Standalone figures (non-Literate pages) ---
-# SymbolicAWEModels already loaded by the tutorial include above
+# StableAWEModels already loaded by the tutorial include above
 
 ASSETS = joinpath(@__DIR__, "src", "assets")
 

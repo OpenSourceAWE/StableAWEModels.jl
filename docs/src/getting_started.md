@@ -1,12 +1,12 @@
 ```@meta
-CurrentModule = SymbolicAWEModels
+CurrentModule = StableAWEModels
 ```
 
 # Getting started
 
-This guide explains how to get started with SymbolicAWEModels based on your use case.
+This guide explains how to get started with StableAWEModels based on your use case.
 
-SymbolicAWEModels supports two ways to define systems:
+StableAWEModels supports two ways to define systems:
 - **Julia constructors** — see [Building a system using Julia](tutorial_julia.md)
 - **YAML configuration files** — see [Building a system using YAML](tutorial_yaml.md)
 
@@ -20,7 +20,7 @@ The three installation paths below apply regardless of which approach you choose
 
 ## For registry users
 
-This is the recommended approach for most users who want to use SymbolicAWEModels in their projects.
+This is the recommended approach for most users who want to use StableAWEModels in their projects.
 
 ### Installation
 
@@ -38,17 +38,17 @@ This is the recommended approach for most users who want to use SymbolicAWEModel
    julia --project=.
    ```
 
-3. **Add SymbolicAWEModels and GLMakie**:
+3. **Add StableAWEModels and GLMakie**:
    ```julia
    using Pkg
-   pkg"add SymbolicAWEModels"
+   pkg"add StableAWEModels"
    pkg"add GLMakie"
    ```
 
    **Alternatively**, use the package manager mode (press `]` to enter, backspace to exit):
    ```julia
    ]  # Press ] to enter Pkg mode - prompt changes to (my_kite_project) pkg>
-   add SymbolicAWEModels
+   add StableAWEModels
    add GLMakie
    ```
 
@@ -62,9 +62,9 @@ This is the recommended approach for most users who want to use SymbolicAWEModel
 
 4. **Copy examples and data files**:
    ```julia
-   using SymbolicAWEModels
-   SymbolicAWEModels.copy_data()
-   SymbolicAWEModels.copy_examples()
+   using StableAWEModels
+   StableAWEModels.copy_data()
+   StableAWEModels.copy_examples()
    ```
 
    This will:
@@ -92,7 +92,7 @@ include("examples/coupled_2plate_kite.jl")
 Run the unit tests (can take about 60 minutes):
 
 ```julia
-pkg"test SymbolicAWEModels"
+pkg"test StableAWEModels"
 ```
 
 ---
@@ -105,8 +105,8 @@ If you've cloned the repository and want to run examples **without** modifying t
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/OpenSourceAWE/SymbolicAWEModels.jl
-   cd SymbolicAWEModels.jl
+   git clone https://github.com/OpenSourceAWE/StableAWEModels.jl
+   cd StableAWEModels.jl
    ```
 
 2. **Start Julia with the examples project**:
@@ -143,8 +143,8 @@ If you want to contribute to the package or modify its source code:
 
 1. **Fork and clone** (see the [Developer Guide](developers.md) for detailed instructions)
    ```bash
-   git clone https://github.com/<YourUsername>/SymbolicAWEModels.jl
-   cd SymbolicAWEModels.jl
+   git clone https://github.com/<YourUsername>/StableAWEModels.jl
+   cd StableAWEModels.jl
    ```
 
 2. **Install Revise.jl** globally (highly recommended):
@@ -225,11 +225,11 @@ Then open `docs/build/index.html` in your browser.
 
 | Task | Command |
 |------|---------|
-| Install from registry | `pkg"add SymbolicAWEModels"` |
-| Copy data and examples (registry users) | `SymbolicAWEModels.copy_data()` then `SymbolicAWEModels.copy_examples()` |
+| Install from registry | `pkg"add StableAWEModels"` |
+| Copy data and examples (registry users) | `StableAWEModels.copy_data()` then `StableAWEModels.copy_examples()` |
 | Run examples (cloned/dev) | `julia --project=examples` then `pkg"dev ."` |
 | Build docs locally | `julia --project=docs` then `pkg"dev ."` and `servedocs()` |
-| Run tests | `pkg"test SymbolicAWEModels"` |
+| Run tests | `pkg"test StableAWEModels"` |
 
 ---
 

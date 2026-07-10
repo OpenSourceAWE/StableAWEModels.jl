@@ -42,7 +42,7 @@ Required connector variables:
 
 Forbidden:
 - Equations whose LHS is `D(vel)` or `D(len)` (those derivatives belong to the
-  outer SymbolicAWEModels system). Internal `D(x) ~ …` for any other variable is
+  outer StableAWEModels system). Internal `D(x) ~ …` for any other variable is
   allowed.
 """
 function validate_winch_component(subsys, winch)

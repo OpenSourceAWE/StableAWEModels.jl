@@ -18,8 +18,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, VortexStepMethod
+using StableAWEModels
+using StableAWEModels: KVec3, VortexStepMethod
 using KiteUtils
 using LinearAlgebra
 using Statistics: mean
@@ -195,7 +195,7 @@ end
     @testset "Model setup" begin
         @test length(sys.bodies) == 1
         wing = sys.bodies[:main_wing]
-        @test wing.dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
+        @test wing.dynamics_type == StableAWEModels.RIGID_DYNAMICS
         @test wing.aero isa AeroNone
         @test wing.mass ≈ 3.0  # 6 points * 0.5 kg
         @test length(sys.segments) == 0

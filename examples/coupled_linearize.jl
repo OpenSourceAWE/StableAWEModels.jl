@@ -12,7 +12,7 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using KiteUtils: init!
-using SymbolicAWEModels, VortexStepMethod
+using StableAWEModels, VortexStepMethod
 using ControlSystemsBase
 using ModelingToolkit: @variables, t_nounits
 
@@ -41,7 +41,7 @@ outputs = [heading[1], angle_of_attack[1], tether_len[1],
 init!(sam; outputs, create_lin_prob=true)
 find_steady_state!(sam)
 
-(; A, B, C, D) = SymbolicAWEModels.linearize!(sam)
+(; A, B, C, D) = StableAWEModels.linearize!(sam)
 @info "Linearized" A=size(A) B=size(B) C=size(C) D=size(D)
 
 lin_sys = ss(A, B, C, D)

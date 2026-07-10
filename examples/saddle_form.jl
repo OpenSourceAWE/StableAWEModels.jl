@@ -13,8 +13,8 @@ end
 
 using GLMakie
 using KiteUtils: azimuth_east, calc_elevation, init!, next_step!, update_sys_state!
-using SymbolicAWEModels
-import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
+using StableAWEModels
+import StableAWEModels: Point  # resolve ambiguity with GLMakie
 using LinearAlgebra
 using YAML
 

@@ -6,11 +6,11 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
-using Aqua, SymbolicAWEModels, Test
+using Aqua, StableAWEModels, Test
 
 @testset "Aqua.jl" begin
     Aqua.test_all(
-        SymbolicAWEModels;
+        StableAWEModels;
         stale_deps=(ignore=[:CodecXz, :REPL],), # CodecXz is used during precompilation only
         piracies = false,                        # the norm function is doing piracy for performance reasons
         persistent_tasks = false,

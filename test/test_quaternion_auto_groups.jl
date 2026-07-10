@@ -7,8 +7,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 # Test auto-creation of twist_surfaces for RIGID_DYNAMICS wings
-using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, WING,
+using StableAWEModels
+using StableAWEModels: VortexStepMethod, WING,
     RIGID_DYNAMICS, PARTICLE_DYNAMICS
 using Test
 using LinearAlgebra

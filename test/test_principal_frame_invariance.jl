@@ -17,8 +17,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, RIGID_DYNAMICS,
+using StableAWEModels
+using StableAWEModels: VortexStepMethod, RIGID_DYNAMICS,
     quaternion_to_rotation_matrix
 using KiteUtils
 using LinearAlgebra

@@ -11,8 +11,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod
+using StableAWEModels
+using StableAWEModels: VortexStepMethod
 using KiteUtils: init!, next_step!
 using LinearAlgebra
 
@@ -34,7 +34,7 @@ sam = SymbolicAWEModel(set, sys)
 l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
 l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
 init!(sam; prn=false, remake=false, remake_vsm=false)
-SymbolicAWEModels.find_steady_state!(sam)
+StableAWEModels.find_steady_state!(sam)
 
 # Distance between each twist_surface's structural strut TE (body frame, under
 # the current twist) and the matching deformed VSM panel TE.
@@ -99,7 +99,7 @@ report("dynamic", dyn_rows)
 
 sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left - steer_mag
 sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right + steer_mag
-SymbolicAWEModels.find_steady_state!(sam)
+StableAWEModels.find_steady_state!(sam)
 eq_rows = twist_te_diffs(sam)
 report("steady", eq_rows)
 

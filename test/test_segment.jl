@@ -17,8 +17,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using StableAWEModels
+using StableAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 using Statistics
@@ -261,12 +261,12 @@ system:
 
         # Verify point properties
         anchor = sys.points[:anchor]
-        @test anchor.type == SymbolicAWEModels.STATIC
+        @test anchor.type == StableAWEModels.STATIC
         @test anchor.pos_cad == KVec3(0.0, 0.0, 0.0)
         @test anchor.extra_mass == 0.0
 
         mass_point = sys.points[:mass_point]
-        @test mass_point.type == SymbolicAWEModels.DYNAMIC
+        @test mass_point.type == StableAWEModels.DYNAMIC
         @test mass_point.pos_cad == KVec3(0.0, 0.0, -10.0)
         @test mass_point.extra_mass == 1.0
         @test mass_point.area == 0.0
@@ -467,7 +467,7 @@ system:
         # Calculate air density at final height using same model as simulation
         # Note: simulation clamps height to max(0.0, h) for density calculation
         final_height = (final_z_left + final_z_right) / 2
-        rho_air = SymbolicAWEModels.calc_rho(sam.am, max(0.0, final_height))
+        rho_air = StableAWEModels.calc_rho(sam.am, max(0.0, final_height))
 
         # Terminal velocity: v_t = sqrt(2 * m * g / (rho * cd * L * d))
         v_terminal_expected = sqrt(2 * m_total * set.g_earth / (rho_air * cd * L * d))
@@ -593,8 +593,8 @@ system:
         @test final_height > 0
 
         # Calculate air density at altitude (no clamping needed since h > 0)
-        rho_at_altitude = SymbolicAWEModels.calc_rho(sam.am, final_height)
-        rho_at_sea_level = SymbolicAWEModels.calc_rho(sam.am, 0.0)
+        rho_at_altitude = StableAWEModels.calc_rho(sam.am, final_height)
+        rho_at_sea_level = StableAWEModels.calc_rho(sam.am, 0.0)
 
         # Air should be thinner at altitude
         @test rho_at_altitude < rho_at_sea_level

@@ -1,17 +1,17 @@
 ```@meta
-CurrentModule = SymbolicAWEModels
+CurrentModule = StableAWEModels
 ```
 
 # Examples
 
 ## Visualization with GLMakie
 
-SymbolicAWEModels provides plotting functionality through a package extension that
+StableAWEModels provides plotting functionality through a package extension that
 automatically loads when you use GLMakie. Simply `using GLMakie` after loading
-SymbolicAWEModels to enable all plotting functions.
+StableAWEModels to enable all plotting functions.
 
 ```julia
-using SymbolicAWEModels
+using StableAWEModels
 using GLMakie  # Automatically loads the plotting extension
 ```
 
@@ -46,10 +46,10 @@ See the [Functions](exported_functions.md) page for plotting keyword arguments.
 
 **Registry users** — copy examples and data to your project:
 ```julia
-using SymbolicAWEModels
+using StableAWEModels
 using GLMakie
-SymbolicAWEModels.copy_data()
-SymbolicAWEModels.copy_examples()
+StableAWEModels.copy_data()
+StableAWEModels.copy_examples()
 include("examples/menu.jl")  # Interactive menu
 ```
 
@@ -86,7 +86,7 @@ This example loads the 2-plate kite from YAML geometry and runs a coupled
 aerodynamic-structural simulation with a steering ramp:
 
 ```julia
-using SymbolicAWEModels, VortexStepMethod
+using StableAWEModels, VortexStepMethod
 using KiteUtils: init!, next_step!, update_sys_state!
 
 set_data_path("data/2plate_kite")

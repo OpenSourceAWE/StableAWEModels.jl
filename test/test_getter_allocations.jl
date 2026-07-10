@@ -15,7 +15,7 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
+using StableAWEModels
 using KiteUtils
 
 const GETTER_ALLOC_YAML = """
@@ -85,7 +85,7 @@ measure_getter_alloc(getter, integ, sys_struct) =
 
 "Measure allocations of one `update_sys_struct!` call (typed function barrier)."
 measure_update_alloc(prob, integ, sys_struct) =
-    @allocated SymbolicAWEModels.update_sys_struct!(prob, integ, sys_struct)
+    @allocated StableAWEModels.update_sys_struct!(prob, integ, sys_struct)
 
 @testset "Getter allocations" begin
     tmpdir = mktempdir()

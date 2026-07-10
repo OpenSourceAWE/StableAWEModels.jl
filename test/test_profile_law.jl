@@ -20,8 +20,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using StableAWEModels
+using StableAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 using SymbolicIndexingInterface: getu
@@ -136,10 +136,10 @@ system:
         @test haskey(sys.points, :dynamic_point)
 
         # Verify probe types and positions
-        @test sys.points[:probe_10m].type == SymbolicAWEModels.STATIC
+        @test sys.points[:probe_10m].type == StableAWEModels.STATIC
         @test sys.points[:probe_10m].pos_cad == KVec3(0.0, 0.0, 10.0)
         @test sys.points[:probe_500m].pos_cad == KVec3(0.0, 0.0, 500.0)
-        @test sys.points[:dynamic_point].type == SymbolicAWEModels.DYNAMIC
+        @test sys.points[:dynamic_point].type == StableAWEModels.DYNAMIC
 
         println("\n  ====== Loaded 5 static probes at heights: 10m, 50m, 100m, 200m, 500m ======\n")
     end

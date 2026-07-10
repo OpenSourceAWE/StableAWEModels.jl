@@ -35,8 +35,8 @@ if !GLMAKIE_AVAILABLE
     end
 else
 
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using StableAWEModels
+using StableAWEModels: KVec3
 using KiteUtils
 
 # ============================================================================
@@ -163,7 +163,7 @@ end
     # ================================================================
     @testset "Single-system record" begin
         outfile = joinpath(tmpdir, "single.mp4")
-        scene = SymbolicAWEModels.record(
+        scene = StableAWEModels.record(
             lg1, sys1, outfile; framerate=10)
         @test scene isa GLMakie.Scene
         @test isfile(outfile)
@@ -175,7 +175,7 @@ end
     # ================================================================
     @testset "Multi-system record" begin
         outfile = joinpath(tmpdir, "multi.mp4")
-        scene = SymbolicAWEModels.record(
+        scene = StableAWEModels.record(
             [lg1, lg2], [sys1, sys2], outfile; framerate=10)
         @test scene isa GLMakie.Scene
         @test isfile(outfile)

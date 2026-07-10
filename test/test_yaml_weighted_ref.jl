@@ -14,8 +14,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, WeightedRefPoints,
+using StableAWEModels
+using StableAWEModels: KVec3, WeightedRefPoints,
     VortexStepMethod
 using KiteUtils
 

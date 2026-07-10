@@ -4,7 +4,7 @@
 ENV["MPLBACKEND"] = "Agg"
 using KiteUtils
 using Test
-using SymbolicAWEModels
+using StableAWEModels
 
 include("util.jl")
 
@@ -33,7 +33,7 @@ if !isempty(ARGS)
     end
 end
 
-@testset verbose = true "Testing SymbolicAWEModels..." begin
+@testset verbose = true "Testing StableAWEModels..." begin
     for f in test_files
         println("--> $f")
         include(f)

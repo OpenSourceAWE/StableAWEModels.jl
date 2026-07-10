@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-module SymbolicAWEModelsMakieExt
+module StableAWEModelsMakieExt
 
 using Makie
 using UnPack
@@ -13,7 +13,7 @@ using Dates
 using LaTeXStrings
 using KiteUtils
 using KiteUtils: SysLog
-using SymbolicAWEModels
+using StableAWEModels
 using VortexStepMethod
 using GeometryBasics
 
@@ -49,7 +49,7 @@ slot appended after the structural points and panel corners in the
 mean of the wing's `WING`-type structural points (or all points).
 """
 function wing_log_pos(sl, sys, wing, k)
-    i = SymbolicAWEModels.position_slots(sys).wings[wing.idx]
+    i = StableAWEModels.position_slots(sys).wings[wing.idx]
     if i <= length(sl.X[k])
         return SVector{3, Float64}(
             sl.X[k][i], sl.Y[k][i], sl.Z[k][i])
@@ -97,24 +97,24 @@ function calculate_segment_force_colors(segments, segment_color)
     end for seg in segments]
 end
 
-function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
-        mode::SymbolicAWEModels.AbstractAeroModel;
+function StableAWEModels.plot_wing_aero!(ax, sys, wing,
+        mode::StableAWEModels.AbstractAeroModel;
         use_observables=false, geometry_obs=nothing)
     return nothing
 end
 
-function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
-        mode::SymbolicAWEModels.AbstractVSMAero;
+function StableAWEModels.plot_wing_aero!(ax, sys, wing,
+        mode::StableAWEModels.AbstractVSMAero;
         use_observables=false, geometry_obs=nothing)
     return plot!(ax, mode.vsm_aero; R_b_w=wing.R_b_to_w,
                  T_b_w=aero_plot_translation(wing), use_observables)
 end
 
-function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
+function StableAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
         use_observables=false, geometry_obs=nothing)
     quad_vertices() = [Point3f(corner)
         for twist_surface_idx in wing.twist_surface_idxs
-        for corner in SymbolicAWEModels.plate_corners(
+        for corner in StableAWEModels.plate_corners(
             sys.twist_surfaces[twist_surface_idx],
             sys.points[
                 sys.twist_surfaces[twist_surface_idx].point_idxs[1]].pos_w,
@@ -145,11 +145,11 @@ function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
     return p
 end
 
-SymbolicAWEModels.update_wing_aero_plot!(wing,
-    ::SymbolicAWEModels.AbstractAeroModel) = nothing
+StableAWEModels.update_wing_aero_plot!(wing,
+    ::StableAWEModels.AbstractAeroModel) = nothing
 
-SymbolicAWEModels.update_wing_aero_plot!(wing,
-    mode::SymbolicAWEModels.AbstractVSMAero) =
+StableAWEModels.update_wing_aero_plot!(wing,
+    mode::StableAWEModels.AbstractVSMAero) =
     plot!(mode.vsm_aero; R_b_w=wing.R_b_to_w,
           T_b_w=aero_plot_translation(wing))
 
@@ -185,12 +185,12 @@ end
 
 """World-frame `(position, R_b_to_w)` per wing, orientation from the quaternion."""
 wing_frames(sys) = [(wing.pos_w,
-    SymbolicAWEModels.quaternion_to_rotation_matrix(wing.Q_b_to_w))
+    StableAWEModels.quaternion_to_rotation_matrix(wing.Q_b_to_w))
     for wing in sys.wings]
 
 """World-frame `(position, R_b_to_w)` per rigid body, orientation from the quaternion."""
 rigid_body_frames(sys) = [(body.pos_w,
-    SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w))
+    StableAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w))
     for body in sys.bodies]
 
 """
@@ -207,8 +207,8 @@ function body_joint_spokes(sys)
     for joint in sys.elastic_joints
         body_a = sys.bodies[joint.body_a_idx]
         body_b = sys.bodies[joint.body_b_idx]
-        R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
-        R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
+        R_a = StableAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
+        R_b = StableAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
         push!(points, Point3f(body_a.pos_w),
               Point3f(body_a.pos_w .+ R_a * joint.anchor_a_b))
         push!(points, Point3f(body_b.pos_w),
@@ -375,7 +375,7 @@ function Makie.plot!(ax, sys::SystemStructure;
         plots[:vsm] = []
         use_obs = !isnothing(geometry_obs)
         for wing in sys.wings
-            p = SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, wing.aero;
+            p = StableAWEModels.plot_wing_aero!(ax, sys, wing, wing.aero;
                 use_observables=use_obs, geometry_obs)
             isnothing(p) || push!(plots[:vsm], p)
         end
@@ -396,7 +396,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                         push!(aero_origins, Point3f(wing.pos_w))
                         push!(aero_forces_raw, Vec3f(aero_force_w))
                     end
-                elseif wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
+                elseif wing.dynamics_type == StableAWEModels.PARTICLE_DYNAMICS
                     # For PARTICLE_DYNAMICS wings, plot both point forces and total wing force
                     # Plot individual point forces
                     for point in sys.points
@@ -444,7 +444,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                             push!(origins, Point3f(wing.pos_w))
                             push!(forces_raw, Vec3f(aero_force_w))
                         end
-                    elseif wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
+                    elseif wing.dynamics_type == StableAWEModels.PARTICLE_DYNAMICS
                         for point in sys_ref.points
                             if point.type == WING && point.wing_idx == wing.idx
                                 if !iszero(point.aero_force_b)
@@ -559,7 +559,7 @@ function Makie.plot!(ax, sys::SystemStructure;
 end
 
 """
-    SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
+    StableAWEModels.update_plot_observables!(sys::SystemStructure)
 
 Trigger plot updates by updating the geometry observable.
 
@@ -580,7 +580,7 @@ for step in 1:steps
 end
 ```
 """
-function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
+function StableAWEModels.update_plot_observables!(sys::SystemStructure)
     # Trigger geometry observable - this causes all @lift expressions to recompute
     if !isnothing(PLOT_GEOMETRY_OBS[])
         PLOT_GEOMETRY_OBS[][] = time()  # Use timestamp as trigger value
@@ -595,7 +595,7 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
     # through the geometry observable on their own)
     if !isnothing(PLOT_GEOMETRY_OBS[])
         for wing in sys.wings
-            SymbolicAWEModels.update_wing_aero_plot!(wing, wing.aero)
+            StableAWEModels.update_wing_aero_plot!(wing, wing.aero)
         end
     end
 
@@ -747,7 +747,7 @@ function compute_turn_radius(sl_in, _sys::SystemStructure; smooth_window=10, eps
             continue
         end
         icr = cross(v, omega) / (omega_norm^2)
-        R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[k])
+        R_b_w = StableAWEModels.quaternion_to_rotation_matrix(sl.orient[k])
         e_x = SVector{3, Float64}(R_b_w[:, 1])
         det = e_x[1] * icr[2] - e_x[2] * icr[1]
         if !isfinite(det) || abs(det) <= eps
@@ -1014,8 +1014,8 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 ωz = Vector{Float64}(undef, n - 1)
                 @inbounds for k in 1:(n - 1)
                     dt = sl.time[k + 1] - sl.time[k] + eps()
-                    R1 = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[k])
-                    R2 = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[k + 1])
+                    R1 = StableAWEModels.quaternion_to_rotation_matrix(sl.orient[k])
+                    R2 = StableAWEModels.quaternion_to_rotation_matrix(sl.orient[k + 1])
                     R_rel = R2 * R1'
                     trR = clamp((R_rel[1, 1] + R_rel[2, 2] + R_rel[3, 3] - 1) / 2, -1.0, 1.0)
                     angle = acos(trR)
@@ -1032,7 +1032,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                     ω_w = (angle / dt) .* axis
                     pos_w = wing_log_pos(sl, sys_i, wing, k)
                     e_x = SVector{3, Float64}(R1[:, 1])
-                    R_v_w = SymbolicAWEModels.calc_R_v_to_w(pos_w, e_x)
+                    R_v_w = StableAWEModels.calc_R_v_to_w(pos_w, e_x)
                     ω_v = R_v_w' * ω_w
                     ωx[k], ωy[k], ωz[k] = ω_v
                 end
@@ -1427,7 +1427,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
 
             # # computing lift and drag using the total aero force "aero_force_b"
             # # SysLog stores orientation as a quaternion; rebuild R_b_w on the fly
-            # R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[end])
+            # R_b_w = StableAWEModels.quaternion_to_rotation_matrix(sl.orient[end])
             # F_aero_b = sl.aero_force_b[end]
             # F_aero_world = R_b_w * F_aero_b
             # # Decompose aero force into drag (opposing apparent wind) and lift (perpendicular)
@@ -1630,7 +1630,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             # Calculate old heading from orientation quaternion
             old_heading_rad = similar(sl.heading)
             for i in eachindex(sl.orient)
-                R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[i])
+                R_b_w = StableAWEModels.quaternion_to_rotation_matrix(sl.orient[i])
                 R_v_w = [1.0 0.0 0.0; 0.0 -1.0 0.0; 0.0 0.0 -1.0]
                 v1 = -R_b_w[:, 1]
                 v2 = -R_v_w[:, 1]
@@ -2063,7 +2063,7 @@ function zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
     body = sys.bodies[body_idx]
     center = Vec3f(body.pos_w)
     if isnothing(distance)
-        R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
+        R = StableAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
         reach = 0.0
         for joint in sys.elastic_joints
             joint.body_a_idx == body_idx &&
@@ -2371,7 +2371,7 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2,
     # Min 2D distance from the cursor to any of body `b`'s joint spokes.
     function spoke_distance(b, mouse_2d)
         body = sys.bodies[b]
-        R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
+        R = StableAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
         origin_2d = Makie.project(scene, Point3f(body.pos_w))
         dist = Inf
         for joint in sys.elastic_joints
@@ -2816,7 +2816,7 @@ record(log, sys_struct, "output.gif"; framerate=20)
 record(log, sys_struct, "sim.mp4"; framerate=60, vector_scale=0.3)
 ```
 """
-function SymbolicAWEModels.record(lg::SysLog, sys::SystemStructure, filename::String;
+function StableAWEModels.record(lg::SysLog, sys::SystemStructure, filename::String;
                                    framerate::Int=30,
                                    vector_scale::Real=0.2,
                                    kwargs...)
@@ -2889,7 +2889,7 @@ record([log1, log2], [sys1, sys2], "output.mp4";
        framerate=60, colors=[:red, :blue])
 ```
 """
-function SymbolicAWEModels.record(
+function StableAWEModels.record(
         logs::Vector{<:SysLog},
         syss::Vector{<:SystemStructure},
         filename::String;
@@ -3226,7 +3226,7 @@ scene = replay(log, sys_struct, replay_speed=0.5, vector_scale=0.3)
 # See Also
 - `record`: For saving replay to MP4 video file
 """
-function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
+function StableAWEModels.replay(lg::SysLog, sys::SystemStructure;
                       replay_speed=1.0,
                       autoplay=false,
                       loop=false,
@@ -3287,7 +3287,7 @@ scene = replay([log1, log2], [sys1, sys2])
 scene = replay([log1, log2], [sys1, sys2], colors=[:red, :blue])
 ```
 """
-function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure};
+function StableAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure};
                       colors=Makie.wong_colors(),
                       replay_speed=1.0,
                       autoplay=false,
@@ -3355,11 +3355,11 @@ Plot elevation-azimuth trajectories as lines on a sphere surface.
 - `linewidth`: Line width for trajectories (default 2.0)
 - `size`: Figure size tuple (default (800, 800))
 """
-function SymbolicAWEModels.plot_sphere_trajectory(lg::SysLog; kwargs...)
-    SymbolicAWEModels.plot_sphere_trajectory([lg]; kwargs...)
+function StableAWEModels.plot_sphere_trajectory(lg::SysLog; kwargs...)
+    StableAWEModels.plot_sphere_trajectory([lg]; kwargs...)
 end
 
-function SymbolicAWEModels.plot_sphere_trajectory(logs::Vector{<:SysLog};
+function StableAWEModels.plot_sphere_trajectory(logs::Vector{<:SysLog};
     radius=1.0,
     colors=nothing,
     labels=nothing,
@@ -3438,7 +3438,7 @@ Updates pos_b for PARTICLE_DYNAMICS wing points and shows all WING-type points.
 # Returns
 - Figure with 2D scatter plot of wing points in body frame
 """
-function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
+function StableAWEModels.plot_body_frame(sys_struct::SystemStructure;
                          extra_points=nothing,
                          dir::Symbol=:front,
                          point_size=10,
@@ -3448,7 +3448,7 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
 
     # Update pos_b for PARTICLE_DYNAMICS wing points based on current wing orientation
     for wing in wings
-        if wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
+        if wing.dynamics_type == StableAWEModels.PARTICLE_DYNAMICS
             R_w_b = wing.R_b_to_w'  # transpose to get world-to-body
             for point in points
                 if point.wing_idx == wing.idx
@@ -3459,7 +3459,7 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
     end
 
     # Collect WING points
-    wing_points = [p for p in points if p.type == SymbolicAWEModels.WING]
+    wing_points = [p for p in points if p.type == StableAWEModels.WING]
 
     # Extract coordinates and depth based on viewing direction
     # :front = looking in +x direction (shows y-z plane)
@@ -3665,7 +3665,7 @@ Plot the angle of attack distribution along the wing span.
 # Returns
 - Figure with angle of attack vs panel index
 """
-function SymbolicAWEModels.plot_aoa(sys_struct::SystemStructure;
+function StableAWEModels.plot_aoa(sys_struct::SystemStructure;
                                     wing_idx::Int=1,
                                     figsize=(800, 400))
     wing = sys_struct.wings[wing_idx]

@@ -23,8 +23,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using StableAWEModels
+using StableAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 
@@ -142,7 +142,7 @@ end
         rb.ext_moment_b .= [torque, 0.0, 0.0]
         test_init!(sam; prn=false)
         settle!(sam, rb)
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
+        R_b_to_w = StableAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
         twist = asin(clamp(R_b_to_w[3, 2], -1.0, 1.0))
         @info "Torsion: φ = TL/GJ." measured=twist expected=(torque * beam_length / GJ)
         @test twist ≈ torque * beam_length / GJ rtol=5e-4
@@ -157,9 +157,9 @@ end
     EI0 = 100.0; bend_slope = 400.0
     eps_knots = collect(-0.02:0.001:0.02)
     kappa_knots = collect(-0.12:0.005:0.12)
-    EA_law = SymbolicAWEModels.LinearInterpolation(
+    EA_law = StableAWEModels.LinearInterpolation(
         EA0 .- axial_slope .* abs.(eps_knots), eps_knots)
-    EIy_law = SymbolicAWEModels.LinearInterpolation(
+    EIy_law = StableAWEModels.LinearInterpolation(
         EI0 .- bend_slope .* abs.(kappa_knots), kappa_knots)
 
     nodeA2 = Body(:nodeA; mass=1.0, inertia_principal=inertia,

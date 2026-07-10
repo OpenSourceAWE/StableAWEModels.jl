@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: MIT
 
 # This script creates a precompiled system image for faster startup of the examples.
-# It is useful only when SymbolicAWEModels.jl is checked out as a git repository
+# It is useful only when StableAWEModels.jl is checked out as a git repository
 # (i.e., used in development mode, not installed as a regular package).
-# It includes most of the dependencies of the examples, but not SymbolicAWEModels.jl itself.
+# It includes most of the dependencies of the examples, but not StableAWEModels.jl itself.
 # This means you can still use Revise for the main package while benefiting from 
 # faster startup of the examples.
 
@@ -128,7 +128,7 @@ if [ -d src ]; then
 fi
 # Run precompilation for all required packages
 $JULIA_CMD --startup-file=no --project -J "$SOFILE" -e '
-    using SymbolicAWEModels, KiteUtils, VortexStepMethod
+    using StableAWEModels, KiteUtils, VortexStepMethod
 '
 
 # --- 6. Restore Environment ---

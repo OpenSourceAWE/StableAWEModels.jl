@@ -15,7 +15,7 @@ end
 using GLMakie
 using LinearAlgebra
 using KiteUtils: init!, next_step!, update_sys_state!
-using SymbolicAWEModels, VortexStepMethod
+using StableAWEModels, VortexStepMethod
 
 MODEL_NAME = "2plate_kite"
 SIM_TIME = 10.0

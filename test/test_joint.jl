@@ -20,7 +20,7 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
+using StableAWEModels
 using KiteUtils
 using LinearAlgebra
 using Statistics: mean
@@ -202,7 +202,7 @@ end
         # zero-alloc function barrier, and the Dual derivative through the interp.
         EA = 100.0
         knots = collect(-0.6:0.05:0.6)
-        f_axial = SymbolicAWEModels.LinearInterpolation(EA .* knots, knots)
+        f_axial = StableAWEModels.LinearInterpolation(EA .* knots, knots)
         b1i = Body(:b1; mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
         b2i = Body(:b2; mass=1.0, inertia_principal=inertia, pos=[1.0, 0.0, 0.0])
         joint_i = ElasticJoint(:j1, :b1, :b2;
@@ -265,7 +265,7 @@ end
         for _ in 1:50
             next_step!(sam_r; dt=0.01, vsm_interval=0)
         end
-        R_meas = SymbolicAWEModels.quaternion_to_rotation_matrix(nodeB.Q_b_to_w)
+        R_meas = StableAWEModels.quaternion_to_rotation_matrix(nodeB.Q_b_to_w)
         @info "Body B unmoved ⇒ wrench was zero at the placed config." drift=norm(nodeB.pos_w - pos0)
         @test norm(nodeB.pos_w - pos0) < 1e-7
         @test norm(nodeB.vel_w) < 1e-7

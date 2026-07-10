@@ -1,5 +1,5 @@
 ```@meta
-CurrentModule = SymbolicAWEModels
+CurrentModule = StableAWEModels
 ```
 ## Configuration
 To configure the parameters of the kite models, edit the file `data/settings.yaml`, or

@@ -5,7 +5,7 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 using Makie, VortexStepMethod
-using SymbolicAWEModels
+using StableAWEModels
 using Documenter
 using Literate
 
@@ -37,18 +37,18 @@ for file in readdir(literate_dir)
     end
 end
 
-DocMeta.setdocmeta!(SymbolicAWEModels, :DocTestSetup, :(using SymbolicAWEModels); recursive=true)
+DocMeta.setdocmeta!(StableAWEModels, :DocTestSetup, :(using StableAWEModels); recursive=true)
 
 makedocs(;
-    modules=[SymbolicAWEModels],
+    modules=[StableAWEModels],
     authors="Uwe Fechner <fechner@aenarete.eu>, Bart van de Lint <bart@vandelint.net> and contributors",
-    repo="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/{commit}{path}#{line}",
-    sitename="SymbolicAWEModels.jl",
+    repo="https://github.com/OpenSourceAWE/StableAWEModels.jl/blob/{commit}{path}#{line}",
+    sitename="StableAWEModels.jl",
     warnonly=[:cross_references],
     format=Documenter.HTML(;
-        repolink = "https://github.com/OpenSourceAWE/SymbolicAWEModels.jl",
+        repolink = "https://github.com/OpenSourceAWE/StableAWEModels.jl",
         prettyurls=get(ENV, "CI", "false") == "true",
-        canonical="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl",
+        canonical="https://OpenSourceAWE.github.io/StableAWEModels.jl",
         assets=String[],
         size_threshold=300 * 1024,
     ),
@@ -70,6 +70,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/OpenSourceAWE/SymbolicAWEModels.jl",
+    repo="github.com/OpenSourceAWE/StableAWEModels.jl",
     devbranch="main",
 )

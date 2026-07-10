@@ -1,14 +1,14 @@
 ```@meta
-CurrentModule = SymbolicAWEModels
+CurrentModule = StableAWEModels
 ```
 
-# SymbolicAWEModels.jl
+# StableAWEModels.jl
 
-Documentation for [SymbolicAWEModels.jl](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl).
+Documentation for [StableAWEModels.jl](https://github.com/OpenSourceAWE/StableAWEModels.jl).
 
-## What is SymbolicAWEModels.jl?
+## What is StableAWEModels.jl?
 
-SymbolicAWEModels.jl is a **compiler** for mechanical systems, built for
+StableAWEModels.jl is a **compiler** for mechanical systems, built for
 **Airborne Wind Energy** (AWE) modelling. It takes a structural description
 of a system — defined in Julia code or a YAML file — and compiles it into
 an efficient ODE problem using [ModelingToolkit.jl](https://github.com/SciML/ModelingToolkit.jl).
@@ -40,7 +40,7 @@ juliaup add release
 juliaup default release
 ```
 
-Create a project and add SymbolicAWEModels:
+Create a project and add StableAWEModels:
 
 ```bash
 mkdir my_project && cd my_project
@@ -49,13 +49,13 @@ julia --project="."
 
 ```julia
 using Pkg
-pkg"add SymbolicAWEModels"
+pkg"add StableAWEModels"
 ```
 
 ### Minimal example (Julia)
 
 ```julia
-using SymbolicAWEModels
+using StableAWEModels
 using GLMakie
 using KiteUtils: init!, next_step!, update_sys_state!
 
@@ -91,7 +91,7 @@ For YAML-based model definition, see [Building a System using YAML](tutorial_yam
 
 ## What can it model?
 
-SymbolicAWEModels provides building blocks for flexible mechanical systems:
+StableAWEModels provides building blocks for flexible mechanical systems:
 
 - [`Point`](@ref) **masses** — static, dynamic, or wing-fixed nodes
 - [`Segment`](@ref) **spring-dampers** — with per-unit-length stiffness, damping, and drag
@@ -120,7 +120,7 @@ Key related packages:
 - [KiteControllers.jl](https://github.com/aenarete/KiteControllers.jl) — control algorithms
 
 Visualisation uses the built-in GLMakie extension
-(`ext/SymbolicAWEModelsMakieExt.jl`) — just `using GLMakie` to enable
+(`ext/StableAWEModelsMakieExt.jl`) — just `using GLMakie` to enable
 plotting.
 
 ## See also
@@ -128,8 +128,8 @@ plotting.
 
 ## Questions?
 If you have questions or problems, please submit an
-[issue](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/issues/new) or start a
-[discussion](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/discussions/new/choose).
+[issue](https://github.com/OpenSourceAWE/StableAWEModels.jl/issues/new) or start a
+[discussion](https://github.com/OpenSourceAWE/StableAWEModels.jl/discussions/new/choose).
 The Julia community is also very helpful:
 [Julia Discourse](https://discourse.julialang.org/).
 

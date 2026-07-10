@@ -13,8 +13,8 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using KiteUtils: init!, next_step!, update_sys_state!
-using SymbolicAWEModels, VortexStepMethod, LinearAlgebra
-using SymbolicAWEModels: Point
+using StableAWEModels, VortexStepMethod, LinearAlgebra
+using StableAWEModels: Point
 
 set_data_path("data/2plate_kite")
 set = Settings("system.yaml")
@@ -109,7 +109,7 @@ vsm_set = VortexStepMethod.VSMSettings(
 vsm_wing = VortexStepMethod.Wing(vsm_set)
 vsm_aero = BodyAerodynamics([vsm_wing])
 vsm_solver = Solver(vsm_aero, vsm_set)
-wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing,
+wings = [StableAWEModels.Wing(1, vsm_aero, vsm_wing,
     vsm_solver, [], I(3), [0.5, 0, set.l_tether + 6])]
 
 # WING-type points: 3 LE/TE pairs matching the 3 aero sections

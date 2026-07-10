@@ -11,8 +11,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, VortexStepMethod, WING,
+using StableAWEModels
+using StableAWEModels: KVec3, VortexStepMethod, WING,
     RIGID_DYNAMICS
 using KiteUtils
 using LinearAlgebra
@@ -30,7 +30,7 @@ vsm_set_path = joinpath(
     get_data_path(), "vsm_settings.yaml")
 vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
 
-sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+sys = StableAWEModels.load_sys_struct_from_yaml(
     struc_yaml; system_name="2plate_kite",
     set=set, vsm_set=vsm_set)
 
@@ -106,7 +106,7 @@ end
 
 # Apply transforms to get world-frame positions
 println("\n== Applying transforms ==")
-SymbolicAWEModels.reinit!(sys, set)
+StableAWEModels.reinit!(sys, set)
 
 println("  R_b_to_w = ", round.(wing.R_b_to_w; digits=4))
 println("  pos_w = ", round.(wing.pos_w; digits=4))

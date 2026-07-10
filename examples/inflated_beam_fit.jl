@@ -33,8 +33,8 @@
 
 using Pkg
 Pkg.activate(@__DIR__)
-using SymbolicAWEModels
-using SymbolicAWEModels: Point
+using StableAWEModels
+using StableAWEModels: Point
 using KiteUtils
 using GLMakie
 
@@ -457,7 +457,7 @@ struct InterpJointLaw{S}
     moment_peak::Float64
 end
 function InterpJointLaw(angle, moment)
-    spline = SymbolicAWEModels.CubicSpline(moment, angle)
+    spline = StableAWEModels.CubicSpline(moment, angle)
     stiffness0 = (moment[2] - moment[1]) / (angle[2] - angle[1])
     return InterpJointLaw(spline, angle[end], stiffness0, maximum(moment))
 end

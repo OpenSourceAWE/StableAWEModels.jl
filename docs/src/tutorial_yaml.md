@@ -1,5 +1,5 @@
 ```@meta
-CurrentModule = SymbolicAWEModels
+CurrentModule = StableAWEModels
 ```
 
 # Building a system using YAML
@@ -90,7 +90,7 @@ transforms:
 Load and simulate:
 
 ```julia
-using SymbolicAWEModels
+using StableAWEModels
 using KiteUtils: init!, next_step!, update_sys_state!
 
 set = Settings("system.yaml")
@@ -244,7 +244,7 @@ transforms:
 The full loading workflow for a model with aerodynamics:
 
 ```julia
-using SymbolicAWEModels, VortexStepMethod
+using StableAWEModels, VortexStepMethod
 
 set_data_path("data/2plate_kite")
 set = Settings("system.yaml")

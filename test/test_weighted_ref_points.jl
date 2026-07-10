@@ -13,8 +13,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: WeightedRefPoints, validate_weights!
+using StableAWEModels
+using StableAWEModels: WeightedRefPoints, validate_weights!
 
 @testset "WeightedRefPoints constructors" begin
     @testset "single Symbol ref" begin

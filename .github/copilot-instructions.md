@@ -1,4 +1,4 @@
-# Copilot Instructions for SymbolicAWEModels.jl
+# Copilot Instructions for StableAWEModels.jl
 
 ## Project Context
 - This repository is a Julia package for symbolic airborne wind energy models.
@@ -14,7 +14,7 @@
 ## Dependencies and Architecture
 - Reuse existing modules and utilities before adding new abstractions.
 - Avoid adding new package dependencies unless necessary and justified.
-- Keep `src/SymbolicAWEModels.jl` as the package entry point and update exports intentionally.
+- Keep `src/StableAWEModels.jl` as the package entry point and update exports intentionally.
 
 ## Testing and Validation
 - When changing behavior, add or update tests under `test/`.

@@ -15,8 +15,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using StableAWEModels
+using StableAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 
@@ -85,7 +85,7 @@ end
     # is exact, and the strain argument (not a constant) is what's exercised.
     c1 = 3000.0
     knots = collect(-0.05:0.005:0.05)
-    force_law = SymbolicAWEModels.LinearInterpolation(c1 .* knots, knots)
+    force_law = StableAWEModels.LinearInterpolation(c1 .* knots, knots)
 
     ground = Point(:ground, KVec3(0.0, 0.0, 0.0), STATIC)
     hang = Point(:hang, KVec3(0.0, 0.0, -rest_length), DYNAMIC; extra_mass=mass)

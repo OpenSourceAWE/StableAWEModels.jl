@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# KPS4 parking flight comparison: SymbolicAWEModels vs KiteModels
+# KPS4 parking flight comparison: StableAWEModels vs KiteModels
 #
 # Runs the same 30s parking flight with both packages and plots
 # a side-by-side comparison using the Makie extension.
@@ -12,8 +12,8 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using GLMakie
-using SymbolicAWEModels
-using SymbolicAWEModels: Point
+using StableAWEModels
+using StableAWEModels: Point
 using KiteModels
 using KitePodModels
 using KiteUtils: init!, next_step!, update_sys_state!
@@ -83,7 +83,7 @@ km_syslog = load_log("kps4_km")
 # ==================== SYMBOLICAWEMODELS SIMULATION ========= #
 println()
 println("=" ^ 60)
-println("Running SymbolicAWEModels simulation...")
+println("Running StableAWEModels simulation...")
 println("=" ^ 60)
 
 set = Settings("system.yaml")

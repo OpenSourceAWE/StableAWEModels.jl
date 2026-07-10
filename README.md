@@ -1,18 +1,18 @@
-# SymbolicAWEModels
+# StableAWEModels
 
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/stable)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev)
-[![CI](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/actions/workflows/CI.yml)
-[![Coverage](https://codecov.io/gh/OpenSourceAWE/SymbolicAWEModels.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/OpenSourceAWE/SymbolicAWEModels.jl)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://OpenSourceAWE.github.io/StableAWEModels.jl/stable)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://OpenSourceAWE.github.io/StableAWEModels.jl/dev)
+[![CI](https://github.com/OpenSourceAWE/StableAWEModels.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/OpenSourceAWE/StableAWEModels.jl/actions/workflows/CI.yml)
+[![Coverage](https://codecov.io/gh/OpenSourceAWE/StableAWEModels.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/OpenSourceAWE/StableAWEModels.jl)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
-## StableAWEModels vs SymbolicAWEModels
+## StableAWEModels vs StableAWEModels
 
-This is a fork of SymbolicAWEModels from July 2026 with the goal not to introduce any braking changes for at least a year.
+This is a fork of StableAWEModels from July 2026 with the goal not to introduce any braking changes for at least a year.
 
 ## Overview
 
-**SymbolicAWEModels.jl** is a **compiler** for mechanical systems, built for
+**StableAWEModels.jl** is a **compiler** for mechanical systems, built for
 **Airborne Wind Energy** (AWE) modelling. It takes a structural description
 of a system — defined in Julia code or a YAML file — and compiles it into
 an efficient ODE problem using
@@ -35,7 +35,7 @@ making subsequent runs fast (seconds).
 
 ### What can it model?
 
-SymbolicAWEModels provides building blocks for flexible mechanical systems:
+StableAWEModels provides building blocks for flexible mechanical systems:
 
 - **Point** masses — static, dynamic, or quasi-static nodes
 - **Segment** spring-dampers — with per-unit-length stiffness, damping,
@@ -64,7 +64,7 @@ juliaup add release
 juliaup default release
 ```
 
-Create a project and add SymbolicAWEModels:
+Create a project and add StableAWEModels:
 
 ```bash
 mkdir my_project && cd my_project
@@ -73,18 +73,18 @@ julia --project="."
 
 ```julia
 using Pkg
-pkg"add SymbolicAWEModels"
+pkg"add StableAWEModels"
 pkg"add GLMakie"
 ```
 
 ### Minimal example — a pendulum
 
 ```julia
-using SymbolicAWEModels
-using SymbolicAWEModels: Point
+using StableAWEModels
+using StableAWEModels: Point
 using GLMakie
 using KiteUtils: init!, next_step!
-SymbolicAWEModels.copy_data()
+StableAWEModels.copy_data()
 set_data_path("data/base")
 
 set = Settings("system.yaml")
@@ -117,22 +117,22 @@ end
 ```
 
 For the full tutorial, see
-[Building a System using Julia](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/tutorial_julia/).
+[Building a System using Julia](https://OpenSourceAWE.github.io/StableAWEModels.jl/dev/tutorial_julia/).
 For YAML-based model definition, see
-[Building a System using YAML](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/tutorial_yaml/).
+[Building a System using YAML](https://OpenSourceAWE.github.io/StableAWEModels.jl/dev/tutorial_yaml/).
 
 > **Note:** The first run will be slow (several minutes) due to
 > compilation. Subsequent runs will be much faster thanks to binary
 > caching.
 
-See the [Getting Started Guide](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/getting_started/)
+See the [Getting Started Guide](https://OpenSourceAWE.github.io/StableAWEModels.jl/dev/getting_started/)
 for detailed instructions.
 
 ---
 
 ## Kite Models
 
-SymbolicAWEModels provides the building blocks for assembling kite models
+StableAWEModels provides the building blocks for assembling kite models
 from YAML or Julia constructors. Ready-to-use kite models live in dedicated
 packages:
 
@@ -147,10 +147,10 @@ packages:
 A minimal coupled aero-structural model included in `data/2plate_kite/`:
 
 ```julia
-using SymbolicAWEModels, VortexStepMethod, GLMakie
-using SymbolicAWEModels: Point
+using StableAWEModels, VortexStepMethod, GLMakie
+using StableAWEModels: Point
 using KiteUtils: init!, next_step!
-SymbolicAWEModels.copy_data()
+StableAWEModels.copy_data()
 
 set_data_path("data/2plate_kite")
 
@@ -185,22 +185,22 @@ end
 ```
 
 <!-- markdownlint-disable-next-line MD033 -->
-<p align="center"><img src="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/stable/assets/2plate_kite_structure.png" alt="2-plate kite structure" width="70%" /></p>
+<p align="center"><img src="https://OpenSourceAWE.github.io/StableAWEModels.jl/stable/assets/2plate_kite_structure.png" alt="2-plate kite structure" width="70%" /></p>
 
 ### Running examples
 
 Copy examples to your project and run the interactive menu:
 
 ```julia
-using SymbolicAWEModels
+using StableAWEModels
 using GLMakie
-SymbolicAWEModels.copy_data()
-SymbolicAWEModels.copy_examples()
+StableAWEModels.copy_data()
+StableAWEModels.copy_examples()
 include("examples/menu.jl")
 ```
 
 `using GLMakie` enables the built-in plotting extension.
-See the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/)
+See the [Examples](https://OpenSourceAWE.github.io/StableAWEModels.jl/dev/examples/)
 page for details.
 
 ---
@@ -264,7 +264,7 @@ Key related packages:
   control algorithms
 
 Visualisation uses the built-in GLMakie extension
-(`ext/SymbolicAWEModelsMakieExt.jl`) — just `using GLMakie` to enable
+(`ext/StableAWEModelsMakieExt.jl`) — just `using GLMakie` to enable
 plotting.
 
 - [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true)
@@ -274,8 +274,8 @@ plotting.
 
 ## Questions?
 
-- Submit an [issue](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/issues/new)
-- Start a [discussion](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/discussions/new/choose)
+- Submit an [issue](https://github.com/OpenSourceAWE/StableAWEModels.jl/issues/new)
+- Start a [discussion](https://github.com/OpenSourceAWE/StableAWEModels.jl/discussions/new/choose)
 - Ask on [Julia Discourse](https://discourse.julialang.org/)
 - Email Bart van de Lint: [bart@vandelint.net](mailto:bart@vandelint.net)
 
@@ -292,24 +292,24 @@ This project is licensed under the [LGPL-3.0 License](LICENSE).
 
 ---
 
-## Citing SymbolicAWEModels
+## Citing StableAWEModels
 
-If you use SymbolicAWEModels in your research, please cite this repository:
+If you use StableAWEModels in your research, please cite this repository:
 
 ```bibtex
-@misc{SymbolicAWEModels,
+@misc{StableAWEModels,
   author = {Bart van de Lint, Uwe Fechner, Jelle Poland},
-  title = {{SymbolicAWEModels}: Symbolic airborne wind energy system models},
+  title = {{StableAWEModels}: Symbolic airborne wind energy system models},
   year = {2025},
   publisher = {GitHub},
   journal = {GitHub repository},
-  howpublished = {\url{[https://github.com/OpenSourceAWE/SymbolicAWEModels.jl]}},
+  howpublished = {\url{[https://github.com/OpenSourceAWE/StableAWEModels.jl]}},
 }
 ```
 
 ## Copyright Notice
 
-Technische Universiteit Delft hereby disclaims all copyright interest in the package "SymbolicAWEModels.jl" (symbolic models for airborne wind energy systems) written by the Author(s).
+Technische Universiteit Delft hereby disclaims all copyright interest in the package "StableAWEModels.jl" (symbolic models for airborne wind energy systems) written by the Author(s).
 
 Prof.dr. H.G.C. (Henri) Werij, Dean of Aerospace Engineering, Technische Universiteit Delft.
 

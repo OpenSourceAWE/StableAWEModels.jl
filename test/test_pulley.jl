@@ -19,8 +19,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using StableAWEModels
+using StableAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 
@@ -213,21 +213,21 @@ system:
         @test haskey(sys.points, :weight)
 
         # Verify attachment points are STATIC
-        @test sys.points[:attach_left].type == SymbolicAWEModels.STATIC
-        @test sys.points[:attach_right].type == SymbolicAWEModels.STATIC
+        @test sys.points[:attach_left].type == StableAWEModels.STATIC
+        @test sys.points[:attach_right].type == StableAWEModels.STATIC
         @test sys.points[:attach_left].pos_cad == KVec3(-2.0, 0.0, 10.0)
         @test sys.points[:attach_right].pos_cad == KVec3(2.0, 0.0, 10.0)
 
         # Verify pulley point is DYNAMIC with no extra mass
         pulley_point = sys.points[:pulley_point]
-        @test pulley_point.type == SymbolicAWEModels.DYNAMIC
+        @test pulley_point.type == StableAWEModels.DYNAMIC
         @test pulley_point.pos_cad[1] == 0.5  # Off-center at x=0.5
         @test pulley_point.extra_mass == 0.0
         @test pulley_point.body_frame_damping == KVec3(50.0, 50.0, 50.0)
 
         # Verify weight is DYNAMIC with 1.0 kg mass
         weight = sys.points[:weight]
-        @test weight.type == SymbolicAWEModels.DYNAMIC
+        @test weight.type == StableAWEModels.DYNAMIC
         @test weight.extra_mass == 1.0
 
         # Verify segments
@@ -255,7 +255,7 @@ system:
         @test haskey(sys.pulleys, :main_pulley)
 
         pulley = sys.pulleys[:main_pulley]
-        @test pulley.type == SymbolicAWEModels.DYNAMIC
+        @test pulley.type == StableAWEModels.DYNAMIC
 
         println("\n  ====== Loaded pulley system: $(length(sys.points)) points, $(length(sys.segments)) segments, $(length(sys.pulleys)) pulley ======\n")
     end

@@ -23,7 +23,7 @@ end
 
 using Test
 using LinearAlgebra
-using SymbolicAWEModels: smooth_normalize, sym_calc_R_t_to_w,
+using StableAWEModels: smooth_normalize, sym_calc_R_t_to_w,
     calc_heading, calc_R_t_to_w
 
 # Support selective test execution via command-line args

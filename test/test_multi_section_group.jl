@@ -12,8 +12,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, RIGID_DYNAMICS,
+using StableAWEModels
+using StableAWEModels: VortexStepMethod, RIGID_DYNAMICS,
     compute_spatial_twist_surface_mapping!,
     match_aero_sections_to_structure!
 using KiteUtils
@@ -35,7 +35,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     vsm_set_path; data_prefix=false)
 
 @testset "Multi-section twist_surface partition" begin
-    sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+    sys = StableAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="multi_section",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
@@ -83,7 +83,7 @@ vsm_set = VortexStepMethod.VSMSettings(
 end
 
 @testset "n_twist_surfaces > n_unrefined errors" begin
-    sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+    sys = StableAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="too_many_twist_surfaces",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]

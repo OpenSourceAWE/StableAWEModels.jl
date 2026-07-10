@@ -15,8 +15,8 @@ using Timers; tic()
 
 using GLMakie
 using KiteUtils: init!, next_step!, update_sys_state!
-using SymbolicAWEModels
-import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
+using StableAWEModels
+import StableAWEModels: Point  # resolve ambiguity with GLMakie
 toc()
 
 set_data_path(joinpath(dirname(@__DIR__), "data"))

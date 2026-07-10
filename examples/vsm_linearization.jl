@@ -31,7 +31,7 @@ using Printf
 using ForwardDiff
 using StaticArrays
 using KiteUtils: init!
-using SymbolicAWEModels, VortexStepMethod
+using StableAWEModels, VortexStepMethod
 
 # ─── Model setup ─────────────────────────────────────
 MODEL_NAME = "2plate_kite"

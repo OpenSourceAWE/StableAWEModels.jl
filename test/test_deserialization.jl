@@ -13,8 +13,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, MVec3, WING, PARTICLE_DYNAMICS,
+using StableAWEModels
+using StableAWEModels: KVec3, MVec3, WING, PARTICLE_DYNAMICS,
     VortexStepMethod
 using KiteUtils
 using LinearAlgebra

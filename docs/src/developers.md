@@ -1,11 +1,11 @@
 ```@meta
-CurrentModule = SymbolicAWEModels
+CurrentModule = StableAWEModels
 ```
 
 # Developer guide
 
 This guide provides instructions and best practices for developers contributing
-to `SymbolicAWEModels.jl`.
+to `StableAWEModels.jl`.
 
 ---
 
@@ -35,15 +35,15 @@ For Windows or macOS, check [these](https://ufechner7.github.io/2024/08/09/insta
 Follow these steps to set up your local development environment:
 
 **Fork the Repository**\
-[Fork](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/fork) the
-`SymbolicAWEModels.jl` repository on GitHub to create your own copy.
+[Fork](https://github.com/OpenSourceAWE/StableAWEModels.jl/fork) the
+`StableAWEModels.jl` repository on GitHub to create your own copy.
 
 **Clone Your Fork**\
 Clone your forked repository to your local machine. Replace `<UserName>` with
 your GitHub username.
 
 ```bash
-git clone https://github.com/<UserName>/SymbolicAWEModels.jl
+git clone https://github.com/<UserName>/StableAWEModels.jl
 ```
 
 **Configure the Upstream Remote** Add the original `OpenSourceAWE` repository as
@@ -51,8 +51,8 @@ a remote named `upstream`. This allows you to pull in the latest changes from
 the main project.
 
 ```bash
-cd SymbolicAWEModels.jl
-git remote add upstream https://github.com/OpenSourceAWE/SymbolicAWEModels.jl
+cd StableAWEModels.jl
+git remote add upstream https://github.com/OpenSourceAWE/StableAWEModels.jl
 ```
 
 **Install and precompile the packages**
@@ -62,7 +62,7 @@ cd bin
 ./install
 ```
 
-If you have the time, also create a system image, which contains all packages but `SymbolicAWEModels.jl` itself. This
+If you have the time, also create a system image, which contains all packages but `StableAWEModels.jl` itself. This
 has the advantage of a much lower startup time and the disadvantage that you need to recreate the system image after
 updating packages. On a laptop with an `AMD 7840U` CPU and 32 GB RAM on battery power this takes at least 15 minutes.
 
@@ -160,7 +160,7 @@ git push -u origin add_lei_model
 
 **Create a Pull Request** Go to the GitHub page for your fork. You should see a
 prompt to create a pull request from your new branch. Create a pull request that
-targets the `main` branch of the original `OpenSourceAWE/SymbolicAWEModels.jl`
+targets the `main` branch of the original `OpenSourceAWE/StableAWEModels.jl`
 repository. Provide a clear title and a detailed description of your changes.
 
 ---
@@ -241,7 +241,7 @@ The `examples/Project.toml` file already contains the necessary dependencies:
 
 - `GLMakie` - for visualization
 - `KiteUtils` - for utility functions
-- `SymbolicAWEModels` - the package itself
+- `StableAWEModels` - the package itself
 
 The `examples` project gets automatically activated when you run one of the examples. You can also just type `menu()` to get a menu with the examples.
 
@@ -284,14 +284,14 @@ add YourPackage
 st  # Verify the package was added
 ```
 
-**Adding packages to SymbolicAWEModels itself:**
+**Adding packages to StableAWEModels itself:**
 ```bash
 # Start Julia
 jl
 ```
 Use the package manager to add your package:
 ```julia
-]  # Enter Pkg mode - prompt shows (SymbolicAWEModels) pkg>
+]  # Enter Pkg mode - prompt shows (StableAWEModels) pkg>
 add YourPackage
 st  # Verify the package was added
 ```

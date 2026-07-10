@@ -7,15 +7,15 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
-using SymbolicAWEModels
+using StableAWEModels
 
 @testset "Testing helper functions..." begin
     path=pwd()
     tmpdir=mktempdir()
     mkpath(tmpdir)
     cd(tmpdir)
-    SymbolicAWEModels.copy_data(; force=true)
-    SymbolicAWEModels.copy_examples(; force=true)
+    StableAWEModels.copy_data(; force=true)
+    StableAWEModels.copy_examples(; force=true)
     @test isfile(joinpath(tmpdir, "examples", "menu.jl"))
     if ! Sys.iswindows()
         rm(tmpdir, recursive=true)
@@ -29,8 +29,8 @@ using SymbolicAWEModels
     mkpath(joinpath(tmpdir, "examples"))
     touch(menu_file)
     cd(tmpdir)
-    SymbolicAWEModels.copy_data(; force=false)
-    SymbolicAWEModels.copy_examples(; force=false)
+    StableAWEModels.copy_data(; force=false)
+    StableAWEModels.copy_examples(; force=false)
     @test isfile(joinpath(tmpdir, "examples", "menu.jl"))
     @test filesize(menu_file) == 0
     if ! Sys.iswindows()
@@ -52,7 +52,7 @@ using SymbolicAWEModels
 end
 
 @testset "yaml_n_unrefined_sections" begin
-    n_sections = SymbolicAWEModels.yaml_n_unrefined_sections
+    n_sections = StableAWEModels.yaml_n_unrefined_sections
     @test n_sections((; n_unrefined_sections=4)) == 4
     @test n_sections((; twist_surfaces=[:a, :b, :c])) == 3
     # An explicit value wins over the twist-surface count.

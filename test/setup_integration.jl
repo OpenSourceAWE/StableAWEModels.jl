@@ -20,12 +20,12 @@ const USER_DIR = mktempdir()
 println("  tmpdir: $USER_DIR")
 cd(USER_DIR)
 
-# Activate the temp project and dev-install SymbolicAWEModels
+# Activate the temp project and dev-install StableAWEModels
 using Pkg
 Pkg.activate(".")
 Pkg.develop(path=REPO_ROOT)
 
-using SymbolicAWEModels
+using StableAWEModels
 
 """
     extract_readme_code(heading_pattern) -> String
@@ -72,7 +72,7 @@ end
 
 @testset "End-user setup" begin
     @testset "copy_data()" begin
-        SymbolicAWEModels.copy_data()
+        StableAWEModels.copy_data()
         for d in ["data/2plate_kite", "data/base",
                   "data/saddle_form"]
             @test isdir(d)
@@ -80,7 +80,7 @@ end
     end
 
     @testset "copy_examples()" begin
-        SymbolicAWEModels.copy_examples()
+        StableAWEModels.copy_examples()
         for f in ["menu.jl", "hanging_mass.jl",
                    "catenary_line.jl", "pulley.jl",
                    "saddle_form.jl", "coupled_2plate_kite.jl",
@@ -105,7 +105,7 @@ end
         Pkg.activate(joinpath(USER_DIR, "examples"))
         # The examples Project.toml has [sources] path=".."
         # which works in the repo but not in this temp dir,
-        # so we need to explicitly dev SymbolicAWEModels here.
+        # so we need to explicitly dev StableAWEModels here.
         Pkg.develop(path=REPO_ROOT)
         Pkg.instantiate()
         for f in ["hanging_mass.jl", "catenary_line.jl",

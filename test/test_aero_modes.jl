@@ -31,8 +31,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, PARTICLE_DYNAMICS,
+using StableAWEModels
+using StableAWEModels: VortexStepMethod, PARTICLE_DYNAMICS,
     RIGID_DYNAMICS, AERO_SCALE_CHORD
 using KiteUtils
 using LinearAlgebra

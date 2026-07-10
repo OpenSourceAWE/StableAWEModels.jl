@@ -23,9 +23,9 @@ using GLMakie
 using KiteUtils: init!, next_step!
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t, D_nounits as D
-using SymbolicAWEModels
-using SymbolicAWEModels: AbstractWinchModel
-import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
+using StableAWEModels
+using StableAWEModels: AbstractWinchModel
+import StableAWEModels: Point  # resolve ambiguity with GLMakie
 
 set_data_path(joinpath(dirname(@__DIR__), "data"))
 set = Settings("base/system.yaml")
@@ -45,7 +45,7 @@ end
 CascadedLengthWinch(; v_max, K_pos, K_p, friction_epsilon=6.0) =
     CascadedLengthWinch(v_max, K_pos, K_p, friction_epsilon)
 
-function SymbolicAWEModels.winch_component(model::CascadedLengthWinch,
+function StableAWEModels.winch_component(model::CascadedLengthWinch,
         sys_struct, winch_idx; name, params)
     @variables begin
         vel(t)

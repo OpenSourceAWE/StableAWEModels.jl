@@ -3088,15 +3088,15 @@ git-tree-sha1 = "6dbb5b635c5437c68c28c2ac9e39b87138f37c0a"
 uuid = "fd094767-a336-5f1f-9728-57cf17d0bbfb"
 version = "0.2.8"
 
-[[deps.SymbolicAWEModels]]
+[[deps.StableAWEModels]]
 deps = ["AtmosphericModels", "CodecZlib", "ControlSystemsBase", "DataInterpolations", "Dates", "DocStringExtensions", "ForwardDiff", "KiteUtils", "LaTeXStrings", "LinearAlgebra", "Logging", "ModelingToolkit", "NonlinearSolve", "NonlinearSolveQuasiNewton", "OrdinaryDiffEqBDF", "OrdinaryDiffEqCore", "OrdinaryDiffEqNonlinearSolve", "Parameters", "Pkg", "PrecompileTools", "Printf", "RecipesBase", "SHA", "Serialization", "StaticArrays", "Statistics", "SteadyStateDiffEq", "Suppressor", "SymbolicIndexingInterface", "SymbolicUtils", "Symbolics", "TOML", "Tar", "Timers", "UnPack", "VortexStepMethod", "YAML"]
 path = "."
-uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
+uuid = "37e0716c-bacd-4633-a01a-47c909dd981b"
 version = "0.12.0"
 weakdeps = ["GeometryBasics", "Makie"]
 
-    [deps.SymbolicAWEModels.extensions]
-    SymbolicAWEModelsMakieExt = ["GeometryBasics", "Makie"]
+    [deps.StableAWEModels.extensions]
+    StableAWEModelsMakieExt = ["GeometryBasics", "Makie"]
 
 [[deps.SymbolicIndexingInterface]]
 deps = ["Accessors", "ArrayInterface", "RuntimeGeneratedFunctions", "StaticArraysCore"]

@@ -13,8 +13,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, Point
+using StableAWEModels
+using StableAWEModels: KVec3, Point
 using KiteUtils
 using LinearAlgebra
 
@@ -221,7 +221,7 @@ environment:
             yaml_path; system_name="init_stretched_length_r2_yaml", set=set)
 
         # init_stretched_length=200 already set from YAML; no programmatic change needed
-        SymbolicAWEModels.reinit!(sys, set)
+        StableAWEModels.reinit!(sys, set)
 
         mid = sys.points[:main_tether_point_1]
         @test mid.pos_w ≈ KVec3(0, 0, -100)
@@ -241,7 +241,7 @@ environment:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r1_yaml", set=set)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        StableAWEModels.reinit!(sys, set)
 
         @test sys.points[:mid].pos_w ≈ KVec3(0, 0, -100)
         @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
@@ -259,7 +259,7 @@ environment:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r2_downstream", set=set)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        StableAWEModels.reinit!(sys, set)
 
         @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
         @test sys.points[:downstream].pos_w ≈ KVec3(10, 0, -200)
@@ -283,11 +283,11 @@ environment:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r2_idem", set=set)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        StableAWEModels.reinit!(sys, set)
         mid_pos = copy(sys.points[:main_tether_point_1].pos_w)
         top_pos = copy(sys.points[:top].pos_w)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        StableAWEModels.reinit!(sys, set)
         @test sys.points[:main_tether_point_1].pos_w ≈ mid_pos
         @test sys.points[:top].pos_w ≈ top_pos
     end
@@ -331,7 +331,7 @@ winches:
             yaml_path; system_name="init_stretched_length_multi", set=set)
 
         sys.tethers[:tether_static].init_stretched_len = 200.0
-        SymbolicAWEModels.reinit!(sys, set)
+        StableAWEModels.reinit!(sys, set)
 
         ground_static = sys.points[:ground_static].pos_w
         @test norm(sys.points[:top].pos_w - ground_static) ≈ 200.0
@@ -339,7 +339,7 @@ winches:
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
 
         sys.tethers[:tether_winch].init_stretched_len = 100.0
-        @test_logs (:info,) match_mode=:any SymbolicAWEModels.reinit!(sys, set)
+        @test_logs (:info,) match_mode=:any StableAWEModels.reinit!(sys, set)
 
         # Placed by the mean displacement of both roots: standoff is
         # ≈ the mean target (150), offset slightly because the two
@@ -400,39 +400,39 @@ winches:
         write(yaml_path, INIT_LEN_YAML_ROUTE2)
         sys = load_sys_struct_from_yaml(yaml_path;
             system_name="init_stretched_length_r2_force", set=set)
-        SymbolicAWEModels.reinit!(sys, set)
+        StableAWEModels.reinit!(sys, set)
 
         tether = sys.tethers[:main_tether]
         segs = sys.segments
         stretched = sum(segs[si].len for si in tether.segment_idxs)
-        k = SymbolicAWEModels.tether_unit_stiffness(tether, segs)
+        k = StableAWEModels.tether_unit_stiffness(tether, segs)
         @test stretched ≈ 200.0
 
         # default: force 0, no frac → len == stretched
         @test tether.init_tether_force == 0.0
         @test isnothing(tether.init_stretch_frac)
-        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        StableAWEModels.apply_tether_init_forces!(sys)
         @test tether.len ≈ stretched
 
         # stretch_frac → len = frac * stretched; clears the force
         tether.init_stretch_frac = 0.8
         @test isnothing(tether.init_tether_force)
-        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        StableAWEModels.apply_tether_init_forces!(sys)
         @test tether.len ≈ 0.8 * stretched
 
         # stretch_frac > 1 → slack: len longer than stretched
         tether.init_stretch_frac = 1.1
-        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        StableAWEModels.apply_tether_init_forces!(sys)
         @test tether.len ≈ 1.1 * stretched
 
         # non-positive stretch_frac errors
         tether.init_stretch_frac = 0.0
-        @test_throws ErrorException SymbolicAWEModels.apply_tether_init_forces!(sys)
+        @test_throws ErrorException StableAWEModels.apply_tether_init_forces!(sys)
 
         # force → len = stretched * (1 - force/k); clears the frac
         tether.init_tether_force = 0.1 * k
         @test isnothing(tether.init_stretch_frac)
-        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        StableAWEModels.apply_tether_init_forces!(sys)
         @test tether.len ≈ stretched * 0.9
 
         # only one of force / frac may have a value at a time
@@ -470,11 +470,11 @@ winches:
             segments, tethers, winches, bodies=bodies,
             elastic_joints=joints)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        StableAWEModels.reinit!(sys, set)
 
         tip = sys.bodies[:tip]
         @test tip.pos_w[3] > 0.5
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(tip.Q_b_to_w)
+        R_b_to_w = StableAWEModels.quaternion_to_rotation_matrix(tip.Q_b_to_w)
         anchor_w = tip.pos_w .+ R_b_to_w * sys.points[:tip_anchor].anchor_b
         @test sys.points[:tip_anchor].pos_w ≈ anchor_w
         @test norm(sys.points[:tip_anchor].pos_w -

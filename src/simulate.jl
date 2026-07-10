@@ -212,12 +212,12 @@ function sim_reposition!(
             sys_struct.transforms[1].heading   = target_heading
             
             # Apply the transformation without changing velocities
-            SymbolicAWEModels.reposition!(sys_struct.transforms, sys_struct)
+            StableAWEModels.reposition!(sys_struct.transforms, sys_struct)
             
             # Reinitialize the solver to handle the state discontinuity
             local_prob = sam.prob
             if local_prob isa ProbWithAttributes
-                SymbolicAWEModels.reinit!(sam, local_prob, FBDF())
+                StableAWEModels.reinit!(sam, local_prob, FBDF())
             end
 
             if prn

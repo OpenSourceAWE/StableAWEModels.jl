@@ -16,8 +16,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: update_from_sysstate!
+using StableAWEModels
+using StableAWEModels: update_from_sysstate!
 using KiteUtils
 using LinearAlgebra
 

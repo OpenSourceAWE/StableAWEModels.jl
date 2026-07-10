@@ -10,7 +10,7 @@ end
 
 using KiteUtils
 using REPL.TerminalMenus
-using SymbolicAWEModels
+using StableAWEModels
 
 const EXCLUDE = Set(["test_for_precompile.jl", "test_menu.jl"])
 

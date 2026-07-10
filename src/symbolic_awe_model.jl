@@ -601,13 +601,13 @@ end
     get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false)
 
 Constructs a unique filename for the serialized model based on its configuration.
-The filename includes the SymbolicAWEModels version, Julia version, physical model,
+The filename includes the StableAWEModels version, Julia version, physical model,
 wing type, dynamics type, and component counts to ensure that the correct cached
 model is loaded.
 """
 function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false)
     suffix = ""
-    pkg_ver = pkgversion(SymbolicAWEModels)
+    pkg_ver = pkgversion(StableAWEModels)
     ver = "$(VERSION.major).$(VERSION.minor)"
     if precompile
         suffix = ".default"

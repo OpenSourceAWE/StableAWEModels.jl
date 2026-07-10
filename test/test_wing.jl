@@ -15,8 +15,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, VortexStepMethod
+using StableAWEModels
+using StableAWEModels: KVec3, VortexStepMethod
 using KiteUtils
 using LinearAlgebra
 
@@ -39,7 +39,7 @@ function reset_state!(sam, set)
     tf.azimuth_vel = 0.0
 
     for point in sam.sys_struct.points
-        if point.type == SymbolicAWEModels.DYNAMIC
+        if point.type == StableAWEModels.DYNAMIC
             point.fix_sphere = false
             point.fix_static = false
         end
@@ -100,13 +100,13 @@ end
     test_init!(refine_sam)
 
     sam_configs = [
-        ("PARTICLE_DYNAMICS", refine_sam, SymbolicAWEModels.PARTICLE_DYNAMICS),
-        ("RIGID_DYNAMICS", quat_sam, SymbolicAWEModels.RIGID_DYNAMICS),
+        ("PARTICLE_DYNAMICS", refine_sam, StableAWEModels.PARTICLE_DYNAMICS),
+        ("RIGID_DYNAMICS", quat_sam, StableAWEModels.RIGID_DYNAMICS),
     ]
 
     for (wtn, sam, expected_dynamics_type) in sam_configs
         is_linearized = expected_dynamics_type ==
-            SymbolicAWEModels.RIGID_DYNAMICS
+            StableAWEModels.RIGID_DYNAMICS
         dt = is_linearized ? 0.2 : 0.05
         n_steps = is_linearized ? 5 : 20
 
@@ -133,7 +133,7 @@ end
                 @test haskey(sys.points, :steering_right)
 
                 @test sys.points[:le_left].type ==
-                    SymbolicAWEModels.WING
+                    StableAWEModels.WING
 
                 @test length(sys.transforms) == 1
                 @test haskey(sys.transforms, :main_transform)
@@ -277,7 +277,7 @@ end
                 reset_state!(sam, set)
                 set.v_wind = 0.0
                 for point in sam.sys_struct.points
-                    if point.type == SymbolicAWEModels.DYNAMIC
+                    if point.type == StableAWEModels.DYNAMIC
                         point.fix_sphere = true
                     end
                 end
@@ -291,7 +291,7 @@ end
                 # PARTICLE_DYNAMICS: no separate COM, check kcu directly.
                 wing = sam.sys_struct.wings[:main_wing]
                 if expected_dynamics_type ==
-                        SymbolicAWEModels.RIGID_DYNAMICS
+                        StableAWEModels.RIGID_DYNAMICS
                     p0 = copy(wing.com_w)
                 else
                     p0 = copy(
@@ -304,7 +304,7 @@ end
                     next_step!(sam; dt, vsm_interval=0)
                 end
 
-                if expected_dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
+                if expected_dynamics_type == StableAWEModels.RIGID_DYNAMICS
                     p1 = copy(wing.com_w)
                 else
                     p1 = copy(sam.sys_struct.points[:kcu].pos_w)
@@ -326,7 +326,7 @@ end
                 reset_state!(sam, set)
                 set.v_wind = 0.0
                 for point in sam.sys_struct.points
-                    if point.type == SymbolicAWEModels.DYNAMIC
+                    if point.type == StableAWEModels.DYNAMIC
                         point.fix_static = true
                     end
                 end
@@ -336,7 +336,7 @@ end
                 # from com_w + R * pos_b), not a DYNAMIC
                 # point, so fix_static has no effect on it.
                 check_names = if expected_dynamics_type ==
-                        SymbolicAWEModels.RIGID_DYNAMICS
+                        StableAWEModels.RIGID_DYNAMICS
                     [:steering_left, :steering_right]
                 else
                     [:kcu, :steering_left,
@@ -357,7 +357,7 @@ end
                         initial_positions[name]
                     )
                     drift_tol = if expected_dynamics_type ==
-                            SymbolicAWEModels.RIGID_DYNAMICS
+                            StableAWEModels.RIGID_DYNAMICS
                         # RIGID_DYNAMICS keeps wing points on the rigid body;
                         # cross-platform solver differences can cause
                         # millimeter-level residual drift in this test.
@@ -437,7 +437,7 @@ end
                 # RIGID_DYNAMICS: use wing.aero_force_b from
                 # the ODE (Jacobian-extrapolated)
                 if expected_dynamics_type ==
-                        SymbolicAWEModels.PARTICLE_DYNAMICS
+                        StableAWEModels.PARTICLE_DYNAMICS
                     scale = 1.0 + (
                         isfinite(wing.aero_scale_chord) ?
                         wing.aero_scale_chord : 0.0)
@@ -445,7 +445,7 @@ end
                     total_force = zeros(3)
                     for p in sam.sys_struct.points
                         if p.type ==
-                                SymbolicAWEModels.WING &&
+                                StableAWEModels.WING &&
                                 p.wing_idx == wing.idx
                             total_force .+= p.aero_force_b
                         end

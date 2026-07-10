@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint and Uwe Fechner
 # SPDX-License-Identifier: LGPL-3.0-only
 
-module SymbolicAWEModels
+module StableAWEModels
 
 # ===== Dependencies ===== #
 
@@ -133,9 +133,9 @@ Basic 3-dimensional vector, stack allocated, immutable.
 """
 const SVec3    = SVector{3, SimFloat}  
 
-# Defined in ext/SymbolicAWEModelsMakieExt.jl
+# Defined in ext/StableAWEModelsMakieExt.jl
 function plot end
-# Defined in ext/SymbolicAWEModelsMakieExt.jl
+# Defined in ext/StableAWEModelsMakieExt.jl
 function plot! end
 function update_plot_observables! end
 function animate end
@@ -287,7 +287,7 @@ end
 """
     get_example_packages()
 
-Get the list of packages from examples/Project.toml, excluding SymbolicAWEModels itself.
+Get the list of packages from examples/Project.toml, excluding StableAWEModels itself.
 This ensures init_module installs the correct dependencies for running examples.
 """
 function get_example_packages()
@@ -299,8 +299,8 @@ function get_example_packages()
 
     examples_project = TOML.parsefile(examples_project_path)
     deps = get(examples_project, "deps", Dict())
-    # Exclude SymbolicAWEModels itself (it's already in the user's project)
-    return sort([name for name in keys(deps) if name != "SymbolicAWEModels"])
+    # Exclude StableAWEModels itself (it's already in the user's project)
+    return sort([name for name in keys(deps) if name != "StableAWEModels"])
 end
 
 """

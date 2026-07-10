@@ -15,13 +15,13 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using StableAWEModels
+using StableAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 using ModelingToolkit
 using ModelingToolkit: t_nounits as tt, D_nounits as DD
-using SymbolicAWEModels: AbstractWinchModel
+using StableAWEModels: AbstractWinchModel
 
 # Custom winch model for Test 9: `set_value` is a target tether length; a PD law
 # on `len` tracks it. Drum params come from the flat `params` view (mirrors
@@ -36,7 +36,7 @@ if !@isdefined(LengthTrackWinch)
     LengthTrackWinch(K_p, K_d; friction_epsilon=6.0) =
         LengthTrackWinch(K_p, K_d, friction_epsilon)
 
-    function SymbolicAWEModels.winch_component(model::LengthTrackWinch,
+    function StableAWEModels.winch_component(model::LengthTrackWinch,
             sys_struct, winch_idx; name, params)
         @variables begin
             vel(tt); len(tt); force(tt); set_value(tt)
@@ -405,7 +405,7 @@ environment:
     # falls under gravity to expected steady-state position.
     # ============================================================
     @testset "Route 2 auto-generated tether" begin
-        using SymbolicAWEModels: Point, Segment, Tether, Winch,
+        using StableAWEModels: Point, Segment, Tether, Winch,
             Transform, SystemStructure, SymbolicAWEModel,
             STATIC, DYNAMIC, init!
 
@@ -513,7 +513,7 @@ environment:
     # simulates without errors.
     # ============================================================
     @testset "Tether without winch" begin
-        using SymbolicAWEModels: Point, Segment, Tether,
+        using StableAWEModels: Point, Segment, Tether,
             Transform, SystemStructure, SymbolicAWEModel,
             STATIC, DYNAMIC
 
@@ -568,7 +568,7 @@ environment:
     # Exercises the new `len` connector.
     # ============================================================
     @testset "Custom length-tracking component" begin
-        using SymbolicAWEModels: Point, Segment, Tether, Winch,
+        using StableAWEModels: Point, Segment, Tether, Winch,
             SystemStructure, SymbolicAWEModel,
             STATIC, DYNAMIC, validate_winch_component
 

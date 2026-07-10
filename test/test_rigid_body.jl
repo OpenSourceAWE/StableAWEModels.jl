@@ -17,8 +17,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, Point
+using StableAWEModels
+using StableAWEModels: KVec3, Point
 using KiteUtils
 using LinearAlgebra
 
@@ -138,7 +138,7 @@ environment:
         for _ in 1:10
             next_step!(sam2; dt=0.01, vsm_interval=0)
         end
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
+        R_b_to_w = StableAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
         @test rb.com_w ≈ rb.pos_w .+ R_b_to_w * offset atol=1e-5
         @test norm(rb.ω_b) < 1e-6
     end
@@ -157,18 +157,18 @@ environment:
         sys3 = SystemStructure("rigid_body_transform_test", set;
             points=[ground, tip], bodies=[body3], transforms=[tf])
 
-        SymbolicAWEModels.reinit!(sys3, set)
+        StableAWEModels.reinit!(sys3, set)
 
         rb = sys3.bodies[:body3]
         r = 100.0 / sqrt(2)
         @test rb.pos_w ≈ KVec3(r, 0.0, r) atol=1e-6
         # body x-axis followed the radial from +x to the 45° elevation direction
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
+        R_b_to_w = StableAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
         @test R_b_to_w[:, 1] ≈ normalize(KVec3(1.0, 0.0, 1.0)) atol=1e-6
         # the body-anchored point rides the rotated body
         @test sys3.points[:tip].pos_w ≈ rb.pos_w atol=1e-6
         # idempotent across a second reinit!
-        SymbolicAWEModels.reinit!(sys3, set)
+        StableAWEModels.reinit!(sys3, set)
         @test rb.pos_w ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 

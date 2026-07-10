@@ -2,7 +2,7 @@
 
 ## Overview
 
-SymbolicAWEModels uses three coordinate frames to describe geometry
+StableAWEModels uses three coordinate frames to describe geometry
 and dynamics:
 
 - **CAD frame (c)**: where geometry is originally defined

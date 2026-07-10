@@ -6,7 +6,7 @@
 # explicitly from runtests.jl.
 
 using Test
-using SymbolicAWEModels
+using StableAWEModels
 using Profile
 
 """

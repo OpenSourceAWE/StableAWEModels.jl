@@ -1,10 +1,10 @@
 ```@meta
-CurrentModule = SymbolicAWEModels
+CurrentModule = StableAWEModels
 ```
 
 # Compilation pipeline
 
-SymbolicAWEModels works like a compiler: it takes a structural description and
+StableAWEModels works like a compiler: it takes a structural description and
 transforms it through several stages into an efficient numerical ODE solver.
 This page explains each stage.
 

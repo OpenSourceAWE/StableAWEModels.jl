@@ -20,8 +20,8 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
-using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, VortexStepMethod,
+using StableAWEModels
+using StableAWEModels: KVec3, VortexStepMethod,
     calc_heading, reposition!
 using KiteUtils
 using LinearAlgebra
@@ -345,7 +345,7 @@ using LinearAlgebra
     # Chained Transform Tests (using kps4_plate-style programmatic API)
     # ================================================================
     @testset "Chained Transforms" begin
-        using SymbolicAWEModels: Point, Segment, Tether, Winch,
+        using StableAWEModels: Point, Segment, Tether, Winch,
             PlateWing, TwistSurface, Transform,
             SystemStructure,
             create_plate_interpolations, get_rot_pos,
