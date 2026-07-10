@@ -6,9 +6,9 @@
 [![Coverage](https://codecov.io/gh/OpenSourceAWE/StableAWEModels.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/OpenSourceAWE/StableAWEModels.jl)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
-## StableAWEModels vs StableAWEModels
+## StableAWEModels vs SymbolicAWEModels
 
-This is a fork of StableAWEModels from July 2026 with the goal not to introduce any braking changes for at least a year.
+This is a fork of SymbolicAWEModels from July 2026 with the goal not to introduce any braking changes for at least a year.
 
 ## Overview
 
