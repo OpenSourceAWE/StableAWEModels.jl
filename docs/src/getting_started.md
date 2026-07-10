@@ -6,8 +6,7 @@ CurrentModule = StableAWEModels
 
 This guide explains how to get started with StableAWEModels based on your use case.
 
-StableAWEModels supports two ways to define systems:
-- **Julia constructors** — see [Building a system using Julia](tutorial_julia.md)
+In StableAWEModels you can define systems using YAML files:
 - **YAML configuration files** — see [Building a system using YAML](tutorial_yaml.md)
 
 The three installation paths below apply regardless of which approach you choose:
