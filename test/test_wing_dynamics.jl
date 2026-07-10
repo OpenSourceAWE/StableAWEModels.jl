@@ -199,11 +199,11 @@ end
         @test wing.aero isa AeroNone
         @test wing.mass ≈ 3.0  # 6 points * 0.5 kg
         @test length(sys.segments) == 0
-        # No ref points: body frame = CAD orientation, not principal.
-        @test wing.R_b_to_c ≈ I(3) atol=1e-12
-        @test wing.R_b_to_p ≈ wing.R_p_to_c' atol=1e-12
-        # This wing has a nonzero xz inertia product, so body ≠ principal.
-        @test !isapprox(wing.R_b_to_p, I(3); atol=0.01)
+        # No ref points: body frame = principal, not CAD orientation.
+        @test wing.R_b_to_p ≈ I(3) atol=1e-12
+        @test wing.R_b_to_c ≈ wing.R_p_to_c atol=1e-12
+        # This wing has a nonzero xz inertia product, so body ≠ CAD.
+        @test !isapprox(wing.R_b_to_c, I(3); atol=0.01)
     end
 
     sam = SymbolicAWEModel(set, sys)
