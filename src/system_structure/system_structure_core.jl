@@ -889,9 +889,11 @@ function SystemStructure(name, set;
         set_mass = hasproperty(set, :mass) ? set.mass : 0.0
 
         if set_mass > 0 && point_mass_sum > 0
-            @warn "Both set.mass ($set_mass) and wing point masses " *
-                  "($point_mass_sum) specified for wing $(wing.idx). " *
-                  "Using wing point masses (sys_struct priority)."
+            if !isapprox(set_mass, point_mass_sum; atol=1e-3)
+                @warn "Both set.mass ($set_mass) and wing point masses " *
+                      "($point_mass_sum) specified for wing $(wing.idx). " *
+                      "Using wing point masses (sys_struct priority)."
+            end
             wing.mass = point_mass_sum
         elseif point_mass_sum > 0
             wing.mass = point_mass_sum
