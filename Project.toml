@@ -1,7 +1,7 @@
-name = "SymbolicAWEModels"
-uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
-version = "0.12.0"
-authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
+name = "StableAWEModels"
+uuid = "37e0716c-bacd-4633-a01a-47c909dd981b"
+version = "1.0"
+authors = ["Bart van de Lint <bart@vandelint.net>, Uwe Fechner <uwe.fechner.msc@gmail.com> and contributors"]
 
 [workspace]
 projects = ["docs", "examples", "scripts", "test"]
@@ -50,7 +50,7 @@ GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
 [extensions]
-SymbolicAWEModelsMakieExt = ["GeometryBasics", "Makie"]
+StableAWEModelsMakieExt = ["GeometryBasics", "Makie"]
 
 [compat]
 AtmosphericModels = "0.3.2"
