@@ -21,7 +21,7 @@ an efficient ODE problem using
 ```text
  Define Components         Assemble             Compile            Simulate
 ┌──────────────────┐    ┌──────────────┐     ┌─────────────────┐     ┌────────────┐
-│ Point, Segment,  │──▶│ System       │───▶│ SymbolicAWE     │───▶│ init!()    │
+│ Point, Segment,  │───▶│ System       │────▶│ SymbolicAWE     │────▶│ init!()    │
 │ Wing, Winch, ... │    │ Structure    │     │ Model           │     │ next_step! │
 │                  │    │              │     │ (symbolic eqs → │     │ sim!()     │
 │ Julia or YAML    │    │ (resolves    │     │  ODEProblem)    │     │            │
@@ -60,8 +60,8 @@ Install Julia using [juliaup](https://github.com/JuliaLang/juliaup):
 
 ```bash
 curl -fsSL https://install.julialang.org | sh
-juliaup add release
-juliaup default release
+juliaup add 1.12
+juliaup default 1.12
 ```
 
 Create a project and add StableAWEModels:
@@ -116,8 +116,6 @@ for _ in 1:500
 end
 ```
 
-For the full tutorial, see
-[Building a System using Julia](https://OpenSourceAWE.github.io/StableAWEModels.jl/dev/tutorial_julia/).
 For YAML-based model definition, see
 [Building a System using YAML](https://OpenSourceAWE.github.io/StableAWEModels.jl/dev/tutorial_yaml/).
 
@@ -136,7 +134,7 @@ StableAWEModels provides the building blocks for assembling kite models
 from YAML or Julia constructors. Ready-to-use kite models live in dedicated
 packages:
 
-- **[RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl)** —
+- **[RamAirKites.jl](https://github.com/OpenSourceAWE/RamAirKites.jl)** —
   Ram air kite with bridle system, 4-tether steering, and deformable wing
   groups
 - **[V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl)** — TU Delft
@@ -216,10 +214,10 @@ the expected constitutive law.
 
 ```bash
 # Run all tests
-julia --project=. -e 'using Pkg; Pkg.test()'
+julia --project -e 'using Pkg; Pkg.test()'
 
 # Run a specific test file
-julia --project=test test/test_point.jl
+julia --project test/test_point.jl
 ```
 
 | Test file | What it verifies |
@@ -277,7 +275,7 @@ plotting.
 - Submit an [issue](https://github.com/OpenSourceAWE/StableAWEModels.jl/issues/new)
 - Start a [discussion](https://github.com/OpenSourceAWE/StableAWEModels.jl/discussions/new/choose)
 - Ask on [Julia Discourse](https://discourse.julialang.org/)
-- Email Bart van de Lint: [bart@vandelint.net](mailto:bart@vandelint.net)
+- Email Uwe Fechner: [uwe.fechner.msc@gmail.com](mailto:uwe.fechner.msc@gmail.com)
 
 **Authors:**
 Bart van de Lint ([bart@vandelint.net](mailto:bart@vandelint.net))
