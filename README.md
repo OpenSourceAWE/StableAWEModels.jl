@@ -7,7 +7,7 @@
 
 ## StableAWEModels vs SymbolicAWEModels
 
-This is a fork of SymbolicAWEModels from July 2026 with the goal not to introduce any braking changes for at least a year.
+This is a fork of [SymbolicAWEModels](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/tree/main) from July 2026 with the goal not to introduce any braking changes for at least a year.
 
 ## Overview
 
