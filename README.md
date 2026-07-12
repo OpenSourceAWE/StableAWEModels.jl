@@ -294,13 +294,13 @@ This project is licensed under the [LGPL-3.0 License](LICENSE).
 If you use StableAWEModels in your research, please cite this repository:
 
 ```bibtex
-@misc{StableAWEModels,
+@misc{SymbolicAWEModels,
   author = {Bart van de Lint, Uwe Fechner, Jelle Poland},
-  title = {{StableAWEModels}: Symbolic airborne wind energy system models},
+  title = {{SymbolicAWEModels}: Symbolic airborne wind energy system models},
   year = {2025},
   publisher = {GitHub},
   journal = {GitHub repository},
-  howpublished = {\url{[https://github.com/OpenSourceAWE/StableAWEModels.jl]}},
+  howpublished = {\url{[https://github.com/OpenSourceAWE/SymbolicAWEModels.jl]}},
 }
 ```
 
