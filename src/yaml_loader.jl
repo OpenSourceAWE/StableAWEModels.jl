@@ -488,8 +488,11 @@ end
 
 Build a `SystemStructure` from a component-based structural
 YAML file. See source for full documentation of expected blocks.
+
+- `prn::Bool=true`: If false, suppress `@info` messages during
+  construction, e.g. when several root tethers share a structure.
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AbstractAeroModel}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing, wing_type::Union{Nothing,WingType}=nothing)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AbstractAeroModel}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing, wing_type::Union{Nothing,WingType}=nothing, prn::Bool=true)
     if !isnothing(wing_type)
         if !isnothing(dynamics_type)
             error("Cannot specify both `wing_type` and `dynamics_type`; `wing_type` is deprecated, use `dynamics_type`.")
@@ -962,5 +965,5 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     # The SystemStructure constructor handles WING->STATIC when no wings exist.
     return SystemStructure(system_name, resolved_set; points, twist_surfaces,
         segments, pulleys, tethers, winches, wings,
-        transforms, ignore_l0, vsm_set)
+        transforms, ignore_l0, vsm_set, prn)
 end
