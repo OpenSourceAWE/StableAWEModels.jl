@@ -693,17 +693,20 @@ end
 # ==================== CONSTRUCTOR ==================== #
 
 """
-    setup_wing_frame!(wing, points; prn=true)
+    setup_wing_frame!(wing, points, set; prn=true)
 
 Compute a wing's body frame (`R_b_to_c`, `pos_cad`) and, for `RIGID_DYNAMICS`, its
 COM offset and principal inertia, from the WING points and ref points. This is
 dynamics/geometry only — independent of the aero mode, which does its own
 mode-specific setup afterwards in [`setup_aero!`](@ref).
 
-Without ref points the body frame is the principal-inertia frame (origin at
-the COM).
+Without ref points, the body frame fallback depends on `set.version`:
+- Version 1 (default): the principal-inertia frame (origin at the COM).
+- Version 2: the CAD frame orientation (origin at the COM). Only sensible if the
+  CAD frame's x-axis points from the leading edge point at the center to the
+  trailing edge point at the center.
 """
-function setup_wing_frame!(wing, points; prn=true)
+function setup_wing_frame!(wing, points, set; prn=true)
     if wing.dynamics_type == RIGID_DYNAMICS
         any(point.type == WING && point.wing_idx == wing.idx
             for point in points) || return nothing
@@ -737,7 +740,8 @@ function setup_wing_frame!(wing, points; prn=true)
             wing.com_offset_b .= R_b_to_c' * (com_cad - origin_cad)
         else
             wing.pos_cad .= com_cad
-            wing.R_b_to_c .= wing.R_p_to_c
+            wing.R_b_to_c .= set.version == 2 ?
+                Matrix{SimFloat}(I, 3, 3) : wing.R_p_to_c
             wing.com_offset_b .= 0.0
         end
 
@@ -913,7 +917,7 @@ function SystemStructure(name, set;
 
     # Body frame + COM/principal inertia (dynamics, independent of aero mode).
     for wing in wings
-        setup_wing_frame!(wing, points; prn)
+        setup_wing_frame!(wing, points, set; prn)
     end
 
     # Per-mode aero construction (dispatched; no-op for modes without an engine).

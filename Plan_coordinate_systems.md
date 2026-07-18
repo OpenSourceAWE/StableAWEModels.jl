@@ -18,7 +18,7 @@ A fourth composed rotation, R_b_to_p = R_p_to_c' * R_b_to_c (body → principal)
 
 So the naming convention throughout is R_x_to_y: rotates a vector expressed in frame x into frame y. Commit a2aed4cb was purely about which frame the body frame defaults to (CAD vs. principal) when ref points aren't supplied — it doesn't touch the CAD or principal frame definitions themselves.
 
-## TODO
+## TODO (done)
 Use the version field of Settings to distinguish:
 
 - Version one: Body frame is principal frame
@@ -26,3 +26,7 @@ Use the version field of Settings to distinguish:
 
 Version two makes sense if the x-axis of the CAD frame points
 from the leading edge point at the center to the trailing edge point at the center.
+
+Implemented in `setup_wing_frame!` (`src/system_structure/system_structure_core.jl`): when
+no ref points are given, the fallback `R_b_to_c` is `wing.R_p_to_c` for `set.version == 1`
+(default) and the identity matrix (CAD orientation) for `set.version == 2`.
