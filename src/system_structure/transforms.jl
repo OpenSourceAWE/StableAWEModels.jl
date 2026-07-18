@@ -219,9 +219,11 @@ end
 
 Apply heading rotation to all components in a single transform.
 Rotates around the radial axis through `base_pos` (not the origin).
-Uses the reference body's `R_b_to_w` for the no-ref-points orientation source.
-After `copy_cad_to_world!`, this equals `R_b_to_c` (for
-`reinit!`), or the current world orientation (for `reposition!`).
+The current heading is measured from the reference body's actual world
+orientation (`Q_b_to_w`, already rotated by `apply_azimuth_elevation!`),
+or from the ref points for PARTICLE_DYNAMICS bodies, so the solved
+delta always lands exactly on `transform.heading` regardless of any
+twist picked up earlier in the transform chain.
 Bodies in the transform rotate with the same heading delta; a transform
 without a body target applies no heading (matching point behavior).
 """
@@ -235,15 +237,15 @@ function apply_heading!(transform, points, bodies,
                 points, reference_body.z_ref_points,
                 reference_body.y_ref_points, reference_body.origin)
         else
-            R_b_to_w = zeros(3, 3)
-            R_source_any = reference_body.R_b_to_w
-            R_source_any isa AbstractMatrix || continue
-            R_source = R_source_any
-            for i in 1:3
-                R_b_to_w[:, i] .= apply_heading(
-                    R_source[:, i],
-                    R_t_to_w, curr_R_t_to_w, 0.0)
-            end
+            # Q_b_to_w was already rotated by apply_azimuth_elevation!, so it
+            # is the body's actual current world orientation — measure the
+            # heading from it directly. Re-applying the azel rotation here
+            # (as this branch used to) double-applies it; any spurious 180°
+            # twist R_azel picked up from a degenerate tangent frame (wing
+            # near-vertical above the base point, see calc_R_t_to_w) then
+            # cancels out of the measured heading, the solve returns
+            # delta ≈ 0, and the flipped wing is never corrected.
+            R_b_to_w = quaternion_to_rotation_matrix(reference_body.Q_b_to_w)
         end
 
         rel_pos = reference_body.pos_w - base_pos

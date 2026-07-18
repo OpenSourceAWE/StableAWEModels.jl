@@ -176,7 +176,13 @@ The tether frame is a local spherical coordinate system:
 """
 function calc_R_t_to_w(wing_pos)
     z = smooth_normalize(wing_pos)
-    if wing_pos[2] ≈ 0.0 && wing_pos[1] ≈ 0.0
+    # Near-vertical positions leave the azimuthal direction defined only by
+    # a numerically tiny horizontal component whose SIGN can flip from
+    # millimeter-scale position changes, flipping the whole tangent frame
+    # 180°. The guard must therefore catch near-zero, not just exact zero
+    # (`≈ 0.0` is exact equality for the default rtol): within 0.57° of
+    # zenith, pin the frame to the world-y convention instead.
+    if hypot(wing_pos[1], wing_pos[2]) < 1e-2 * norm(wing_pos)
         y = [0, 1, 0]
     else
         y = smooth_normalize([-wing_pos[2], wing_pos[1], 0])
