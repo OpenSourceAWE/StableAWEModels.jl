@@ -1,6 +1,6 @@
 name = "StableAWEModels"
 uuid = "37e0716c-bacd-4633-a01a-47c909dd981b"
-version = "1.0.3"
+version = "1.0.4"
 authors = ["Bart van de Lint <bart@vandelint.net>, Uwe Fechner <uwe.fechner.msc@gmail.com> and contributors"]
 
 [workspace]

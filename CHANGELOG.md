@@ -1,8 +1,109 @@
 # CHANGELOG
 
-## Unreleased
+## v1.0.4 18-07-2026
+
+### Fixed
+- 180° heading flip at `init!`/`reinit!` for wings whose CAD-frame position
+  sits only millimeters off the transform's rotation axis (e.g. the
+  ram_air_kite OBJ-mesh wing once its tethers are pre-stretched beyond
+  ~51 m of standoff): `calc_R_t_to_w`'s tangent-frame azimuthal axis is
+  derived from the wing position's tiny horizontal component, whose *sign*
+  can flip from a millimeter-scale change, flipping the whole frame 180°;
+  the existing degeneracy guard only caught exact zero. Widened to
+  `hypot(x, y) < 1e-2 * norm(pos)` (within 0.57° of zenith) so the frame is
+  deterministic near vertical.
+- `apply_heading!` could not correct the flip above (or any other upstream
+  twist) because its no-ref-points branch re-applied the azimuth/elevation
+  rotation to `Q_b_to_w`, which `apply_azimuth_elevation!` had *already*
+  rotated — the double-application cancelled the twist out of the measured
+  heading, so the solved correction was ≈ 0. Now measures the current
+  heading directly from the body's actual world orientation, so the solved
+  delta always lands exactly on `transform.heading` regardless of any twist
+  picked up earlier in the transform chain. See `Bugfix_18-07-2026.md` for
+  the full diagnosis and verification matrix.
+- Documented `rebase_vsm_sections_to_origin!` in the internals doc page.
+
+### Compatibility notes
+- The heading step now actively enforces `transform.heading` where it
+  previously left an unmatched heading uncorrected (delta ≈ 0). Verified
+  neutral for the A1-15/2plate/kps4 models in testing, but worth checking on
+  the first run of a custom model after upgrading.
+
+## v1.0.3 18-07-2026
+
+### Fixed
+- ObjWing (OBJ-mesh, `RIGID_DYNAMICS`) VSM section positions were shifted
+  twice relative to the wing origin: `remake_aero!`/`setup_aero!` combined
+  `adjust_vsm_panels_to_origin!` with the *full* `wing.pos_cad` offset even
+  when the mesh loader (`center_to_com!`) had already centered sections on
+  the mesh COM into `T_cad_body`. New `rebase_vsm_sections_to_origin!`
+  re-derives the CAD-frame COM from `T_cad_body` before overwriting it and
+  subtracts only the residual (`wing.pos_cad - com_cad`) for `ObjWing`
+  sections; YAML/`aero_geometry.yaml` sections (which never touch
+  `T_cad_body`) are unaffected and keep the prior behaviour.
+
+## v1.0.2 18-07-2026
 
 ### Added
+- `set.version` selects the wing body-frame fallback used when a
+  `RIGID_DYNAMICS` wing has no `z_ref_points`/`y_ref_points`/`origin`:
+  version 1 (default) uses the principal-inertia frame (origin at the COM,
+  matching v1.0.1's fix below); version 2 uses the raw CAD frame
+  orientation instead (origin at the COM) — only sensible when the CAD
+  frame's x-axis already points from the centered leading-edge point to the
+  centered trailing-edge point.
+- `prn` kwarg on `load_sys_struct_from_yaml`, threaded through to
+  `reinit!`, to suppress the multi-tether placement `@info` message.
+
+### Changed
+- README: added a link to StableAWEModels and updated citation details.
+
+## v1.0.1 11-07-2026
+
+### Changed
+- BREAKING: package renamed `SymbolicAWEModels` → `StableAWEModels`
+  throughout (module file/declaration, exports, README, docs, CI, examples,
+  data paths, `AUTHORS.md`, `CITATION.cff`) — 86 files touched, pure rename,
+  no functional change. (`Project.toml`'s `name` field had already switched
+  in the v1.0.0 tag, but the module file/declaration and every reference
+  elsewhere in the repo still said `SymbolicAWEModels` until this commit;
+  users updating from v1.0.0 must update `using`/`import` statements.)
+- `bin/run_julia` updated for Kaimon 2.0 (new `--kaimon` flag to force
+  Kaimon on and skip autodetection).
+
+### Added
+- Tethers can be placed pre-stretched to a length different from their
+  geometric/YAML-derived one at init (`init_stretched_len` override path in
+  `apply_tether_init_stretched_lens!`), independent of `set.l_tether`.
+
+### Fixed
+- Reverted the wing body-frame fallback (no ref points) from the CAD-frame
+  orientation introduced during v1.0.0 development back to the
+  principal-inertia frame — the CAD-frame default depended on section
+  authoring conventions that don't hold for every model and was not meant
+  to ship as the default (formalized as an opt-in `set.version=2` in
+  v1.0.2 above).
+- Suppressed an invalid warning from `system_structure_core.jl`.
+- CI: disabled macOS tests and `setup_integration.jl` (flaky in this
+  environment); general CI/README cleanup.
+
+## v1.0.0 10-07-2026
+
+### Added
+- `RigidBody`: a standalone 6-DOF rigid body component (mass, principal
+  inertia, initial conditions, gravity, a settable external wrench, and a
+  `fixed` flag to freeze all DOF), independent of any wing. Shares its
+  dynamics generator (`rigid_body_eqs!`) with `Wing`'s existing 6-DOF
+  formulation.
+- `ElasticJoint`: a 6-DOF elastic connection between two `RigidBody`s
+  (independent EA/GA/GJ/EI stiffness and damping per axis), applying an
+  equal-and-opposite wrench to both bodies.
+- `TimoshenkoJoint`: a 2-node corotational Timoshenko beam element joining
+  two bodies — the distributed-stiffness counterpart of `ElasticJoint`,
+  validated closed-form against bending (with the PL/kGA shear term), axial,
+  and torsional response. Chains/branches of these form a beam
+  (`examples/beam_6dof_joints.jl`, a 10-segment cantilever); nonlinear
+  stiffness and dropoff options included.
 - New aero mode `ContinuousAero` (`PARTICLE_DYNAMICS`, YAML
   `aero_mode: continuous`): frozen-circulation VSM with the full force
   assembly in the symbolic RHS. The low-frequency refresh runs only the
@@ -20,6 +121,62 @@
   its own `density` (from the YAML `materials` table), replacing the single
   global `set.rho_tether` in mass calculations. Falls back to `set.rho_tether`
   when unset.
+- Logging/replay for the new rigid-body infrastructure: `SysState`/`Logger`
+  carry rigid-body positions and per-wing/per-body orientation frames
+  (KiteUtils `orients`); the Makie extension draws bodies (and wings) as
+  RGB body-frame triads from the orientation quaternion. New
+  `position_slots(sys_struct)` is the single source of truth for the X/Y/Z
+  slot layout.
+- `speed_controlled` restored on `Winch` (dropped by the #210 winch-interface
+  refactor): when `true`, `winch_acc` is forced to 0 so reel-out velocity is
+  prescribed externally via `winch.vel` instead of integrated from motor
+  dynamics — needed for flight-replay from recorded CSV data.
+- `bin/run_julia`: `KAIMON_AUTODETECT` support — detects a running Kaimon
+  gate and connects automatically instead of requiring an explicit flag.
+- `n_unrefined_sections` is now determined from the YAML aero-geometry file
+  when not given explicitly, instead of requiring it as a separate input.
+- `examples/inflated_beam_fit.jl` — fits `TimoshenkoJoint`/`ElasticJoint`
+  stiffness to match an inflated-beam reference.
+- New tests: `test_rigid_body`, `test_joint`, `test_timoshenko_joint`,
+  `test_beam_replay`, `test_aero_modes`, `test_continuous_aero`,
+  `test_principal_frame_invariance`, `test_segment_nonlinear`,
+  `test_getter_allocations`.
+
+### Changed
+- Performance: hot `@register_symbolic` struct reads in the ODE RHS were
+  flattened into MTK parameters synced once per step (`flat_params.jl`'s
+  path-based `params` view, mirroring `sys_struct`), and the wing/engine
+  types were made concrete (`Wing{A<:AbstractAeroModel}`). RHS cost dropped
+  3.79 µs → 1.197 µs (3.17×) with 0 allocations across the full test suite.
+  ~65 now-dead registered getters were removed from `accessors.jl` (537 →
+  148 lines).
+- ODE initial conditions now go through MTK's `Initial()` parameters
+  instead of parameter-dependent defaults that re-read the live state at
+  initialization equations: a new `initial` view (`initial_conditions.jl`)
+  mirrors `params`, binding each struct field to a state variable with a
+  build-time constant default; `sync_initial!` pushes the live
+  `SystemStructure` state onto the `Initial` params before each fresh
+  `init`. `reinit!` now syncs params and ICs onto the problem and runs a
+  single init on the fresh path.
+- Restored the wing-specific closed-form Y-axis-constrained inertia
+  diagonalization for `RIGID_DYNAMICS` wings (`calc_inertia_y_rotation`);
+  the generic principal-frame eigendecomposition's axis assignment is
+  ambiguous when two principal moments are close, which could flip a wing's
+  body frame ~90° relative to its VSM/CAD frame and cause growing
+  lift/drag oscillation and VSM non-convergence during reel-out. The
+  generic `principal_frame` path is untouched for standalone rigid bodies
+  and Timoshenko joints, which are not XZ-symmetric like a wing.
+- `Project.toml`'s package `name` field switched from `SymbolicAWEModels` to
+  `StableAWEModels` (the module file/declaration and all other references
+  followed in v1.0.1 — see above).
+- Winch interface, plate/aero merge, and file restructuring: `Group` fully
+  merges into `TwistSurface`; `BaseWing`/`VSMWing`/`PlateWing` fully merge
+  into one `Wing{A}` (VSM state in a `VSMEngine` sub-struct); flat-plate
+  aero now goes through `aero_component(::AeroPlate, ...)` on the same
+  per-point connector contract as other `PARTICLE_DYNAMICS` modes.
+
+### Fixed
+- `#226`.
 
 ## v0.12.0 12-06-2026
 
