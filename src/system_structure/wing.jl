@@ -541,6 +541,33 @@ function adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
 end
 
 """
+    rebase_vsm_sections_to_origin!(vsm_wing, wing)
+
+Shift `vsm_wing`'s section LE/TE points (CAD frame) so they are relative to
+the wing's body-frame origin (`wing.pos_cad`), then record that origin in
+`T_cad_body`. Wraps [`adjust_vsm_panels_to_origin!`](@ref) with the correct
+offset for both section sources:
+
+- `ObjWing` (OBJ-mesh) sections are already centered on the mesh COM by
+  `center_to_com!` at load time, which leaves that COM (negated) in
+  `T_cad_body`. Re-deriving the CAD-frame COM as `-T_cad_body` (read here
+  *before* it gets overwritten below) and subtracting only
+  `wing.pos_cad - com_cad` avoids shifting by the COM twice — subtracting
+  the full `wing.pos_cad` here would double-count the centering `ObjWing`
+  already did.
+- YAML/`aero_geometry.yaml` sections are in absolute CAD-frame coordinates
+  and never touch `T_cad_body` (it stays at its zero default), so `com_cad`
+  is zero and the full `wing.pos_cad` is subtracted, matching prior
+  behaviour for that path.
+"""
+function rebase_vsm_sections_to_origin!(vsm_wing, wing)
+    com_cad = -vsm_wing.T_cad_body
+    vsm_wing.T_cad_body .= wing.pos_cad
+    adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad - com_cad)
+    return nothing
+end
+
+"""
     rotate_vsm_sections!(vsm_wing, R)
 
 Rotate all VSM section LE/TE points by rotation matrix `R`.

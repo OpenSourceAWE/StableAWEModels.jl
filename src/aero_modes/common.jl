@@ -373,8 +373,7 @@ function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
 
     # Transform sections CAD → body frame (matches the SystemStructure constructor)
     vsm_wing = wing.vsm_wing
-    vsm_wing.T_cad_body .= wing.pos_cad
-    adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
+    rebase_vsm_sections_to_origin!(vsm_wing, wing)
     rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
     vsm_wing.R_cad_body .= wing.R_b_to_c
     if wing.dynamics_type != PARTICLE_DYNAMICS
@@ -458,8 +457,7 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, twist_surfaces;
     vsm_wing = wing.vsm_wing
     if wing.dynamics_type == RIGID_DYNAMICS
         # Transform VSM sections CAD → body (with aero z-offset)
-        vsm_wing.T_cad_body .= wing.pos_cad
-        adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
+        rebase_vsm_sections_to_origin!(vsm_wing, wing)
         rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
         vsm_wing.R_cad_body .= wing.R_b_to_c
         apply_aero_z_offset!(vsm_wing, wing.aero_z_offset)
@@ -479,8 +477,7 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, twist_surfaces;
     else  # PARTICLE_DYNAMICS
         if !isnothing(wing.origin)
             # Transform VSM sections CAD → body (no z-offset for particle)
-            vsm_wing.T_cad_body .= wing.pos_cad
-            adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
+            rebase_vsm_sections_to_origin!(vsm_wing, wing)
             rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
             vsm_wing.R_cad_body .= wing.R_b_to_c
             VortexStepMethod.reinit!(wing.vsm_aero)
