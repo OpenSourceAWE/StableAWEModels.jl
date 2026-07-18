@@ -3,7 +3,7 @@
 ## Explain
 Can you explain commit a2aed4cb
 
-**Summary:** Bart tried switching the no-ref-points fallback orientation from principal-inertia frame to CAD orientation, and in parallel made the principal-frame computation itself configurable (Y-axis-constrained vs. generic eigendecomposition). Uwe's commit a2aed4cb reverts only the orientation-fallback change back to the original (principal-inertia frame), presumably because the CAD-orientation default broke something or wasn't the desired behavior, while keeping the unrelated inertia-method refactor from the intervening commits.
+**Summary:** Bart tried switching the no-ref-points fallback orientation of the body frame from principal-inertia frame to CAD orientation, and in parallel made the principal-frame computation itself configurable (Y-axis-constrained vs. generic eigendecomposition). Uwe's commit a2aed4cb reverts only the orientation-fallback change back to the original (principal-inertia frame), presumably because the CAD-orientation default broke something or wasn't the desired behavior, while keeping the unrelated inertia-method refactor from the intervening commits.
 
 **Reference Frames**
 1. CAD frame (c) — the fixed reference frame the wing's raw geometry/mesh comes in (points, pos_cad, the inertia tensor I_cad as returned by the aero hook). Everything else is defined relative to this.
@@ -17,3 +17,12 @@ as a fallback equal to the principal frame (R_b_to_c .= wing.R_p_to_c) when no r
 A fourth composed rotation, R_b_to_p = R_p_to_c' * R_b_to_c (body → principal), is also stored — that's what the actual equations of motion use, since the inertia tensor is diagonal in the principal frame.
 
 So the naming convention throughout is R_x_to_y: rotates a vector expressed in frame x into frame y. The commit you asked about earlier was purely about which frame the body frame defaults to (CAD vs. principal) when ref points aren't supplied — it doesn't touch the CAD or principal frame definitions themselves.
+
+## TODO
+Use the version field of Settings to distinguish:
+
+- Version one: Body frame is Principle frame
+- Version two: Body frame is CAD frame
+
+Version two makes sense if the direction of the x-axis of the CAD frame is 
+from the leading edge point at the center to the trailing edge point of the center. 
