@@ -165,6 +165,7 @@ StableAWEModels.match_aero_sections_to_structure!
 StableAWEModels.compute_spatial_twist_surface_mapping!
 StableAWEModels.copy_cad_to_world!
 StableAWEModels.adjust_vsm_panels_to_origin!
+StableAWEModels.rebase_vsm_sections_to_origin!
 StableAWEModels.apply_aero_z_offset!
 StableAWEModels.calc_particle_dynamics_wing_frame
 StableAWEModels.principal_frame
