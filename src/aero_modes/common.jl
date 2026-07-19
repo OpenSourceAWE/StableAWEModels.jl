@@ -377,7 +377,7 @@ function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
     rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
     vsm_wing.R_cad_body .= wing.R_b_to_c
     if wing.dynamics_type != PARTICLE_DYNAMICS
-        apply_aero_z_offset!(vsm_wing, wing.aero_z_offset)
+        apply_aero_z_offset!(vsm_wing, wing.aero_z_offset, wing.R_b_to_p)
     end
     VortexStepMethod.reinit!(wing.vsm_aero)
 
@@ -460,7 +460,7 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, twist_surfaces;
         rebase_vsm_sections_to_origin!(vsm_wing, wing)
         rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
         vsm_wing.R_cad_body .= wing.R_b_to_c
-        apply_aero_z_offset!(vsm_wing, wing.aero_z_offset)
+        apply_aero_z_offset!(vsm_wing, wing.aero_z_offset, wing.R_b_to_p)
         VortexStepMethod.reinit!(wing.vsm_aero)
 
         if couples_to_sections(mode) && isempty(wing.twist_surface_idxs)

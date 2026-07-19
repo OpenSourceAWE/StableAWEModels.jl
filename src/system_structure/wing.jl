@@ -594,19 +594,29 @@ end
 """
     apply_aero_z_offset!(vsm_wing, aero_z_offset)
 
-Apply z-axis offset to VSM panel positions in body frame.
+Apply z-axis offset to VSM panel positions.
 
 For RIGID_DYNAMICS wings, this shifts the aerodynamic center of pressure
-in the positive z-direction (body frame) to adjust the moment arm.
-This is applied AFTER the COM adjustment.
+to adjust the moment arm. This is applied AFTER the COM adjustment.
+
+The offset is directed along the **principal-frame z-axis** so that it is a
+frame-invariant physical displacement, independent of the `kite.version` body-
+frame convention: passing `R_b_to_p` expresses principal-z in the current body
+frame (`R_b_to_p' * ẑ`). When `R_b_to_p === nothing` the legacy behavior (offset
+along body-frame z) is used. For version-1 wings `R_b_to_p == I`, so the two are
+identical; for version-2 wings (body == CAD) the `R_b_to_p` form keeps the same
+physical offset that version 1 was calibrated with.
 
 # Arguments
 - `vsm_wing`: VortexStepMethod.Wing with sections to adjust
-- `aero_z_offset`: Distance to shift panels in +z direction [m]
+- `aero_z_offset`: Distance to shift panels along principal-z [m]
+- `R_b_to_p`: body→principal rotation; when given, directs the offset along
+  principal-z instead of body-z
 """
-function apply_aero_z_offset!(vsm_wing, aero_z_offset)
+function apply_aero_z_offset!(vsm_wing, aero_z_offset, R_b_to_p=nothing)
     if abs(aero_z_offset) > 1e-10
-        offset_vec = [0.0, 0.0, aero_z_offset]
+        offset_vec = R_b_to_p === nothing ? [0.0, 0.0, aero_z_offset] :
+            R_b_to_p' * [0.0, 0.0, aero_z_offset]
         for section in vsm_wing.refined_sections
             section.LE_point .+= offset_vec
             section.TE_point .+= offset_vec
