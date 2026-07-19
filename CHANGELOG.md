@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## v1.0.5 19-07-2026
+
+### Fixed
+- `apply_aero_z_offset!` now directs the offset along the **principal-frame
+  z-axis** (via `R_b_to_p`) instead of always along body-frame z. For
+  version-2 wings (body == CAD frame), the body-frame z-axis can differ
+  from the principal z-axis, so the offset was being applied in the wrong
+  physical direction — shifting the aerodynamic center of pressure
+  incorrectly. The new `R_b_to_p` argument keeps the offset frame-invariant
+  and consistent with the version-1 calibration. For version-1 wings
+  (`R_b_to_p == I`) the behaviour is unchanged.
+
 ## v1.0.4 18-07-2026
 
 ### Fixed
