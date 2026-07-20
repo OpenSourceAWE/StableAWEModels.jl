@@ -425,7 +425,7 @@ displacement that would move its free end onto the target length
 along the anchor→free direction; the free end and everything
 downstream of it are translated by the mean of those displacements,
 then interior points are redistributed proportionally along each
-tether. For a multi-tether cluster, logs an `@info` when `prn`.
+tether.
 """
 function apply_cluster_init_stretched_len!(
     cluster, points, segments, bodies, downstream, boundary; prn=true)
@@ -449,12 +449,6 @@ function apply_cluster_init_stretched_len!(
     deltas = [(snap.tether.init_stretched_len::SimFloat / snap.path_len - 1) .*
               (snap.free_pos .- snap.anchor_pos) for snap in snaps]
     delta = sum(deltas) ./ length(deltas)
-
-    if length(cluster) > 1 && prn
-        names = join((string(snap.tether.name) for snap in snaps), ", ")
-        @info "Tethers ($names) feed one structure; placing it to the " *
-              "mean stretched length and direction of all."
-    end
     norm(delta) ≈ 0 && return
 
     moved = Set{Int64}()
