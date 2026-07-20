@@ -567,7 +567,7 @@ function init!(sam::SymbolicAWEModel;
                 adaptive, reset_integrator, lin_vsm, vsm_min_wind)
         end
     end
-    prn && @info "$(sam.sys_struct.name) model initialized in $time seconds."
+    prn && @info "$(sam.sys_struct.name) model initialized in $(round(time, digits=2)) seconds."
     return sam.integrator
 end
 
