@@ -522,8 +522,8 @@ function init!(sam::SymbolicAWEModel;
 
         model_name = get_model_name(sam.set, sam.sys_struct)
         model_path = joinpath(KiteUtils.get_data_path(), model_name)
-        prn && @info "Model bin name: $model_name"
         loaded = load_serialized_model!(sam, model_path; remake, reload)
+        prn && loaded && @info "Loaded: $model_name"
         changed = false
         if !loaded
             sam.inputs = create_sys!(sam, sam.sys_struct; prn)
@@ -550,7 +550,7 @@ function init!(sam::SymbolicAWEModel;
         end
 
         if changed
-            prn && @info "Serializing model to: \n\t$model_path"
+            prn && @info "Saving: $model_name"
             serialize(model_path, sam.serialized_model)
         end
 
