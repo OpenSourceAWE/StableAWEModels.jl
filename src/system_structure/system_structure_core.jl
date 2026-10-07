@@ -979,7 +979,7 @@ function SystemStructure(name, set;
         NamedCollection{eltype(elastic_joints)}(elastic_joints, elastic_joint_names_dict),
         NamedCollection{TimoshenkoJoint}(timoshenko_joints, timoshenko_joint_names_dict),
         AtmosphericModel(set), false, false, vsm_set)
-    reinit!(sys_struct, set; prn)
+    reinit!(sys_struct, set)
 
     # Recalculate segment rest lengths from current positions if requested
     if ignore_l0
