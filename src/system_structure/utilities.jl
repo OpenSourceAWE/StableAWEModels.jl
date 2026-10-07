@@ -417,7 +417,7 @@ end
 
 """
     apply_cluster_init_stretched_len!(cluster, points, segments,
-                                      downstream, boundary; prn=true)
+                                      bodies, downstream, boundary)
 
 Reposition one cluster of root tethers so each sits at its
 `init_stretched_len` standoff. Each tether contributes the
@@ -428,7 +428,7 @@ then interior points are redistributed proportionally along each
 tether.
 """
 function apply_cluster_init_stretched_len!(
-    cluster, points, segments, bodies, downstream, boundary; prn=true)
+    cluster, points, segments, bodies, downstream, boundary)
     snaps = map(cluster) do tether
         anchor_idx, free_idx = tether_anchor_free(tether, boundary)
         anchor_pos = copy(points[anchor_idx].pos_w)
@@ -494,7 +494,7 @@ function apply_cluster_init_stretched_len!(
 end
 
 """
-    apply_tether_init_stretched_lens!(sys_struct::SystemStructure; prn=true)
+    apply_tether_init_stretched_lens!(sys_struct::SystemStructure)
 
 Scale `pos_w` so each tether with an explicit `init_stretched_len` sits at
 that standoff. Call after `copy_cad_to_world!`. Rest length is derived
@@ -509,8 +509,7 @@ direction).
 
 Errors if a downstream segment connects back to the anchor.
 """
-function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
-                                           prn=true)
+function apply_tether_init_stretched_lens!(sys_struct::SystemStructure)
     (; points, segments, tethers, winches, wings) = sys_struct
 
     specified = [tether for tether in tethers
@@ -562,7 +561,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
     for cluster in twist_surface_tethers_by_overlap(specified, reach)
         apply_cluster_init_stretched_len!(cluster, points, segments,
                                           sys_struct.bodies,
-                                          downstream, boundary; prn)
+                                          downstream, boundary)
     end
 end
 
@@ -644,8 +643,6 @@ Pulley lengths are initialized proportionally based on current segment lengths:
   (translate, rotate, heading) during reinitialization.
 - `apply_tether_lengths::Bool=true`: If false, skip scaling point positions
   to match `tether.init_stretched_len`.
-- `prn::Bool=true`: If true, print info messages (e.g. when several root
-  tethers are placed to their mean stretched length).
 """
 function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
@@ -681,7 +678,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
 
     # Step 2: apply stretched lengths (scales pos_w)
     if apply_tether_lengths
-        apply_tether_init_stretched_lens!(sys_struct; prn)
+        apply_tether_init_stretched_lens!(sys_struct)
     end
 
     # Step 3: compute segment lengths from pos_w

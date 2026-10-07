@@ -339,7 +339,7 @@ winches:
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
 
         sys.tethers[:tether_winch].init_stretched_len = 100.0
-        @test_logs (:info,) match_mode=:any StableAWEModels.reinit!(sys, set)
+        @test_logs min_level=Base.CoreLogging.Info StableAWEModels.reinit!(sys, set)
 
         # Placed by the mean displacement of both roots: standoff is
         # ≈ the mean target (150), offset slightly because the two
