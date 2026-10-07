@@ -557,7 +557,7 @@ function init!(sam::SymbolicAWEModel;
         if reinit_sys
             reinit!(sam.sys_struct, sam.set;
                     ignore_l0, remake_vsm, reset_vel,
-                    apply_tether_lengths, prn)
+                    apply_tether_lengths)
         end
         # reinit! below syncs the struct's ICs onto the problem; no rebuild needed.
         if create_prob && !isnothing(sam.prob)

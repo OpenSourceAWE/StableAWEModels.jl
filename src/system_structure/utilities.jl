@@ -639,6 +639,7 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 - `remake_vsm::Bool=false`: If true, recreate VSM wing, aerodynamics, and solver from settings.
   This is useful after modifying `aero_geometry.yaml` or other VSM-related configuration files.
   For PARTICLE_DYNAMICS wings, also rebuilds the `point_to_vsm_point` mapping.
+- `reset_vel::Bool=true`: If true, zero the velocities of points and rigid bodies.
 - `apply_transforms::Bool=true`: If false, skip applying spatial transforms
   (translate, rotate, heading) during reinitialization.
 - `apply_tether_lengths::Bool=true`: If false, skip scaling point positions
@@ -647,7 +648,7 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
                  reset_vel::Bool=true, apply_transforms::Bool=true,
-                 apply_tether_lengths::Bool=true, prn::Bool=true)
+                 apply_tether_lengths::Bool=true)
     (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
 
     for winch in winches
