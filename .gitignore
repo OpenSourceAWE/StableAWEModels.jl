@@ -62,6 +62,7 @@ docs/src/.$kite_power_tools.drawio.bkp
 /objects
 /refs
 Manifest-v1.12.toml
+Manifest-v1.13.toml
 .JETLSConfig.toml
 
 docs/src/assets/winch_sys_struct.png
