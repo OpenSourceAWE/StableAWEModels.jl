@@ -75,6 +75,11 @@ jobs:
             echo "Copied $DEFAULT to $TARGET"
           fi
 
+      - name: Skip GLMakie's precompile workload, which needs OpenGL
+        if: runner.os == 'Windows'
+        shell: bash
+        run: printf '[GLMakie]\nprecompile_workload = false\n' > test/LocalPreferences.toml
+
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         with:

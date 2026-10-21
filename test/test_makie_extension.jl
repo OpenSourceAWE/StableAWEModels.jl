@@ -23,6 +23,7 @@ using Test
 const GLMAKIE_AVAILABLE = try
     @eval using GLMakie
     GLMakie.activate!(; visible=false)
+    close(Base.invokelatest(GLMakie.Screen; visible=false))
     true
 catch e
     @warn "GLMakie not available, skipping Makie extension tests" exception=e
