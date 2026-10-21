@@ -23,7 +23,9 @@ using Test
 const GLMAKIE_AVAILABLE = try
     @eval using GLMakie
     GLMakie.activate!(; visible=false)
-    close(Base.invokelatest(GLMakie.Screen; visible=false))
+    # Loading can succeed without OpenGL (precompile workload disabled),
+    # so open a hidden window to be sure rendering works.
+    close(GLMakie.Screen(; visible=false))
     true
 catch e
     @warn "GLMakie not available, skipping Makie extension tests" exception=e

@@ -38,7 +38,6 @@ jobs:
       matrix:
         version:
           - '1.12'
-          - '1.13'
         os:
           - ubuntu-latest
           - windows-latest
@@ -46,6 +45,12 @@ jobs:
           - x64
         include:
           - os: ubuntu-latest
+            version: '1.11'
+            arch: x64
+            prefix: xvfb-run -a
+          - os: ubuntu-latest
+            version: '1.12'
+            arch: x64
             prefix: xvfb-run -a
 
     steps:
@@ -75,7 +80,11 @@ jobs:
             echo "Copied $DEFAULT to $TARGET"
           fi
 
-      - name: Skip GLMakie's precompile workload, which needs OpenGL
+      # Windows runners have no OpenGL, so GLMakie's precompile workload
+      # cannot open a window. Since Julia 1.12.7 that failure is fatal for
+      # Pkg.test; skip the workload so GLMakie precompiles, and let
+      # test_makie_extension.jl skip its tests.
+      - name: Disable GLMakie precompile workload
         if: runner.os == 'Windows'
         shell: bash
         run: printf '[GLMakie]\nprecompile_workload = false\n' > test/LocalPreferences.toml
