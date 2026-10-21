@@ -80,6 +80,15 @@ jobs:
             echo "Copied $DEFAULT to $TARGET"
           fi
 
+      # Windows runners have no OpenGL, so GLMakie's precompile workload
+      # cannot open a window. Since Julia 1.12.7 that failure is fatal for
+      # Pkg.test; skip the workload so GLMakie precompiles, and let
+      # test_makie_extension.jl skip its tests.
+      - name: Disable GLMakie precompile workload
+        if: runner.os == 'Windows'
+        shell: bash
+        run: printf '[GLMakie]\nprecompile_workload = false\n' > test/LocalPreferences.toml
+
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         with:
