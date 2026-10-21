@@ -226,6 +226,8 @@ if [[ $_skip_subprojects == true ]]; then
     echo "Skipping sub-project setup (--skip-subprojects)."
 else
     echo "Julia $julia_major: instantiating all sub-projects..."
+    # Pkg.resolve() does not update the registry, but needs the versions of the root manifest
+    $JULIA -e 'using Pkg; Pkg.Registry.update()'
 
     # Seed examples/test from the main manifest only on Julia 1.11.
     # On 1.12 we let each sub-project resolve fresh.
