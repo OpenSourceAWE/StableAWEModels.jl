@@ -38,6 +38,7 @@ jobs:
       matrix:
         version:
           - '1.12'
+          - '1.13'
         os:
           - ubuntu-latest
           - windows-latest
@@ -45,12 +46,6 @@ jobs:
           - x64
         include:
           - os: ubuntu-latest
-            version: '1.11'
-            arch: x64
-            prefix: xvfb-run -a
-          - os: ubuntu-latest
-            version: '1.12'
-            arch: x64
             prefix: xvfb-run -a
 
     steps:
