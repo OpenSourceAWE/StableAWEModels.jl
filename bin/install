@@ -5,8 +5,8 @@
 _update=false
 _skip_subprojects=false
 _no_precompile=false
+_assume_yes=false
 _desired_julia=""
-_version_specified=false
 
 _red='\033[31m'
 _green='\033[32m'
@@ -15,23 +15,37 @@ _reset='\033[0m'
 print_usage() {
     echo "Usage:"
     echo "./install"
+    echo "./install -y"
     echo "./install --update"
     echo "./install --skip-subprojects"
     echo "./install --no-precompile"
-    echo "./install +1.11 | +1.12"
-    echo "./install --version 1.11 | --version 1.12"
+    echo "./install +X.Y | --version X.Y"
     echo "./install -h"
     echo "./install --help"
     echo "Options:"
+    echo "  -y, --yes             Ask nothing: use the active Julia if it is supported, else the"
+    echo "                        newest installed supported one."
     echo "  --update              Run Pkg.update() instead of seeding from .default manifests,"
     echo "                        then copy the resulting main manifest back to *.toml.default."
-    echo "  --skip-subprojects    Skip setup/update of examples, test, and docs sub-projects."
+    echo "  --skip-subprojects    Skip precompiling the examples, test, and docs sub-projects."
     echo "  --no-precompile       Skip all Pkg.precompile() steps; just resolve manifests."
     echo "  +X.Y, --version X.Y   Use Julia channel X.Y for this run (juliaup default unchanged)."
-    echo "                        Without this, a menu will ask you to choose 1.11 or 1.12"
+    echo "                        Without this, a menu will ask you to choose a supported version"
     echo "                        (with the currently active Julia version as default)."
     echo "  -h, --help            Show this help message and exit."
+    echo "Supported Julia versions are those with a Manifest-vX.Y.toml.default: ${_supported[*]}"
 }
+
+if [[ $(basename $(pwd)) == "bin" ]]; then
+    cd ..
+fi
+
+_supported=()
+for _manifest in Manifest-v*.toml.default; do
+    _version="${_manifest#Manifest-v}"
+    _supported+=("${_version%.toml.default}")
+done
+_newest="${_supported[${#_supported[@]}-1]}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -39,6 +53,10 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             print_usage
             exit 0
+            ;;
+        -y|--yes)
+            _assume_yes=true
+            shift
             ;;
         --update)
             _update=true
@@ -54,16 +72,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --version)
             if [[ $# -lt 2 ]]; then
-                echo "Error: --version requires a value (e.g. --version 1.12)"
+                echo "Error: --version requires a value (e.g. --version $_newest)"
                 exit 1
             fi
             _desired_julia="$2"
-            _version_specified=true
             shift 2
             ;;
         +*)
             _desired_julia="${1#+}"
-            _version_specified=true
             shift
             ;;
         *)
@@ -74,75 +90,60 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ $(basename $(pwd)) == "bin" ]]; then
-    cd ..
-fi
+is_supported() {
+    [[ " ${_supported[*]} " == *" $1 "* ]]
+}
 
-# Check if juliaup is installed
-if ! command -v juliaup &> /dev/null; then
-    echo "Error: juliaup is not installed. Please install it first."
-    case "$(uname -s)" in
-        Linux|Darwin)
-            echo "  curl -fsSL https://install.julialang.org | sh -s -- --default-channel 1.11"
-            ;;
-        MINGW*|MSYS*|CYGWIN*)
-            echo "  winget install --name Julia --id 9NJNWW8PVKMN -e -s msstore"
-            ;;
-        *)
-            echo "  See https://github.com/JuliaLang/juliaup for installation instructions."
-            ;;
-    esac
-    exit 1
-fi
+_active_julia=$(julia --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1 || true)
 
-# If no version specified, show a menu with the current Julia version as default
-if [[ -z "$_desired_julia" ]]; then
-    # Detect current juliaup default (more reliable than julia --version,
-    # which can report a different binary if one is ahead on PATH).
-    _current_major=$(juliaup status 2>/dev/null | awk '/\*/ {print $2}')
-    if [[ -z "$_current_major" ]]; then
-        _current_major="1.12"  # fallback default
+if [[ -z "$_desired_julia" && $_assume_yes == true ]]; then
+    if is_supported "$_active_julia"; then
+        _desired_julia="$_active_julia"
+    else
+        _installed=$(juliaup status 2>/dev/null | awk '{print ($1 == "*") ? $2 : $1}')
+        for _version in "${_supported[@]}"; do
+            if grep -qx "$_version" <<< "$_installed"; then
+                _desired_julia="$_version"
+            fi
+        done
     fi
-
-    # Ask user to choose version
+elif [[ -z "$_desired_julia" ]]; then
+    _default_choice=${#_supported[@]}
     echo "Which Julia version would you like to use?"
     echo ""
-    
-    if [[ "$_current_major" == "1.11" ]]; then
-        echo -e "  ${_green}[1]${_reset} Julia 1.11 (current, default)"
-        echo -e "  ${_reset}[2]${_reset} Julia 1.12"
-        _default_choice=1
-    else
-        echo -e "  ${_reset}[1]${_reset} Julia 1.11"
-        echo -e "  ${_green}[2]${_reset} Julia 1.12 (current, default)"
-        _default_choice=2
-    fi
-    
+    for i in "${!_supported[@]}"; do
+        if [[ "${_supported[$i]}" == "$_active_julia" ]]; then
+            _default_choice=$((i + 1))
+            echo -e "  ${_green}[$((i + 1))]${_reset} Julia ${_supported[$i]} (current)"
+        else
+            echo -e "  [$((i + 1))] Julia ${_supported[$i]}"
+        fi
+    done
     echo ""
     read -p "Choose an option (press Enter for default [$_default_choice]): " _choice
     _choice=${_choice:-$_default_choice}
-    
-    case "$_choice" in
-        1)
-            _desired_julia="1.11"
-            ;;
-        2)
-            _desired_julia="1.12"
-            ;;
-        *)
-            echo "Invalid choice. Using default: $_default_choice"
-            _desired_julia=$([ "$_default_choice" -eq 1 ] && echo "1.11" || echo "1.12")
-            ;;
-    esac
-else
-    # Version was specified via command line
-    _current_julia=$(julia --version 2>/dev/null | grep -oE '1\.[0-9]+' | head -1)
-    _current_major="${_current_julia%.*}"
+    if ! [[ "$_choice" =~ ^[0-9]+$ ]] || (( _choice < 1 || _choice > ${#_supported[@]} )); then
+        echo "Invalid choice. Using default: $_default_choice"
+        _choice=$_default_choice
+    fi
+    _desired_julia="${_supported[$((_choice - 1))]}"
 fi
 
-echo "Ensuring Julia ${_desired_julia} channel is installed..."
-juliaup add "${_desired_julia}"
-echo
+if ! is_supported "$_desired_julia"; then
+    echo "Error: Julia ${_desired_julia:-$_active_julia} is not supported." \
+         "Supported: ${_supported[*]}, e.g. ./bin/install +$_newest"
+    exit 1
+fi
+
+if [[ $_assume_yes == false ]]; then
+    if ! command -v juliaup &> /dev/null; then
+        echo "Error: juliaup is not installed. See https://julialang.org/install"
+        exit 1
+    fi
+    echo "Ensuring Julia ${_desired_julia} channel is installed..."
+    juliaup add "${_desired_julia}"
+    echo
+fi
 
 julia_major="${_desired_julia}"
 JULIA="julia +${_desired_julia}"
@@ -161,13 +162,6 @@ if compgen -G "bin/kps-image-${julia_major}-*.so" > /dev/null; then
     rm -f bin/kps-image-"${julia_major}"-*.so
 fi
 
-# Only accept Julia 1.11 and 1.12
-if [[ $julia_major != "1.11" ]] && [[ $julia_major != "1.12" ]]; then
-    echo "Error: Julia $julia_major is not supported. Only Julia 1.11 and 1.12 are supported."
-    echo "Re-run with +1.11 or +1.12, e.g. ./bin/install +1.11"
-    exit 1
-fi
-
 # Copy LocalPreferences if not present
 if [ ! -f "LocalPreferences.toml" ]; then
     if [ -f "LocalPreferences.toml.default" ]; then
@@ -176,22 +170,14 @@ if [ ! -f "LocalPreferences.toml" ]; then
     fi
 fi
 
-# Delete any generic Manifest.toml and stale 0-byte versioned manifests so
-# Pkg resolves from an existing versioned manifest or writes a fresh one.
-_prepare_manifests() {
-    local dir="${1:-.}"
-    rm -f "${dir}/Manifest.toml"
-    # Remove stale 0-byte versioned manifests left from failed previous runs
-    [ -s "${dir}/Manifest-v1.11.toml" ] || rm -f "${dir}/Manifest-v1.11.toml"
-    [ -s "${dir}/Manifest-v1.12.toml" ] || rm -f "${dir}/Manifest-v1.12.toml"
-}
+# A generic Manifest.toml would shadow the versioned one.
+rm -f Manifest.toml
 
 if [[ $_update == true ]]; then
     # Update mode: clear existing main manifest for a fresh resolve and run Pkg.update().
     # Skip precompile during update so we can copy the new manifest to .default ASAP
     # (so the user can commit + trigger CI while precompile runs locally afterwards).
     rm -f "Manifest-v${julia_major}.toml"
-    _prepare_manifests .
     echo "Updating main project (Pkg.update, no auto-precompile)..."
     JULIA_PKG_PRECOMPILE_AUTO=0 $JULIA --project -e 'using Pkg; Pkg.update()'
 
@@ -210,7 +196,6 @@ else
         echo -e "${_red}Warning:${_reset} Manifest-v${julia_major}.toml.default not found"
         exit 1
     fi
-    _prepare_manifests .
 
     echo "Instantiating project..."
     JULIA_PKG_PRECOMPILE_AUTO=0 $JULIA --project -e 'using Pkg; Pkg.instantiate()'
@@ -222,40 +207,13 @@ else
     $JULIA --project -e 'using Pkg; Pkg.precompile()'
 fi
 
-if [[ $_skip_subprojects == true ]]; then
-    echo "Skipping sub-project setup (--skip-subprojects)."
+if [[ $_skip_subprojects == true || $_no_precompile == true ]]; then
+    echo "Skipping sub-project precompile."
 else
-    echo "Julia $julia_major: instantiating all sub-projects..."
-
-    # Seed examples/test from the main manifest only on Julia 1.11.
-    # On 1.12 we let each sub-project resolve fresh.
-    if [[ $julia_major == "1.11" ]]; then
-        cp "Manifest-v${julia_major}.toml" "examples/Manifest-v${julia_major}.toml"
-        cp "Manifest-v${julia_major}.toml" "test/Manifest-v${julia_major}.toml"
-    else
-        rm -f examples/Manifest-v${julia_major}.toml test/Manifest-v${julia_major}.toml
-    fi
-    rm -f docs/Manifest-v${julia_major}.toml
-
-    if [[ $_update == true ]]; then
-        _subproj_setup='using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.update()'
-    else
-        _subproj_setup='using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.instantiate()'
-    fi
-
+    # The sub-projects are workspace members: the main manifest already covers them.
     for _sub in examples test docs; do
-        _prepare_manifests "$_sub"
-        JULIA_PKG_PRECOMPILE_AUTO=0 $JULIA --project="$_sub" -e "$_subproj_setup"
-        if [[ $_no_precompile == true ]]; then
-            echo "Skipping $_sub precompile (--no-precompile)."
-        else
-            echo "Precompiling $_sub project..."
-            $JULIA --project="$_sub" -e 'using Pkg; Pkg.precompile()'
-        fi
-            if [[ $julia_major == "1.12" ]]; then
-                rm -f examples/Manifest*.toml test/Manifest*.toml docs/Manifest*.toml
-                echo "Removed subproject manifests for Julia 1.12"
-            fi
+        echo "Precompiling $_sub project..."
+        $JULIA --project="$_sub" -e 'using Pkg; Pkg.precompile()'
     done
 fi
 
@@ -271,36 +229,6 @@ if [ -f ".JETLSConfig.toml" ] && [ -f ".JETLSConfig.toml.default" ]; then
     if ! cmp -s .JETLSConfig.toml .JETLSConfig.toml.default; then
         echo -e "${_red}Warning:${_reset} .JETLSConfig.toml already exists and differs from the default. Please review its contents to ensure it is configured correctly."
     fi
-fi
-
-# Add alias to shell configuration file
-if [[ "$(uname -s)" == "Linux" && -f ~/.bashrc ]]; then
-    if ! grep -q "alias jl='bin/run_julia'" ~/.bashrc; then
-        echo "alias jl='bin/run_julia'" >> ~/.bashrc
-        echo
-        echo "Added alias 'jl' to ~/.bashrc"
-        echo "Run 'source ~/.bashrc' or restart your terminal to use it"
-    fi
-elif [[ "$(uname -s)" == "Darwin" ]]; then
-    # On macOS, check for zsh (default since Catalina) or bash configuration files
-    _config_file=""
-    if [[ -f ~/.zshrc ]]; then
-        _config_file=~/.zshrc
-    elif [[ -f ~/.bash_profile ]]; then
-        _config_file=~/.bash_profile
-    elif [[ -f ~/.bashrc ]]; then
-        _config_file=~/.bashrc
-    fi
-    
-    if [[ -n "$_config_file" ]]; then
-        if ! grep -q "alias jl='bin/run_julia'" "$_config_file"; then
-            echo "alias jl='bin/run_julia'" >> "$_config_file"
-            echo
-            echo "Added alias 'jl' to $_config_file"
-            echo "Run 'source $_config_file' or restart your terminal to use it"
-        fi
-    fi
-    unset _config_file
 fi
 
 echo "Installation complete!"
