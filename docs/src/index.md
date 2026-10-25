@@ -99,7 +99,7 @@ StableAWEModels provides building blocks for flexible mechanical systems:
 - [`Winch`](@ref)es — torque-controlled motors with Coulomb and viscous friction
 - [`Pulley`](@ref)s — equal-tension constraints between segments
 - [`Wing`](@ref AbstractWing)s — rigid body quaternion dynamics with aerodynamic forces from the
-  [Vortex Step Method](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+  [Vortex Step Method](https://github.com/OpenSourceAWE/VortexStepMethod.jl)
 - [`TwistSurface`](@ref)s — twist degrees of freedom for aeroelastic coupling
 - [`Transform`](@ref)s — spherical coordinate positioning of components
 
@@ -113,11 +113,11 @@ Key related packages:
 - [RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl) — ram air kite model
 - [V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl) — TU Delft V3 kite model
 - [KiteUtils.jl](https://github.com/OpenSourceAWE/KiteUtils.jl) — shared types and utilities
-- [VortexStepMethod.jl](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl) — aerodynamic solver
-- [AtmosphericModels.jl](https://github.com/aenarete/AtmosphericModels.jl) — wind profiles
-- [KiteModels.jl](https://github.com/ufechner7/KiteModels.jl) — non-symbolic, predefined kite models
-- [KiteSimulators.jl](https://github.com/aenarete/KiteSimulators.jl) — meta-package
-- [KiteControllers.jl](https://github.com/aenarete/KiteControllers.jl) — control algorithms
+- [VortexStepMethod.jl](https://github.com/OpenSourceAWE/VortexStepMethod.jl) — aerodynamic solver
+- [AtmosphericModels.jl](https://github.com/OpenSourceAWE/AtmosphericModels.jl) — wind profiles
+- [KiteModels.jl](https://github.com/OpenSourceAWE/KiteModels.jl) — non-symbolic, predefined kite models
+- [RobustKiteControllers.jl](https://github.com/OpenSourceAWE/RobustKiteControllers.jl) — path following controllers
+- [KiteControllers.jl](https://github.com/OpenSourceAWE/KiteControllers.jl) — control algorithms
 
 Visualisation uses the built-in GLMakie extension
 (`ext/StableAWEModelsMakieExt.jl`) — just `using GLMakie` to enable
